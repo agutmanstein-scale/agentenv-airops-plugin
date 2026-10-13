@@ -1,0 +1,29 @@
+# IEM ASOS archive (routine METARs) and AFOS text archive (TAFs, Area Forecast Discussions)
+
+- Publisher: Iowa Environmental Mesonet (IEM), Iowa State University
+- URL: https://mesonet.agron.iastate.edu/
+- Licence: Public domain. The IEM disclaimer (https://mesonet.agron.iastate.edu/disclaimer.php) says its data are "in the public domain and may be used freely by anyone for any lawful purpose"; attributing the Iowa Environmental Mesonet of Iowa State University is appreciated. The METARs, TAFs and forecast discussions themselves are U.S. National Weather Service products (17 U.S.C. § 105).
+- Use in b6-v1: The hub's routine METARs (news kind 'metar'), its TAFs as issued with amendments ('taf') and the .AVIATION section of the local NWS office's forecast discussion ('outlook'), each at its issue time.
+
+Retrieved: 2026-10-13. Files are under cache/inputs/ (not in git); `python scripts/build_pack.py` fetches what is missing and checks every pin.
+
+| File | Bytes | sha256 | Retrieved | URL |
+|---|---|---|---|---|
+| iem/afos/AFDBOX_2022_12.txt | 2604173 | `7b4f303ffd9fb34d034282e2042035770f60dbe5a68de21f66b962a170ecd870` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=AFDBOX&sdate=2022-12-01&edate=2023-01-01&fmt=text&limit=9999 |
+| iem/afos/AFDBOX_2023_06.txt | 2581768 | `36d559cd004d6a5cf86c5b6f2aa391e0da90e982529c3b3adbf0425859c135c8` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=AFDBOX&sdate=2023-06-01&edate=2023-07-01&fmt=text&limit=9999 |
+| iem/afos/AFDBOX_2024_01.txt | 2991751 | `1657b00fba1af7924fd77542ba4d5fb0a7fc86c32eff4da53ffe9797e9c13a57` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=AFDBOX&sdate=2024-01-01&edate=2024-02-01&fmt=text&limit=9999 |
+| iem/afos/AFDOKX_2022_12.txt | 2620298 | `a6fd32b562154c674d8b3ac1aa47ba2c1e129d0b1cefb5b0d47eaa038cd6a699` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=AFDOKX&sdate=2022-12-01&edate=2023-01-01&fmt=text&limit=9999 |
+| iem/afos/AFDOKX_2023_06.txt | 2667098 | `60c2211ea5686579cc417d83131646b5b56d0fb5cf6e6990079acafaba206eb4` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=AFDOKX&sdate=2023-06-01&edate=2023-07-01&fmt=text&limit=9999 |
+| iem/afos/AFDOKX_2024_01.txt | 2876310 | `a0575dcb4d432cd32ef01a30503800fff5c75786f3b6540cd9c3c8d957daad5d` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=AFDOKX&sdate=2024-01-01&edate=2024-02-01&fmt=text&limit=9999 |
+| iem/afos/TAFBOS_2022_12.txt | 47940 | `6bdcb6d9640a1c21faf3246fa630dc0f082fadff51182fd9d6937d35ef0d75d6` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=TAFBOS&sdate=2022-12-01&edate=2023-01-01&fmt=text&limit=9999 |
+| iem/afos/TAFBOS_2023_06.txt | 62012 | `7616c2c232250c6fbfdb69d36550c18bba3ebc1e16d9b53856f66d91fc131436` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=TAFBOS&sdate=2023-06-01&edate=2023-07-01&fmt=text&limit=9999 |
+| iem/afos/TAFBOS_2024_01.txt | 54440 | `3d22efbfca2d4b0bc8dfc7ca3a272ffcdee3108bcf21d130f81424bd5e594820` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=TAFBOS&sdate=2024-01-01&edate=2024-02-01&fmt=text&limit=9999 |
+| iem/afos/TAFJFK_2022_12.txt | 80210 | `ac4c4fd49aa658499e5e9767cc81d53e91dcae9f8ec7ab684a5b18045a34652b` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=TAFJFK&sdate=2022-12-01&edate=2023-01-01&fmt=text&limit=9999 |
+| iem/afos/TAFJFK_2023_06.txt | 100202 | `990414fc28cb614c5df50e1e5a1e3dee29ef18ecb550b43abcc42bcacb720a46` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=TAFJFK&sdate=2023-06-01&edate=2023-07-01&fmt=text&limit=9999 |
+| iem/afos/TAFJFK_2024_01.txt | 85503 | `784c0fb405382f002a7d9c3960bee10b9e03813fd1610b1d1e002763500fcc45` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=TAFJFK&sdate=2024-01-01&edate=2024-02-01&fmt=text&limit=9999 |
+| iem/metar/BOS_2022_12.csv | 155601 | `4d8f8a845b21a859f6c7a8105974c2da07bad92d3b81abda80d0d730ae5ec7c5` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=BOS&data=all&sts=2022-12-01T00:00Z&ets=2023-01-01T00:00Z&tz=Etc/UTC&format=onlycomma&latlon=no&missing=empty&trace=T&report_type=3 |
+| iem/metar/BOS_2023_06.csv | 153724 | `636d466d52d73bad1f8869c09bb113ed1ba1c2029effe826570504faa786dd54` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=BOS&data=all&sts=2023-06-01T00:00Z&ets=2023-07-01T00:00Z&tz=Etc/UTC&format=onlycomma&latlon=no&missing=empty&trace=T&report_type=3 |
+| iem/metar/BOS_2024_01.csv | 157736 | `649deccc0590a06fcd11bff25f22d0f632215a9403af847219d8473cbe64f77d` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=BOS&data=all&sts=2024-01-01T00:00Z&ets=2024-02-01T00:00Z&tz=Etc/UTC&format=onlycomma&latlon=no&missing=empty&trace=T&report_type=3 |
+| iem/metar/JFK_2022_12.csv | 154563 | `3deefa282773fd3debb3a5374c2d28e0e70d976dd365327f0b93f497d53c76bd` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=JFK&data=all&sts=2022-12-01T00:00Z&ets=2023-01-01T00:00Z&tz=Etc/UTC&format=onlycomma&latlon=no&missing=empty&trace=T&report_type=3 |
+| iem/metar/JFK_2023_06.csv | 153224 | `6dc2c7d57c0c5dd6e01ae8b8ec6b9d7cb3b0257c885ddcd6b60f4764ee6b90af` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=JFK&data=all&sts=2023-06-01T00:00Z&ets=2023-07-01T00:00Z&tz=Etc/UTC&format=onlycomma&latlon=no&missing=empty&trace=T&report_type=3 |
+| iem/metar/JFK_2024_01.csv | 160503 | `421eef4d2e67ecbd8b27d5d088977be7fa77660df61e1d8fb02e3f9205f37a1e` | 2026-10-13 | https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=JFK&data=all&sts=2024-01-01T00:00Z&ets=2024-02-01T00:00Z&tz=Etc/UTC&format=onlycomma&latlon=no&missing=empty&trace=T&report_type=3 |

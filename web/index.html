@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AirOpsEnv viewer</title>
+  <meta name="description" content="An airline operations desk recovering a real storm day at a JetBlue hub, replayed on AgentEnv's virtual clock.">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="./style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "maplibre-gl": "https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/+esm",
+      "@deck.gl/core": "https://cdn.jsdelivr.net/npm/@deck.gl/core@9.4.0/+esm",
+      "@deck.gl/layers": "https://cdn.jsdelivr.net/npm/@deck.gl/layers@9.4.0/+esm",
+      "@deck.gl/mesh-layers": "https://cdn.jsdelivr.net/npm/@deck.gl/mesh-layers@9.4.0/+esm",
+      "@deck.gl/extensions": "https://cdn.jsdelivr.net/npm/@deck.gl/extensions@9.4.0/+esm",
+      "@deck.gl/mapbox": "https://cdn.jsdelivr.net/npm/@deck.gl/mapbox@9.4.0/+esm"
+    }
+  }
+  </script>
+  <script>
+    const q = new URLSearchParams(location.search);
+    if (q.get("record") === "1") document.documentElement.classList.add("recording");
+    if (q.get("layout")) document.documentElement.dataset.layout = q.get("layout");
+  </script>
+</head>
+<body>
+  <main id="app" aria-live="polite"><div class="boot">Loading the AirOpsEnv viewer…</div></main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

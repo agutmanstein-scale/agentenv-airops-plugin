@@ -1,0 +1,17 @@
+{
+ "version": 1,
+ "episodes": [
+  {
+   "url": "episode_small.json",
+   "task_id": "b6-jfk-20230626-1400",
+   "hub": "JFK",
+   "date": "2023-06-26",
+   "model": "follower",
+   "model_label": "Reference follower (MIP re-solved each watch)",
+   "run": "fixture-small",
+   "reward": 0.588,
+   "cost": 2458687,
+   "anchor": 2285185
+  }
+ ]
+}

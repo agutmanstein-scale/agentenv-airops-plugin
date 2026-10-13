@@ -1,0 +1,2596 @@
+{
+ "name": "b6-v1",
+ "carrier": "B6",
+ "hubs": [
+  "JFK",
+  "BOS"
+ ],
+ "months": [
+  "2022-12",
+  "2023-06",
+  "2024-01"
+ ],
+ "tasks": 48,
+ "splits": {
+  "eval": 22,
+  "control": 3,
+  "train": 23
+ },
+ "sha256": "f220167f448587957d6a680bca99152832c1c566adc3435e8edc891e23cfbded",
+ "rules": {
+  "window": "whole local hours, 3 to 6, from 05:00 to 24:00: the shortest window holding 80% of the most hub disruption any window passing the clauses holds (disruption = 523 per B6 hub movement cancelled with code B or C + its weather and NAS delay minutes); then most disrupted, busiest, earliest",
+  "clauses": {
+   "tails_known": "every B6 hub movement in the window has a tail, and every tail is typed",
+   "weather_causes": "(B+C)/(A+B+C) of the airline's cancellations in scope >= 0.8, vacuous with none",
+   "size": "30 to 80 tails"
+  },
+  "disruption": {
+   "eval": 2615,
+   "train": 1046,
+   "control": "no airline cancellation in scope"
+  },
+  "days": "a day whose previous and next days are in the loaded months; eval days are 2022-12-16, 2022-12-23, 2022-12-24, 2023-06-16, 2023-06-17, 2023-06-18, 2023-06-19, 2023-06-24, 2023-06-25, 2023-06-26, 2023-06-27, 2023-06-28, 2024-01-06, 2024-01-07, 2024-01-09, 2024-01-16, 2024-01-17, 2024-01-19 at every hub; controls the first hub passing of 2023-06-10 (JFK); 2024-01-04 (JFK, BOS); 2024-01-24 (JFK, BOS); train every other day and hub",
+  "news": "advisories signed from start - 720 min, routine METARs from start - 180 min, the TAF and forecast discussion in force at start; all up to the latest flight's sched_dep + dmax",
+  "caps": "per constrained airport (BOS, EWR, JFK, LGA) the scope uses and local hour from start to 23: max(scope's realized movements, round(B6's share of all carriers' scheduled movements x all carriers' realized movements) - B6's realized movements outside the scope)",
+  "nominal": "the scope's scheduled movements, the same airports and hours",
+  "lb": "departed: max(0, DepDelay - LateAircraftDelay); cancelled: the 75th percentile of that among B6 departures from the origin within 90 min (else the whole day)",
+  "dmax": "max(360, start - sched_dep + 60): a flight still unflown an hour into the task can leave"
+ },
+ "attempts": {
+  "train": {
+   "disruption below 1046": 102,
+   "kept": 23,
+   "no window passes the data-only clauses": 5
+  },
+  "eval": {
+   "disruption below 2615": 12,
+   "kept": 22,
+   "no window passes the data-only clauses": 2
+  },
+  "control": {
+   "kept": 3
+  }
+ },
+ "summary": [
+  {
+   "task_id": "b6-bos-20221216-1300",
+   "split": "eval",
+   "window": [
+    780,
+    1080
+   ],
+   "tails": 42,
+   "flights": 124,
+   "cancelled": 4,
+   "codes": {
+    "C": 4
+   },
+   "diverted": 0,
+   "programs": 1,
+   "ground_stops": 1,
+   "news": {
+    "advisory": 5,
+    "taf": 8,
+    "metar": 22,
+    "outlook": 9
+   }
+  },
+  {
+   "task_id": "b6-bos-20221223-0700",
+   "split": "eval",
+   "window": [
+    420,
+    720
+   ],
+   "tails": 46,
+   "flights": 191,
+   "cancelled": 52,
+   "codes": {
+    "A": 1,
+    "B": 51
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 11,
+    "metar": 28,
+    "outlook": 10
+   }
+  },
+  {
+   "task_id": "b6-bos-20230616-1800",
+   "split": "eval",
+   "window": [
+    1080,
+    1320
+   ],
+   "tails": 42,
+   "flights": 56,
+   "cancelled": 9,
+   "codes": {
+    "C": 9
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 1,
+   "news": {
+    "advisory": 2,
+    "taf": 6,
+    "metar": 18,
+    "outlook": 6
+   }
+  },
+  {
+   "task_id": "b6-bos-20230626-1600",
+   "split": "eval",
+   "window": [
+    960,
+    1260
+   ],
+   "tails": 51,
+   "flights": 100,
+   "cancelled": 35,
+   "codes": {
+    "A": 4,
+    "B": 7,
+    "C": 24
+   },
+   "diverted": 0,
+   "programs": 1,
+   "ground_stops": 4,
+   "news": {
+    "advisory": 7,
+    "taf": 8,
+    "metar": 20,
+    "outlook": 6
+   }
+  },
+  {
+   "task_id": "b6-bos-20230627-1600",
+   "split": "eval",
+   "window": [
+    960,
+    1260
+   ],
+   "tails": 49,
+   "flights": 91,
+   "cancelled": 23,
+   "codes": {
+    "A": 1,
+    "B": 1,
+    "C": 21
+   },
+   "diverted": 0,
+   "programs": 2,
+   "ground_stops": 2,
+   "news": {
+    "advisory": 10,
+    "taf": 9,
+    "metar": 20,
+    "outlook": 7
+   }
+  },
+  {
+   "task_id": "b6-bos-20230628-1600",
+   "split": "eval",
+   "window": [
+    960,
+    1260
+   ],
+   "tails": 53,
+   "flights": 92,
+   "cancelled": 8,
+   "codes": {
+    "A": 1,
+    "B": 6,
+    "C": 1
+   },
+   "diverted": 0,
+   "programs": 1,
+   "ground_stops": 2,
+   "news": {
+    "advisory": 8,
+    "taf": 10,
+    "metar": 20,
+    "outlook": 7
+   }
+  },
+  {
+   "task_id": "b6-bos-20240106-1900",
+   "split": "eval",
+   "window": [
+    1140,
+    1380
+   ],
+   "tails": 35,
+   "flights": 38,
+   "cancelled": 6,
+   "codes": {
+    "C": 6
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 5,
+    "metar": 18,
+    "outlook": 6
+   }
+  },
+  {
+   "task_id": "b6-bos-20240107-0600",
+   "split": "eval",
+   "window": [
+    360,
+    660
+   ],
+   "tails": 41,
+   "flights": 178,
+   "cancelled": 46,
+   "codes": {
+    "B": 1,
+    "C": 45
+   },
+   "diverted": 0,
+   "programs": 2,
+   "ground_stops": 4,
+   "news": {
+    "advisory": 12,
+    "taf": 9,
+    "metar": 26,
+    "outlook": 9
+   }
+  },
+  {
+   "task_id": "b6-bos-20240109-1700",
+   "split": "eval",
+   "window": [
+    1020,
+    1260
+   ],
+   "tails": 33,
+   "flights": 50,
+   "cancelled": 7,
+   "codes": {
+    "A": 1,
+    "C": 6
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 6,
+    "metar": 20,
+    "outlook": 6
+   }
+  },
+  {
+   "task_id": "b6-bos-20240116-0600",
+   "split": "eval",
+   "window": [
+    360,
+    660
+   ],
+   "tails": 40,
+   "flights": 153,
+   "cancelled": 23,
+   "codes": {
+    "B": 23
+   },
+   "diverted": 0,
+   "programs": 1,
+   "ground_stops": 3,
+   "news": {
+    "advisory": 11,
+    "taf": 11,
+    "metar": 31,
+    "outlook": 11
+   }
+  },
+  {
+   "task_id": "b6-bos-20240119-1200",
+   "split": "eval",
+   "window": [
+    720,
+    1020
+   ],
+   "tails": 35,
+   "flights": 109,
+   "cancelled": 6,
+   "codes": {
+    "C": 6
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 8,
+    "metar": 24,
+    "outlook": 8
+   }
+  },
+  {
+   "task_id": "b6-jfk-20221223-1800",
+   "split": "eval",
+   "window": [
+    1080,
+    1380
+   ],
+   "tails": 53,
+   "flights": 86,
+   "cancelled": 12,
+   "codes": {
+    "B": 12
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 2,
+   "news": {
+    "advisory": 4,
+    "taf": 6,
+    "metar": 19,
+    "outlook": 8
+   }
+  },
+  {
+   "task_id": "b6-jfk-20230616-1700",
+   "split": "eval",
+   "window": [
+    1020,
+    1320
+   ],
+   "tails": 46,
+   "flights": 94,
+   "cancelled": 27,
+   "codes": {
+    "C": 27
+   },
+   "diverted": 0,
+   "programs": 1,
+   "ground_stops": 1,
+   "news": {
+    "advisory": 6,
+    "taf": 7,
+    "metar": 20,
+    "outlook": 9
+   }
+  },
+  {
+   "task_id": "b6-jfk-20230617-0700",
+   "split": "eval",
+   "window": [
+    420,
+    660
+   ],
+   "tails": 31,
+   "flights": 126,
+   "cancelled": 8,
+   "codes": {
+    "B": 1,
+    "C": 7
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 12,
+    "metar": 29,
+    "outlook": 13
+   }
+  },
+  {
+   "task_id": "b6-jfk-20230624-1800",
+   "split": "eval",
+   "window": [
+    1080,
+    1380
+   ],
+   "tails": 49,
+   "flights": 70,
+   "cancelled": 13,
+   "codes": {
+    "A": 1,
+    "B": 4,
+    "C": 8
+   },
+   "diverted": 0,
+   "programs": 1,
+   "ground_stops": 2,
+   "news": {
+    "advisory": 5,
+    "taf": 9,
+    "metar": 19,
+    "outlook": 9
+   }
+  },
+  {
+   "task_id": "b6-jfk-20230625-1600",
+   "split": "eval",
+   "window": [
+    960,
+    1320
+   ],
+   "tails": 54,
+   "flights": 107,
+   "cancelled": 20,
+   "codes": {
+    "A": 4,
+    "B": 4,
+    "C": 12
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 5,
+   "news": {
+    "advisory": 7,
+    "taf": 9,
+    "metar": 21,
+    "outlook": 10
+   }
+  },
+  {
+   "task_id": "b6-jfk-20230626-1700",
+   "split": "eval",
+   "window": [
+    1020,
+    1320
+   ],
+   "tails": 49,
+   "flights": 92,
+   "cancelled": 62,
+   "codes": {
+    "A": 6,
+    "B": 17,
+    "C": 39
+   },
+   "diverted": 0,
+   "programs": 1,
+   "ground_stops": 15,
+   "news": {
+    "advisory": 19,
+    "taf": 8,
+    "metar": 20,
+    "outlook": 7
+   }
+  },
+  {
+   "task_id": "b6-jfk-20230627-2000",
+   "split": "eval",
+   "window": [
+    1200,
+    1440
+   ],
+   "tails": 43,
+   "flights": 52,
+   "cancelled": 40,
+   "codes": {
+    "C": 40
+   },
+   "diverted": 0,
+   "programs": 1,
+   "ground_stops": 2,
+   "news": {
+    "advisory": 7,
+    "taf": 8,
+    "metar": 17,
+    "outlook": 7
+   }
+  },
+  {
+   "task_id": "b6-jfk-20230628-0600",
+   "split": "eval",
+   "window": [
+    360,
+    600
+   ],
+   "tails": 37,
+   "flights": 134,
+   "cancelled": 21,
+   "codes": {
+    "A": 4,
+    "C": 17
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 2,
+   "news": {
+    "advisory": 5,
+    "taf": 14,
+    "metar": 29,
+    "outlook": 12
+   }
+  },
+  {
+   "task_id": "b6-jfk-20240106-1800",
+   "split": "eval",
+   "window": [
+    1080,
+    1320
+   ],
+   "tails": 30,
+   "flights": 45,
+   "cancelled": 3,
+   "codes": {
+    "C": 3
+   },
+   "diverted": 0,
+   "programs": 1,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 3,
+    "taf": 7,
+    "metar": 19,
+    "outlook": 8
+   }
+  },
+  {
+   "task_id": "b6-jfk-20240109-1800",
+   "split": "eval",
+   "window": [
+    1080,
+    1380
+   ],
+   "tails": 34,
+   "flights": 45,
+   "cancelled": 15,
+   "codes": {
+    "B": 1,
+    "C": 12
+   },
+   "diverted": 2,
+   "programs": 1,
+   "ground_stops": 3,
+   "news": {
+    "advisory": 7,
+    "taf": 8,
+    "metar": 19,
+    "outlook": 7
+   }
+  },
+  {
+   "task_id": "b6-jfk-20240116-1200",
+   "split": "eval",
+   "window": [
+    720,
+    1020
+   ],
+   "tails": 31,
+   "flights": 75,
+   "cancelled": 9,
+   "codes": {
+    "A": 1,
+    "B": 8
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 3,
+   "news": {
+    "advisory": 5,
+    "taf": 8,
+    "metar": 22,
+    "outlook": 8
+   }
+  },
+  {
+   "task_id": "b6-jfk-20230610-1400",
+   "split": "control",
+   "window": [
+    840,
+    1140
+   ],
+   "tails": 42,
+   "flights": 97,
+   "cancelled": 0,
+   "codes": {},
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 1,
+    "taf": 10,
+    "metar": 22,
+    "outlook": 10
+   }
+  },
+  {
+   "task_id": "b6-jfk-20240104-0600",
+   "split": "control",
+   "window": [
+    360,
+    600
+   ],
+   "tails": 35,
+   "flights": 126,
+   "cancelled": 0,
+   "codes": {},
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 12,
+    "metar": 30,
+    "outlook": 14
+   }
+  },
+  {
+   "task_id": "b6-jfk-20240124-0600",
+   "split": "control",
+   "window": [
+    360,
+    600
+   ],
+   "tails": 32,
+   "flights": 109,
+   "cancelled": 0,
+   "codes": {},
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 15,
+    "metar": 31,
+    "outlook": 14
+   }
+  },
+  {
+   "task_id": "b6-bos-20221211-2100",
+   "split": "train",
+   "window": [
+    1260,
+    1440
+   ],
+   "tails": 32,
+   "flights": 23,
+   "cancelled": 0,
+   "codes": {},
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 1,
+    "taf": 3,
+    "metar": 12,
+    "outlook": 4
+   }
+  },
+  {
+   "task_id": "b6-bos-20221222-1900",
+   "split": "train",
+   "window": [
+    1140,
+    1320
+   ],
+   "tails": 37,
+   "flights": 51,
+   "cancelled": 5,
+   "codes": {
+    "B": 5
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 8,
+    "metar": 18,
+    "outlook": 5
+   }
+  },
+  {
+   "task_id": "b6-bos-20230602-1600",
+   "split": "train",
+   "window": [
+    960,
+    1140
+   ],
+   "tails": 34,
+   "flights": 73,
+   "cancelled": 2,
+   "codes": {
+    "B": 2
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 4,
+   "news": {
+    "advisory": 9,
+    "taf": 10,
+    "metar": 21,
+    "outlook": 7
+   }
+  },
+  {
+   "task_id": "b6-bos-20230607-1600",
+   "split": "train",
+   "window": [
+    960,
+    1260
+   ],
+   "tails": 50,
+   "flights": 91,
+   "cancelled": 4,
+   "codes": {
+    "C": 4
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 6,
+    "metar": 20,
+    "outlook": 8
+   }
+  },
+  {
+   "task_id": "b6-bos-20230612-1500",
+   "split": "train",
+   "window": [
+    900,
+    1200
+   ],
+   "tails": 50,
+   "flights": 116,
+   "cancelled": 0,
+   "codes": {},
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 6,
+    "metar": 22,
+    "outlook": 7
+   }
+  },
+  {
+   "task_id": "b6-bos-20230614-1700",
+   "split": "train",
+   "window": [
+    1020,
+    1260
+   ],
+   "tails": 41,
+   "flights": 71,
+   "cancelled": 0,
+   "codes": {},
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 1,
+   "news": {
+    "advisory": 3,
+    "taf": 8,
+    "metar": 19,
+    "outlook": 7
+   }
+  },
+  {
+   "task_id": "b6-bos-20230621-1900",
+   "split": "train",
+   "window": [
+    1140,
+    1320
+   ],
+   "tails": 32,
+   "flights": 29,
+   "cancelled": 0,
+   "codes": {},
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 6,
+    "metar": 18,
+    "outlook": 6
+   }
+  },
+  {
+   "task_id": "b6-bos-20240112-1400",
+   "split": "train",
+   "window": [
+    840,
+    1200
+   ],
+   "tails": 48,
+   "flights": 103,
+   "cancelled": 2,
+   "codes": {
+    "B": 2
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 6,
+    "metar": 23,
+    "outlook": 8
+   }
+  },
+  {
+   "task_id": "b6-bos-20240114-1200",
+   "split": "train",
+   "window": [
+    720,
+    1020
+   ],
+   "tails": 34,
+   "flights": 109,
+   "cancelled": 4,
+   "codes": {
+    "B": 4
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 8,
+    "metar": 22,
+    "outlook": 6
+   }
+  },
+  {
+   "task_id": "b6-bos-20240115-1900",
+   "split": "train",
+   "window": [
+    1140,
+    1440
+   ],
+   "tails": 39,
+   "flights": 48,
+   "cancelled": 5,
+   "codes": {
+    "B": 5
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 5,
+    "metar": 18,
+    "outlook": 8
+   }
+  },
+  {
+   "task_id": "b6-jfk-20221207-1400",
+   "split": "train",
+   "window": [
+    840,
+    1140
+   ],
+   "tails": 45,
+   "flights": 104,
+   "cancelled": 2,
+   "codes": {
+    "B": 2
+   },
+   "diverted": 0,
+   "programs": 1,
+   "ground_stops": 5,
+   "news": {
+    "advisory": 11,
+    "taf": 13,
+    "metar": 22,
+    "outlook": 9
+   }
+  },
+  {
+   "task_id": "b6-jfk-20221215-1900",
+   "split": "train",
+   "window": [
+    1140,
+    1380
+   ],
+   "tails": 44,
+   "flights": 60,
+   "cancelled": 0,
+   "codes": {},
+   "diverted": 0,
+   "programs": 1,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 3,
+    "taf": 8,
+    "metar": 18,
+    "outlook": 6
+   }
+  },
+  {
+   "task_id": "b6-jfk-20221222-1800",
+   "split": "train",
+   "window": [
+    1080,
+    1320
+   ],
+   "tails": 45,
+   "flights": 73,
+   "cancelled": 3,
+   "codes": {
+    "B": 2
+   },
+   "diverted": 1,
+   "programs": 1,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 3,
+    "taf": 8,
+    "metar": 19,
+    "outlook": 6
+   }
+  },
+  {
+   "task_id": "b6-jfk-20230602-1800",
+   "split": "train",
+   "window": [
+    1080,
+    1320
+   ],
+   "tails": 44,
+   "flights": 65,
+   "cancelled": 2,
+   "codes": {
+    "B": 2
+   },
+   "diverted": 0,
+   "programs": 1,
+   "ground_stops": 2,
+   "news": {
+    "advisory": 5,
+    "taf": 13,
+    "metar": 19,
+    "outlook": 7
+   }
+  },
+  {
+   "task_id": "b6-jfk-20230612-1700",
+   "split": "train",
+   "window": [
+    1020,
+    1320
+   ],
+   "tails": 52,
+   "flights": 96,
+   "cancelled": 0,
+   "codes": {},
+   "diverted": 0,
+   "programs": 1,
+   "ground_stops": 3,
+   "news": {
+    "advisory": 7,
+    "taf": 8,
+    "metar": 20,
+    "outlook": 10
+   }
+  },
+  {
+   "task_id": "b6-jfk-20230614-1700",
+   "split": "train",
+   "window": [
+    1020,
+    1320
+   ],
+   "tails": 51,
+   "flights": 93,
+   "cancelled": 6,
+   "codes": {
+    "C": 6
+   },
+   "diverted": 0,
+   "programs": 1,
+   "ground_stops": 2,
+   "news": {
+    "advisory": 5,
+    "taf": 7,
+    "metar": 20,
+    "outlook": 8
+   }
+  },
+  {
+   "task_id": "b6-jfk-20230615-0900",
+   "split": "train",
+   "window": [
+    540,
+    840
+   ],
+   "tails": 47,
+   "flights": 137,
+   "cancelled": 2,
+   "codes": {
+    "C": 2
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 10,
+    "metar": 28,
+    "outlook": 12
+   }
+  },
+  {
+   "task_id": "b6-jfk-20230621-1700",
+   "split": "train",
+   "window": [
+    1020,
+    1260
+   ],
+   "tails": 37,
+   "flights": 69,
+   "cancelled": 1,
+   "codes": {
+    "B": 1
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 7,
+    "metar": 20,
+    "outlook": 7
+   }
+  },
+  {
+   "task_id": "b6-jfk-20230623-1500",
+   "split": "train",
+   "window": [
+    900,
+    1200
+   ],
+   "tails": 43,
+   "flights": 90,
+   "cancelled": 1,
+   "codes": {
+    "B": 1
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 1,
+   "news": {
+    "advisory": 2,
+    "taf": 11,
+    "metar": 22,
+    "outlook": 10
+   }
+  },
+  {
+   "task_id": "b6-jfk-20240112-0800",
+   "split": "train",
+   "window": [
+    480,
+    840
+   ],
+   "tails": 38,
+   "flights": 110,
+   "cancelled": 2,
+   "codes": {
+    "B": 2
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 10,
+    "metar": 27,
+    "outlook": 9
+   }
+  },
+  {
+   "task_id": "b6-jfk-20240113-1900",
+   "split": "train",
+   "window": [
+    1140,
+    1380
+   ],
+   "tails": 31,
+   "flights": 34,
+   "cancelled": 2,
+   "codes": {
+    "B": 2
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 6,
+    "metar": 17,
+    "outlook": 6
+   }
+  },
+  {
+   "task_id": "b6-jfk-20240114-0800",
+   "split": "train",
+   "window": [
+    480,
+    780
+   ],
+   "tails": 37,
+   "flights": 105,
+   "cancelled": 8,
+   "codes": {
+    "A": 1,
+    "B": 7
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 0,
+   "news": {
+    "advisory": 0,
+    "taf": 10,
+    "metar": 29,
+    "outlook": 12
+   }
+  },
+  {
+   "task_id": "b6-jfk-20240115-2000",
+   "split": "train",
+   "window": [
+    1200,
+    1440
+   ],
+   "tails": 35,
+   "flights": 33,
+   "cancelled": 3,
+   "codes": {
+    "B": 3
+   },
+   "diverted": 0,
+   "programs": 0,
+   "ground_stops": 2,
+   "news": {
+    "advisory": 3,
+    "taf": 11,
+    "metar": 16,
+    "outlook": 7
+   }
+  }
+ ],
+ "dropped": [
+  {
+   "date": "2022-12-16",
+   "hub": "JFK",
+   "split": "eval",
+   "window": [
+    1020,
+    1320
+   ],
+   "disruption": 866,
+   "reason": "disruption below 2615"
+  },
+  {
+   "date": "2022-12-24",
+   "hub": "JFK",
+   "split": "eval",
+   "window": null,
+   "disruption": 0,
+   "reason": "no window passes the data-only clauses"
+  },
+  {
+   "date": "2022-12-24",
+   "hub": "BOS",
+   "split": "eval",
+   "window": null,
+   "disruption": 0,
+   "reason": "no window passes the data-only clauses"
+  },
+  {
+   "date": "2023-06-17",
+   "hub": "BOS",
+   "split": "eval",
+   "window": [
+    480,
+    840
+   ],
+   "disruption": 1281,
+   "reason": "disruption below 2615"
+  },
+  {
+   "date": "2023-06-18",
+   "hub": "JFK",
+   "split": "eval",
+   "window": [
+    360,
+    600
+   ],
+   "disruption": 1160,
+   "reason": "disruption below 2615"
+  },
+  {
+   "date": "2023-06-18",
+   "hub": "BOS",
+   "split": "eval",
+   "window": [
+    1200,
+    1380
+   ],
+   "disruption": 114,
+   "reason": "disruption below 2615"
+  },
+  {
+   "date": "2023-06-19",
+   "hub": "JFK",
+   "split": "eval",
+   "window": [
+    960,
+    1200
+   ],
+   "disruption": 999,
+   "reason": "disruption below 2615"
+  },
+  {
+   "date": "2023-06-19",
+   "hub": "BOS",
+   "split": "eval",
+   "window": [
+    960,
+    1140
+   ],
+   "disruption": 323,
+   "reason": "disruption below 2615"
+  },
+  {
+   "date": "2023-06-24",
+   "hub": "BOS",
+   "split": "eval",
+   "window": [
+    1020,
+    1260
+   ],
+   "disruption": 410,
+   "reason": "disruption below 2615"
+  },
+  {
+   "date": "2023-06-25",
+   "hub": "BOS",
+   "split": "eval",
+   "window": [
+    420,
+    660
+   ],
+   "disruption": 456,
+   "reason": "disruption below 2615"
+  },
+  {
+   "date": "2024-01-07",
+   "hub": "JFK",
+   "split": "eval",
+   "window": [
+    420,
+    600
+   ],
+   "disruption": 2012,
+   "reason": "disruption below 2615"
+  },
+  {
+   "date": "2024-01-17",
+   "hub": "JFK",
+   "split": "eval",
+   "window": [
+    540,
+    780
+   ],
+   "disruption": 1656,
+   "reason": "disruption below 2615"
+  },
+  {
+   "date": "2024-01-17",
+   "hub": "BOS",
+   "split": "eval",
+   "window": [
+    420,
+    780
+   ],
+   "disruption": 1288,
+   "reason": "disruption below 2615"
+  },
+  {
+   "date": "2024-01-19",
+   "hub": "JFK",
+   "split": "eval",
+   "window": [
+    720,
+    1020
+   ],
+   "disruption": 1451,
+   "reason": "disruption below 2615"
+  }
+ ],
+ "inputs": {
+  "atcscc/2022-12-01/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-01&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-01/JFK": {
+   "sha256": "d5de20e3bea787972cb351a95f0d695b9857804045618506e84d11efd2a8ca8a",
+   "count": 3,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-01&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-02/BOS": {
+   "sha256": "7421ef55b3f0323eed3ef5a78e8508cf36ee2e4aaf66583592e1b5f6af6b10a5",
+   "count": 3,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-02&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-02/JFK": {
+   "sha256": "10bc47cc00624dafa4223b58177844ced48b7c1bd0da73e90364457969c3e54c",
+   "count": 2,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-02&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-03/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-03&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-03/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-03&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-04/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-04&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-04/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-04&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-05/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-05&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-05/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-05&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-06/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-06&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-06/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-06&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-07/BOS": {
+   "sha256": "8efaf50fc19c822c81fd3a37291b329a2a36ad5b3a8c47d7f093ce00154ceaf9",
+   "count": 3,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-07&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-07/JFK": {
+   "sha256": "8cea5d876619bac65926375bcd34ddc65815444d343d10fb006731cd018ad4a1",
+   "count": 11,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-07&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-08/BOS": {
+   "sha256": "ba98358e472b50881c734ed4798f00d10df240edbeb6b69075ee67a9424b8961",
+   "count": 1,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-08&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-08/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-08&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-09/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-09&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-09/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-09&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-10/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-10&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-10/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-10&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-11/BOS": {
+   "sha256": "36c75734cf9480897890e90c223e70df6534cf2c02c2ad9732a6f96b796d717d",
+   "count": 1,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-11&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-11/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-11&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-12/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-12&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-12/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-12&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-13/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-13&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-13/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-13&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-14/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-14&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-14/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-14&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-15/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-15&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-15/JFK": {
+   "sha256": "152f4463511a7c5eded78f9451b97064f631a6afc5aa66eb3adab1ae28b91213",
+   "count": 2,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-15&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-16/BOS": {
+   "sha256": "e6ab981edc1122ae0053411a5f121262dca322e07dd042a85c4edf401a3e145d",
+   "count": 4,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-16&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-16/JFK": {
+   "sha256": "e9effccfb5403e2be185d3d20c3433cb25f55b714640c1d28971f4a803416eb3",
+   "count": 1,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-16&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-17/BOS": {
+   "sha256": "bdb2cbb459378b2f3d9239f5048d825696c3d88a5574d110d67550f0a4edab20",
+   "count": 1,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-17&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-17/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-17&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-18/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-18&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-18/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-18&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-19/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-19&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-19/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-19&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-20/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-20&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-20/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-20&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-21/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-21&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-21/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-21&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-22/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-22&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-22/JFK": {
+   "sha256": "3c0e63ec8dae450ce26a34e74449e04a60870c91226b75c78ed3179ee0c9ce13",
+   "count": 2,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-22&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-23/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-23&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-23/JFK": {
+   "sha256": "9ea4d38a9d0d6ded5035fd6e8fbe8d6c61c500ab2e5df2bdad953ca74619ed65",
+   "count": 3,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-23&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-24/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-24&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-24/JFK": {
+   "sha256": "25f178f3fd36144c8cd488a8e32e3a242e5e5cf0ce8b07f2b14038c8fec78a1c",
+   "count": 2,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-24&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-25/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-25&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-25/JFK": {
+   "sha256": "a55ce045f3000af2c1d627c18ab84b35ade214897bd17a31274713edc7fec17a",
+   "count": 2,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-25&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-26/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-26&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-26/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-26&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-27/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-27&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-27/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-27&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-28/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-28&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-28/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-28&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-29/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-29&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-29/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-29&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-30/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-30&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-30/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-30&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-31/BOS": {
+   "sha256": "fc5e0d0fb845024e73bff566c6b818621606165cb58f2a3e618326daecd1635a",
+   "count": 1,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-31&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2022-12-31/JFK": {
+   "sha256": "94c0ab83006da63716796ac6751008dba410f0a343638733aaa820b78266eed9",
+   "count": 2,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2022-12-31&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-01/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-01&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-01/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-01&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-02/BOS": {
+   "sha256": "5fc830cd59e30e7c108a3104241c23406d8bb781ac0e4444ad6ce3aabfadd2c0",
+   "count": 6,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-02&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-02/JFK": {
+   "sha256": "e0713a520f45d5749993fd781e8e4c8fa6fea05fac40785a7d862abafa3570a8",
+   "count": 4,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-02&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-03/BOS": {
+   "sha256": "d1a51faf5c9160baba1f3f78dae86697c3f8e1f0346473a955e8a08faa6b751e",
+   "count": 3,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-03&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-03/JFK": {
+   "sha256": "a4939e0ce83f3f9f985c0d32489a353929081191a7d60d5d3965fe693d234d48",
+   "count": 1,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-03&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-04/BOS": {
+   "sha256": "0a167ff0ea4f0a0d8caf6d4dfd3444152a7a1d617d6bdc40e0c83c530908a026",
+   "count": 4,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-04&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-04/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-04&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-05/BOS": {
+   "sha256": "d950f8a116f947170091b1f0129b306a85ed2ef66435d73bd04266cc2e007a6e",
+   "count": 7,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-05&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-05/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-05&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-06/BOS": {
+   "sha256": "5153d918c4f219e013b78f4c8b5aefd1f69cd50646d08ec807b530ca1182a57d",
+   "count": 5,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-06&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-06/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-06&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-07/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-07&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-07/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-07&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-08/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-08&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-08/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-08&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-09/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-09&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-09/JFK": {
+   "sha256": "d68a060c56e1008865ad894fdb4472aec3ee4c6270b6c3fb126b165057603d4a",
+   "count": 1,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-09&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-10/BOS": {
+   "sha256": "29c5821734bf352a406e08af5a14865ef2b1caeb9e71d26e3c2bbd9459d14ede",
+   "count": 3,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-10&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-10/JFK": {
+   "sha256": "370dabd6229f44c1ae798eba941eb0c328ee54086fa9ae58934d39c0b54f9c5e",
+   "count": 1,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-10&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-11/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-11&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-11/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-11&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-12/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-12&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-12/JFK": {
+   "sha256": "3c98eb63c32d73cf5950e4e198fc68f15d1f8c42fc9a18350c8c1615c8c27105",
+   "count": 6,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-12&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-13/BOS": {
+   "sha256": "be812b8b3c0efba88b72079131524760c29bc4792cfeadbd23a9adaea2ae31ff",
+   "count": 8,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-13&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-13/JFK": {
+   "sha256": "162bf75c4729b3f9fd8f34db3289a39fcd92cbeb6ab70012936b998b25029d73",
+   "count": 1,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-13&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-14/BOS": {
+   "sha256": "3fd9cce563567013568eb20cd443cb9b84f876edb137f67cd0fd5551030a3da5",
+   "count": 3,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-14&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-14/JFK": {
+   "sha256": "8cae6c28e808462f47b54b66b3404377ea9e45682d891eb02717f970cdcc317b",
+   "count": 5,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-14&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-15/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-15&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-15/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-15&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-16/BOS": {
+   "sha256": "d6872dc21dabf2ce83dbb56644661e48f19b1249fd5b25d9437715279a920302",
+   "count": 2,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-16&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-16/JFK": {
+   "sha256": "7ea34344e8d7053d0082d282b2d97b413a454c9743badf25f54f9defb92c1bd0",
+   "count": 6,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-16&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-17/BOS": {
+   "sha256": "5ffefe3191f5ab490c6c96be740d628428b81415a6352d9b23c45c03eb9b545c",
+   "count": 2,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-17&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-17/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-17&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-18/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-18&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-18/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-18&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-19/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-19&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-19/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-19&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-20/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-20&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-20/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-20&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-21/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-21&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-21/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-21&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-22/BOS": {
+   "sha256": "ac850f2818c202f919e2d3ce1f4f3178dbade4c2f5093d96e0aa9528f46a4ec2",
+   "count": 2,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-22&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-22/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-22&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-23/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-23&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-23/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-23&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-24/BOS": {
+   "sha256": "7f3d7dcbd601e6de9658bf5f903374366e7b8680cc0cfcf28558adb80373782a",
+   "count": 1,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-24&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-24/JFK": {
+   "sha256": "809ca45cf37c6c7198485d9a42a8160766032f74db0bfc62509d1f17b9e91353",
+   "count": 6,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-24&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-25/BOS": {
+   "sha256": "5d9d169c5c1f6226a60039962894496eb55304b94e7a70d4dc20ab558da9478d",
+   "count": 3,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-25&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-25/JFK": {
+   "sha256": "36e0313ff62d6dd4a61c797367f571d87f62a20fd4a6d314272ee581f0f32137",
+   "count": 7,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-25&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-26/BOS": {
+   "sha256": "aebf1c417b9acfc6f0a3593a612c1a364a441831cc9e496dc42968e98a5e377e",
+   "count": 7,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-26&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-26/JFK": {
+   "sha256": "b774a905ed8c3a72314974bd0d1bd8b88997513b3b41eb5e895666c239c8f5b4",
+   "count": 13,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-26&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-27/BOS": {
+   "sha256": "f0d3e4da3928c4a61db0169982d6ab3e9e50f6a6c7972f1ee406cd49d61b0095",
+   "count": 7,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-27&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-27/JFK": {
+   "sha256": "a9c999d2ae3d99b168d7b5c8af3872092c91378270d354ba3be0e080fcc81ef7",
+   "count": 11,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-27&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-28/BOS": {
+   "sha256": "94baac37bedbe9b0dd6e3e6e0c87f00d70d60eb9141ebbea3949b7f9f3c29ae7",
+   "count": 8,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-28&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-28/JFK": {
+   "sha256": "0cc8cc14282cf54d1ef142f98e52cc6cf32b4ecc631bcbaa83e2434a97785210",
+   "count": 3,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-28&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-29/BOS": {
+   "sha256": "efed7aad020c9537457665b5eb2e9634a4b65436b20eb11c4f1b76b847e7e995",
+   "count": 1,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-29&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-29/JFK": {
+   "sha256": "0480c819466b3122ce34ff409c033f1b7dbfcb3f8b3a283e46672425ddfbb662",
+   "count": 2,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-29&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-30/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-30&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2023-06-30/JFK": {
+   "sha256": "612dc3b179c42ec6ff5b6c5ea844121c766f78c121c0345e59cdecf2ad8653f9",
+   "count": 3,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2023-06-30&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-01/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-01&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-01/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-01&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-02/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-02&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-02/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-02&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-03/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-03&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-03/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-03&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-04/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-04&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-04/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-04&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-05/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-05&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-05/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-05&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-06/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-06&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-06/JFK": {
+   "sha256": "e819c00203ded01adee013d14dae3b2559df29563b88e614a104dfe7d5507c66",
+   "count": 2,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-06&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-07/BOS": {
+   "sha256": "e5b5d173c882c08833ee58960a3623eb766f819f04d0661837f802676c2944bd",
+   "count": 11,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-07&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-07/JFK": {
+   "sha256": "35ae5e5ddd94e2eceafd3a14903313bb354836e43ac5d64f8d57ab1dbb96fefd",
+   "count": 1,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-07&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-08/BOS": {
+   "sha256": "ecdeff311aa48f054468040aec7b2b0817cba0880fe42216776cc3f8706e8986",
+   "count": 1,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-08&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-08/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-08&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-09/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-09&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-09/JFK": {
+   "sha256": "db54cfd09c3673a0726fc808e8507a551e9bf55c71970b3f1c65e12fcc3399ad",
+   "count": 2,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-09&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-10/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-10&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-10/JFK": {
+   "sha256": "d328c3c05c38cdc5d55f53f3f513f3d13e04575f476df5aec804f62e4b09c12e",
+   "count": 5,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-10&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-11/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-11&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-11/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-11&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-12/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-12&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-12/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-12&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-13/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-13&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-13/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-13&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-14/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-14&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-14/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-14&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-15/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-15&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-15/JFK": {
+   "sha256": "de185052c646025f5d0753a5486a7c7a7484fae033afaa22d5f8aa99ba5e863b",
+   "count": 1,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-15&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-16/BOS": {
+   "sha256": "310dea4f40ff8752f378612449ca39d24959ac1b0dfdc8e5edc6bf9cceabaa5c",
+   "count": 9,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-16&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-16/JFK": {
+   "sha256": "65a974fbcc7fd1b17ad511d06aa6b61fe0906f9ba6957a3ee9f3a7f9cc874c1d",
+   "count": 5,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-16&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-17/BOS": {
+   "sha256": "7ae75bd32ef628356374ffaac86715b5a644227714df541e379e44076a2b84c8",
+   "count": 2,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-17&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-17/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-17&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-18/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-18&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-18/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-18&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-19/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-19&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-19/JFK": {
+   "sha256": "936b555cc9f035df288fd97916596a08660692c2e694b2f41f06bc4b978d0615",
+   "count": 3,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-19&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-20/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-20&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-20/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-20&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-21/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-21&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-21/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-21&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-22/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-22&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-22/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-22&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-23/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-23&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-23/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-23&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-24/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-24&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-24/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-24&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-25/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-25&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-25/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-25&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-26/BOS": {
+   "sha256": "b940799f7be5023280923c3c4c4f2e325cfc3bd07430e7e13437048ce03ad11f",
+   "count": 1,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-26&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-26/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-26&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-27/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-27&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-27/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-27&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-28/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-28&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-28/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-28&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-29/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-29&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-29/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-29&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-30/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-30&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-30/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-30&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-31/BOS": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-31&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "atcscc/2024-01-31/JFK": {
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "count": 0,
+   "retrieved": "2026-10-13",
+   "url": "https://www.fly.faa.gov/adv/adv_list?whichAdvisories=ATCSCC&advisoryCategory=All&date=2024-01-31&gDelay=true&gStop=true&airflow=true&ctop=true&route=true&other=true"
+  },
+  "bts/b43_2021.csv": {
+   "sha256": "36c2e2e0cbd7f755f83e4c9f2eaa5279296b0e7b4a638613e0d7208c32d65464",
+   "bytes": 1139556,
+   "retrieved": "2026-10-13",
+   "url": "https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=GEH&QO_fu146_anzr=Nv4%20Pn44vr45"
+  },
+  "bts/b43_2022.csv": {
+   "sha256": "b7fb0ad875a393945fd30848e8a60f2bd9a5343e3ed2f4d480d3fe7a89562694",
+   "bytes": 1150396,
+   "retrieved": "2026-10-13",
+   "url": "https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=GEH&QO_fu146_anzr=Nv4%20Pn44vr45"
+  },
+  "bts/b43_2023.csv": {
+   "sha256": "0a8e1f618148d4f07cbc283fb69b3b8a6e40062418345ee141f60ead1cf9f450",
+   "bytes": 1160294,
+   "retrieved": "2026-10-13",
+   "url": "https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=GEH&QO_fu146_anzr=Nv4%20Pn44vr45"
+  },
+  "bts/b43_2024.csv": {
+   "sha256": "045f9553fa1f5d4bd83e9c342107d38df609dbdcd472574b7f6c08cb04650236",
+   "bytes": 1150829,
+   "retrieved": "2026-10-13",
+   "url": "https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=GEH&QO_fu146_anzr=Nv4%20Pn44vr45"
+  },
+  "bts/ontime_2022_12.zip": {
+   "sha256": "93ef0f6ede001547b748ca3b20cabc26d7360d728fa73c32242a385a80688bd1",
+   "bytes": 27855593,
+   "retrieved": "2026-10-13",
+   "url": "https://transtats.bts.gov/PREZIP/On_Time_Reporting_Carrier_On_Time_Performance_1987_present_2022_12.zip"
+  },
+  "bts/ontime_2023_06.zip": {
+   "sha256": "67dc6b993ba2e7c2175a874da7a8fbf12081c23c87523c0a5cd7d2f3e50450a1",
+   "bytes": 29075972,
+   "retrieved": "2026-10-13",
+   "url": "https://transtats.bts.gov/PREZIP/On_Time_Reporting_Carrier_On_Time_Performance_1987_present_2023_6.zip"
+  },
+  "bts/ontime_2024_01.zip": {
+   "sha256": "fe089b45523f9d4ac0ccd0e176a543d274e914ee5ae5bd384dbaafc7dc06ebfd",
+   "bytes": 27573265,
+   "retrieved": "2026-10-13",
+   "url": "https://transtats.bts.gov/PREZIP/On_Time_Reporting_Carrier_On_Time_Performance_1987_present_2024_1.zip"
+  },
+  "bts/t100d_2022_12.csv": {
+   "sha256": "e11b7546d1fd398be387465d396005d4c98215fd894ec7ff6698f625d18f04e6",
+   "bytes": 1926869,
+   "retrieved": "2026-10-13",
+   "url": "https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FIM&QO_fu146_anzr=Nv4%20Pn44vr45"
+  },
+  "bts/t100d_2023_06.csv": {
+   "sha256": "e2014abc485327de0f4e7d9b840aacbacee071783f7f68eaa2084598cabe6b81",
+   "bytes": 1945134,
+   "retrieved": "2026-10-13",
+   "url": "https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FIM&QO_fu146_anzr=Nv4%20Pn44vr45"
+  },
+  "bts/t100d_2024_01.csv": {
+   "sha256": "6b6474f84ff18947870ec2cd72b31d0a494a588abb70d1562d89103c5407d8f8",
+   "bytes": 1902503,
+   "retrieved": "2026-10-13",
+   "url": "https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FIM&QO_fu146_anzr=Nv4%20Pn44vr45"
+  },
+  "faa/ReleasableAircraft.zip": {
+   "sha256": "ad4497553c4b71a14e7a0768b2e9c66974998ced50177a963b7942eabc259dec",
+   "bytes": 72864403,
+   "retrieved": "2026-10-13",
+   "url": "https://registry.faa.gov/database/ReleasableAircraft.zip"
+  },
+  "iem/afos/AFDBOX_2022_12.txt": {
+   "sha256": "7b4f303ffd9fb34d034282e2042035770f60dbe5a68de21f66b962a170ecd870",
+   "bytes": 2604173,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=AFDBOX&sdate=2022-12-01&edate=2023-01-01&fmt=text&limit=9999"
+  },
+  "iem/afos/AFDBOX_2023_06.txt": {
+   "sha256": "36d559cd004d6a5cf86c5b6f2aa391e0da90e982529c3b3adbf0425859c135c8",
+   "bytes": 2581768,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=AFDBOX&sdate=2023-06-01&edate=2023-07-01&fmt=text&limit=9999"
+  },
+  "iem/afos/AFDBOX_2024_01.txt": {
+   "sha256": "1657b00fba1af7924fd77542ba4d5fb0a7fc86c32eff4da53ffe9797e9c13a57",
+   "bytes": 2991751,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=AFDBOX&sdate=2024-01-01&edate=2024-02-01&fmt=text&limit=9999"
+  },
+  "iem/afos/AFDOKX_2022_12.txt": {
+   "sha256": "a6fd32b562154c674d8b3ac1aa47ba2c1e129d0b1cefb5b0d47eaa038cd6a699",
+   "bytes": 2620298,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=AFDOKX&sdate=2022-12-01&edate=2023-01-01&fmt=text&limit=9999"
+  },
+  "iem/afos/AFDOKX_2023_06.txt": {
+   "sha256": "60c2211ea5686579cc417d83131646b5b56d0fb5cf6e6990079acafaba206eb4",
+   "bytes": 2667098,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=AFDOKX&sdate=2023-06-01&edate=2023-07-01&fmt=text&limit=9999"
+  },
+  "iem/afos/AFDOKX_2024_01.txt": {
+   "sha256": "a0575dcb4d432cd32ef01a30503800fff5c75786f3b6540cd9c3c8d957daad5d",
+   "bytes": 2876310,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=AFDOKX&sdate=2024-01-01&edate=2024-02-01&fmt=text&limit=9999"
+  },
+  "iem/afos/TAFBOS_2022_12.txt": {
+   "sha256": "6bdcb6d9640a1c21faf3246fa630dc0f082fadff51182fd9d6937d35ef0d75d6",
+   "bytes": 47940,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=TAFBOS&sdate=2022-12-01&edate=2023-01-01&fmt=text&limit=9999"
+  },
+  "iem/afos/TAFBOS_2023_06.txt": {
+   "sha256": "7616c2c232250c6fbfdb69d36550c18bba3ebc1e16d9b53856f66d91fc131436",
+   "bytes": 62012,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=TAFBOS&sdate=2023-06-01&edate=2023-07-01&fmt=text&limit=9999"
+  },
+  "iem/afos/TAFBOS_2024_01.txt": {
+   "sha256": "3d22efbfca2d4b0bc8dfc7ca3a272ffcdee3108bcf21d130f81424bd5e594820",
+   "bytes": 54440,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=TAFBOS&sdate=2024-01-01&edate=2024-02-01&fmt=text&limit=9999"
+  },
+  "iem/afos/TAFJFK_2022_12.txt": {
+   "sha256": "ac4c4fd49aa658499e5e9767cc81d53e91dcae9f8ec7ab684a5b18045a34652b",
+   "bytes": 80210,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=TAFJFK&sdate=2022-12-01&edate=2023-01-01&fmt=text&limit=9999"
+  },
+  "iem/afos/TAFJFK_2023_06.txt": {
+   "sha256": "990414fc28cb614c5df50e1e5a1e3dee29ef18ecb550b43abcc42bcacb720a46",
+   "bytes": 100202,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=TAFJFK&sdate=2023-06-01&edate=2023-07-01&fmt=text&limit=9999"
+  },
+  "iem/afos/TAFJFK_2024_01.txt": {
+   "sha256": "784c0fb405382f002a7d9c3960bee10b9e03813fd1610b1d1e002763500fcc45",
+   "bytes": 85503,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=TAFJFK&sdate=2024-01-01&edate=2024-02-01&fmt=text&limit=9999"
+  },
+  "iem/metar/BOS_2022_12.csv": {
+   "sha256": "4d8f8a845b21a859f6c7a8105974c2da07bad92d3b81abda80d0d730ae5ec7c5",
+   "bytes": 155601,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=BOS&data=all&sts=2022-12-01T00:00Z&ets=2023-01-01T00:00Z&tz=Etc/UTC&format=onlycomma&latlon=no&missing=empty&trace=T&report_type=3"
+  },
+  "iem/metar/BOS_2023_06.csv": {
+   "sha256": "636d466d52d73bad1f8869c09bb113ed1ba1c2029effe826570504faa786dd54",
+   "bytes": 153724,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=BOS&data=all&sts=2023-06-01T00:00Z&ets=2023-07-01T00:00Z&tz=Etc/UTC&format=onlycomma&latlon=no&missing=empty&trace=T&report_type=3"
+  },
+  "iem/metar/BOS_2024_01.csv": {
+   "sha256": "649deccc0590a06fcd11bff25f22d0f632215a9403af847219d8473cbe64f77d",
+   "bytes": 157736,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=BOS&data=all&sts=2024-01-01T00:00Z&ets=2024-02-01T00:00Z&tz=Etc/UTC&format=onlycomma&latlon=no&missing=empty&trace=T&report_type=3"
+  },
+  "iem/metar/JFK_2022_12.csv": {
+   "sha256": "3deefa282773fd3debb3a5374c2d28e0e70d976dd365327f0b93f497d53c76bd",
+   "bytes": 154563,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=JFK&data=all&sts=2022-12-01T00:00Z&ets=2023-01-01T00:00Z&tz=Etc/UTC&format=onlycomma&latlon=no&missing=empty&trace=T&report_type=3"
+  },
+  "iem/metar/JFK_2023_06.csv": {
+   "sha256": "6dc2c7d57c0c5dd6e01ae8b8ec6b9d7cb3b0257c885ddcd6b60f4764ee6b90af",
+   "bytes": 153224,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=JFK&data=all&sts=2023-06-01T00:00Z&ets=2023-07-01T00:00Z&tz=Etc/UTC&format=onlycomma&latlon=no&missing=empty&trace=T&report_type=3"
+  },
+  "iem/metar/JFK_2024_01.csv": {
+   "sha256": "421eef4d2e67ecbd8b27d5d088977be7fa77660df61e1d8fb02e3f9205f37a1e",
+   "bytes": 160503,
+   "retrieved": "2026-10-13",
+   "url": "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=JFK&data=all&sts=2024-01-01T00:00Z&ets=2024-02-01T00:00Z&tz=Etc/UTC&format=onlycomma&latlon=no&missing=empty&trace=T&report_type=3"
+  }
+ },
+ "airportsdata": {
+  "version": "20260905",
+  "airports.csv": "516c57d9d999f7a3be28ca649d2badbe3b972f07e57dc6173ab973b72d51cf52"
+ }
+}

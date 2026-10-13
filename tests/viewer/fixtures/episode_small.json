@@ -1,0 +1,4467 @@
+{
+ "version": 1,
+ "task": {
+  "task_id": "b6-jfk-20230626-1400",
+  "carrier": "B6",
+  "hub": "JFK",
+  "date": "2023-06-26",
+  "tz": "America/New_York",
+  "window": [
+   840,
+   1200
+  ],
+  "start": 780,
+  "turn": {
+   "A32X": 49,
+   "A220": 47,
+   "E190": 37
+  },
+  "turn_all": 41,
+  "dmax": 360,
+  "airports": {
+   "BNA": {
+    "name": "Nashville International Airport",
+    "lat": 36.124475,
+    "lon": -86.678181,
+    "tz": "America/Chicago"
+   },
+   "BOS": {
+    "name": "General Edward Lawrence Logan International Airport",
+    "lat": 42.362944,
+    "lon": -71.006389,
+    "tz": "America/New_York"
+   },
+   "CHS": {
+    "name": "Charleston Afb/International Airport",
+    "lat": 32.898639,
+    "lon": -80.040528,
+    "tz": "America/New_York"
+   },
+   "DCA": {
+    "name": "Ronald Reagan Washington Ntl Airport",
+    "lat": 38.85144,
+    "lon": -77.037721,
+    "tz": "America/New_York"
+   },
+   "HYA": {
+    "name": "Cape Cod Gateway Airport",
+    "lat": 41.669337,
+    "lon": -70.280359,
+    "tz": "America/New_York"
+   },
+   "IAH": {
+    "name": "George Bush Intcntl/Houston Airport",
+    "lat": 29.984435,
+    "lon": -95.341442,
+    "tz": "America/Chicago"
+   },
+   "JFK": {
+    "name": "John F Kennedy International Airport",
+    "lat": 40.639928,
+    "lon": -73.778692,
+    "tz": "America/New_York"
+   },
+   "LGA": {
+    "name": "Laguardia Airport",
+    "lat": 40.777242,
+    "lon": -73.872606,
+    "tz": "America/New_York"
+   },
+   "MCO": {
+    "name": "Orlando International Airport",
+    "lat": 28.429394,
+    "lon": -81.308993,
+    "tz": "America/New_York"
+   },
+   "PBI": {
+    "name": "President Donald J Trump International Airport",
+    "lat": 26.683162,
+    "lon": -80.095592,
+    "tz": "America/New_York"
+   },
+   "PDX": {
+    "name": "Portland International Airport",
+    "lat": 45.588709,
+    "lon": -122.596869,
+    "tz": "America/Los_Angeles"
+   },
+   "RDU": {
+    "name": "Raleigh-Durham International Airport",
+    "lat": 35.877639,
+    "lon": -78.787472,
+    "tz": "America/New_York"
+   },
+   "RNO": {
+    "name": "Reno/Tahoe International Airport",
+    "lat": 39.499111,
+    "lon": -119.768111,
+    "tz": "America/Los_Angeles"
+   },
+   "ROC": {
+    "name": "Frederick Douglass/Greater Rochester International Airport",
+    "lat": 43.119144,
+    "lon": -77.671869,
+    "tz": "America/New_York"
+   },
+   "RSW": {
+    "name": "Southwest Florida International Airport",
+    "lat": 26.536164,
+    "lon": -81.755155,
+    "tz": "America/New_York"
+   },
+   "SFO": {
+    "name": "San Francisco International Airport",
+    "lat": 37.618806,
+    "lon": -122.375417,
+    "tz": "America/Los_Angeles"
+   }
+  },
+  "tails": [
+   {
+    "tail": "N179JB",
+    "family": "E190",
+    "seats": 100,
+    "pos": "JFK",
+    "ready": 907,
+    "end_req": "CHS",
+    "actual_end": "CHS"
+   },
+   {
+    "tail": "N190JB",
+    "family": "E190",
+    "seats": 100,
+    "pos": "JFK",
+    "ready": 599,
+    "end_req": "ROC",
+    "actual_end": "ROC"
+   },
+   {
+    "tail": "N192JB",
+    "family": "E190",
+    "seats": 100,
+    "pos": "LGA",
+    "ready": 0,
+    "end_req": "BOS",
+    "actual_end": "BOS"
+   },
+   {
+    "tail": "N198JB",
+    "family": "E190",
+    "seats": 100,
+    "pos": "DCA",
+    "ready": 0,
+    "end_req": "JFK",
+    "actual_end": "DCA"
+   },
+   {
+    "tail": "N2016J",
+    "family": "A32X",
+    "seats": 200,
+    "pos": "RSW",
+    "ready": 865,
+    "end_req": "JFK",
+    "actual_end": "JFK"
+   },
+   {
+    "tail": "N2039J",
+    "family": "A32X",
+    "seats": 200,
+    "pos": "IAH",
+    "ready": 846,
+    "end_req": "JFK",
+    "actual_end": "JFK"
+   },
+   {
+    "tail": "N229JB",
+    "family": "E190",
+    "seats": 100,
+    "pos": "ACK",
+    "ready": 0,
+    "end_req": "ATL",
+    "actual_end": "ACK"
+   },
+   {
+    "tail": "N249JB",
+    "family": "E190",
+    "seats": 100,
+    "pos": "BOS",
+    "ready": 892,
+    "end_req": "PBI",
+    "actual_end": "PBI"
+   },
+   {
+    "tail": "N267JB",
+    "family": "E190",
+    "seats": 100,
+    "pos": "JFK",
+    "ready": 848,
+    "end_req": "BOS",
+    "actual_end": "BOS"
+   },
+   {
+    "tail": "N304JB",
+    "family": "E190",
+    "seats": 100,
+    "pos": "BOS",
+    "ready": 825,
+    "end_req": "BOS",
+    "actual_end": "BOS"
+   },
+   {
+    "tail": "N337JB",
+    "family": "E190",
+    "seats": 100,
+    "pos": "MCO",
+    "ready": 961,
+    "end_req": "MCO",
+    "actual_end": "MCO"
+   },
+   {
+    "tail": "N763JB",
+    "family": "A32X",
+    "seats": 162,
+    "pos": "FLL",
+    "ready": 0,
+    "end_req": "JFK",
+    "actual_end": "JFK"
+   },
+   {
+    "tail": "N958JB",
+    "family": "A32X",
+    "seats": 200,
+    "pos": "JFK",
+    "ready": 0,
+    "end_req": "JFK",
+    "actual_end": "JFK"
+   },
+   {
+    "tail": "N968JT",
+    "family": "A32X",
+    "seats": 159,
+    "pos": "JFK",
+    "ready": 1101,
+    "end_req": "JFK",
+    "actual_end": "JFK"
+   },
+   {
+    "tail": "N986JB",
+    "family": "A32X",
+    "seats": 159,
+    "pos": "LAS",
+    "ready": 815,
+    "end_req": "JFK",
+    "actual_end": "JFK"
+   }
+  ]
+ },
+ "model": "follower",
+ "model_label": "Reference follower (MIP re-solved each watch)",
+ "run": "fixture-small",
+ "reward": 0.588,
+ "cost": {
+  "pax_delay": 1269275,
+  "cancel": 1041293,
+  "ferry": 148119,
+  "total": 2458687
+ },
+ "reference": {
+  "floor": 1851301,
+  "hindsight": 2285185,
+  "anchor": 2285185,
+  "follower": 2458687,
+  "blind": 2480542,
+  "naive": 2892752,
+  "airline": 4789858,
+  "gap_pct": 7.59,
+  "qualifies": true,
+  "reward_follower": 0.588,
+  "reward_blind": 0.5542,
+  "reward_naive": 0.2635,
+  "reward_airline": 0.2
+ },
+ "schedule": [
+  {
+   "id": 3,
+   "flight": "B6 186",
+   "orig": "JFK",
+   "dest": "ROC",
+   "sched_dep": 630,
+   "sched_arr": 718,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N190JB",
+   "airline": {
+    "cancelled": false,
+    "dep": 1021,
+    "arr": 1195,
+    "cancel_code": ""
+   }
+  },
+  {
+   "id": 11,
+   "flight": "B6 432",
+   "orig": "LGA",
+   "dest": "BOS",
+   "sched_dep": 795,
+   "sched_arr": 875,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N192JB",
+   "airline": {
+    "cancelled": false,
+    "dep": 1190,
+    "arr": 1296,
+    "cancel_code": ""
+   }
+  },
+  {
+   "id": 14,
+   "flight": "B6 82",
+   "orig": "IAH",
+   "dest": "JFK",
+   "sched_dep": 802,
+   "sched_arr": 1026,
+   "family": "A32X",
+   "pax": 170,
+   "tail": "N2039J",
+   "airline": {
+    "cancelled": false,
+    "dep": 881,
+    "arr": 1086,
+    "cancel_code": ""
+   }
+  },
+  {
+   "id": 15,
+   "flight": "B6 1618",
+   "orig": "JFK",
+   "dest": "BOS",
+   "sched_dep": 814,
+   "sched_arr": 891,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N179JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "C"
+   }
+  },
+  {
+   "id": 21,
+   "flight": "B6 883",
+   "orig": "JFK",
+   "dest": "MCO",
+   "sched_dep": 840,
+   "sched_arr": 1024,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N192JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "C"
+   }
+  },
+  {
+   "id": 22,
+   "flight": "B6 130",
+   "orig": "RSW",
+   "dest": "JFK",
+   "sched_dep": 857,
+   "sched_arr": 1029,
+   "family": "A32X",
+   "pax": 170,
+   "tail": "N2016J",
+   "airline": {
+    "cancelled": false,
+    "dep": 885,
+    "arr": 1077,
+    "cancel_code": ""
+   }
+  },
+  {
+   "id": 29,
+   "flight": "B6 1964",
+   "orig": "JFK",
+   "dest": "HYA",
+   "sched_dep": 896,
+   "sched_arr": 976,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N190JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "C"
+   }
+  },
+  {
+   "id": 39,
+   "flight": "B6 2473",
+   "orig": "JFK",
+   "dest": "CHS",
+   "sched_dep": 935,
+   "sched_arr": 1081,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N179JB",
+   "airline": {
+    "cancelled": false,
+    "dep": 1027,
+    "arr": 1207,
+    "cancel_code": ""
+   }
+  },
+  {
+   "id": 45,
+   "flight": "B6 731",
+   "orig": "BOS",
+   "dest": "LGA",
+   "sched_dep": 960,
+   "sched_arr": 1049,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N192JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "C"
+   }
+  },
+  {
+   "id": 50,
+   "flight": "B6 383",
+   "orig": "JFK",
+   "dest": "MCO",
+   "sched_dep": 1003,
+   "sched_arr": 1195,
+   "family": "A32X",
+   "pax": 170,
+   "tail": "N2016J",
+   "airline": {
+    "cancelled": false,
+    "dep": 1182,
+    "arr": 1370,
+    "cancel_code": ""
+   }
+  },
+  {
+   "id": 52,
+   "flight": "B6 1963",
+   "orig": "HYA",
+   "dest": "JFK",
+   "sched_dep": 1011,
+   "sched_arr": 1080,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N190JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "C"
+   }
+  },
+  {
+   "id": 63,
+   "flight": "B6 1673",
+   "orig": "JFK",
+   "dest": "BNA",
+   "sched_dep": 1071,
+   "sched_arr": 1243,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N198JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "B"
+   }
+  },
+  {
+   "id": 66,
+   "flight": "B6 884",
+   "orig": "MCO",
+   "dest": "JFK",
+   "sched_dep": 1090,
+   "sched_arr": 1260,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N192JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "C"
+   }
+  },
+  {
+   "id": 67,
+   "flight": "B6 1733",
+   "orig": "DCA",
+   "dest": "PBI",
+   "sched_dep": 1090,
+   "sched_arr": 1238,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N249JB",
+   "airline": {
+    "cancelled": false,
+    "dep": 1086,
+    "arr": 1229,
+    "cancel_code": ""
+   }
+  },
+  {
+   "id": 69,
+   "flight": "B6 1232",
+   "orig": "LGA",
+   "dest": "BOS",
+   "sched_dep": 1095,
+   "sched_arr": 1178,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N304JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "C"
+   }
+  },
+  {
+   "id": 73,
+   "flight": "B6 1185",
+   "orig": "JFK",
+   "dest": "RDU",
+   "sched_dep": 1115,
+   "sched_arr": 1238,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N190JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "C"
+   }
+  },
+  {
+   "id": 76,
+   "flight": "B6 1274",
+   "orig": "CHS",
+   "dest": "JFK",
+   "sched_dep": 1130,
+   "sched_arr": 1260,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N179JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "C"
+   }
+  },
+  {
+   "id": 80,
+   "flight": "B6 1718",
+   "orig": "JFK",
+   "dest": "BOS",
+   "sched_dep": 1155,
+   "sched_arr": 1246,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N229JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "C"
+   }
+  },
+  {
+   "id": 83,
+   "flight": "B6 1005",
+   "orig": "JFK",
+   "dest": "PDX",
+   "sched_dep": 1170,
+   "sched_arr": 1557,
+   "family": "A32X",
+   "pax": 170,
+   "tail": "N2039J",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "B"
+   }
+  },
+  {
+   "id": 90,
+   "flight": "B6 2181",
+   "orig": "JFK",
+   "dest": "RNO",
+   "sched_dep": 1200,
+   "sched_arr": 1569,
+   "family": "A32X",
+   "pax": 138,
+   "tail": "N763JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "B"
+   }
+  },
+  {
+   "id": 93,
+   "flight": "B6 815",
+   "orig": "JFK",
+   "dest": "SFO",
+   "sched_dep": 1210,
+   "sched_arr": 1616,
+   "family": "A32X",
+   "pax": 135,
+   "tail": "N986JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "C"
+   }
+  },
+  {
+   "id": 98,
+   "flight": "B6 384",
+   "orig": "MCO",
+   "dest": "JFK",
+   "sched_dep": 1255,
+   "sched_arr": 1418,
+   "family": "A32X",
+   "pax": 170,
+   "tail": "N2016J",
+   "airline": {
+    "cancelled": false,
+    "dep": 1450,
+    "arr": 1672,
+    "cancel_code": ""
+   }
+  },
+  {
+   "id": 103,
+   "flight": "B6 1674",
+   "orig": "BNA",
+   "dest": "JFK",
+   "sched_dep": 1285,
+   "sched_arr": 1431,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N198JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "B"
+   }
+  },
+  {
+   "id": 104,
+   "flight": "B6 283",
+   "orig": "JFK",
+   "dest": "MCO",
+   "sched_dep": 1295,
+   "sched_arr": 1460,
+   "family": "E190",
+   "pax": 85,
+   "tail": "N192JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "C"
+   }
+  },
+  {
+   "id": 114,
+   "flight": "B6 1006",
+   "orig": "PDX",
+   "dest": "JFK",
+   "sched_dep": 1608,
+   "sched_arr": 1918,
+   "family": "A32X",
+   "pax": 170,
+   "tail": "N2039J",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "B"
+   }
+  },
+  {
+   "id": 116,
+   "flight": "B6 80",
+   "orig": "RNO",
+   "dest": "JFK",
+   "sched_dep": 1619,
+   "sched_arr": 1927,
+   "family": "A32X",
+   "pax": 138,
+   "tail": "N763JB",
+   "airline": {
+    "cancelled": true,
+    "dep": null,
+    "arr": null,
+    "cancel_code": "B"
+   }
+  }
+ ],
+ "executed": [
+  {
+   "id": 3,
+   "tail": null,
+   "status": "cancelled",
+   "dep": null,
+   "arr": null,
+   "arr_delay": null,
+   "not_before": null,
+   "held": false,
+   "decided": 780
+  },
+  {
+   "id": 11,
+   "tail": null,
+   "status": "cancelled",
+   "dep": null,
+   "arr": null,
+   "arr_delay": null,
+   "not_before": null,
+   "held": false,
+   "decided": 780
+  },
+  {
+   "id": 14,
+   "tail": "N2039J",
+   "status": "flown",
+   "dep": 851,
+   "arr": 1056,
+   "arr_delay": 30,
+   "not_before": null,
+   "held": false,
+   "decided": null
+  },
+  {
+   "id": 15,
+   "tail": null,
+   "status": "cancelled",
+   "dep": null,
+   "arr": null,
+   "arr_delay": null,
+   "not_before": null,
+   "held": false,
+   "decided": 840
+  },
+  {
+   "id": 21,
+   "tail": "N190JB",
+   "status": "flown",
+   "dep": 900,
+   "arr": 1084,
+   "arr_delay": 60,
+   "not_before": null,
+   "held": false,
+   "decided": null
+  },
+  {
+   "id": 22,
+   "tail": "N2016J",
+   "status": "flown",
+   "dep": 866,
+   "arr": 1058,
+   "arr_delay": 29,
+   "not_before": null,
+   "held": false,
+   "decided": null
+  },
+  {
+   "id": 29,
+   "tail": null,
+   "status": "cancelled",
+   "dep": null,
+   "arr": null,
+   "arr_delay": null,
+   "not_before": null,
+   "held": false,
+   "decided": 780
+  },
+  {
+   "id": 39,
+   "tail": "N179JB",
+   "status": "flown",
+   "dep": 1027,
+   "arr": 1207,
+   "arr_delay": 126,
+   "not_before": null,
+   "held": false,
+   "decided": null
+  },
+  {
+   "id": 45,
+   "tail": null,
+   "status": "cancelled",
+   "dep": null,
+   "arr": null,
+   "arr_delay": null,
+   "not_before": null,
+   "held": false,
+   "decided": 960
+  },
+  {
+   "id": 50,
+   "tail": "N958JB",
+   "status": "flown",
+   "dep": 1140,
+   "arr": 1328,
+   "arr_delay": 133,
+   "not_before": null,
+   "held": false,
+   "decided": null
+  },
+  {
+   "id": 52,
+   "tail": null,
+   "status": "cancelled",
+   "dep": null,
+   "arr": null,
+   "arr_delay": null,
+   "not_before": null,
+   "held": false,
+   "decided": 780
+  },
+  {
+   "id": 63,
+   "tail": "N337JB",
+   "status": "flown",
+   "dep": 1320,
+   "arr": 1492,
+   "arr_delay": 249,
+   "not_before": 1320,
+   "held": true,
+   "decided": 1080
+  },
+  {
+   "id": 66,
+   "tail": "N190JB",
+   "status": "flown",
+   "dep": 1143,
+   "arr": 1313,
+   "arr_delay": 53,
+   "not_before": null,
+   "held": false,
+   "decided": null
+  },
+  {
+   "id": 67,
+   "tail": "N198JB",
+   "status": "flown",
+   "dep": 1095,
+   "arr": 1238,
+   "arr_delay": 0,
+   "not_before": 1095,
+   "held": true,
+   "decided": 1020
+  },
+  {
+   "id": 69,
+   "tail": "N192JB",
+   "status": "flown",
+   "dep": 1440,
+   "arr": 1523,
+   "arr_delay": 345,
+   "not_before": null,
+   "held": false,
+   "decided": null
+  },
+  {
+   "id": 73,
+   "tail": "N267JB",
+   "status": "flown",
+   "dep": 1346,
+   "arr": 1469,
+   "arr_delay": 231,
+   "not_before": 1320,
+   "held": true,
+   "decided": 1080
+  },
+  {
+   "id": 76,
+   "tail": "N179JB",
+   "status": "flown",
+   "dep": 1310,
+   "arr": 1440,
+   "arr_delay": 180,
+   "not_before": 1310,
+   "held": true,
+   "decided": 1080
+  },
+  {
+   "id": 80,
+   "tail": "N179JB",
+   "status": "flown",
+   "dep": 1477,
+   "arr": 1568,
+   "arr_delay": 322,
+   "not_before": 1477,
+   "held": true,
+   "decided": 1080
+  },
+  {
+   "id": 83,
+   "tail": "N968JT",
+   "status": "flown",
+   "dep": 1260,
+   "arr": 1647,
+   "arr_delay": 90,
+   "not_before": null,
+   "held": false,
+   "decided": 1080
+  },
+  {
+   "id": 90,
+   "tail": "N2039J",
+   "status": "flown",
+   "dep": 1276,
+   "arr": 1645,
+   "arr_delay": 76,
+   "not_before": null,
+   "held": false,
+   "decided": 1080
+  },
+  {
+   "id": 93,
+   "tail": "N2016J",
+   "status": "flown",
+   "dep": 1440,
+   "arr": 1846,
+   "arr_delay": 230,
+   "not_before": 1440,
+   "held": true,
+   "decided": 1140
+  },
+  {
+   "id": 98,
+   "tail": "N958JB",
+   "status": "flown",
+   "dep": 1377,
+   "arr": 1599,
+   "arr_delay": 181,
+   "not_before": null,
+   "held": false,
+   "decided": null
+  },
+  {
+   "id": 103,
+   "tail": "N337JB",
+   "status": "flown",
+   "dep": 1529,
+   "arr": 1675,
+   "arr_delay": 244,
+   "not_before": 1529,
+   "held": true,
+   "decided": 1080
+  },
+  {
+   "id": 104,
+   "tail": "N190JB",
+   "status": "flown",
+   "dep": 1440,
+   "arr": 1605,
+   "arr_delay": 145,
+   "not_before": null,
+   "held": false,
+   "decided": 1260
+  },
+  {
+   "id": 114,
+   "tail": "N968JT",
+   "status": "flown",
+   "dep": 1696,
+   "arr": 2006,
+   "arr_delay": 88,
+   "not_before": null,
+   "held": false,
+   "decided": null
+  },
+  {
+   "id": 116,
+   "tail": "N2039J",
+   "status": "flown",
+   "dep": 1694,
+   "arr": 2002,
+   "arr_delay": 75,
+   "not_before": null,
+   "held": false,
+   "decided": 1080
+  }
+ ],
+ "ferries": [],
+ "frozen": [
+  {
+   "flight": "B6 1273",
+   "orig": "JFK",
+   "dest": "CHS",
+   "sched_dep": 484,
+   "sched_arr": 615,
+   "dep": 474,
+   "arr": 581,
+   "tail": "N179JB"
+  },
+  {
+   "flight": "B6 2474",
+   "orig": "CHS",
+   "dest": "JFK",
+   "sched_dep": 650,
+   "sched_arr": 775,
+   "dep": 713,
+   "arr": 870,
+   "tail": "N179JB"
+  },
+  {
+   "flight": "B6 1420",
+   "orig": "DTW",
+   "dest": "JFK",
+   "sched_dep": 466,
+   "sched_arr": 570,
+   "dep": 462,
+   "arr": 562,
+   "tail": "N190JB"
+  },
+  {
+   "flight": "B6 1529",
+   "orig": "JFK",
+   "dest": "RSW",
+   "sched_dep": 608,
+   "sched_arr": 797,
+   "dep": 600,
+   "arr": 816,
+   "tail": "N2016J"
+  },
+  {
+   "flight": "B6 281",
+   "orig": "JFK",
+   "dest": "IAH",
+   "sched_dep": 522,
+   "sched_arr": 757,
+   "dep": 561,
+   "arr": 797,
+   "tail": "N2039J"
+  },
+  {
+   "flight": "B6 382",
+   "orig": "RIC",
+   "dest": "BOS",
+   "sched_dep": 360,
+   "sched_arr": 454,
+   "dep": 357,
+   "arr": 449,
+   "tail": "N249JB"
+  },
+  {
+   "flight": "B6 609",
+   "orig": "BOS",
+   "dest": "JAX",
+   "sched_dep": 495,
+   "sched_arr": 665,
+   "dep": 492,
+   "arr": 665,
+   "tail": "N249JB"
+  },
+  {
+   "flight": "B6 1010",
+   "orig": "JAX",
+   "dest": "BOS",
+   "sched_dep": 700,
+   "sched_arr": 858,
+   "dep": 705,
+   "arr": 855,
+   "tail": "N249JB"
+  },
+  {
+   "flight": "B6 1318",
+   "orig": "JFK",
+   "dest": "BOS",
+   "sched_dep": 360,
+   "sched_arr": 426,
+   "dep": 358,
+   "arr": 427,
+   "tail": "N267JB"
+  },
+  {
+   "flight": "B6 1317",
+   "orig": "BOS",
+   "dest": "JFK",
+   "sched_dep": 466,
+   "sched_arr": 540,
+   "dep": 481,
+   "arr": 550,
+   "tail": "N267JB"
+  },
+  {
+   "flight": "B6 1338",
+   "orig": "JFK",
+   "dest": "MVY",
+   "sched_dep": 577,
+   "sched_arr": 650,
+   "dep": 588,
+   "arr": 660,
+   "tail": "N267JB"
+  },
+  {
+   "flight": "B6 1339",
+   "orig": "MVY",
+   "dest": "JFK",
+   "sched_dep": 685,
+   "sched_arr": 749,
+   "dep": 706,
+   "arr": 811,
+   "tail": "N267JB"
+  },
+  {
+   "flight": "B6 2041",
+   "orig": "BOS",
+   "dest": "CLE",
+   "sched_dep": 512,
+   "sched_arr": 630,
+   "dep": 516,
+   "arr": 623,
+   "tail": "N304JB"
+  },
+  {
+   "flight": "B6 2040",
+   "orig": "CLE",
+   "dest": "BOS",
+   "sched_dep": 667,
+   "sched_arr": 772,
+   "dep": 688,
+   "arr": 788,
+   "tail": "N304JB"
+  },
+  {
+   "flight": "B6 315",
+   "orig": "SYR",
+   "dest": "JFK",
+   "sched_dep": 349,
+   "sched_arr": 420,
+   "dep": 336,
+   "arr": 399,
+   "tail": "N337JB"
+  },
+  {
+   "flight": "B6 508",
+   "orig": "JFK",
+   "dest": "PWM",
+   "sched_dep": 455,
+   "sched_arr": 535,
+   "dep": 453,
+   "arr": 518,
+   "tail": "N337JB"
+  },
+  {
+   "flight": "B6 407",
+   "orig": "PWM",
+   "dest": "JFK",
+   "sched_dep": 585,
+   "sched_arr": 663,
+   "dep": 576,
+   "arr": 660,
+   "tail": "N337JB"
+  },
+  {
+   "flight": "B6 83",
+   "orig": "JFK",
+   "dest": "MCO",
+   "sched_dep": 750,
+   "sched_arr": 929,
+   "dep": 757,
+   "arr": 924,
+   "tail": "N337JB"
+  },
+  {
+   "flight": "B6 90",
+   "orig": "SAN",
+   "dest": "JFK",
+   "sched_dep": 660,
+   "sched_arr": 992,
+   "dep": 654,
+   "arr": 1052,
+   "tail": "N968JT"
+  },
+  {
+   "flight": "B6 411",
+   "orig": "JFK",
+   "dest": "LAS",
+   "sched_dep": 420,
+   "sched_arr": 752,
+   "dep": 423,
+   "arr": 766,
+   "tail": "N986JB"
+  }
+ ],
+ "watches": [
+  {
+   "t": 780,
+   "news": [
+    {
+     "id": "metar-261051",
+     "at": 411,
+     "kind": "metar",
+     "speaker": "KJFK observation",
+     "text": "KJFK 261051Z 09004KT 8SM FEW008 BKN041 BKN075 BKN140 21/21 A2979 RMK AO2 RAB00E30 SLP087 P0001 T02060206 $",
+     "data": {
+      "station": "KJFK"
+     }
+    },
+    {
+     "id": "taf-261120Z",
+     "at": 440,
+     "kind": "taf",
+     "speaker": "NWS New York (OKX)",
+     "text": "TAF\nKJFK 261120Z 2612/2718 17005KT P6SM SCT006 BKN120\n      TEMPO 2612/2614 5SM -SHRA BR BKN008\n     FM261400 15006KT 5SM BR SCT010 BKN080\n     FM261800 16014KT 5SM -SHRA FEW015 BKN100\n      TEMPO 2621/2701 16015G25KT 2SM TSRA BR OVC030CB\n     FM270100 17010KT 5SM -SHRA BR BKN008 OVC015\n     FM270800 17009KT P6SM BKN015\n     FM271600 17012KT P6SM BKN035=\n\u0003",
+     "data": {
+      "station": "KJFK"
+     }
+    },
+    {
+     "id": "metar-261151",
+     "at": 471,
+     "kind": "metar",
+     "speaker": "KJFK observation",
+     "text": "KJFK 261151Z 10008KT 8SM FEW008 SCT050 BKN085 BKN140 21/21 A2980 RMK AO2 SLP090 60001 70001 T02110211 10211 20200 53005 $",
+     "data": {
+      "station": "KJFK"
+     }
+    },
+    {
+     "id": "adv-0626-037",
+     "at": 474,
+     "kind": "advisory",
+     "speaker": "FAA Command Center",
+     "text": "ATCSCC ADVZY 037 ACK/ZBW 06/26/2023 ACK AIRPORT CONDITIONS\nEVENT TIME: 26/1145 - 26/1600Z\nCONSTRAINED FACILITIES: ZBW\nACK IS BELOW MOST USER MINIMUMS. CONDITIONS ARE NOT EXPECTED TO\nIMPROVE UNTIL AFTER 1600Z. USERS CAN ANTICIPATE ARRIVAL HOLDING AND\nPERIODIC GROUND STOPS THAT CAPTURE APPROPRIATE CATEGORY AIRCRAFT FOR\nTHE CONDITONS. EXPECT UPDATES AS CONDITIONS WARRANT.",
+     "data": {
+      "element": "ACK/ZBW",
+      "airport": "ACK",
+      "title": "ACK AIRPORT CONDITIONS",
+      "program": "other",
+      "effective": "261154-261630",
+      "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=37"
+     }
+    }
+   ],
+   "caps_known": {
+    "ABQ:arr": {
+     "24": 1
+    },
+    "ABQ:dep": {
+     "25": 1
+    },
+    "ACK:arr": {},
+    "ACK:dep": {
+     "18": 1
+    },
+    "ATL:arr": {
+     "23": 1
+    },
+    "ATL:dep": {
+     "18": 1
+    },
+    "BNA:arr": {
+     "20": 1
+    },
+    "BNA:dep": {
+     "21": 1
+    },
+    "BOS:arr": {
+     "13": 0,
+     "14": 0,
+     "15": 4,
+     "16": 0,
+     "17": 4,
+     "18": 1,
+     "19": 1,
+     "20": 3,
+     "22": 2
+    },
+    "BOS:dep": {
+     "13": 0,
+     "14": 0,
+     "15": 2,
+     "16": 1,
+     "17": 0
+    },
+    "BUF:arr": {
+     "18": 1,
+     "21": 1
+    },
+    "BUF:dep": {
+     "19": 1
+    },
+    "BUR:arr": {
+     "23": 1
+    },
+    "BUR:dep": {
+     "24": 1
+    },
+    "CHS:arr": {
+     "18": 1
+    },
+    "CHS:dep": {
+     "18": 1
+    },
+    "DCA:arr": {},
+    "DCA:dep": {
+     "18": 1
+    },
+    "DEN:arr": {},
+    "DEN:dep": {},
+    "DTW:arr": {
+     "23": 1
+    },
+    "DTW:dep": {
+     "18": 1
+    },
+    "EWR:arr": {
+     "13": 0,
+     "14": 1,
+     "15": 0,
+     "16": 0,
+     "17": 0,
+     "23": 1
+    },
+    "EWR:dep": {
+     "13": 0,
+     "14": 0,
+     "15": 1,
+     "16": 0,
+     "17": 0
+    },
+    "FLL:arr": {
+     "18": 1,
+     "20": 1,
+     "30": 1
+    },
+    "FLL:dep": {
+     "20": 1,
+     "21": 1
+    },
+    "HPN:arr": {
+     "20": 1,
+     "23": 1
+    },
+    "HYA:arr": {},
+    "HYA:dep": {},
+    "IAH:dep": {},
+    "JAX:arr": {
+     "18": 1
+    },
+    "JAX:dep": {
+     "19": 1
+    },
+    "JFK:arr": {
+     "13": 0,
+     "14": 0,
+     "15": 1,
+     "16": 3,
+     "17": 4,
+     "18": 7,
+     "19": 5,
+     "20": 1,
+     "21": 6,
+     "22": 4,
+     "23": 2,
+     "24": 2,
+     "29": 2,
+     "30": 1,
+     "31": 3,
+     "32": 3
+    },
+    "JFK:dep": {
+     "13": 0,
+     "14": 0,
+     "15": 5,
+     "16": 5,
+     "17": 5,
+     "18": 5,
+     "19": 5,
+     "20": 5,
+     "21": 3,
+     "22": 1
+    },
+    "LAS:arr": {
+     "23": 1
+    },
+    "LAS:dep": {},
+    "LAX:arr": {
+     "22": 1,
+     "25": 1,
+     "26": 1
+    },
+    "LAX:dep": {
+     "25": 1,
+     "26": 1
+    },
+    "LGA:arr": {
+     "13": 0,
+     "14": 0,
+     "15": 0,
+     "16": 1,
+     "17": 0
+    },
+    "LGA:dep": {
+     "13": 1,
+     "14": 2,
+     "15": 0,
+     "16": 0,
+     "17": 0,
+     "18": 1,
+     "20": 1
+    },
+    "MCI:arr": {
+     "18": 1
+    },
+    "MCI:dep": {
+     "19": 1
+    },
+    "MCO:arr": {
+     "18": 1,
+     "19": 1,
+     "21": 1,
+     "24": 1
+    },
+    "MCO:dep": {
+     "18": 1,
+     "19": 1,
+     "20": 1
+    },
+    "MIA:arr": {
+     "20": 1
+    },
+    "MIA:dep": {
+     "21": 1
+    },
+    "MKE:arr": {},
+    "MKE:dep": {
+     "18": 1
+    },
+    "MSY:arr": {
+     "18": 1
+    },
+    "MSY:dep": {
+     "19": 1
+    },
+    "MVY:arr": {},
+    "MVY:dep": {},
+    "ONT:arr": {
+     "25": 1
+    },
+    "ONT:dep": {
+     "26": 1
+    },
+    "PBI:arr": {
+     "20": 2
+    },
+    "PDX:arr": {
+     "25": 1
+    },
+    "PDX:dep": {
+     "26": 1
+    },
+    "PHL:arr": {
+     "18": 1
+    },
+    "PHL:dep": {
+     "18": 1
+    },
+    "PWM:arr": {
+     "19": 1
+    },
+    "PWM:dep": {
+     "20": 1
+    },
+    "RDU:arr": {
+     "20": 1
+    },
+    "RDU:dep": {
+     "21": 1
+    },
+    "RNO:arr": {
+     "26": 1
+    },
+    "RNO:dep": {
+     "26": 1
+    },
+    "ROC:arr": {
+     "23": 1
+    },
+    "RSW:dep": {},
+    "SAN:arr": {
+     "26": 1
+    },
+    "SAV:arr": {
+     "19": 1
+    },
+    "SAV:dep": {
+     "19": 1
+    },
+    "SEA:arr": {
+     "25": 1
+    },
+    "SEA:dep": {
+     "26": 1
+    },
+    "SFO:arr": {
+     "22": 1,
+     "26": 1
+    },
+    "SFO:dep": {},
+    "SJC:arr": {
+     "23": 1
+    },
+    "SJC:dep": {
+     "24": 1
+    },
+    "SJU:arr": {
+     "22": 1
+    },
+    "SJU:dep": {},
+    "SMF:arr": {
+     "24": 1
+    },
+    "SMF:dep": {
+     "26": 1
+    },
+    "SYR:arr": {
+     "23": 1
+    },
+    "TPA:arr": {
+     "20": 1
+    },
+    "TPA:dep": {
+     "21": 1
+    }
+   },
+   "changes": [
+    {
+     "id": 3,
+     "flight": "B6 186",
+     "orig": "JFK",
+     "dest": "ROC",
+     "action": "cancel",
+     "cancel": true,
+     "not_before": null,
+     "was": {
+      "cancel": false,
+      "not_before": null
+     }
+    },
+    {
+     "id": 11,
+     "flight": "B6 432",
+     "orig": "LGA",
+     "dest": "BOS",
+     "action": "cancel",
+     "cancel": true,
+     "not_before": null,
+     "was": {
+      "cancel": false,
+      "not_before": null
+     }
+    },
+    {
+     "id": 29,
+     "flight": "B6 1964",
+     "orig": "JFK",
+     "dest": "HYA",
+     "action": "cancel",
+     "cancel": true,
+     "not_before": null,
+     "was": {
+      "cancel": false,
+      "not_before": null
+     }
+    },
+    {
+     "id": 45,
+     "flight": "B6 731",
+     "orig": "BOS",
+     "dest": "LGA",
+     "action": "hold",
+     "cancel": false,
+     "not_before": 1209,
+     "was": {
+      "cancel": false,
+      "not_before": null
+     }
+    },
+    {
+     "id": 52,
+     "flight": "B6 1963",
+     "orig": "HYA",
+     "dest": "JFK",
+     "action": "cancel",
+     "cancel": true,
+     "not_before": null,
+     "was": {
+      "cancel": false,
+      "not_before": null
+     }
+    },
+    {
+     "id": 63,
+     "flight": "B6 1673",
+     "orig": "JFK",
+     "dest": "BNA",
+     "action": "hold",
+     "cancel": false,
+     "not_before": 1320,
+     "was": {
+      "cancel": false,
+      "not_before": null
+     }
+    },
+    {
+     "id": 73,
+     "flight": "B6 1185",
+     "orig": "JFK",
+     "dest": "RDU",
+     "action": "hold",
+     "cancel": false,
+     "not_before": 1328,
+     "was": {
+      "cancel": false,
+      "not_before": null
+     }
+    },
+    {
+     "id": 80,
+     "flight": "B6 1718",
+     "orig": "JFK",
+     "dest": "BOS",
+     "action": "hold",
+     "cancel": false,
+     "not_before": 1380,
+     "was": {
+      "cancel": false,
+      "not_before": null
+     }
+    },
+    {
+     "id": 103,
+     "flight": "B6 1674",
+     "orig": "BNA",
+     "dest": "JFK",
+     "action": "hold",
+     "cancel": false,
+     "not_before": 1529,
+     "was": {
+      "cancel": false,
+      "not_before": null
+     }
+    },
+    {
+     "id": 104,
+     "flight": "B6 283",
+     "orig": "JFK",
+     "dest": "MCO",
+     "action": "hold",
+     "cancel": false,
+     "not_before": 1499,
+     "was": {
+      "cancel": false,
+      "not_before": null
+     }
+    }
+   ],
+   "est_cost": 2023098,
+   "cost_known": {
+    "pax_delay": 1273617,
+    "cancel": 633353,
+    "ferry": 116128,
+    "total": 2023098
+   },
+   "counters": {
+    "cancelled": 13,
+    "auto_cancelled": 0,
+    "held": 30,
+    "delayed": 89,
+    "pax_delay": 1273617,
+    "pax_disrupted": 12155
+   },
+   "frozen": 0,
+   "projected": [
+    {
+     "id": 3,
+     "tail": null,
+     "status": "cancelled",
+     "dep": null,
+     "arr": null,
+     "arr_delay": null,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 11,
+     "tail": null,
+     "status": "cancelled",
+     "dep": null,
+     "arr": null,
+     "arr_delay": null,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 14,
+     "tail": "N2039J",
+     "status": "flown",
+     "dep": 851,
+     "arr": 1056,
+     "arr_delay": 30,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 15,
+     "tail": "N306JB",
+     "status": "flown",
+     "dep": 960,
+     "arr": 1037,
+     "arr_delay": 146,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 21,
+     "tail": "N190JB",
+     "status": "flown",
+     "dep": 900,
+     "arr": 1084,
+     "arr_delay": 60,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 22,
+     "tail": "N2016J",
+     "status": "flown",
+     "dep": 866,
+     "arr": 1058,
+     "arr_delay": 29,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 29,
+     "tail": null,
+     "status": "cancelled",
+     "dep": null,
+     "arr": null,
+     "arr_delay": null,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 39,
+     "tail": "N179JB",
+     "status": "flown",
+     "dep": 960,
+     "arr": 1140,
+     "arr_delay": 59,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 45,
+     "tail": "N274JB",
+     "status": "flown",
+     "dep": 1209,
+     "arr": 1298,
+     "arr_delay": 249,
+     "not_before": 1209,
+     "held": true
+    },
+    {
+     "id": 50,
+     "tail": "N957JB",
+     "status": "flown",
+     "dep": 1020,
+     "arr": 1208,
+     "arr_delay": 13,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 52,
+     "tail": null,
+     "status": "cancelled",
+     "dep": null,
+     "arr": null,
+     "arr_delay": null,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 63,
+     "tail": "N337JB",
+     "status": "flown",
+     "dep": 1320,
+     "arr": 1492,
+     "arr_delay": 249,
+     "not_before": 1320,
+     "held": true
+    },
+    {
+     "id": 66,
+     "tail": "N190JB",
+     "status": "flown",
+     "dep": 1140,
+     "arr": 1310,
+     "arr_delay": 50,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 67,
+     "tail": "N228JB",
+     "status": "flown",
+     "dep": 1090,
+     "arr": 1233,
+     "arr_delay": 0,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 69,
+     "tail": "N192JB",
+     "status": "flown",
+     "dep": 1095,
+     "arr": 1178,
+     "arr_delay": 0,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 73,
+     "tail": "N179JB",
+     "status": "flown",
+     "dep": 1380,
+     "arr": 1503,
+     "arr_delay": 265,
+     "not_before": 1328,
+     "held": true
+    },
+    {
+     "id": 76,
+     "tail": "N179JB",
+     "status": "flown",
+     "dep": 1177,
+     "arr": 1307,
+     "arr_delay": 47,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 80,
+     "tail": "N267JB",
+     "status": "flown",
+     "dep": 1380,
+     "arr": 1471,
+     "arr_delay": 225,
+     "not_before": 1380,
+     "held": true
+    },
+    {
+     "id": 83,
+     "tail": "N729JB",
+     "status": "flown",
+     "dep": 1200,
+     "arr": 1587,
+     "arr_delay": 30,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 90,
+     "tail": "N2016J",
+     "status": "flown",
+     "dep": 1380,
+     "arr": 1749,
+     "arr_delay": 180,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 93,
+     "tail": "N652JB",
+     "status": "flown",
+     "dep": 1380,
+     "arr": 1786,
+     "arr_delay": 170,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 98,
+     "tail": "N554JB",
+     "status": "flown",
+     "dep": 1255,
+     "arr": 1477,
+     "arr_delay": 59,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 103,
+     "tail": "N337JB",
+     "status": "flown",
+     "dep": 1529,
+     "arr": 1675,
+     "arr_delay": 244,
+     "not_before": 1529,
+     "held": true
+    },
+    {
+     "id": 104,
+     "tail": "N281JB",
+     "status": "flown",
+     "dep": 1554,
+     "arr": 1719,
+     "arr_delay": 259,
+     "not_before": 1499,
+     "held": true
+    },
+    {
+     "id": 114,
+     "tail": "N729JB",
+     "status": "flown",
+     "dep": 1636,
+     "arr": 1946,
+     "arr_delay": 28,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 116,
+     "tail": "N2016J",
+     "status": "flown",
+     "dep": 1798,
+     "arr": 2106,
+     "arr_delay": 179,
+     "not_before": null,
+     "held": false
+    }
+   ]
+  },
+  {
+   "t": 840,
+   "news": [
+    {
+     "id": "adv-0626-089",
+     "at": 787,
+     "kind": "advisory",
+     "speaker": "FAA Command Center",
+     "text": "ATCSCC ADVZY 089 LGA/ZNY 06/26/2023 CDM GROUND STOP\nCTL ELEMENT: LGA\nELEMENT TYPE: APT\nADL TIME: 1702Z\nGROUND STOP PERIOD: 26/1652Z - 26/1800Z\nCUMULATIVE PROGRAM PERIOD: 26/1500Z - 27/0359Z\nDEP FACILITIES INCLUDED: (Manual) ZAU ZTL ZDC ZNY ZOB ZBW ZID  CYHZ\n CYOW CYUL CYYZ CYTZ CYQB \nPREVIOUS TOTAL, MAXIMUM, AVERAGE DELAYS: 335 / 70 / 30\nNEW TOTAL, MAXIMUM, AVERAGE DELAYS: 779 / 159 / 71\nPROBABILITY OF EXTENSION: MEDIUM\nIMPACTING CONDITION: WEATHER / THUNDERSTORMS\nCOMMENTS: ZAU ZID AND ZTL ADDED TO CURRENT STOP. SIDEBAR AFTER\n PLANNING TELCON",
+     "data": {
+      "element": "LGA/ZNY",
+      "airport": "LGA",
+      "title": "CDM GROUND STOP",
+      "program": "gs",
+      "effective": "261707-261900",
+      "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=89"
+     }
+    },
+    {
+     "id": "adv-0626-091",
+     "at": 820,
+     "kind": "advisory",
+     "speaker": "FAA Command Center",
+     "text": "ATCSCC ADVZY 091 EWR/ZNY 06/26/2023 CDM GROUND DELAY PROGRAM\nCTL ELEMENT: EWR\nELEMENT TYPE: APT\nADL TIME: 1738Z\nDELAY ASSIGNMENT MODE: UDP\nARRIVALS ESTIMATED FOR: 26/1738Z - 27/0359Z\nCUMULATIVE PROGRAM PERIOD: 26/1600Z - 27/0359Z\nPROGRAM RATE: 22/16/20/24/24/28/28/28/28/28/28\nFLT INCL: ALL CONTIGUOUS US DEP\nDEP SCOPE: (ALL+CZY_AP) ZLA ZAU ZLC ZTL ZDC ZNY ZHU ZJX ZFW ZOB ZDV\n ZOA ZSE ZBW ZMA ZKC ZME ZID ZAB ZMP \nCANADIAN DEP ARPTS INCLUDED: CYHZ CYOW CYUL CYYZ CYTZ CYQB\nDELAY ASSIGNMENT TABLE APPLIES TO: ZNY\nMAXIMUM DELAY: 484\nAVERAGE DELAY: 170\nIMPACTING CONDITION: WEATHER / THUNDERSTORMS\nCOMMENTS: ARR 22L DEP 22R, LOW POP UP. GROUND STOP CANCELLED AC\n RELEASED ON EDCTS",
+     "data": {
+      "element": "EWR/ZNY",
+      "airport": "EWR",
+      "title": "CDM GROUND DELAY PROGRAM",
+      "program": "gdp",
+      "effective": "261739-270459",
+      "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=91"
+     }
+    },
+    {
+     "id": "taf-261740Z",
+     "at": 820,
+     "kind": "taf",
+     "speaker": "NWS New York (OKX)",
+     "text": "TAF\nKJFK 261740Z 2618/2724 16014KT 5SM -SHRA FEW015 BKN100\n      TEMPO 2618/2619 16015G25KT 2SM TSRA BR OVC030CB\n     FM270100 15010KT P6SM -SHRA BKN008 OVC025\n     FM270300 16009KT 5SM -SHRA BR BKN008\n     FM270600 16008KT 3SM BR BKN004\n     FM271200 17009KT P6SM BKN010\n     FM271500 17012KT P6SM -SHRA BKN035 PROB30 2715/2721 2SM TSRA\n      BKN025CB=\n\u0003",
+     "data": {
+      "station": "KJFK"
+     }
+    },
+    {
+     "id": "adv-0626-092",
+     "at": 822,
+     "kind": "advisory",
+     "speaker": "FAA Command Center",
+     "text": "ATCSCC ADVZY 092 ZNY 06/26/2023 ZNY EXTENDED FLIGHT PLAN DROP TIMES IMPLEMENTED\nEVENT TIME: 26/1730 - 27/0500\nCONSTRAINED FACILITIES: ZNY\nZNY HAS IMPLEMENTED EXTENDED FLIGHT PLAN DROP TIMES TO 180 MINUTES\nDUE TO WEATHER.\n\nNOTE: IF A GROUND STOP OR GROUND DELAY PROGRAM IS IN EFFECT,\nFLIGHT PLAN DROP TIMES ARE GENERATED FROM THE EDCT.",
+     "data": {
+      "element": "ZNY",
+      "airport": "ZNY",
+      "title": "ZNY EXTENDED FLIGHT PLAN DROP TIMES IMPLEMENTED",
+      "program": "other",
+      "effective": "261742-270530",
+      "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=92"
+     }
+    }
+   ],
+   "caps_known": {
+    "ABQ:arr": {
+     "24": 1
+    },
+    "ABQ:dep": {
+     "25": 1
+    },
+    "ACK:arr": {},
+    "ACK:dep": {},
+    "ATL:arr": {
+     "23": 1
+    },
+    "ATL:dep": {},
+    "BNA:arr": {
+     "20": 1
+    },
+    "BNA:dep": {
+     "21": 1
+    },
+    "BOS:arr": {
+     "13": 0,
+     "14": 0,
+     "15": 4,
+     "16": 0,
+     "17": 4,
+     "18": 0,
+     "19": 1,
+     "20": 3,
+     "22": 2
+    },
+    "BOS:dep": {
+     "13": 0,
+     "14": 0,
+     "15": 2,
+     "16": 1,
+     "17": 0,
+     "18": 4
+    },
+    "BUF:arr": {
+     "21": 1
+    },
+    "BUF:dep": {
+     "19": 1
+    },
+    "BUR:arr": {
+     "23": 1
+    },
+    "BUR:dep": {
+     "24": 1
+    },
+    "CHS:arr": {},
+    "CHS:dep": {},
+    "DCA:arr": {},
+    "DCA:dep": {},
+    "DEN:arr": {},
+    "DEN:dep": {},
+    "DTW:arr": {
+     "23": 1
+    },
+    "DTW:dep": {},
+    "EWR:arr": {
+     "13": 0,
+     "14": 1,
+     "15": 0,
+     "16": 0,
+     "17": 0,
+     "18": 0,
+     "23": 1
+    },
+    "EWR:dep": {
+     "13": 0,
+     "14": 0,
+     "15": 1,
+     "16": 0,
+     "17": 0,
+     "18": 0
+    },
+    "FLL:arr": {
+     "20": 1,
+     "30": 1
+    },
+    "FLL:dep": {
+     "20": 1,
+     "21": 1
+    },
+    "HPN:arr": {
+     "20": 1,
+     "23": 1
+    },
+    "HYA:arr": {},
+    "HYA:dep": {},
+    "IAH:dep": {},
+    "JAX:arr": {},
+    "JAX:dep": {
+     "19": 1
+    },
+    "JFK:arr": {
+     "13": 0,
+     "14": 0,
+     "15": 1,
+     "16": 3,
+     "17": 4,
+     "18": 2,
+     "19": 5,
+     "20": 1,
+     "21": 6,
+     "22": 4,
+     "23": 2,
+     "24": 2,
+     "29": 2,
+     "30": 1,
+     "31": 3,
+     "32": 3
+    },
+    "JFK:dep": {
+     "13": 0,
+     "14": 0,
+     "15": 5,
+     "16": 5,
+     "17": 5,
+     "18": 4,
+     "19": 5,
+     "20": 5,
+     "21": 3,
+     "22": 1
+    },
+    "LAS:arr": {
+     "23": 1
+    },
+    "LAS:dep": {},
+    "LAX:arr": {
+     "22": 1,
+     "25": 1,
+     "26": 1
+    },
+    "LAX:dep": {
+     "25": 1,
+     "26": 1
+    },
+    "LGA:arr": {
+     "13": 0,
+     "14": 0,
+     "15": 0,
+     "16": 1,
+     "17": 0,
+     "18": 0
+    },
+    "LGA:dep": {
+     "13": 1,
+     "14": 2,
+     "15": 0,
+     "16": 0,
+     "17": 0,
+     "18": 0,
+     "20": 1
+    },
+    "MCI:arr": {},
+    "MCI:dep": {
+     "19": 1
+    },
+    "MCO:arr": {
+     "19": 1,
+     "21": 1,
+     "24": 1
+    },
+    "MCO:dep": {
+     "19": 1,
+     "20": 1
+    },
+    "MIA:arr": {
+     "20": 1
+    },
+    "MIA:dep": {
+     "21": 1
+    },
+    "MKE:arr": {},
+    "MKE:dep": {},
+    "MSY:arr": {},
+    "MSY:dep": {
+     "19": 1
+    },
+    "MVY:arr": {},
+    "MVY:dep": {},
+    "ONT:arr": {
+     "25": 1
+    },
+    "ONT:dep": {
+     "26": 1
+    },
+    "PBI:arr": {
+     "20": 2
+    },
+    "PDX:arr": {
+     "25": 1
+    },
+    "PDX:dep": {
+     "26": 1
+    },
+    "PHL:arr": {},
+    "PHL:dep": {},
+    "PWM:arr": {
+     "19": 1
+    },
+    "PWM:dep": {
+     "20": 1
+    },
+    "RDU:arr": {
+     "20": 1
+    },
+    "RDU:dep": {
+     "21": 1
+    },
+    "RNO:arr": {
+     "26": 1
+    },
+    "RNO:dep": {
+     "26": 1
+    },
+    "ROC:arr": {
+     "23": 1
+    },
+    "RSW:dep": {},
+    "SAN:arr": {
+     "26": 1
+    },
+    "SAV:arr": {
+     "19": 1
+    },
+    "SAV:dep": {
+     "19": 1
+    },
+    "SEA:arr": {
+     "25": 1
+    },
+    "SEA:dep": {
+     "26": 1
+    },
+    "SFO:arr": {
+     "22": 1,
+     "26": 1
+    },
+    "SFO:dep": {},
+    "SJC:arr": {
+     "23": 1
+    },
+    "SJC:dep": {
+     "24": 1
+    },
+    "SJU:arr": {
+     "22": 1
+    },
+    "SJU:dep": {},
+    "SMF:arr": {
+     "24": 1
+    },
+    "SMF:dep": {
+     "26": 1
+    },
+    "SYR:arr": {
+     "23": 1
+    },
+    "TPA:arr": {
+     "20": 1
+    },
+    "TPA:dep": {
+     "21": 1
+    }
+   },
+   "changes": [
+    {
+     "id": 15,
+     "flight": "B6 1618",
+     "orig": "JFK",
+     "dest": "BOS",
+     "action": "cancel",
+     "cancel": true,
+     "not_before": null,
+     "was": {
+      "cancel": false,
+      "not_before": null
+     }
+    },
+    {
+     "id": 45,
+     "flight": "B6 731",
+     "orig": "BOS",
+     "dest": "LGA",
+     "action": "cancel",
+     "cancel": true,
+     "not_before": null,
+     "was": {
+      "cancel": false,
+      "not_before": 1209
+     }
+    },
+    {
+     "id": 63,
+     "flight": "B6 1673",
+     "orig": "JFK",
+     "dest": "BNA",
+     "action": "release",
+     "cancel": false,
+     "not_before": null,
+     "was": {
+      "cancel": false,
+      "not_before": 1320
+     }
+    },
+    {
+     "id": 73,
+     "flight": "B6 1185",
+     "orig": "JFK",
+     "dest": "RDU",
+     "action": "hold",
+     "cancel": false,
+     "not_before": 1320,
+     "was": {
+      "cancel": false,
+      "not_before": 1328
+     }
+    },
+    {
+     "id": 76,
+     "flight": "B6 1274",
+     "orig": "CHS",
+     "dest": "JFK",
+     "action": "hold",
+     "cancel": false,
+     "not_before": 1250,
+     "was": {
+      "cancel": false,
+      "not_before": null
+     }
+    },
+    {
+     "id": 80,
+     "flight": "B6 1718",
+     "orig": "JFK",
+     "dest": "BOS",
+     "action": "hold",
+     "cancel": false,
+     "not_before": 1422,
+     "was": {
+      "cancel": false,
+      "not_before": 1380
+     }
+    },
+    {
+     "id": 103,
+     "flight": "B6 1674",
+     "orig": "BNA",
+     "dest": "JFK",
+     "action": "release",
+     "cancel": false,
+     "not_before": null,
+     "was": {
+      "cancel": false,
+      "not_before": 1529
+     }
+    },
+    {
+     "id": 104,
+     "flight": "B6 283",
+     "orig": "JFK",
+     "dest": "MCO",
+     "action": "hold",
+     "cancel": false,
+     "not_before": 1417,
+     "was": {
+      "cancel": false,
+      "not_before": 1499
+     }
+    }
+   ],
+   "est_cost": 2110942,
+   "cost_known": {
+    "pax_delay": 1145464,
+    "cancel": 881778,
+    "ferry": 83700,
+    "total": 2110942
+   },
+   "counters": {
+    "cancelled": 18,
+    "auto_cancelled": 0,
+    "held": 26,
+    "delayed": 80,
+    "pax_delay": 1145464,
+    "pax_disrupted": 11595
+   },
+   "frozen": 23,
+   "projected": [
+    {
+     "id": 3,
+     "tail": null,
+     "status": "cancelled",
+     "dep": null,
+     "arr": null,
+     "arr_delay": null,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 11,
+     "tail": null,
+     "status": "cancelled",
+     "dep": null,
+     "arr": null,
+     "arr_delay": null,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 14,
+     "tail": "N2039J",
+     "status": "flown",
+     "dep": 851,
+     "arr": 1056,
+     "arr_delay": 30,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 15,
+     "tail": null,
+     "status": "cancelled",
+     "dep": null,
+     "arr": null,
+     "arr_delay": null,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 21,
+     "tail": "N190JB",
+     "status": "flown",
+     "dep": 900,
+     "arr": 1084,
+     "arr_delay": 60,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 22,
+     "tail": "N2016J",
+     "status": "flown",
+     "dep": 866,
+     "arr": 1058,
+     "arr_delay": 29,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 29,
+     "tail": null,
+     "status": "cancelled",
+     "dep": null,
+     "arr": null,
+     "arr_delay": null,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 39,
+     "tail": "N274JB",
+     "status": "flown",
+     "dep": 1029,
+     "arr": 1209,
+     "arr_delay": 128,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 45,
+     "tail": null,
+     "status": "cancelled",
+     "dep": null,
+     "arr": null,
+     "arr_delay": null,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 50,
+     "tail": "N834JB",
+     "status": "flown",
+     "dep": 1020,
+     "arr": 1208,
+     "arr_delay": 13,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 52,
+     "tail": null,
+     "status": "cancelled",
+     "dep": null,
+     "arr": null,
+     "arr_delay": null,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 63,
+     "tail": "N239JB",
+     "status": "flown",
+     "dep": 1140,
+     "arr": 1312,
+     "arr_delay": 69,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 66,
+     "tail": "N190JB",
+     "status": "flown",
+     "dep": 1121,
+     "arr": 1291,
+     "arr_delay": 31,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 67,
+     "tail": "N198JB",
+     "status": "flown",
+     "dep": 1090,
+     "arr": 1233,
+     "arr_delay": 0,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 69,
+     "tail": "N192JB",
+     "status": "flown",
+     "dep": 1140,
+     "arr": 1223,
+     "arr_delay": 45,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 73,
+     "tail": "N281JB",
+     "status": "flown",
+     "dep": 1320,
+     "arr": 1443,
+     "arr_delay": 205,
+     "not_before": 1320,
+     "held": true
+    },
+    {
+     "id": 76,
+     "tail": "N274JB",
+     "status": "flown",
+     "dep": 1250,
+     "arr": 1380,
+     "arr_delay": 120,
+     "not_before": 1250,
+     "held": true
+    },
+    {
+     "id": 80,
+     "tail": "N274JB",
+     "status": "flown",
+     "dep": 1422,
+     "arr": 1513,
+     "arr_delay": 267,
+     "not_before": 1422,
+     "held": true
+    },
+    {
+     "id": 83,
+     "tail": "N587JB",
+     "status": "flown",
+     "dep": 1200,
+     "arr": 1587,
+     "arr_delay": 30,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 90,
+     "tail": "N2039J",
+     "status": "flown",
+     "dep": 1260,
+     "arr": 1629,
+     "arr_delay": 60,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 93,
+     "tail": "N2016J",
+     "status": "flown",
+     "dep": 1380,
+     "arr": 1786,
+     "arr_delay": 170,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 98,
+     "tail": "N645JB",
+     "status": "flown",
+     "dep": 1255,
+     "arr": 1477,
+     "arr_delay": 59,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 103,
+     "tail": "N239JB",
+     "status": "flown",
+     "dep": 1380,
+     "arr": 1526,
+     "arr_delay": 95,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 104,
+     "tail": "N306JB",
+     "status": "flown",
+     "dep": 1417,
+     "arr": 1582,
+     "arr_delay": 122,
+     "not_before": 1417,
+     "held": true
+    },
+    {
+     "id": 114,
+     "tail": "N587JB",
+     "status": "flown",
+     "dep": 1636,
+     "arr": 1946,
+     "arr_delay": 28,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 116,
+     "tail": "N2039J",
+     "status": "flown",
+     "dep": 1678,
+     "arr": 1986,
+     "arr_delay": 59,
+     "not_before": null,
+     "held": false
+    }
+   ]
+  },
+  {
+   "t": 900,
+   "news": [
+    {
+     "id": "adv-0626-094",
+     "at": 843,
+     "kind": "advisory",
+     "speaker": "FAA Command Center",
+     "text": "ATCSCC ADVZY 094 N90/ZNY 06/26/2023 NY METRO AIRPORT DIVERSION RECOVERY\nEVENT TIME: 26/1800 - 0300\nTHE ATCSCC HAS ACTIVATED THE DIVERSION RECOVERY TOOL \nFOR THE NY METRO AIRPORTS.  CUSTOMERS SHOULD ENSURE THAT DVRSN IS\nINCLUDED IN FLIGHT PLAN REMARKS OF DIVERTED AIRCRAFT.  \nNOTE THAT IF THERE IS A GROUND DELAY PROGRAM OR GROUND STOP\nIN EFFECT FOR THE DESTINATION AIRPORT DIVERTED FLIGHTS ARE\nNOT AUTOMATICALLY EXEMPT AND WILL STILL RECEIVE AN EDCT.",
+     "data": {
+      "element": "N90/ZNY",
+      "airport": "N90",
+      "title": "NY METRO AIRPORT DIVERSION RECOVERY",
+      "program": "other",
+      "effective": "261803-270330",
+      "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=94"
+     }
+    },
+    {
+     "id": "adv-0626-096",
+     "at": 852,
+     "kind": "advisory",
+     "speaker": "FAA Command Center",
+     "text": "ATCSCC ADVZY 096 JFK/ZNY 06/26/2023 JFK GROUND STOP\nEVENT TIME: 26/1800 - 1915\nCONSTRAINED FACILITIES: ZNY\nFACILITIES INCLUDED: CZY\nREASON: JFK GROUNDSTOP EXTENDED FOR CZY UPDATE 1915Z DUE TO NO\nROUTES. \n\n****CYYZ AC ON ROUTE THROUGH ZOB EXEMPT",
+     "data": {
+      "element": "JFK/ZNY",
+      "airport": "JFK",
+      "title": "JFK GROUND STOP",
+      "program": "gs",
+      "effective": "261812-261945",
+      "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=96"
+     }
+    },
+    {
+     "id": "adv-0626-098",
+     "at": 859,
+     "kind": "advisory",
+     "speaker": "FAA Command Center",
+     "text": "ATCSCC ADVZY 098 EWR/ZNY 06/26/2023 CDM GROUND STOP\nCTL ELEMENT: EWR\nELEMENT TYPE: APT\nADL TIME: 1815Z\nGROUND STOP PERIOD: 26/1805Z - 26/2000Z\nCUMULATIVE PROGRAM PERIOD: 26/1600Z - 27/0359Z\nDEP FACILITIES INCLUDED: (Manual) ZBW  CYHZ CYOW CYUL CYYZ CYTZ CYQB\n \nPREVIOUS TOTAL, MAXIMUM, AVERAGE DELAYS: 712 / 279 / 237\nNEW TOTAL, MAXIMUM, AVERAGE DELAYS: 1014 / 411 / 338\nPROBABILITY OF EXTENSION: HIGH\nIMPACTING CONDITION: WEATHER / THUNDERSTORMS\nCOMMENTS: CYYZ ON ROUTE THROUGH ZOB EXEMPT.",
+     "data": {
+      "element": "EWR/ZNY",
+      "airport": "EWR",
+      "title": "CDM GROUND STOP",
+      "program": "gs",
+      "effective": "261818-262100",
+      "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=98"
+     }
+    },
+    {
+     "id": "adv-0626-099",
+     "at": 861,
+     "kind": "advisory",
+     "speaker": "FAA Command Center",
+     "text": "ATCSCC ADVZY 099 LGA/ZNY 06/26/2023 CDM GROUND STOP\nCTL ELEMENT: LGA\nELEMENT TYPE: APT\nADL TIME: 1817Z\nGROUND STOP PERIOD: 26/1807Z - 26/2000Z\nCUMULATIVE PROGRAM PERIOD: 26/1500Z - 27/0359Z\nDEP FACILITIES INCLUDED: (Manual) ZBW  CYHZ CYOW CYUL CYYZ CYTZ CYQB\n \nPREVIOUS TOTAL, MAXIMUM, AVERAGE DELAYS: 1102 / 239 / 138\nNEW TOTAL, MAXIMUM, AVERAGE DELAYS: 1607 / 350 / 201\nPROBABILITY OF EXTENSION: HIGH\nIMPACTING CONDITION: WEATHER / THUNDERSTORMS\nCOMMENTS: CYYZ ON ZOB ROUTE EXEMPT",
+     "data": {
+      "element": "LGA/ZNY",
+      "airport": "LGA",
+      "title": "CDM GROUND STOP",
+      "program": "gs",
+      "effective": "261821-262100",
+      "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=99"
+     }
+    }
+   ],
+   "caps_known": {
+    "ABQ:arr": {
+     "24": 1
+    },
+    "ABQ:dep": {
+     "25": 1
+    },
+    "ACK:arr": {},
+    "ACK:dep": {},
+    "ATL:arr": {
+     "23": 1
+    },
+    "ATL:dep": {},
+    "BNA:arr": {
+     "20": 1
+    },
+    "BNA:dep": {
+     "21": 1
+    },
+    "BOS:arr": {
+     "13": 0,
+     "14": 0,
+     "15": 4,
+     "16": 0,
+     "17": 4,
+     "18": 0,
+     "19": 0,
+     "20": 3,
+     "22": 2
+    },
+    "BOS:dep": {
+     "13": 0,
+     "14": 0,
+     "15": 2,
+     "16": 1,
+     "17": 0,
+     "18": 4,
+     "19": 1
+    },
+    "BUF:arr": {
+     "21": 1
+    },
+    "BUF:dep": {},
+    "BUR:arr": {
+     "23": 1
+    },
+    "BUR:dep": {
+     "24": 1
+    },
+    "CHS:arr": {},
+    "CHS:dep": {},
+    "DCA:arr": {},
+    "DCA:dep": {},
+    "DEN:arr": {},
+    "DEN:dep": {},
+    "DTW:arr": {
+     "23": 1
+    },
+    "DTW:dep": {},
+    "EWR:arr": {
+     "13": 0,
+     "14": 1,
+     "15": 0,
+     "16": 0,
+     "17": 0,
+     "18": 0,
+     "19": 1,
+     "23": 1
+    },
+    "EWR:dep": {
+     "13": 0,
+     "14": 0,
+     "15": 1,
+     "16": 0,
+     "17": 0,
+     "18": 0,
+     "19": 0
+    },
+    "FLL:arr": {
+     "20": 1,
+     "30": 1
+    },
+    "FLL:dep": {
+     "20": 1,
+     "21": 1
+    },
+    "HPN:arr": {
+     "20": 1,
+     "23": 1
+    },
+    "HYA:arr": {},
+    "HYA:dep": {},
+    "IAH:dep": {},
+    "JAX:arr": {},
+    "JAX:dep": {},
+    "JFK:arr": {
+     "13": 0,
+     "14": 0,
+     "15": 1,
+     "16": 3,
+     "17": 4,
+     "18": 2,
+     "19": 5,
+     "20": 1,
+     "21": 6,
+     "22": 4,
+     "23": 2,
+     "24": 2,
+     "29": 2,
+     "30": 1,
+     "31": 3,
+     "32": 3
+    },
+    "JFK:dep": {
+     "13": 0,
+     "14": 0,
+     "15": 5,
+     "16": 5,
+     "17": 5,
+     "18": 4,
+     "19": 4,
+     "20": 5,
+     "21": 3,
+     "22": 1
+    },
+    "LAS:arr": {
+     "23": 1
+    },
+    "LAS:dep": {},
+    "LAX:arr": {
+     "22": 1,
+     "25": 1,
+     "26": 1
+    },
+    "LAX:dep": {
+     "25": 1,
+     "26": 1
+    },
+    "LGA:arr": {
+     "13": 0,
+     "14": 0,
+     "15": 0,
+     "16": 1,
+     "17": 0,
+     "18": 0,
+     "19": 1
+    },
+    "LGA:dep": {
+     "13": 1,
+     "14": 2,
+     "15": 0,
+     "16": 0,
+     "17": 0,
+     "18": 0,
+     "19": 1,
+     "20": 1
+    },
+    "MCI:arr": {},
+    "MCI:dep": {},
+    "MCO:arr": {
+     "21": 1,
+     "24": 1
+    },
+    "MCO:dep": {
+     "20": 1
+    },
+    "MIA:arr": {
+     "20": 1
+    },
+    "MIA:dep": {
+     "21": 1
+    },
+    "MKE:arr": {},
+    "MKE:dep": {},
+    "MSY:arr": {},
+    "MSY:dep": {},
+    "MVY:arr": {},
+    "MVY:dep": {},
+    "ONT:arr": {
+     "25": 1
+    },
+    "ONT:dep": {
+     "26": 1
+    },
+    "PBI:arr": {
+     "20": 2
+    },
+    "PDX:arr": {
+     "25": 1
+    },
+    "PDX:dep": {
+     "26": 1
+    },
+    "PHL:arr": {},
+    "PHL:dep": {},
+    "PWM:arr": {},
+    "PWM:dep": {
+     "20": 1
+    },
+    "RDU:arr": {
+     "20": 1
+    },
+    "RDU:dep": {
+     "21": 1
+    },
+    "RNO:arr": {
+     "26": 1
+    },
+    "RNO:dep": {
+     "26": 1
+    },
+    "ROC:arr": {
+     "23": 1
+    },
+    "RSW:dep": {},
+    "SAN:arr": {
+     "26": 1
+    },
+    "SAV:arr": {},
+    "SAV:dep": {},
+    "SEA:arr": {
+     "25": 1
+    },
+    "SEA:dep": {
+     "26": 1
+    },
+    "SFO:arr": {
+     "22": 1,
+     "26": 1
+    },
+    "SFO:dep": {},
+    "SJC:arr": {
+     "23": 1
+    },
+    "SJC:dep": {
+     "24": 1
+    },
+    "SJU:arr": {
+     "22": 1
+    },
+    "SJU:dep": {},
+    "SMF:arr": {
+     "24": 1
+    },
+    "SMF:dep": {
+     "26": 1
+    },
+    "SYR:arr": {
+     "23": 1
+    },
+    "TPA:arr": {
+     "20": 1
+    },
+    "TPA:dep": {
+     "21": 1
+    }
+   },
+   "changes": [
+    {
+     "id": 45,
+     "flight": "B6 731",
+     "orig": "BOS",
+     "dest": "LGA",
+     "action": "restore",
+     "cancel": false,
+     "not_before": null,
+     "was": {
+      "cancel": true,
+      "not_before": null
+     }
+    },
+    {
+     "id": 63,
+     "flight": "B6 1673",
+     "orig": "JFK",
+     "dest": "BNA",
+     "action": "hold",
+     "cancel": false,
+     "not_before": 1320,
+     "was": {
+      "cancel": false,
+      "not_before": null
+     }
+    },
+    {
+     "id": 73,
+     "flight": "B6 1185",
+     "orig": "JFK",
+     "dest": "RDU",
+     "action": "hold",
+     "cancel": false,
+     "not_before": 1325,
+     "was": {
+      "cancel": false,
+      "not_before": 1320
+     }
+    },
+    {
+     "id": 76,
+     "flight": "B6 1274",
+     "orig": "CHS",
+     "dest": "JFK",
+     "action": "release",
+     "cancel": false,
+     "not_before": null,
+     "was": {
+      "cancel": false,
+      "not_before": 1250
+     }
+    },
+    {
+     "id": 80,
+     "flight": "B6 1718",
+     "orig": "JFK",
+     "dest": "BOS",
+     "action": "hold",
+     "cancel": false,
+     "not_before": 1440,
+     "was": {
+      "cancel": false,
+      "not_before": 1422
+     }
+    },
+    {
+     "id": 103,
+     "flight": "B6 1674",
+     "orig": "BNA",
+     "dest": "JFK",
+     "action": "hold",
+     "cancel": false,
+     "not_before": 1529,
+     "was": {
+      "cancel": false,
+      "not_before": null
+     }
+    },
+    {
+     "id": 104,
+     "flight": "B6 283",
+     "orig": "JFK",
+     "dest": "MCO",
+     "action": "hold",
+     "cancel": false,
+     "not_before": 1477,
+     "was": {
+      "cancel": false,
+      "not_before": 1417
+     }
+    }
+   ],
+   "est_cost": 2170686,
+   "cost_known": {
+    "pax_delay": 1247763,
+    "cancel": 837323,
+    "ferry": 85600,
+    "total": 2170686
+   },
+   "counters": {
+    "cancelled": 17,
+    "auto_cancelled": 0,
+    "held": 19,
+    "delayed": 80,
+    "pax_delay": 1247763,
+    "pax_disrupted": 11330
+   },
+   "frozen": 35,
+   "projected": [
+    {
+     "id": 3,
+     "tail": null,
+     "status": "cancelled",
+     "dep": null,
+     "arr": null,
+     "arr_delay": null,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 11,
+     "tail": null,
+     "status": "cancelled",
+     "dep": null,
+     "arr": null,
+     "arr_delay": null,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 14,
+     "tail": "N2039J",
+     "status": "flown",
+     "dep": 851,
+     "arr": 1056,
+     "arr_delay": 30,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 15,
+     "tail": null,
+     "status": "cancelled",
+     "dep": null,
+     "arr": null,
+     "arr_delay": null,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 21,
+     "tail": "N190JB",
+     "status": "flown",
+     "dep": 900,
+     "arr": 1084,
+     "arr_delay": 60,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 22,
+     "tail": "N2016J",
+     "status": "flown",
+     "dep": 866,
+     "arr": 1058,
+     "arr_delay": 29,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 29,
+     "tail": null,
+     "status": "cancelled",
+     "dep": null,
+     "arr": null,
+     "arr_delay": null,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 39,
+     "tail": "N179JB",
+     "status": "flown",
+     "dep": 1027,
+     "arr": 1207,
+     "arr_delay": 126,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 45,
+     "tail": "N192JB",
+     "status": "flown",
+     "dep": 1260,
+     "arr": 1349,
+     "arr_delay": 300,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 50,
+     "tail": "N972JT",
+     "status": "flown",
+     "dep": 1140,
+     "arr": 1328,
+     "arr_delay": 133,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 52,
+     "tail": null,
+     "status": "cancelled",
+     "dep": null,
+     "arr": null,
+     "arr_delay": null,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 63,
+     "tail": "N337JB",
+     "status": "flown",
+     "dep": 1380,
+     "arr": 1552,
+     "arr_delay": 309,
+     "not_before": 1320,
+     "held": true
+    },
+    {
+     "id": 66,
+     "tail": "N337JB",
+     "status": "flown",
+     "dep": 1090,
+     "arr": 1260,
+     "arr_delay": 0,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 67,
+     "tail": "N198JB",
+     "status": "flown",
+     "dep": 1090,
+     "arr": 1233,
+     "arr_delay": 0,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 69,
+     "tail": "N192JB",
+     "status": "flown",
+     "dep": 1140,
+     "arr": 1223,
+     "arr_delay": 45,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 73,
+     "tail": "N274JB",
+     "status": "flown",
+     "dep": 1380,
+     "arr": 1503,
+     "arr_delay": 265,
+     "not_before": 1325,
+     "held": true
+    },
+    {
+     "id": 76,
+     "tail": "N179JB",
+     "status": "flown",
+     "dep": 1244,
+     "arr": 1374,
+     "arr_delay": 114,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 80,
+     "tail": "N179JB",
+     "status": "flown",
+     "dep": 1440,
+     "arr": 1531,
+     "arr_delay": 285,
+     "not_before": 1440,
+     "held": true
+    },
+    {
+     "id": 83,
+     "tail": "N729JB",
+     "status": "flown",
+     "dep": 1200,
+     "arr": 1587,
+     "arr_delay": 30,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 90,
+     "tail": "N763JB",
+     "status": "flown",
+     "dep": 1260,
+     "arr": 1629,
+     "arr_delay": 60,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 93,
+     "tail": "N968JT",
+     "status": "flown",
+     "dep": 1260,
+     "arr": 1666,
+     "arr_delay": 50,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 98,
+     "tail": "N972JT",
+     "status": "flown",
+     "dep": 1377,
+     "arr": 1599,
+     "arr_delay": 181,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 103,
+     "tail": "N337JB",
+     "status": "flown",
+     "dep": 1589,
+     "arr": 1735,
+     "arr_delay": 304,
+     "not_before": 1529,
+     "held": true
+    },
+    {
+     "id": 104,
+     "tail": "N281JB",
+     "status": "flown",
+     "dep": 1487,
+     "arr": 1652,
+     "arr_delay": 192,
+     "not_before": 1477,
+     "held": true
+    },
+    {
+     "id": 114,
+     "tail": "N729JB",
+     "status": "flown",
+     "dep": 1636,
+     "arr": 1946,
+     "arr_delay": 28,
+     "not_before": null,
+     "held": false
+    },
+    {
+     "id": 116,
+     "tail": "N763JB",
+     "status": "flown",
+     "dep": 1678,
+     "arr": 1986,
+     "arr_delay": 59,
+     "not_before": null,
+     "held": false
+    }
+   ]
+  }
+ ],
+ "steps": [
+  {
+   "t": 780,
+   "tool": "get_situation",
+   "args": {},
+   "result": "Watch 1 at 13:00: 21 advisories, 10 METARs, 6 TAFs. 13 cancelled, 30 held; cost as known 2,023,098 pax-min."
+  },
+  {
+   "t": 780,
+   "tool": "submit_plan",
+   "args": {
+    "plan": {
+     "0": {
+      "cancel": true,
+      "not_before": null
+     },
+     "1": {
+      "cancel": true,
+      "not_before": null
+     },
+     "2": {
+      "cancel": true,
+      "not_before": null
+     },
+     "3": {
+      "cancel": true,
+      "not_before": null
+     },
+     "9": {
+      "cancel": true,
+      "not_before": null
+     },
+     "11": {
+      "cancel": true,
+      "not_before": null
+     },
+     "12": {
+      "cancel": true,
+      "not_before": null
+     },
+     "13": {
+      "cancel": false,
+      "not_before": 888
+     },
+     "16": {
+      "cancel": false,
+      "not_before": 829
+     },
+     "18": {
+      "cancel": true,
+      "not_before": null
+     },
+     "19": {
+      "cancel": false,
+      "not_before": 859
+     },
+     "20": {
+      "cancel": false,
+      "not_before": 894
+     },
+     "25": {
+      "cancel": false,
+      "not_before": 901
+     },
+     "26": {
+      "cancel": true,
+      "not_before": null
+     },
+     "28": {
+      "cancel": true,
+      "not_before": null
+     },
+     "29": {
+      "cancel": true,
+      "not_before": null
+     },
+     "31": {
+      "cancel": false,
+      "not_before": 916
+     },
+     "32": {
+      "cancel": false,
+      "not_before": 1029
+     },
+     "33": {
+      "cancel": true,
+      "not_before": null
+     },
+     "38": {
+      "cancel": false,
+      "not_before": 1080
+     },
+     "45": {
+      "cancel": false,
+      "not_before": 1209
+     },
+     "46": {
+      "cancel": false,
+      "not_before": 1087
+     },
+     "47": {
+      "cancel": false,
+      "not_before": 1140
+     },
+     "52": {
+      "cancel": true,
+      "not_before": null
+     },
+     "55": {
+      "cancel": false,
+      "not_before": 1200
+     },
+     "58": {
+      "cancel": false,
+      "not_before": 1260
+     },
+     "62": {
+      "cancel": false,
+      "not_before": 1260
+     },
+     "63": {
+      "cancel": false,
+      "not_before": 1320
+     },
+     "72": {
+      "cancel": false,
+      "not_before": 1260
+     },
+     "73": {
+      "cancel": false,
+      "not_before": 1328
+     },
+     "75": {
+      "cancel": false,
+      "not_before": 1228
+     },
+     "80": {
+      "cancel": false,
+      "not_before": 1380
+     },
+     "82": {
+      "cancel": false,
+      "not_before": 1260
+     },
+     "84": {
+      "cancel": false,
+      "not_before": 1257
+     },
+     "88": {
+      "cancel": false,
+      "not_before": 1332
+     },
+     "89": {
+      "cancel": false,
+      "not_before": 1346
+     },
+     "91": {
+      "cancel": false,
+      "not_before": 1418
+     },
+     "92": {
+      "cancel": false,
+      "not_before": 1393
+     },
+     "100": {
+      "cancel": false,
+      "not_before": 1488
+     },
+     "103": {
+      "cancel": false,
+      "not_before": 1529
+     },
+     "104": {
+      "cancel": false,
+      "not_before": 1499
+     },
+     "105": {
+      "cancel": false,
+      "not_before": 1477
+     },
+     "107": {
+      "cancel": false,
+      "not_before": 1507
+     },
+     "117": {
+      "cancel": false,
+      "not_before": 1688
+     }
+    }
+   },
+   "result": {
+    "accepted": 44,
+    "est_cost": 2023098,
+    "cancelled": 13,
+    "auto_cancelled": 0,
+    "held": 30,
+    "delayed": 89,
+    "pax_delay": 1273617,
+    "pax_disrupted": 12155
+   }
+  },
+  {
+   "t": 780,
+   "tool": "advance",
+   "args": {},
+   "result": "Clock moves to 14:00."
+  },
+  {
+   "t": 840,
+   "tool": "get_situation",
+   "args": {},
+   "result": "Watch 2 at 14:00: 4 advisories, 1 METAR, 2 TAFs. 18 cancelled, 26 held; cost as known 2,110,942 pax-min."
+  },
+  {
+   "t": 840,
+   "tool": "submit_plan",
+   "args": {
+    "plan": {
+     "15": {
+      "cancel": true,
+      "not_before": null
+     },
+     "32": {
+      "cancel": false,
+      "not_before": null
+     },
+     "33": {
+      "cancel": false,
+      "not_before": null
+     },
+     "35": {
+      "cancel": false,
+      "not_before": 1065
+     },
+     "40": {
+      "cancel": true,
+      "not_before": null
+     },
+     "41": {
+      "cancel": true,
+      "not_before": null
+     },
+     "43": {
+      "cancel": false,
+      "not_before": 979
+     },
+     "45": {
+      "cancel": true,
+      "not_before": null
+     },
+     "46": {
+      "cancel": false,
+      "not_before": null
+     },
+     "47": {
+      "cancel": false,
+      "not_before": null
+     },
+     "54": {
+      "cancel": true,
+      "not_before": null
+     },
+     "55": {
+      "cancel": false,
+      "not_before": 1363
+     },
+     "58": {
+      "cancel": false,
+      "not_before": 1140
+     },
+     "60": {
+      "cancel": true,
+      "not_before": null
+     },
+     "63": {
+      "cancel": false,
+      "not_before": null
+     },
+     "73": {
+      "cancel": false,
+      "not_before": 1320
+     },
+     "75": {
+      "cancel": false,
+      "not_before": null
+     },
+     "76": {
+      "cancel": false,
+      "not_before": 1250
+     },
+     "79": {
+      "cancel": false,
+      "not_before": 1261
+     },
+     "80": {
+      "cancel": false,
+      "not_before": 1422
+     },
+     "82": {
+      "cancel": false,
+      "not_before": null
+     },
+     "86": {
+      "cancel": false,
+      "not_before": 1395
+     },
+     "88": {
+      "cancel": false,
+      "not_before": null
+     },
+     "91": {
+      "cancel": false,
+      "not_before": null
+     },
+     "100": {
+      "cancel": false,
+      "not_before": 1480
+     },
+     "103": {
+      "cancel": false,
+      "not_before": null
+     },
+     "104": {
+      "cancel": false,
+      "not_before": 1417
+     },
+     "105": {
+      "cancel": false,
+      "not_before": 1383
+     },
+     "106": {
+      "cancel": false,
+      "not_before": 1516
+     },
+     "117": {
+      "cancel": false,
+      "not_before": null
+     }
+    }
+   },
+   "result": {
+    "accepted": 30,
+    "est_cost": 2110942,
+    "cancelled": 18,
+    "auto_cancelled": 0,
+    "held": 26,
+    "delayed": 80,
+    "pax_delay": 1145464,
+    "pax_disrupted": 11595
+   }
+  },
+  {
+   "t": 840,
+   "tool": "advance",
+   "args": {},
+   "result": "Clock moves to 15:00."
+  },
+  {
+   "t": 900,
+   "tool": "get_situation",
+   "args": {},
+   "result": "Watch 3 at 15:00: 8 advisories, 1 METAR. 17 cancelled, 19 held; cost as known 2,170,686 pax-min."
+  },
+  {
+   "t": 900,
+   "tool": "submit_plan",
+   "args": {
+    "plan": {
+     "35": {
+      "cancel": false,
+      "not_before": null
+     },
+     "38": {
+      "cancel": false,
+      "not_before": null
+     },
+     "45": {
+      "cancel": false,
+      "not_before": null
+     },
+     "46": {
+      "cancel": false,
+      "not_before": 1027
+     },
+     "55": {
+      "cancel": false,
+      "not_before": null
+     },
+     "58": {
+      "cancel": false,
+      "not_before": 1320
+     },
+     "62": {
+      "cancel": false,
+      "not_before": null
+     },
+     "63": {
+      "cancel": false,
+      "not_before": 1320
+     },
+     "72": {
+      "cancel": false,
+      "not_before": 1320
+     },
+     "73": {
+      "cancel": false,
+      "not_before": 1325
+     },
+     "76": {
+      "cancel": false,
+      "not_before": null
+     },
+     "79": {
+      "cancel": false,
+      "not_before": null
+     },
+     "80": {
+      "cancel": false,
+      "not_before": 1440
+     },
+     "84": {
+      "cancel": false,
+      "not_before": null
+     },
+     "86": {
+      "cancel": false,
+      "not_before": null
+     },
+     "89": {
+      "cancel": false,
+      "not_before": null
+     },
+     "91": {
+      "cancel": false,
+      "not_before": 1442
+     },
+     "92": {
+      "cancel": false,
+      "not_before": null
+     },
+     "95": {
+      "cancel": false,
+      "not_before": 1380
+     },
+     "97": {
+      "cancel": false,
+      "not_before": 1380
+     },
+     "100": {
+      "cancel": false,
+      "not_before": 1485
+     },
+     "103": {
+      "cancel": false,
+      "not_before": 1529
+     },
+     "104": {
+      "cancel": false,
+      "not_before": 1477
+     },
+     "105": {
+      "cancel": false,
+      "not_before": null
+     },
+     "106": {
+      "cancel": false,
+      "not_before": null
+     },
+     "107": {
+      "cancel": false,
+      "not_before": null
+     }
+    }
+   },
+   "result": {
+    "accepted": 26,
+    "est_cost": 2170686,
+    "cancelled": 17,
+    "auto_cancelled": 0,
+    "held": 19,
+    "delayed": 80,
+    "pax_delay": 1247763,
+    "pax_disrupted": 11330
+   }
+  },
+  {
+   "t": 900,
+   "tool": "advance",
+   "args": {},
+   "result": "Clock moves to 16:00."
+  }
+ ],
+ "news": [
+  {
+   "id": "metar-261051",
+   "at": 411,
+   "kind": "metar",
+   "speaker": "KJFK observation",
+   "text": "KJFK 261051Z 09004KT 8SM FEW008 BKN041 BKN075 BKN140 21/21 A2979 RMK AO2 RAB00E30 SLP087 P0001 T02060206 $",
+   "data": {
+    "station": "KJFK"
+   }
+  },
+  {
+   "id": "taf-261120Z",
+   "at": 440,
+   "kind": "taf",
+   "speaker": "NWS New York (OKX)",
+   "text": "TAF\nKJFK 261120Z 2612/2718 17005KT P6SM SCT006 BKN120\n      TEMPO 2612/2614 5SM -SHRA BR BKN008\n     FM261400 15006KT 5SM BR SCT010 BKN080\n     FM261800 16014KT 5SM -SHRA FEW015 BKN100\n      TEMPO 2621/2701 16015G25KT 2SM TSRA BR OVC030CB\n     FM270100 17010KT 5SM -SHRA BR BKN008 OVC015\n     FM270800 17009KT P6SM BKN015\n     FM271600 17012KT P6SM BKN035=\n\u0003",
+   "data": {
+    "station": "KJFK"
+   }
+  },
+  {
+   "id": "metar-261151",
+   "at": 471,
+   "kind": "metar",
+   "speaker": "KJFK observation",
+   "text": "KJFK 261151Z 10008KT 8SM FEW008 SCT050 BKN085 BKN140 21/21 A2980 RMK AO2 SLP090 60001 70001 T02110211 10211 20200 53005 $",
+   "data": {
+    "station": "KJFK"
+   }
+  },
+  {
+   "id": "adv-0626-037",
+   "at": 474,
+   "kind": "advisory",
+   "speaker": "FAA Command Center",
+   "text": "ATCSCC ADVZY 037 ACK/ZBW 06/26/2023 ACK AIRPORT CONDITIONS\nEVENT TIME: 26/1145 - 26/1600Z\nCONSTRAINED FACILITIES: ZBW\nACK IS BELOW MOST USER MINIMUMS. CONDITIONS ARE NOT EXPECTED TO\nIMPROVE UNTIL AFTER 1600Z. USERS CAN ANTICIPATE ARRIVAL HOLDING AND\nPERIODIC GROUND STOPS THAT CAPTURE APPROPRIATE CATEGORY AIRCRAFT FOR\nTHE CONDITONS. EXPECT UPDATES AS CONDITIONS WARRANT.",
+   "data": {
+    "element": "ACK/ZBW",
+    "airport": "ACK",
+    "title": "ACK AIRPORT CONDITIONS",
+    "program": "other",
+    "effective": "261154-261630",
+    "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=37"
+   }
+  },
+  {
+   "id": "adv-0626-089",
+   "at": 787,
+   "kind": "advisory",
+   "speaker": "FAA Command Center",
+   "text": "ATCSCC ADVZY 089 LGA/ZNY 06/26/2023 CDM GROUND STOP\nCTL ELEMENT: LGA\nELEMENT TYPE: APT\nADL TIME: 1702Z\nGROUND STOP PERIOD: 26/1652Z - 26/1800Z\nCUMULATIVE PROGRAM PERIOD: 26/1500Z - 27/0359Z\nDEP FACILITIES INCLUDED: (Manual) ZAU ZTL ZDC ZNY ZOB ZBW ZID  CYHZ\n CYOW CYUL CYYZ CYTZ CYQB \nPREVIOUS TOTAL, MAXIMUM, AVERAGE DELAYS: 335 / 70 / 30\nNEW TOTAL, MAXIMUM, AVERAGE DELAYS: 779 / 159 / 71\nPROBABILITY OF EXTENSION: MEDIUM\nIMPACTING CONDITION: WEATHER / THUNDERSTORMS\nCOMMENTS: ZAU ZID AND ZTL ADDED TO CURRENT STOP. SIDEBAR AFTER\n PLANNING TELCON",
+   "data": {
+    "element": "LGA/ZNY",
+    "airport": "LGA",
+    "title": "CDM GROUND STOP",
+    "program": "gs",
+    "effective": "261707-261900",
+    "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=89"
+   }
+  },
+  {
+   "id": "adv-0626-091",
+   "at": 820,
+   "kind": "advisory",
+   "speaker": "FAA Command Center",
+   "text": "ATCSCC ADVZY 091 EWR/ZNY 06/26/2023 CDM GROUND DELAY PROGRAM\nCTL ELEMENT: EWR\nELEMENT TYPE: APT\nADL TIME: 1738Z\nDELAY ASSIGNMENT MODE: UDP\nARRIVALS ESTIMATED FOR: 26/1738Z - 27/0359Z\nCUMULATIVE PROGRAM PERIOD: 26/1600Z - 27/0359Z\nPROGRAM RATE: 22/16/20/24/24/28/28/28/28/28/28\nFLT INCL: ALL CONTIGUOUS US DEP\nDEP SCOPE: (ALL+CZY_AP) ZLA ZAU ZLC ZTL ZDC ZNY ZHU ZJX ZFW ZOB ZDV\n ZOA ZSE ZBW ZMA ZKC ZME ZID ZAB ZMP \nCANADIAN DEP ARPTS INCLUDED: CYHZ CYOW CYUL CYYZ CYTZ CYQB\nDELAY ASSIGNMENT TABLE APPLIES TO: ZNY\nMAXIMUM DELAY: 484\nAVERAGE DELAY: 170\nIMPACTING CONDITION: WEATHER / THUNDERSTORMS\nCOMMENTS: ARR 22L DEP 22R, LOW POP UP. GROUND STOP CANCELLED AC\n RELEASED ON EDCTS",
+   "data": {
+    "element": "EWR/ZNY",
+    "airport": "EWR",
+    "title": "CDM GROUND DELAY PROGRAM",
+    "program": "gdp",
+    "effective": "261739-270459",
+    "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=91"
+   }
+  },
+  {
+   "id": "taf-261740Z",
+   "at": 820,
+   "kind": "taf",
+   "speaker": "NWS New York (OKX)",
+   "text": "TAF\nKJFK 261740Z 2618/2724 16014KT 5SM -SHRA FEW015 BKN100\n      TEMPO 2618/2619 16015G25KT 2SM TSRA BR OVC030CB\n     FM270100 15010KT P6SM -SHRA BKN008 OVC025\n     FM270300 16009KT 5SM -SHRA BR BKN008\n     FM270600 16008KT 3SM BR BKN004\n     FM271200 17009KT P6SM BKN010\n     FM271500 17012KT P6SM -SHRA BKN035 PROB30 2715/2721 2SM TSRA\n      BKN025CB=\n\u0003",
+   "data": {
+    "station": "KJFK"
+   }
+  },
+  {
+   "id": "adv-0626-092",
+   "at": 822,
+   "kind": "advisory",
+   "speaker": "FAA Command Center",
+   "text": "ATCSCC ADVZY 092 ZNY 06/26/2023 ZNY EXTENDED FLIGHT PLAN DROP TIMES IMPLEMENTED\nEVENT TIME: 26/1730 - 27/0500\nCONSTRAINED FACILITIES: ZNY\nZNY HAS IMPLEMENTED EXTENDED FLIGHT PLAN DROP TIMES TO 180 MINUTES\nDUE TO WEATHER.\n\nNOTE: IF A GROUND STOP OR GROUND DELAY PROGRAM IS IN EFFECT,\nFLIGHT PLAN DROP TIMES ARE GENERATED FROM THE EDCT.",
+   "data": {
+    "element": "ZNY",
+    "airport": "ZNY",
+    "title": "ZNY EXTENDED FLIGHT PLAN DROP TIMES IMPLEMENTED",
+    "program": "other",
+    "effective": "261742-270530",
+    "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=92"
+   }
+  },
+  {
+   "id": "adv-0626-094",
+   "at": 843,
+   "kind": "advisory",
+   "speaker": "FAA Command Center",
+   "text": "ATCSCC ADVZY 094 N90/ZNY 06/26/2023 NY METRO AIRPORT DIVERSION RECOVERY\nEVENT TIME: 26/1800 - 0300\nTHE ATCSCC HAS ACTIVATED THE DIVERSION RECOVERY TOOL \nFOR THE NY METRO AIRPORTS.  CUSTOMERS SHOULD ENSURE THAT DVRSN IS\nINCLUDED IN FLIGHT PLAN REMARKS OF DIVERTED AIRCRAFT.  \nNOTE THAT IF THERE IS A GROUND DELAY PROGRAM OR GROUND STOP\nIN EFFECT FOR THE DESTINATION AIRPORT DIVERTED FLIGHTS ARE\nNOT AUTOMATICALLY EXEMPT AND WILL STILL RECEIVE AN EDCT.",
+   "data": {
+    "element": "N90/ZNY",
+    "airport": "N90",
+    "title": "NY METRO AIRPORT DIVERSION RECOVERY",
+    "program": "other",
+    "effective": "261803-270330",
+    "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=94"
+   }
+  },
+  {
+   "id": "adv-0626-096",
+   "at": 852,
+   "kind": "advisory",
+   "speaker": "FAA Command Center",
+   "text": "ATCSCC ADVZY 096 JFK/ZNY 06/26/2023 JFK GROUND STOP\nEVENT TIME: 26/1800 - 1915\nCONSTRAINED FACILITIES: ZNY\nFACILITIES INCLUDED: CZY\nREASON: JFK GROUNDSTOP EXTENDED FOR CZY UPDATE 1915Z DUE TO NO\nROUTES. \n\n****CYYZ AC ON ROUTE THROUGH ZOB EXEMPT",
+   "data": {
+    "element": "JFK/ZNY",
+    "airport": "JFK",
+    "title": "JFK GROUND STOP",
+    "program": "gs",
+    "effective": "261812-261945",
+    "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=96"
+   }
+  },
+  {
+   "id": "adv-0626-098",
+   "at": 859,
+   "kind": "advisory",
+   "speaker": "FAA Command Center",
+   "text": "ATCSCC ADVZY 098 EWR/ZNY 06/26/2023 CDM GROUND STOP\nCTL ELEMENT: EWR\nELEMENT TYPE: APT\nADL TIME: 1815Z\nGROUND STOP PERIOD: 26/1805Z - 26/2000Z\nCUMULATIVE PROGRAM PERIOD: 26/1600Z - 27/0359Z\nDEP FACILITIES INCLUDED: (Manual) ZBW  CYHZ CYOW CYUL CYYZ CYTZ CYQB\n \nPREVIOUS TOTAL, MAXIMUM, AVERAGE DELAYS: 712 / 279 / 237\nNEW TOTAL, MAXIMUM, AVERAGE DELAYS: 1014 / 411 / 338\nPROBABILITY OF EXTENSION: HIGH\nIMPACTING CONDITION: WEATHER / THUNDERSTORMS\nCOMMENTS: CYYZ ON ROUTE THROUGH ZOB EXEMPT.",
+   "data": {
+    "element": "EWR/ZNY",
+    "airport": "EWR",
+    "title": "CDM GROUND STOP",
+    "program": "gs",
+    "effective": "261818-262100",
+    "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=98"
+   }
+  },
+  {
+   "id": "adv-0626-099",
+   "at": 861,
+   "kind": "advisory",
+   "speaker": "FAA Command Center",
+   "text": "ATCSCC ADVZY 099 LGA/ZNY 06/26/2023 CDM GROUND STOP\nCTL ELEMENT: LGA\nELEMENT TYPE: APT\nADL TIME: 1817Z\nGROUND STOP PERIOD: 26/1807Z - 26/2000Z\nCUMULATIVE PROGRAM PERIOD: 26/1500Z - 27/0359Z\nDEP FACILITIES INCLUDED: (Manual) ZBW  CYHZ CYOW CYUL CYYZ CYTZ CYQB\n \nPREVIOUS TOTAL, MAXIMUM, AVERAGE DELAYS: 1102 / 239 / 138\nNEW TOTAL, MAXIMUM, AVERAGE DELAYS: 1607 / 350 / 201\nPROBABILITY OF EXTENSION: HIGH\nIMPACTING CONDITION: WEATHER / THUNDERSTORMS\nCOMMENTS: CYYZ ON ZOB ROUTE EXEMPT",
+   "data": {
+    "element": "LGA/ZNY",
+    "airport": "LGA",
+    "title": "CDM GROUND STOP",
+    "program": "gs",
+    "effective": "261821-262100",
+    "url": "https://www.fly.faa.gov/adv/adv_otherdis?adv_date=06262023&advn=99"
+   }
+  }
+ ],
+ "caps": {
+  "JFK:arr": {
+   "13": 0,
+   "14": 0,
+   "15": 1,
+   "16": 3,
+   "17": 4,
+   "18": 2,
+   "19": 5,
+   "20": 2,
+   "21": 3,
+   "22": 2,
+   "23": 2
+  },
+  "JFK:dep": {
+   "13": 0,
+   "14": 0,
+   "15": 5,
+   "16": 5,
+   "17": 5,
+   "18": 4,
+   "19": 4,
+   "20": 8,
+   "21": 3,
+   "22": 2,
+   "23": 0
+  },
+  "LGA:arr": {
+   "13": 0,
+   "14": 0,
+   "15": 0,
+   "16": 1,
+   "17": 0,
+   "18": 0,
+   "19": 1,
+   "20": 1,
+   "21": 0,
+   "22": 0,
+   "23": 0
+  },
+  "LGA:dep": {
+   "13": 1,
+   "14": 2,
+   "15": 0,
+   "16": 0,
+   "17": 0,
+   "18": 0,
+   "19": 1,
+   "20": 0,
+   "21": 0,
+   "22": 0,
+   "23": 0
+  },
+  "EWR:arr": {
+   "13": 0,
+   "14": 1,
+   "15": 0,
+   "16": 0,
+   "17": 0,
+   "18": 0,
+   "19": 1,
+   "20": 0,
+   "21": 0,
+   "22": 0,
+   "23": 1
+  },
+  "EWR:dep": {
+   "13": 0,
+   "14": 0,
+   "15": 1,
+   "16": 0,
+   "17": 0,
+   "18": 0,
+   "19": 0,
+   "20": 0,
+   "21": 0,
+   "22": 0,
+   "23": 0
+  },
+  "BOS:arr": {
+   "13": 0,
+   "14": 0,
+   "15": 4,
+   "16": 0,
+   "17": 4,
+   "18": 0,
+   "19": 0,
+   "20": 0,
+   "21": 2,
+   "22": 2,
+   "23": 0
+  },
+  "BOS:dep": {
+   "13": 0,
+   "14": 0,
+   "15": 2,
+   "16": 1,
+   "17": 0,
+   "18": 4,
+   "19": 1,
+   "20": 0,
+   "21": 0,
+   "22": 0,
+   "23": 5
+  }
+ },
+ "nominal": {
+  "ABQ:arr": {
+   "24": 1
+  },
+  "ABQ:dep": {
+   "25": 1
+  },
+  "ACK:arr": {
+   "16": 1
+  },
+  "ACK:dep": {
+   "13": 1,
+   "15": 1,
+   "17": 1,
+   "18": 1
+  },
+  "ATL:arr": {
+   "17": 1,
+   "23": 1
+  },
+  "ATL:dep": {
+   "12": 1,
+   "18": 1
+  },
+  "BNA:arr": {
+   "20": 1
+  },
+  "BNA:dep": {
+   "21": 1
+  },
+  "BOS:arr": {
+   "9": 1,
+   "14": 2,
+   "18": 1,
+   "19": 1,
+   "20": 3,
+   "22": 2
+  },
+  "BOS:dep": {
+   "13": 1,
+   "15": 2,
+   "16": 2
+  },
+  "BUF:arr": {
+   "10": 1,
+   "18": 1,
+   "21": 1
+  },
+  "BUF:dep": {
+   "19": 1
+  },
+  "BUR:arr": {
+   "23": 1
+  },
+  "BUR:dep": {
+   "24": 1
+  },
+  "CHS:arr": {
+   "18": 1
+  },
+  "CHS:dep": {
+   "18": 1
+  },
+  "DCA:arr": {
+   "16": 1
+  },
+  "DCA:dep": {
+   "15": 1,
+   "18": 1
+  },
+  "DEN:arr": {
+   "14": 1
+  },
+  "DEN:dep": {
+   "14": 1
+  },
+  "DTW:arr": {
+   "17": 1,
+   "23": 1
+  },
+  "DTW:dep": {
+   "12": 1,
+   "18": 1
+  },
+  "EWR:arr": {
+   "23": 1
+  },
+  "FLL:arr": {
+   "18": 1,
+   "20": 1,
+   "30": 1
+  },
+  "FLL:dep": {
+   "12": 1,
+   "13": 1,
+   "15": 1,
+   "20": 1,
+   "21": 1
+  },
+  "HPN:arr": {
+   "20": 1,
+   "23": 1
+  },
+  "HYA:arr": {
+   "16": 1
+  },
+  "HYA:dep": {
+   "16": 1
+  },
+  "IAH:dep": {
+   "13": 1
+  },
+  "JAX:arr": {
+   "18": 1
+  },
+  "JAX:dep": {
+   "19": 1
+  },
+  "JFK:arr": {
+   "13": 1,
+   "14": 4,
+   "15": 2,
+   "16": 3,
+   "17": 3,
+   "18": 7,
+   "19": 5,
+   "20": 1,
+   "21": 6,
+   "22": 4,
+   "23": 2,
+   "24": 2,
+   "29": 2,
+   "30": 1,
+   "31": 3,
+   "32": 3
+  },
+  "JFK:dep": {
+   "8": 1,
+   "9": 2,
+   "10": 1,
+   "13": 2,
+   "14": 6,
+   "15": 8,
+   "16": 5,
+   "17": 8,
+   "18": 5,
+   "19": 5,
+   "20": 5,
+   "21": 3,
+   "22": 1
+  },
+  "LAS:arr": {
+   "23": 1
+  },
+  "LAS:dep": {
+   "13": 1
+  },
+  "LAX:arr": {
+   "22": 1,
+   "25": 1,
+   "26": 1
+  },
+  "LAX:dep": {
+   "12": 1,
+   "14": 1,
+   "25": 1,
+   "26": 1
+  },
+  "LGA:arr": {
+   "16": 1,
+   "17": 1
+  },
+  "LGA:dep": {
+   "13": 1,
+   "18": 1,
+   "20": 1
+  },
+  "MCI:arr": {
+   "18": 1
+  },
+  "MCI:dep": {
+   "10": 1,
+   "19": 1
+  },
+  "MCO:arr": {
+   "17": 1,
+   "18": 1,
+   "19": 1,
+   "21": 1,
+   "24": 1
+  },
+  "MCO:dep": {
+   "16": 1,
+   "18": 1,
+   "19": 1,
+   "20": 1
+  },
+  "MIA:arr": {
+   "20": 1
+  },
+  "MIA:dep": {
+   "15": 1,
+   "21": 1
+  },
+  "MKE:arr": {
+   "17": 1
+  },
+  "MKE:dep": {
+   "18": 1
+  },
+  "MSY:arr": {
+   "18": 1
+  },
+  "MSY:dep": {
+   "19": 1
+  },
+  "MVY:arr": {
+   "14": 1
+  },
+  "MVY:dep": {
+   "14": 1
+  },
+  "ONT:arr": {
+   "25": 1
+  },
+  "ONT:dep": {
+   "26": 1
+  },
+  "PBI:arr": {
+   "20": 2
+  },
+  "PDX:arr": {
+   "25": 1
+  },
+  "PDX:dep": {
+   "26": 1
+  },
+  "PHL:arr": {
+   "18": 1
+  },
+  "PHL:dep": {
+   "18": 1
+  },
+  "PWM:arr": {
+   "19": 1
+  },
+  "PWM:dep": {
+   "20": 1
+  },
+  "RDU:arr": {
+   "16": 1,
+   "20": 1
+  },
+  "RDU:dep": {
+   "13": 1,
+   "16": 1,
+   "21": 1
+  },
+  "RNO:arr": {
+   "26": 1
+  },
+  "RNO:dep": {
+   "26": 1
+  },
+  "ROC:arr": {
+   "11": 1,
+   "23": 1
+  },
+  "RSW:dep": {
+   "14": 1
+  },
+  "SAN:arr": {
+   "26": 1
+  },
+  "SAV:arr": {
+   "19": 1
+  },
+  "SAV:dep": {
+   "19": 1
+  },
+  "SEA:arr": {
+   "25": 1
+  },
+  "SEA:dep": {
+   "26": 1
+  },
+  "SFO:arr": {
+   "22": 1,
+   "26": 1
+  },
+  "SFO:dep": {
+   "13": 1,
+   "17": 1
+  },
+  "SJC:arr": {
+   "23": 1
+  },
+  "SJC:dep": {
+   "24": 1
+  },
+  "SJU:arr": {
+   "22": 1
+  },
+  "SJU:dep": {
+   "14": 1
+  },
+  "SMF:arr": {
+   "24": 1
+  },
+  "SMF:dep": {
+   "26": 1
+  },
+  "SYR:arr": {
+   "23": 1
+  },
+  "TPA:arr": {
+   "20": 1
+  },
+  "TPA:dep": {
+   "13": 1,
+   "21": 1
+  }
+ },
+ "radar": null,
+ "twin": null,
+ "sources": {
+  "flights": "BTS On-Time Reporting Carrier On-Time Performance, June 2023",
+  "advisories": "FAA ATCSCC advisories database (fly.faa.gov)",
+  "weather": "NWS TAFs and METARs via the Iowa Environmental Mesonet",
+  "note": "Fixture built by scripts/fixture_episode.py from the AirOps research instance; the planner is the reference follower, not a model."
+ }
+}

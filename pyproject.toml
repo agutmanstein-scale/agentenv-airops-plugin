@@ -26,7 +26,8 @@ dependencies = [
 [project.optional-dependencies]
 refs = ["highspy==1.15.1"]
 build = ["pandas>=2.2", "pyarrow>=17", "airportsdata>=20260905", "highspy==1.15.1"]
-dev = ["pytest>=8,<10", "ruff>=0.16,<0.17", "hatchling>=1.27", "highspy==1.15.1", "anthropic==1.11.0", "openai==2.54.0"]
+viewer = ["pillow>=11", "websockets>=15,<18"]
+dev = ["pytest>=8,<10", "ruff>=0.16,<0.17", "hatchling>=1.27", "highspy==1.15.1", "jsonschema>=4", "anthropic==1.11.0", "openai==2.54.0"]
 
 [project.urls]
 Source = "https://github.com/earakely-scale/agentenv-airops-plugin"

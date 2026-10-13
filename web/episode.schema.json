@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/earakely-scale/agentenv-airops-plugin/web/episode.schema.json",
+  "title": "AirOpsEnv episode",
+  "description": "One recorded episode as the viewer reads it (DESIGN.md 'Episode JSON'). Times are minutes from 00:00 hub-local on task.date; costs are passenger-minutes. URLs are relative to the episode file.",
+  "type": "object",
+  "required": ["version", "task", "model", "run", "reward", "cost", "reference", "schedule", "executed", "watches", "steps", "caps"],
+  "properties": {
+    "version": {"const": 1},
+    "task": {
+      "type": "object",
+      "required": ["task_id", "carrier", "hub", "date", "tz", "window", "start", "airports", "tails"],
+      "properties": {
+        "task_id": {"type": "string", "pattern": "^[a-z0-9]+-[a-z]{3}-[0-9]{8}-[0-9]{4}$"},
+        "carrier": {"type": "string"},
+        "hub": {"type": "string", "pattern": "^[A-Z]{3}$"},
+        "date": {"type": "string", "format": "date"},
+        "tz": {"type": "string"},
+        "window": {"$ref": "#/$defs/span"},
+        "start": {"type": "integer"},
+        "turn": {"type": "object", "additionalProperties": {"type": "integer"}},
+        "turn_all": {"type": "integer"},
+        "dmax": {"type": "integer"},
+        "airports": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"pattern": "^[A-Z0-9]{3}$"},
+          "additionalProperties": {
+            "type": "object",
+            "required": ["lat", "lon"],
+            "properties": {"name": {"type": "string"}, "lat": {"type": "number"}, "lon": {"type": "number"}, "tz": {"type": "string"}}
+          }
+        },
+        "tails": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tail", "family"],
+            "properties": {
+              "tail": {"type": "string"}, "family": {"type": "string"}, "type": {"type": "string"},
+              "seats": {"type": "integer"}, "pos": {"type": "string"}, "ready": {"type": "integer"},
+              "end_req": {"type": "string"}, "actual_end": {"type": ["string", "null"]}
+            }
+          }
+        }
+      }
+    },
+    "model": {"type": "string"},
+    "model_label": {"type": "string"},
+    "run": {"type": "string"},
+    "reward": {"type": "number", "minimum": 0, "maximum": 1},
+    "cost": {"$ref": "#/$defs/cost"},
+    "reference": {
+      "type": "object",
+      "required": ["floor", "anchor"],
+      "properties": {
+        "floor": {"type": "number"}, "hindsight": {"type": "number"}, "anchor": {"type": "number"},
+        "follower": {"type": "number"}, "blind": {"type": "number"}, "naive": {"type": "number"},
+        "airline": {"type": "number"}, "gap_pct": {"type": "number"}, "qualifies": {"type": "boolean"}
+      }
+    },
+    "schedule": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "flight", "orig", "dest", "sched_dep", "sched_arr", "family", "pax"],
+        "properties": {
+          "id": {"type": "integer"}, "flight": {"type": "string"}, "orig": {"type": "string"}, "dest": {"type": "string"},
+          "sched_dep": {"type": "integer"}, "sched_arr": {"type": "integer"}, "family": {"type": "string"},
+          "pax": {"type": "integer"},
+          "tail": {"type": ["string", "null"], "description": "The airline's planned tail (BTS), for the cancelled lane."},
+          "airline": {
+            "type": "object",
+            "properties": {"cancelled": {"type": "boolean"}, "dep": {"type": ["integer", "null"]},
+                           "arr": {"type": ["integer", "null"]}, "cancel_code": {"type": "string"}}
+          }
+        }
+      }
+    },
+    "executed": {"type": "array", "items": {"$ref": "#/$defs/outcome"}},
+    "ferries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["orig", "dest"],
+        "properties": {"family": {"type": "string"}, "tail": {"type": ["string", "null"]}, "orig": {"type": "string"},
+                       "dest": {"type": "string"}, "cost": {"type": "number"}}
+      }
+    },
+    "frozen": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["flight", "orig", "dest", "dep", "arr", "tail"],
+        "properties": {"flight": {"type": "string"}, "orig": {"type": "string"}, "dest": {"type": "string"},
+                       "dep": {"type": "integer"}, "arr": {"type": "integer"}, "tail": {"type": "string"},
+                       "sched_dep": {"type": "integer"}, "sched_arr": {"type": "integer"}}
+      }
+    },
+    "watches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["t", "news", "changes"],
+        "properties": {
+          "t": {"type": "integer"},
+          "news": {"type": "array", "items": {"$ref": "#/$defs/news"}},
+          "caps_known": {"$ref": "#/$defs/caps"},
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id"],
+              "properties": {
+                "id": {"type": "integer"}, "flight": {"type": "string"}, "orig": {"type": "string"},
+                "dest": {"type": "string"},
+                "action": {"enum": ["cancel", "restore", "hold", "release"]},
+                "cancel": {"type": "boolean"}, "not_before": {"type": ["integer", "null"]}, "was": {"type": "object"}
+              }
+            }
+          },
+          "est_cost": {"type": "number"},
+          "cost_known": {"$ref": "#/$defs/cost"},
+          "counters": {"type": "object", "additionalProperties": {"type": "number"}},
+          "frozen": {"type": "integer"},
+          "projected": {"type": "array", "items": {"$ref": "#/$defs/outcome"},
+                        "description": "The plan at this watch executed on the day as known (optional)."}
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["t", "tool"],
+        "properties": {"t": {"type": "integer"}, "tool": {"type": "string"}, "args": {}, "result": {}}
+      }
+    },
+    "news": {"type": "array", "items": {"$ref": "#/$defs/news"}},
+    "caps": {"$ref": "#/$defs/caps"},
+    "nominal": {"$ref": "#/$defs/caps"},
+    "radar": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["bounds", "frames"],
+          "properties": {
+            "bounds": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+            "projection": {"enum": ["mercator", "lnglat"]},
+            "step": {"type": "integer"},
+            "frames": {"type": "array", "items": {"type": "object", "required": ["t", "url"],
+                                                  "properties": {"t": {"type": "integer"}, "url": {"type": "string"}}}},
+            "attribution": {"type": "string"}
+          }
+        }
+      ]
+    },
+    "twin": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["hub", "url"],
+          "properties": {"hub": {"type": "string"}, "url": {"type": "string"}, "sha256": {"type": "string"},
+                         "attribution": {"type": "string"}}
+        }
+      ]
+    },
+    "sources": {"type": "object"}
+  },
+  "$defs": {
+    "span": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
+    "cost": {
+      "type": "object",
+      "required": ["total"],
+      "properties": {"pax_delay": {"type": "number"}, "cancel": {"type": "number"}, "ferry": {"type": "number"},
+                     "total": {"type": "number"}}
+    },
+    "outcome": {
+      "type": "object",
+      "required": ["id", "status"],
+      "properties": {
+        "id": {"type": "integer"},
+        "tail": {"type": ["string", "null"]},
+        "status": {"enum": ["flown", "cancelled", "auto_cancelled"]},
+        "dep": {"type": ["integer", "null"]},
+        "arr": {"type": ["integer", "null"]},
+        "arr_delay": {"type": ["integer", "null"]},
+        "not_before": {"type": ["integer", "null"]},
+        "held": {"type": "boolean"},
+        "decided": {"type": ["integer", "null"], "description": "Minute the last decision on this flight was made."}
+      }
+    },
+    "news": {
+      "type": "object",
+      "required": ["at", "kind", "text"],
+      "properties": {
+        "id": {"type": "string"}, "at": {"type": "integer"},
+        "kind": {"enum": ["advisory", "taf", "metar", "outlook"]},
+        "speaker": {"type": "string"}, "text": {"type": "string"}, "data": {"type": "object"}
+      }
+    },
+    "caps": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[A-Z0-9]{3}:(arr|dep)$"},
+      "additionalProperties": {"type": "object", "propertyNames": {"pattern": "^[0-9]+$"},
+                               "additionalProperties": {"type": "integer", "minimum": 0}}
+    }
+  }
+}
