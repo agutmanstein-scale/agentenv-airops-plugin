@@ -1,0 +1,45 @@
+# Copy to .agentenv/config.toml (git-ignored) and run agent-env from this checkout.
+#
+# The local profile: stores under ~/.local/state/agent-env/, images in a registry:2 at localhost:5000 that agent-env
+# starts on first push, and the env running as a container on this machine's Docker.
+
+[stores]
+document = "local"
+object   = "local"
+image    = "local"
+secret   = "local"
+
+[sandbox]
+default       = "local"
+agent_default = "local"
+
+# The modal_vm profile: envs and agents on Modal VMs, which pull the env image from GHCR without credentials, so
+# the package must be public. To use it, replace everything above with the lines below, uncommented. Pushing needs
+# `docker login ghcr.io` with a token that can write packages, and Modal needs `modal token new` (or MODAL_TOKEN_ID
+# and MODAL_TOKEN_SECRET); then `agent-env airops setup --platform linux/amd64` builds and pushes the amd64 image
+# and registers it.
+#
+# [stores]
+# document = "local"
+# object   = "local"
+#
+# [stores.image]
+# impl = "agent_env.store.image_store:OciRegistryImageStore"
+#
+# [stores.image.config]
+# registry_host     = "ghcr.io"
+# repository_prefix = "your-github-user"   # your GHCR namespace: setup pushes ghcr.io/<it>/agentenv-portsim-env:vN
+#
+# [stores.secret]
+# impl = "agent_env.store.secret_store:LocalSecretStore"
+#
+# [stores.secret.config]
+# file_path = "/Users/you/.config/agentenv/secrets.yaml"   # absolute; holds the line PORTSIM_MODEL_KEY: <your key>
+#
+# [sandbox]
+# default       = "modal_vm"
+# agent_default = "modal_vm"
+#
+# [model]
+# base_url = "https://your-litellm-proxy"
+# api_key  = "secret:PORTSIM_MODEL_KEY"

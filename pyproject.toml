@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentenv-airops"
+version = "0.1.0"
+description = "AirOpsEnv as an AgentEnv environment: an airline operations desk recovers a real storm day at a JetBlue hub, live on AgentEnv's virtual clock, graded against a proven hindsight optimum."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.11.4"
+keywords = ["agentenv", "mcp", "reinforcement-learning", "llm-agents", "airline-operations", "disruption-recovery", "scheduling"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "agentenv-framework>=0.9.1321",
+    "agentenv-framework-protocol>=0.1.336",
+    "agentenv-hf @ https://github.com/earakely-scale/agentenv-hf-plugin/archive/refs/tags/v0.3.0.tar.gz",
+    "fastmcp==3.4.8",
+    "pydantic>=2.13,<2.14",
+]
+
+[project.optional-dependencies]
+refs = ["highspy==1.15.1"]
+build = ["pandas>=2.2", "pyarrow>=17", "airportsdata>=20260905", "highspy==1.15.1"]
+dev = ["pytest>=8,<10", "ruff>=0.16,<0.17", "hatchling>=1.27", "highspy==1.15.1", "anthropic==1.11.0", "openai==2.54.0"]
+
+[project.urls]
+Source = "https://github.com/earakely-scale/agentenv-airops-plugin"
+
+[project.entry-points."agent_env.bundles"]
+airops = "agentenv_airops.bundles"
+
+[project.entry-points."agent_env.cli_plugins"]
+airops = "agentenv_airops.cli:airops"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentenv_airops"]
+exclude = ["src/agentenv_airops/data"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"data" = "agentenv_airops/data"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/data", "/tests", "/agents", "/web", "/Dockerfile", "/README.md", "/LICENSE", "/NOTICE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "network: downloads from public sources",
+    "browser: drives headless Chrome and ffmpeg",
+    "docker: needs local Docker and the registry at localhost:5000",
+]
+addopts = "-m 'not network and not browser and not docker'"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "I"]

@@ -1,0 +1,12 @@
+AirOpsEnv for AgentEnv
+Copyright 2026 Scale AI. Code licensed under Apache-2.0 (LICENSE).
+
+Data sources (see data/*/SOURCE.md for each file):
+- U.S. DOT Bureau of Transportation Statistics: Reporting Carrier On-Time Performance, Form 41 Schedule B-43,
+  T-100 Domestic Segment, DB1B. U.S. Government works, public domain.
+- FAA Air Traffic Control System Command Center advisories (fly.faa.gov). U.S. Government works, public domain.
+- FAA Aircraft Registry releasable database. U.S. Government work, public domain.
+- Iowa Environmental Mesonet (Iowa State University): archived METAR, TAF, NEXRAD composites. Public domain;
+  attribution to the Iowa Environmental Mesonet is appreciated and given here.
+- airportsdata (MIT licence): airport coordinates and time zones.
+- OpenStreetMap contributors (ODbL): the airport twin, hosted with the dataset and attributed in the viewer.

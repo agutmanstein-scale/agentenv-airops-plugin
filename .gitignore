@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+!src/agentenv_airops/build/
+*.egg-info/
+.agentenv/config.toml
+results/runs/
+results/bundles/
+cache/
+.DS_Store
