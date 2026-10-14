@@ -27,6 +27,17 @@ agentenv:
 
 # AirOpsEnv on AgentEnv
 
+[![GPT-6.1 Sol runs JetBlue's Boston operations desk through the storm of 16 February 2025: NEXRAD radar over the network map, the 3D Terminal C from OpenStreetMap, the tail chart with the FAA's hourly slot caps, and the ops panel with the Command Center's advisories and the TAF as issued](https://raw.githubusercontent.com/earakely-scale/agentenv-airops-plugin/v0.1.0/assets/airops-hero.webp)](https://earakely-scale-airopsenv-agentenv.static.hf.space/viewer/index.html?episode=https%3A%2F%2Fhuggingface.co%2Fdatasets%2Fearakely-scale%2FAirOpsEnv-AgentEnv%2Fresolve%2Fv0.1.0%2Fviewer%2Fepisodes%2Fsol-v1.openai-gpt-6.1-sol.b6-bos-20250216-1500.json)
+
+<sub>GPT-6.1 Sol runs JetBlue's Boston desk through the storm of Sunday 16 February 2025 (`b6-bos-20250216-1500`): 81
+flights to 38 airports, 12 hourly watches. The FAA Command Center's ground delay program, three ground stops and their
+cancellations reach it as they were issued, with 8 TAFs and 21 METARs. In 21 planning calls it cancels and holds
+flights; the day, flown on what really happened, costs 11.3% more than the plan a MIP proves optimal in hindsight:
+reward 0.672. The re-planning reference scores 0.937, doing nothing 0.366 and JetBlue's own decisions that day 0.224.
+Click to replay it in the Space; the [full film](https://github.com/earakely-scale/agentenv-airops-plugin/releases/tag/v0.1.0)
+is on the release. Basemap © OpenStreetMap contributors via OpenFreeMap; hub twin © OpenStreetMap contributors (ODbL);
+radar NEXRAD n0q via the Iowa Environmental Mesonet.</sub>
+
 An agent runs the JetBlue operations desk at one of its hubs, JFK or Boston, on a real day that went wrong:
 thunderstorms, snow or wind, and the FAA ground stops and ground delay programs that followed, cut how many JetBlue
 flights could land and take off each hour. Watch by watch, on the [AgentEnv Framework](https://www.agentenvframework.com)'s
