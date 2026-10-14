@@ -27,7 +27,9 @@ agentenv:
 
 <div align="center">
 
-<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv"><img src="https://raw.githubusercontent.com/earakely-scale/agentenv-airops-plugin/v0.2.0/assets/airops-banner.jpg" alt="AirOpsEnv v1: Boston Logan in 3D on the storm day of 16 February 2025, replayed from GPT-6.1 Sol's run of JetBlue's operations desk" width="100%"></a>
+<a href="https://earakely-scale-airopsenv-agentenv.static.hf.space/viewer/index.html?episode=https%3A%2F%2Fhuggingface.co%2Fdatasets%2Fearakely-scale%2FAirOpsEnv-AgentEnv%2Fresolve%2Fv0.2.0%2Fviewer%2Fepisodes%2Fsol-v1.openai-gpt-6.1-sol.b6-bos-20250216-1500.json"><img src="https://raw.githubusercontent.com/earakely-scale/agentenv-airops-plugin/0ae55ae963acc1e7c409dd08a3e38791b7c3ed3e/assets/airops-rollout.webp" alt="GPT-6.1 Sol runs JetBlue's Boston operations desk through the storm of 16 February 2025 on AgentEnv, watch by watch over the Terminal C apron at Logan: at each watch the desk shows the FAA's and the weather's news and what it did, the departures board updates, aircraft push back and land in the rain into the night, then the day's score" width="100%"></a>
+
+<sub>GPT-6.1 Sol runs JetBlue's Boston desk through the storm of Sunday 16 February 2025 (<code>b6-bos-20250216-1500</code>), one hourly watch at a time on AgentEnv's virtual clock. At each watch it reads the FAA's advisories and the weather, tries plans with <code>check_plan</code> and commits them with <code>confirm_changes</code>, cancelling and holding flights; every other airline moves on its real times. Flown on what really happened, the day scores 0.672: the re-planning reference 0.937, doing nothing 0.366, JetBlue's own decisions that day 0.224. Click to replay it in 3D.</sub>
 
 <h1>AirOpsEnv v1</h1>
 
