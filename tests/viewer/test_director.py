@@ -144,6 +144,28 @@ def test_a_shot_reaches_its_moment_on_time():
     assert record.until(1199) == "20:00" and record.until(1215) == "20:15" and record.late(212) == "3 h 32 min"
 
 
+def test_the_rollout_shows_every_watch_from_the_tower_then_the_score():
+    ep, traffic = day()
+    ep["steps"] = [{"t": 600, "watch": 1, "tool": t} for t in ("get_situation", "check_plan", "check_plan",
+                                                                 "confirm_changes", "advance")]
+    shots = record.Day(ep, traffic, None, None).rollout()
+    assert [(s.name, s.camera) for s in shots] == [("establish", "harbour"), *[("watch", "tower")] * 4,
+                                                    ("end", "harbour")]
+    watches = shots[1:-1]
+    assert [s.t0 for s in watches] == [540, 600, 660, 720]
+    assert [s.kicker for s in watches] == [
+        "09:00 · watch 1 of 4", "10:00 · watch 2 of 4 · check_plan ×2 · confirm_changes", "11:00 · watch 3 of 4",
+        "12:00 · watch 4 of 4"]
+    assert [s.caption for s in watches] == [
+        "GPT-6.1 Sol keeps its plan", "GPT-6.1 Sol cancels B6 20 to New York and holds B6 10 to Miami until 11:30",
+        "The FAA stops JetBlue flights to Boston Logan at their departure airports until 11:40",
+        "GPT-6.1 Sol keeps its plan"]
+    assert [s.seconds for s in watches] == [2.2, 4.0, 4.0, 2.2]
+    assert all(s.speed == (0, record.FAST["tower"]) and frames(s)[0] == frames(s)[1] for s in watches)
+    assert all(s.cards == ("head", "desk", "board", "tags") for s in watches)
+    assert shots[-1].cards == ("end",) and shots[-1].t0 > watches[-1].t1
+
+
 @pytest.mark.skipif(not EPISODES, reason="no Sol episodes are exported under cache/episodes")
 @pytest.mark.parametrize("path", EPISODES, ids=lambda p: p.stem.split(".")[-1])
 def test_every_sol_day_makes_a_film(path):
@@ -159,6 +181,9 @@ def test_every_sol_day_makes_a_film(path):
     assert all(traffic["span"][0] <= s.t0 and s.t1 <= traffic["span"][1] for s in shots)
     assert all(a.t0 <= b.t0 for a, b in zip(shots[1:-1], shots[2:-1], strict=False))
     assert record.highlight(shots) and sum(d for _, d in record.highlight(shots)) == pytest.approx(12, abs=1.5)
+    roll = record.Day(ep, traffic, None, None).rollout()
+    assert len(roll) == len(ep["watches"]) + 2 and 40 <= sum(s.seconds for s in roll) <= 56
+    assert all(traffic["span"][0] <= s.t0 and s.t1 <= traffic["span"][1] for s in roll[:-1])
 
 
 def test_a_thumbnail_the_films_made_reaches_the_episode_list(tmp_path):

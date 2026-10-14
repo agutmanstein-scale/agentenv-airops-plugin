@@ -178,7 +178,11 @@ it as a sidecar with the run's plan laid over it ([DESIGN.md](DESIGN.md#viewer) 
 with the checkout's `scripts/record.py` (headless Chrome and ffmpeg). `--director` cuts the day into shots on the 3D
 airport, in the order they happened: the hub across the water, the FAA's program reaching the desk, a decision landing
 on the board, a held flight pushing back, taxiing and taking off, and the day's score; `--thumb` and `--still` write the
-list's thumbnail and a frame without cards. Without `--director` the clock sweeps the day watch by watch on the map,
+list's thumbnail and a frame without cards. `--rollout` films every watch instead, as PortSim's clip runs its week:
+each opens on the desk with the model's planning calls and what it did, then the field moves on, then the score. The
+dataset card's clip is `--rollout --camera '{"from": [-720, 780, 55], "at": [-770, 470, 4], "fov": 50} --size 1600x900
+--webp-width 1024 --webp-fps 10 --webp-quality 60` on the Boston run. Without either, the clock sweeps the day watch by
+watch on the map,
 and `--cut MINUTE:VIEW` switches the camera to `tower`, `gate`, `threshold`, `harbour`, `follow` or `network` at a
 minute of the day.
 

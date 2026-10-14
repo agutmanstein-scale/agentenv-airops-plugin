@@ -26,6 +26,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -57,6 +58,10 @@ FAST = {"harbour": 10, "tower": 10, "gate": 6, "push": 6, "taxi": 20, "takeoff":
 SECONDS = {"establish": 5.5, "faa": 6, "decide": 6, "flip": 5, "push": 4.5, "taxi": 4.5, "takeoff": 8, "landing": 7,
            "inbound": 7, "end": 7}
 STRETCH = ("establish", "faa", "decide", "flip")
+ROLLOUT = {"acted": 4.0, "quiet": 2.2}
+"""Seconds of the rollout a watch gets: where the model acted or the FAA's news arrived, and where neither did."""
+PLANNING = ("check_plan", "confirm_changes")
+VERBS = {"cancel": "cancels", "hold": "holds", "restore": "restores", "release": "releases"}
 LEAD = 1.6
 SHOWN = 45
 ROLL = 0.8
@@ -166,20 +171,44 @@ class Day:
                     found.append((rank, w["t"] <= self.span[0], w["t"], n))
         out = []
         for _, _, t, n in sorted(found, key=lambda f: f[:3]):
-            speed, d = (6, 6), n["data"]
-            if d["kind"] == "gs":
-                who = "JetBlue flights" if "JBU" in (d.get("flt_incl") or "") else "flights"
-                text = f"The FAA stops {who} to {self.where} at their departure airports until " \
-                       f"{until(d['gs_period'][1])}"
-                what = "Ground stop"
-            else:
-                rate = d.get("program_rate") or []
-                cap = (f"{min(rate)}–{max(rate)}" if min(rate) != max(rate) else str(rate[0])) if rate else "fewer"
-                text = f"The FAA holds arrivals at {self.where} to {cap} an hour until {until(d['program_period'][1])}"
-                what = "Ground delay program"
+            speed, (what, text) = (6, 6), self.announce(n)
             out.append([Shot("faa", "tower", max(after, lead_in(t, LEAD, speed, SECONDS["faa"])), SECONDS["faa"], speed,
                              at=t, cards=("head", "desk", "map"), kicker=f"{clock(t)} · {what}", caption=text)])
         return out
+
+    def announce(self, n: Mapping) -> tuple[str, str]:
+        """The program an advisory puts in force, and what it does, in plain English."""
+        d = n["data"]
+        if d["kind"] == "gs":
+            who = "JetBlue flights" if "JBU" in (d.get("flt_incl") or "") else "flights"
+            return "Ground stop", f"The FAA stops {who} to {self.where} at their departure airports until " \
+                                  f"{until(d['gs_period'][1])}"
+        rate = d.get("program_rate") or []
+        cap = (f"{min(rate)}–{max(rate)}" if min(rate) != max(rate) else str(rate[0])) if rate else "fewer"
+        return "Ground delay program", f"The FAA holds arrivals at {self.where} to {cap} an hour until " \
+                                       f"{until(d['program_period'][1])}"
+
+    def rollout(self, seconds: float = 55) -> list[Shot]:
+        """The day watch by watch from the tower, as PortSim's clip runs its week: each watch opens still on the
+        desk, the model's planning calls, what it did or the FAA's news, then the field moves on; then the score,
+        the watches shortened alike to fit about ``seconds``."""
+        shots, n = self.establish(), len(self.watches)
+        for k, w in enumerate(self.watches):
+            calls = Counter(s["tool"] for s in self.ep.get("steps", [])
+                            if s.get("watch") == k and s["tool"] in PLANNING)
+            tools = " · ".join(f"{tool} ×{c}" if c > 1 else tool for tool, c in calls.items())
+            changes = [c for c in w["changes"] if c["action"] in VERBS]
+            before = self.watches[k - 1]["t"] if k else -math.inf
+            news = next((x for x in self.programs(w["t"]) if x and before < x["at"] <= w["t"]), None)
+            caption = self.said(changes) if changes else self.announce(news)[1] if news else \
+                f"{self.model} keeps its plan"
+            shots.append(Shot("watch", "tower", w["t"], ROLLOUT["acted" if changes or news else "quiet"],
+                              (0, FAST["tower"]), at=w["t"], cards=("head", "desk", "board", "tags"),
+                              kicker=" · ".join(x for x in (clock(w["t"]), f"watch {k + 1} of {n}", tools) if x),
+                              caption=caption))
+        fit = min(1.0, (seconds - SECONDS["establish"] - SECONDS["end"]) / sum(s.seconds for s in shots[1:]))
+        shots[1:] = [replace(s, seconds=round(s.seconds * fit, 2)) for s in shots[1:]]
+        return [*shots, self.end(shots[-1].t1)]
 
     def programs(self, t: float) -> tuple[dict | None, dict | None]:
         """The hub's ground stop and delay program in force at t as issued by then (web/model.js programsAt)."""
@@ -268,7 +297,7 @@ class Day:
     def change(self, c: Mapping, verb: bool = True) -> str:
         to = "to" if self.kind(c) == "dep" else "from"
         code = c["dest"] if to == "to" else c["orig"]
-        what = f"{'cancels ' if c['action'] == 'cancel' else 'holds '}" if verb else ""
+        what = f"{VERBS[c['action']]} " if verb else ""
         return f"{what}{c['flight']} {to} {self.cities.get(code, code)}" + \
             (f" until {clock(c['not_before'])}" if c["action"] == "hold" else "")
 
@@ -564,9 +593,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--episode", type=Path, required=True, help="Episode JSON under the repo (served with web/).")
     p.add_argument("--out", type=Path, help="MP4 to write.")
     p.add_argument("--director", action="store_true", help="Cut the day into shots on the 3D airport.")
-    p.add_argument("--seconds", type=float, default=40, help="The director's length of film.")
+    p.add_argument("--rollout", action="store_true",
+                   help="Film every watch from the tower instead, then the score; the WebP is the whole film.")
+    p.add_argument("--seconds", type=float, help="The film's length: 40 by default, 55 with --rollout.")
     p.add_argument("--webp", type=Path, help="Also write an animated WebP clip here.")
     p.add_argument("--webp-width", type=int, default=960)
+    p.add_argument("--webp-fps", type=int, default=15)
+    p.add_argument("--webp-quality", type=int, default=72)
+    p.add_argument("--camera", type=json.loads, metavar="JSON",
+                   help='With --rollout, film the watches from this camera instead of the tower, e.g. '
+                        '{"from": [x, y, up], "at": [x, y, up], "fov": 50} in ENU metres.')
     p.add_argument("--webp-seconds", type=float, default=12, help="Length of the WebP clip without --director.")
     p.add_argument("--shots", type=Path, help="Write stills (PNG) here: one per shot with --director, else per view.")
     p.add_argument("--thumb", type=Path, help="Write a 640x360 JPEG of the poster frame here.")
@@ -594,7 +630,7 @@ def main(argv: list[str] | None = None) -> int:
     width, height = (int(v) for v in args.size.lower().split("x"))
     path = args.episode.resolve()
     episode = json.loads(path.read_text())
-    directed = args.director or bool(args.thumb or args.still)
+    directed = args.director or args.rollout or bool(args.thumb or args.still)
     if directed and not episode.get("stage"):
         raise SystemExit(f"{path.name} has no 3D airport to direct")
     best = None
@@ -605,14 +641,14 @@ def main(argv: list[str] | None = None) -> int:
         with session(url, find_chrome(args.chrome), width, height, args.gl, args.scale) as (page, ready, gl):
             print(f"viewer ready: {len(ready['watches'])} watches · {', '.join(ready['views'])} · WebGL {gl}")
             if directed:
-                shots = director(page, episode, path, args.seconds)
+                shots = director(page, episode, path, args.seconds, args.rollout)
                 if args.shots:
                     stills(page, episode, shots, args.shots)
                 if args.thumb or args.still:
                     poster(page, episode, shots, args.pick, args.thumb, args.still)
                 if args.out:
-                    film(page, episode, shots, args.out, args.fps)
-                    best = highlight(shots)
+                    film(page, episode, shots, args.out, args.fps, args.camera)
+                    best = [(0.0, sum(s.seconds for s in shots))] if args.rollout else highlight(shots)
             elif args.shots:
                 views(page, ready, episode, args.shots)
             if args.out and not directed:
@@ -620,12 +656,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.out:
         probe(args.out)
         if args.webp:
-            webp(args.out, args.webp, args.webp_width, best or middle(args.out, args.webp_seconds))
+            webp(args.out, args.webp, args.webp_width, best or middle(args.out, args.webp_seconds), args.webp_fps,
+                 args.webp_quality)
     return 0
 
 
-def director(page, ep: Mapping, path: Path, seconds: float) -> list[Shot]:
-    """The director's shots for the episode on the page, with the film helper loaded into it."""
+def director(page, ep: Mapping, path: Path, seconds: float | None, rollout: bool = False) -> list[Shot]:
+    """The director's shots for the episode on the page, or its rollout, with the film helper loaded into it."""
     if not page.js(FILM_JS.replace("__CSS__", json.dumps(FILM_CSS))):
         raise SystemExit("the film helper did not load")
     traffic = json.loads(gzip.decompress((path.parent / ep["stage"]["traffic"]).read_bytes()))
@@ -633,7 +670,9 @@ def director(page, ep: Mapping, path: Path, seconds: float) -> list[Shot]:
     def poses(key: str, a: float, b: float) -> list:
         return page.js(f"film.poses({json.dumps(key)}, {a}, {b}, {5 / 60})")
 
-    shots = direct(ep, traffic, page.js("airops.events()"), poses, seconds)
+    events = page.js("airops.events()")
+    day = Day(ep, traffic, events, poses)
+    shots = day.rollout(seconds or 55) if rollout else direct(ep, traffic, events, poses, seconds or 40)
     for s in shots:
         print(f"  {s.name:<9} {s.camera:<8} {clock(s.t0)}–{clock(s.t1)} {s.seconds:4.1f} s "
               f"×{s.speed[0]:g}–{s.speed[1]:g} {s.key or ''} {s.caption}")
@@ -641,14 +680,18 @@ def director(page, ep: Mapping, path: Path, seconds: float) -> list[Shot]:
     return shots
 
 
-def setup(page, ep: Mapping, shot: Shot, bare: bool = False) -> None:
-    """The shot's cards, caption and camera; the end card shows the day's final score."""
+def setup(page, ep: Mapping, shot: Shot, bare: bool = False, camera: Mapping | None = None) -> None:
+    """The shot's cards, caption and camera, a rollout watch's from ``camera`` if given; the end card shows the day's
+    final score."""
     t = ep["task"]
     who = f"{ep.get('model_label') or ep['model']} · {HUBS.get(t['hub'], t['hub'])} · {long_date(t['date'])}"
     cards, kicker, caption = ((), "", "") if bare else (shot.cards, shot.kicker, shot.caption)
     page.js(f"film.look({json.dumps(list(cards))}, {json.dumps(kicker)}, {json.dumps(caption)}, {json.dumps(who)})")
     if shot.name == "end":
         page.js("airops.ready.then((r) => airops.time(r.end, {dt: 0, speed: 0}))")
+    if camera and shot.name == "watch":
+        page.js(f"airops.shot({json.dumps(camera)})")
+        return
     cam = {"camera": shot.camera, "key": shot.key, "t0": shot.t0, "t1": shot.t1, "at": shot.at, "reach": shot.reach}
     if (spec := page.js(f"film.camera({json.dumps(cam)})")) is None:
         raise SystemExit(f"no camera for the {shot.name} shot at {clock(shot.t0)}")
@@ -660,12 +703,12 @@ def frame_at(page, shot: Shot, t: float, rate: float, dt: float) -> None:
     page.js(f"{target}.time({t:.5f}, {{dt: {dt}, speed: {0 if shot.name == 'end' else round(rate, 3)}}})")
 
 
-def film(page, ep: Mapping, shots: Sequence[Shot], out: Path, fps: int) -> None:
+def film(page, ep: Mapping, shots: Sequence[Shot], out: Path, fps: int, camera: Mapping | None = None) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     encoder = subprocess.Popen(ffmpeg_args(find("ffmpeg"), out, fps, title(ep)), stdin=subprocess.PIPE)
     start, n = time.monotonic(), 0
     for shot in shots:
-        setup(page, ep, shot)
+        setup(page, ep, shot, camera=camera)
         for k, (t, rate) in enumerate(shot.clock(fps)):
             frame_at(page, shot, t, rate, 1 / fps if k else 0)
             jpeg = page.call("Page.captureScreenshot", format="jpeg", quality=92)["data"]
@@ -828,7 +871,8 @@ def middle(mp4: Path, seconds: float) -> list[tuple[float, float]]:
     return [(max(0.0, duration / 2 - seconds / 2), seconds)]
 
 
-def webp(mp4: Path, out: Path, width: int, parts: Sequence[tuple[float, float]], fps: int = 15) -> None:
+def webp(mp4: Path, out: Path, width: int, parts: Sequence[tuple[float, float]], fps: int = 15,
+         quality: int = 72) -> None:
     """An animated WebP of stretches of the film, assembled with Pillow from frames ffmpeg extracts."""
     with tempfile.TemporaryDirectory() as tmp:
         images = []
@@ -838,8 +882,8 @@ def webp(mp4: Path, out: Path, width: int, parts: Sequence[tuple[float, float]],
                            check=True)
             images += [Image.open(p).convert("RGB") for p in sorted(Path(tmp).glob(f"p{i}-*.png"))]
         out.parent.mkdir(parents=True, exist_ok=True)
-        images[0].save(out, save_all=True, append_images=images[1:], duration=round(1000 / fps), loop=0, quality=72,
-                       method=6)
+        images[0].save(out, save_all=True, append_images=images[1:], duration=round(1000 / fps), loop=0,
+                       quality=quality, method=6)
     print(f"wrote {out}: {len(images)} frames, {out.stat().st_size / 1e6:.1f} MB")
 
 
