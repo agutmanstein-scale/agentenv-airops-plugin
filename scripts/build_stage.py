@@ -4,7 +4,7 @@ around it, a taxi graph joining every stand to every threshold, and a USGS aeria
 metres about the hub's reference point. ODbL 1.0 (© OpenStreetMap contributors) and USGS public domain imagery,
 written under cache/stage/<HUB>/, never committed.
 
-usage: python scripts/build_stage.py BOS
+usage: python scripts/build_stage.py BOS JFK
 """
 
 import argparse
@@ -29,48 +29,63 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from build_twin import ATTRIBUTION, overpass, query  # noqa: E402
 
-HUBS = {"BOS": {"origin": (42.3629, -71.0064), "bounds": (-4900.0, -3500.0, 2600.0, 4000.0), "declination": -14.4,
-                "terminals": (42.3656, -71.0189), "tower_height": 77.0}}
+HUBS = {
+    "BOS": {"origin": (42.3629, -71.0064), "bounds": (-4900.0, -3500.0, 2600.0, 4000.0), "declination": -14.4,
+            "terminals": (42.3656, -71.0189), "tower_height": 77.0, "near": 2500, "skyline": ((8000, 25, 8),),
+            "ortho_px": 4096, "gates": re.compile(r"^([ABCE])\d")},
+    "JFK": {"origin": (40.6399, -73.7787), "bounds": (-7600.0, -5200.0, 4400.0, 4800.0), "declination": -13.0,
+            "terminals": (40.6430, -73.7830), "tower_height": 98.0, "near": 3000,
+            "skyline": ((9000, 25, 8), (27000, 100, 30)), "ortho_px": 5632, "gates": None,
+            "closed": {"New Terminal 1"}},
+}
+"""Per hub: the reference point (the task's airport), the stage's bounds in metres, magnetic declination to orient the
+runway ends, the point the nearby buildings are taken around and how far, the skyline bands (radius from the terminals,
+minimum height in metres or levels), the ortho's longer side in pixels, how a stand's terminal is read (the letter its
+ref starts with, else the nearest terminal building's number), and terminal buildings not yet open."""
 USGS = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}"
 USER_AGENT = "agentenv-airops build_stage (github.com/earakely-scale/agentenv-airops-plugin)"
 STAGE_ATTRIBUTION = f"{ATTRIBUTION}; imagery: USGS The National Map, USGSImageryOnly (public domain)"
 WGS84_A, WGS84_E2 = 6378137.0, 6.69437999014e-3
-ZOOM, ORTHO_PX = 16, 4096
-SKYLINE_M, NEAR_M, MIN_HEIGHT, MIN_LEVELS = 8000, 2500, 25.0, 8
+ZOOM = 16
 LEVEL_M, HALL_LEVEL_M, DEFAULT_HEIGHT = 3.5, 4.5, 10.0
 WIDTHS = {"taxiway": 23.0, "taxilane": 15.0}
 RANK = {"runway": 0, "taxiway": 1, "taxilane": 2, "lead": 3}
 SNAP, GAP, BRIDGE, NOSE_CLEAR = 3.0, 15.0, 400.0, 9.0
-TERMINAL_STANDS = re.compile(r"^([ABCE])\d")
+GATE_REACH, DUPLICATE = 130.0, 15.0
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("hub", choices=sorted(HUBS))
+    p.add_argument("hubs", nargs="+", choices=sorted(HUBS))
     p.add_argument("--out", type=Path, default=ROOT / "cache" / "stage")
     p.add_argument("--twin", type=Path, default=ROOT / "cache" / "twin" / "raw")
     p.add_argument("--refresh", action="store_true", help="Query Overpass and USGS again instead of the cache.")
     args = p.parse_args(argv)
-    cfg = HUBS[args.hub]
-    out, raw_dir = args.out / args.hub, args.out / "raw"
+    for hub in args.hubs:
+        stage_hub(hub, args.out, args.twin, args.refresh)
+    return 0
+
+
+def stage_hub(hub: str, root: Path, twin: Path, refresh: bool) -> None:
+    cfg = HUBS[hub]
+    out, raw_dir = root / hub, root / "raw"
     out.mkdir(parents=True, exist_ok=True)
     enu = Enu(*cfg["origin"])
-    airfield = cached(args.twin / f"{args.hub}.overpass.json", lambda: query(args.hub), args.refresh)
+    airfield = cached(twin / f"{hub}.overpass.json", lambda: query(hub), refresh)
     bbox = enu.bbox(cfg["bounds"])
-    extras = cached(raw_dir / f"{args.hub}.extras.overpass.json", lambda: extras_query(bbox), args.refresh)
-    skyline = cached(raw_dir / f"{args.hub}.buildings.overpass.json", lambda: buildings_query(cfg), args.refresh)
-    stage = build(args.hub, cfg, enu, airfield["elements"], extras["elements"], skyline["elements"])
-    ortho(enu, cfg["bounds"], raw_dir / "usgs", out / "ortho.jpg", args.refresh)
+    extras = cached(raw_dir / f"{hub}.extras.overpass.json", lambda: extras_query(bbox), refresh)
+    skyline = cached(raw_dir / f"{hub}.buildings.overpass.json", lambda: buildings_query(cfg), refresh)
+    stage = build(hub, cfg, enu, airfield["elements"], extras["elements"], skyline["elements"])
+    ortho(enu, cfg["bounds"], cfg["ortho_px"], raw_dir / "usgs", out / "ortho.jpg", refresh)
     body = json.dumps(stage, separators=(",", ":")).encode()
     with gzip.GzipFile(out / "stage.json.gz", "wb", mtime=0) as f:
         f.write(body)
     g = stage["taxi_graph"]
-    print(f"{args.hub}: {len(stage['runways'])} runways, {len(stage['taxiways'])} taxiways, {len(stage['aprons'])} "
+    print(f"{hub}: {len(stage['runways'])} runways, {len(stage['taxiways'])} taxiways, {len(stage['aprons'])} "
           f"aprons, {len(stage['stands'])} stands, {len(stage['jet_bridges'])} jet bridges, {len(stage['terminals'])} "
           f"terminals, {len(stage['hangars'])} hangars, {len(stage['land'])} land, {len(stage['buildings'])} "
           f"buildings, taxi graph {len(g['nodes'])} nodes / {len(g['edges'])} edges -> {out / 'stage.json.gz'} "
           f"({(out / 'stage.json.gz').stat().st_size} B), ortho {(out / 'ortho.jpg').stat().st_size} B")
-    return 0
 
 
 class Enu:
@@ -115,14 +130,28 @@ out geom;"""
 def buildings_query(cfg: dict) -> str:
     lat, lon = cfg["origin"]
     tlat, tlon = cfg["terminals"]
-    far = f"around:{SKYLINE_M},{lat},{lon}"
-    near = f"around:{NEAR_M},{tlat},{tlon}"
-    tall = r'["height"~"^([2-9][0-9]|[1-9][0-9][0-9])"]'
-    levels = r'["building:levels"~"^([89]|[1-9][0-9])$"]'
-    return f"""[out:json][timeout:300];
-(way["building"]{tall}({far}); way["building"]{levels}({far}); relation["building"]{tall}({far});
- relation["building"]{levels}({far}); way["building"]({near}); relation["building"]({near}););
+    near = f"around:{cfg['near']},{tlat},{tlon}"
+    bands = []
+    for radius, tall, levels in cfg["skyline"]:
+        far = f"around:{radius},{lat},{lon}"
+        h, lv = f'["height"~"{at_least(tall)}"]', f'["building:levels"~"{at_least(levels)}$"]'
+        bands += [f'way["building"]{h}({far});', f'way["building"]{lv}({far});', f'relation["building"]{h}({far});',
+                  f'relation["building"]{lv}({far});']
+    return f"""[out:json][timeout:600];
+({" ".join(bands)} way["building"]({near}); relation["building"]({near}););
 out geom;"""
+
+
+def at_least(n: int) -> str:
+    """A regex prefix matching the decimal integers from n to 999."""
+    s, alts = str(n), []
+    for i, ch in enumerate(s):
+        if i == len(s) - 1:
+            alts.append(s[:i] + f"[{ch}-9]")
+        elif ch != "9":
+            alts.append(s[:i] + f"[{int(ch) + 1}-9]" + "[0-9]" * (len(s) - i - 1))
+    alts += ["[1-9]" + "[0-9]" * (k - 1) for k in range(len(s) + 1, 4)]
+    return f"^({'|'.join(alts)})"
 
 
 def build(hub: str, cfg: dict, enu: Enu, airfield: list[dict], extras: list[dict], skyline: list[dict]) -> dict:
@@ -133,10 +162,11 @@ def build(hub: str, cfg: dict, enu: Enu, airfield: list[dict], extras: list[dict
                  "line": pts(proj.line(e))} for e, t in tagged(airfield) if t.get("aeroway") in WIDTHS
                 and len(proj.line(e)) >= 2]
     terminal_polys = [(e, t, proj.polygon(e)) for e, t in tagged(airfield) if t.get("aeroway") == "terminal"]
-    terminal_polys = [(e, t, poly) for e, t, poly in terminal_polys if not poly.is_empty]
     used = {(e["type"], e["id"]) for e, _, _ in terminal_polys}
-    terminals = [dict(name=t.get("name", ""), **r, height=height(t, 20.0, HALL_LEVEL_M))
-                 for _, t, poly in terminal_polys for r in rings(poly, 0.2)]
+    terminal_polys = [(e, t, poly) for e, t, poly in terminal_polys
+                      if not poly.is_empty and t.get("name") not in cfg.get("closed", ())]
+    terminals = distinct([dict(name=t.get("name", ""), **r, height=height(t, 20.0, HALL_LEVEL_M))
+                          for _, t, poly in terminal_polys for r in rings(poly, 0.2)])
     hangars = []
     for e, t in tagged(airfield):
         if t.get("aeroway") == "hangar" or t.get("building") == "hangar":
@@ -145,7 +175,8 @@ def build(hub: str, cfg: dict, enu: Enu, airfield: list[dict], extras: list[dict
     aprons = [r for e, t in tagged(airfield) if t.get("aeroway") == "apron" for r in rings(proj.polygon(e), 0.2)]
     built = unary_union([poly for _, _, poly in terminal_polys])
     network = [LineString(t["line"]) for t in taxiways]
-    stands = stands_of(airfield, proj, unary_union(network), built)
+    stands = stands_of(airfield, proj, unary_union(network), built,
+                       gate_namer(cfg["gates"], [(t.get("name", ""), poly) for _, t, poly in terminal_polys]))
     lines = [("runway", r["centreline"]) for r in runways] + [(t["kind"], t["line"]) for t in taxiways]
     thresholds = {end["id"]: end["xy"] for r in runways for end in r["ends"]}
     graph, leads = taxi_graph(lines, [(s["ref"], s["lead"]) for s in stands], thresholds)
@@ -161,13 +192,24 @@ def build(hub: str, cfg: dict, enu: Enu, airfield: list[dict], extras: list[dict
             bridges.append({"line": pts(line), "stand": ref if d <= 25 else None})
     land = land_of(extras, proj, frame)
     tower, key = tower_of(extras + airfield, proj, built, cfg["tower_height"])
-    buildings = buildings_of(skyline, proj, used | {key}, built)
+    buildings = buildings_of(skyline, proj, used | {key}, built, cfg["near"], cfg["skyline"], Point(tower["xy"]))
     for r in runways:
         r.pop("centreline")
     return {"hub": hub, "origin": list(cfg["origin"]), "bounds": list(cfg["bounds"]), "runways": runways,
             "taxiways": taxiways, "aprons": aprons, "stands": stands, "jet_bridges": bridges, "terminals": terminals,
             "hangars": hangars, "land": land, "buildings": buildings, "tower": tower, "taxi_graph": graph,
             "ortho": {"url": "ortho.jpg", "bounds": list(cfg["bounds"])}, "attribution": STAGE_ATTRIBUTION}
+
+
+def distinct(parts: list[dict], share: float = 0.9) -> list[dict]:
+    """The rings in order, less any lying mostly on one before it (a building drawn both as a way and as a
+    multipolygon)."""
+    kept: list[tuple[dict, Polygon]] = []
+    for r in parts:
+        poly = Polygon(r["outer"], r["holes"])
+        if not any(poly.intersection(q).area >= share * min(poly.area, q.area) for _, q in kept):
+            kept.append((r, poly))
+    return [r for r, _ in kept]
 
 
 class Projector:
@@ -211,11 +253,14 @@ def tagged(elements: list[dict]):
 def runways_of(elements: list[dict], proj: Projector, declination: float) -> list[dict]:
     ways = [(e, t, proj.line(e)) for e, t in tagged(elements) if t.get("aeroway") == "runway" and e["type"] == "way"]
     mains = [(t, c) for _, t, c in ways if t.get("runway") != "displaced_threshold" and t.get("ref")]
+    named = {t["ref"] for t, _ in mains}
+    for ref in sorted({t["ref"] for _, t, _ in ways if t.get("ref")} - named):
+        mains.append(max(((t, c) for _, t, c in ways if t.get("ref") == ref), key=lambda v: LineString(v[1]).length))
     out = []
     for t, c in mains:
         parts, ends = [c], {c[0], c[-1]}
         for _, t2, c2 in ways:
-            if t2.get("runway") == "displaced_threshold" and (t2.get("ref") == t["ref"] or
+            if c2 is not c and t2.get("runway") == "displaced_threshold" and (t2.get("ref") == t["ref"] or
                                                               (not t2.get("ref") and ends & {c2[0], c2[-1]})):
                 parts.append(c2)
         centre = linemerge(MultiLineString(parts))
@@ -236,14 +281,24 @@ def runways_of(elements: list[dict], proj: Projector, declination: float) -> lis
     return sorted(out, key=lambda r: r["ref"])
 
 
-def stands_of(elements: list[dict], proj: Projector, network, built) -> list[dict]:
+def stands_of(elements: list[dict], proj: Projector, network, built, name) -> list[dict]:
     """Each stand once: its lead-in oriented to end at the nose-wheel stop, the end away from the taxi network,
-    pulled back to clear the terminal; a stand drawn as a point leads in square from the nearest taxi line."""
+    pulled back to clear the terminal; a stand drawn as a point leads in square from the nearest taxi line, unless a
+    stand drawn as a line stops within DUPLICATE metres of it. ``name`` gives a raw ref and its point the stand's ref
+    and terminal."""
     best: dict[str, list] = {}
+    drawn = [Point(proj.line(e)[-1]) for e, t in tagged(elements) if t.get("aeroway") == "parking_position"
+             and e["type"] == "way" and len(proj.line(e)) >= 2]
+    lines = shapely.STRtree(drawn)
     for e, t in tagged(elements):
-        if t.get("aeroway") != "parking_position" or not (ref := stand_ref(t.get("ref") or t.get("name") or "")):
+        if t.get("aeroway") != "parking_position" or not (raw := stand_ref(t.get("ref") or t.get("name") or "")):
             continue
         line = dedupe(proj.line(e))
+        if len(line) < 2 and len(lines.query(Point(line[0]), predicate="dwithin", distance=DUPLICATE)):
+            continue
+        if not (named := name(raw, line[-1])):
+            continue
+        ref, terminal = named
         if len(line) >= 2:
             d0, d1 = network.distance(Point(line[0])), network.distance(Point(line[-1]))
             if d1 < d0 - 1 or (abs(d0 - d1) <= 1 and built.distance(Point(line[0])) < built.distance(Point(line[-1]))):
@@ -254,13 +309,33 @@ def stands_of(elements: list[dict], proj: Projector, network, built) -> list[dic
             line = [(q.x, q.y), line[0]]
         length = LineString(line).length
         if ref not in best or length > best[ref][0]:
-            best[ref] = [length, line]
+            best[ref] = [length, line, terminal]
     out = []
-    for ref, (_, line) in sorted(best.items(), key=lambda kv: natural(kv[0])):
-        m = TERMINAL_STANDS.match(ref)
-        out.append({"ref": ref, "terminal": m.group(1) if m else "remote", "xy": pt(line[-1]),
+    for ref, (_, line, terminal) in sorted(best.items(), key=lambda kv: natural(kv[0])):
+        out.append({"ref": ref, "terminal": terminal, "xy": pt(line[-1]),
                     "heading": round(bearing(line[-2], line[-1]), 1), "lead": line})
     return out
+
+
+def gate_namer(gates: re.Pattern | None, terminals: list[tuple[str, Polygon]]):
+    """A stand's terminal is the letter its ref starts with when ``gates`` matches, else the number of the terminal
+    building within GATE_REACH metres, its ref then prefixed (T5-12; JFK's Terminal 5 gates are 501..530 in OSM)."""
+
+    def lettered(raw: str, xy) -> tuple[str, str]:
+        m = gates.match(raw)
+        return raw, m.group(1) if m else "remote"
+
+    def numbered(raw: str, xy) -> tuple[str, str]:
+        p = Point(xy)
+        found = [(poly.distance(p), m.group(1)) for n, poly in terminals if (m := re.search(r"(\d+)$", n))]
+        d, number = min(found, default=(math.inf, ""))
+        if d > GATE_REACH:
+            return raw, "remote"
+        if number == "5" and (m := re.fullmatch(r"5(\d\d)([A-Z]*)", raw)):
+            raw = f"{int(m.group(1))}{m.group(2)}"
+        return f"T{number}-{raw}", f"T{number}"
+
+    return lettered if gates else numbered
 
 
 def stand_ref(raw: str) -> str:
@@ -501,7 +576,9 @@ def tower_of(elements: list[dict], proj: Projector, built, default_height: float
     return {"xy": pt((p.x, p.y)), "height": round(h, 1)}, key
 
 
-def buildings_of(elements: list[dict], proj: Projector, used: set, built) -> list[dict]:
+def buildings_of(elements: list[dict], proj: Projector, used: set, built, near: float, bands, tower) -> list[dict]:
+    """Every building within ``near`` metres of the terminals, and beyond it those as tall as the first skyline band
+    reaching them asks, in metres or levels; not the tower's own footprint, which the stage models."""
     out, seen = [], set()
     centre = built.centroid
     for e, t in tagged(elements):
@@ -509,10 +586,12 @@ def buildings_of(elements: list[dict], proj: Projector, used: set, built) -> lis
             continue
         seen.add((e["type"], e["id"]))
         poly = proj.polygon(e)
-        if poly.is_empty or poly.area < 20:
+        if poly.is_empty or poly.area < 20 or poly.contains(tower):
             continue
         h = height(t, DEFAULT_HEIGHT)
-        if centre.distance(poly) > NEAR_M and h < MIN_HEIGHT and (number(t.get("building:levels")) or 0) < MIN_LEVELS:
+        d = centre.distance(poly)
+        tall, levels = next(((h0, lv) for r, h0, lv in bands if d <= r), (math.inf, math.inf))
+        if d > near and h < tall and (number(t.get("building:levels")) or 0) < levels:
             continue
         for r in rings(poly, 0.5):
             out.append({"outer": r["outer"], "height": round(h, 1)})
@@ -549,11 +628,13 @@ def rings(shape, tol: float, min_area: float = 1.0) -> list[dict]:
     return out
 
 
-def ortho(enu: Enu, bounds: tuple, tiles: Path, path: Path, refresh: bool) -> None:
-    """The USGS mosaic at ZOOM resampled bilinearly onto the ENU grid of `bounds`, north up."""
+def ortho(enu: Enu, bounds: tuple, px: int, tiles: Path, path: Path, refresh: bool) -> None:
+    """The USGS mosaic at ZOOM resampled bilinearly onto the ENU grid of `bounds`, north up, `px` pixels along its
+    longer side."""
     w, s, e, n = bounds
-    xs = w + (np.arange(ORTHO_PX) + 0.5) * (e - w) / ORTHO_PX
-    ys = n - (np.arange(ORTHO_PX) + 0.5) * (n - s) / ORTHO_PX
+    width, rows_px = (px, round(px * (n - s) / (e - w))) if e - w >= n - s else (round(px * (e - w) / (n - s)), px)
+    xs = w + (np.arange(width) + 0.5) * (e - w) / width
+    ys = n - (np.arange(rows_px) + 0.5) * (n - s) / rows_px
     lon, _ = enu.lonlat(xs, 0)
     _, lat = enu.lonlat(0, ys)
     scale = 256 * 2**ZOOM
@@ -571,8 +652,8 @@ def ortho(enu: Enu, bounds: tuple, tiles: Path, path: Path, refresh: bool) -> No
     x0, y0 = np.floor(fx).astype(int), np.floor(fy).astype(int)
     ax, ay = (fx - x0)[None, :, None].astype(np.float32), (fy - y0)[:, None, None].astype(np.float32)
     x0, y0 = np.clip(x0, 0, mosaic.shape[1] - 2), np.clip(y0, 0, mosaic.shape[0] - 2)
-    out = np.empty((ORTHO_PX, ORTHO_PX, 3), dtype=np.uint8)
-    for r in range(0, ORTHO_PX, 256):
+    out = np.empty((rows_px, width, 3), dtype=np.uint8)
+    for r in range(0, rows_px, 256):
         rows = slice(r, r + 256)
         m0, m1 = mosaic[y0[rows]].astype(np.float32), mosaic[y0[rows] + 1].astype(np.float32)
         top = m0[:, x0] * (1 - ax) + m0[:, x0 + 1] * ax

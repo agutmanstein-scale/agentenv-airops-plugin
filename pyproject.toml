@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agentenv-airops"
-version = "0.1.0"
+version = "0.2.0"
 description = "AirOpsEnv as an AgentEnv environment: an airline operations desk recovers a real storm day at a JetBlue hub, live on AgentEnv's virtual clock, graded against a proven hindsight optimum."
 readme = "README.md"
 license = "Apache-2.0"

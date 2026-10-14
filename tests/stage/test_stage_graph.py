@@ -8,11 +8,17 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-STAGE = ROOT / "cache" / "stage" / "BOS" / "stage.json.gz"
-MOMENT = ROOT / "cache" / "stage" / "BOS" / "moment-bos-20250216.json"
-needs_stage = pytest.mark.skipif(not STAGE.is_file(), reason="needs cache/stage/BOS from scripts/build_stage.py BOS")
-needs_moment = pytest.mark.skipif(not (STAGE.is_file() and MOMENT.is_file()),
-                                  reason="needs cache/stage/BOS from scripts/build_stage.py and stage_moment.py")
+STAGES = ROOT / "cache" / "stage"
+SIDECARS = sorted((ROOT / "cache" / "episodes").glob("*.stage.json.gz"))
+
+
+def needs_stage(hub: str):
+    return pytest.mark.skipif(not (STAGES / hub / "stage.json.gz").is_file(),
+                              reason=f"needs cache/stage/{hub} from scripts/build_stage.py {hub}")
+
+
+def load(path: Path) -> dict:
+    return json.loads(gzip.decompress(path.read_bytes()))
 
 
 def load_build_stage():
@@ -66,43 +72,40 @@ def test_graph_nodes_crossings_snaps_gaps_and_strays():
     assert_stands_reach_thresholds(graph)
 
 
-@needs_stage
-def test_bos_every_stand_reaches_every_threshold():
-    stage = json.loads(gzip.decompress(STAGE.read_bytes()))
+@pytest.mark.parametrize("hub", [pytest.param(h, marks=needs_stage(h)) for h in ("BOS", "JFK")])
+def test_every_stand_reaches_every_threshold(hub):
+    stage = load(STAGES / hub / "stage.json.gz")
     graph = stage["taxi_graph"]
     assert {s["ref"] for s in stage["stands"]} == set(graph["stand_nodes"])
     assert {e["id"] for r in stage["runways"] for e in r["ends"]} == set(graph["thresholds"])
     assert_stands_reach_thresholds(graph)
 
 
-@needs_moment
-def test_bos_moment_never_shares_a_stand():
-    stage = json.loads(gzip.decompress(STAGE.read_bytes()))
-    moment = json.loads(MOMENT.read_text())
+@needs_stage("JFK")
+def test_jfk_has_its_four_runways_and_terminals_with_their_gates():
+    stage = load(STAGES / "JFK" / "stage.json.gz")
+    assert sorted(r["ref"] for r in stage["runways"]) == ["13L/31R", "13R/31L", "4L/22R", "4R/22L"]
+    gates = {s["terminal"] for s in stage["stands"]}
+    assert {"T1", "T4", "T5", "T7", "T8", "remote"} <= gates
+    assert all(s["ref"].startswith(s["terminal"] + "-") for s in stage["stands"] if s["terminal"] != "remote")
+    assert max(b["height"] for b in stage["buildings"]) > 300 and stage["tower"]["height"] > 90
+
+
+@pytest.mark.skipif(not SIDECARS, reason="needs cache/episodes/*.stage.json.gz from export.write on a sweep with "
+                                         "cache/stage and cache/traffic baked")
+@pytest.mark.parametrize("path", SIDECARS, ids=[p.name.split(".")[-4] for p in SIDECARS])
+def test_a_cached_sidecar_never_shares_a_stand(path):
+    doc = load(path)
+    stage = load(STAGES / doc["hub"] / "stage.json.gz")
     stands = {s["ref"] for s in stage["stands"]}
-    w0, w1 = moment["window"]
+    lo, hi = doc["span"]
     by_stand: dict[str, list[tuple[float, float, str]]] = {}
-    for a in moment["aircraft"]:
-        assert a["stand"] in stands
-        for start, end in parked(a["legs"]):
-            if start < w1 and end > w0:
-                by_stand.setdefault(a["stand"], []).append((max(start, w0), min(end, w1), a["key"]))
+    for a in doc["aircraft"]:
+        for v in a["visits"]:
+            assert v["stand"] in stands
+            by_stand.setdefault(v["stand"], []).append((lo if v["from"] is None else v["from"],
+                                                         hi if v["to"] is None else v["to"], a["key"]))
     for ref, spans in by_stand.items():
         spans.sort()
         for (_, end, a), (start, _, b) in zip(spans, spans[1:], strict=False):
-            assert end <= start, f"{ref}: {a} and {b}"
-
-
-def parked(legs: list[dict]) -> list[tuple[float, float]]:
-    """At the stand before the first pushback, from each gate arrival to the next pushback, and after the last."""
-    spans, since = [], -math.inf
-    for leg in (g for g in legs if g["status"] == "flown"):
-        if leg["kind"] == "dep":
-            if since is not None:
-                spans.append((since, leg["out"]))
-            since = None
-        else:
-            since = leg["in"]
-    if since is not None:
-        spans.append((since, math.inf))
-    return spans
+            assert end <= start or a == b, f"{ref}: {a} and {b}"

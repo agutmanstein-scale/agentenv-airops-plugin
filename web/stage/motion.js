@@ -1,6 +1,6 @@
 const KT = 1852 / 3600;
 const D2R = Math.PI / 180;
-const STEP = 2;
+const STEP = 3;
 const GRID = 3;
 const SEP = 52;
 const HORIZON = 1200;
@@ -31,14 +31,20 @@ const V_TD = 130 * KT;
 const V_ROT = 145 * KT;
 const V_CLIMB = 175 * KT;
 const TD_PAST = 400;
-const APP_D = 6000;
+const APP_D = 14000;
 const FLARE = 260;
 const GLIDE = Math.tan(3 * D2R);
 const CLIMB = Math.tan(7 * D2R);
 const ROLL = 1800;
 const CLIMB_R = 300;
-const GONE = 120;
+const GONE = 240;
+const GEAR_UP = [4, 12];
+const GEAR_DOWN = [9500, 8000];
+const BEACON = 300;
+const BUCKET = 600;
 const COST = { taxiway: 1, taxilane: 1.25, lead: 2, runway: 8 };
+const ROLL_T = V_ROT / ((V_ROT * V_ROT) / (2 * ROLL));
+const ABSENT = Object.freeze({ x: 0, y: 0, heading: 0, alt: 0, pitch: 0, speed: 0, gear: 1, phase: "absent" });
 
 const hdgOf = (dx, dy) => (Math.atan2(dx, dy) / D2R + 360) % 360;
 const dirOf = (h) => [Math.sin(h * D2R), Math.cos(h * D2R)];
@@ -51,15 +57,20 @@ const unitv = (a, b) => {
   return [(b[0] - a[0]) / d, (b[1] - a[1]) / d];
 };
 
-export function buildTracks(stage, moment) {
+/** Every aircraft's day at the hub from the traffic sidecar: tracks by key, the moments worth filming, who is at which stand when, and which aircraft are about near any minute. */
+export function buildTracks(stage, traffic) {
   const G = graphOf(stage);
   const rws = runwaysOf(stage);
   const strips = stage.runways.map((r) => rws.get(r.ends[0].id));
-  const use = moment.runways_in_use || {};
-  const depRw = rws.get(use.departures) || strips[0];
-  const arrRw = rws.get(use.arrivals) || depRw;
+  const configs = (traffic.runways?.length ? traffic.runways : [{ t: -Infinity }]).map((c, i) => {
+    const dep = rws.get(c.departures) || strips[0];
+    return { i, t: c.t, dep, arr: rws.get(c.arrivals) || dep, depDir: new Set(), spots: [], spotRes: new Map() };
+  });
+  const configAt = (min) => configs.reduce((c, x) => (x.t <= min ? x : c), configs[0]);
   G.depCost = (e) => (G.standSet.has(e.b) ? Infinity : e.len * COST[e.kind]);
-  G.depBack = sweepBack(G, G.thresholds[depRw.id], G.depCost, depFree);
+  const memo = new Map();
+  const once = (key, f) => (memo.has(key) ? memo.get(key) : memo.set(key, f()).get(key));
+  G.once = once;
   G.holds = G.nodes.map((p, i) => i).filter((i) => {
     const a = G.adj[i];
     if (a.length !== 2 || !a.every((e) => e[2] === "taxiway" || e[2] === "taxilane")) return false;
@@ -69,134 +80,214 @@ export function buildTracks(stage, moment) {
     return u[0] * v[0] + u[1] * v[1] > Math.cos(25 * D2R) && !strips.some((rw) => inStrip(rw, p, STRIP + 70)) && !stage.stands.some((st) => dist(st.xy, p) < 90);
   });
   const stands = new Map(stage.stands.map((s) => [s.ref, s]));
-  const [w0, w1] = moment.window.map((m) => m * 60);
-  const dusk = duskOf(moment, stage.origin);
+  const night = nightOf(traffic, stage.origin);
   const deps = [];
   const arrs = [];
-  for (const ac of moment.aircraft) {
-    const st = stands.get(ac.stand);
-    for (const leg of ac.legs) {
-      if (leg.status !== "flown" || !st) continue;
-      if (leg.kind === "dep" && leg.out != null) {
-        const out = leg.out * 60;
-        const off = (leg.off ?? leg.out + 15) * 60;
-        if (off + GONE >= w0 && out <= w1) deps.push({ kind: "dep", ac, leg, st, out, off, len: ac.length || 38 });
-      } else if (leg.kind === "arr" && leg.on != null) {
-        const on = leg.on * 60;
-        const inn = (leg.in ?? leg.on + 10) * 60;
-        if (inn >= w0 && on - 120 <= w1) arrs.push({ kind: "arr", ac, leg, st, on, in: inn, len: ac.length || 38 });
+  for (const ac of traffic.aircraft) {
+    for (const v of ac.visits) {
+      const st = stands.get(v.stand);
+      if (!st) continue;
+      const len = ac.length || 38;
+      const a = v.arr;
+      if (a && a.status === "flown" && v.from != null && (a.on ?? a.in) != null) {
+        const on = (a.on ?? a.in - 7) * 60;
+        arrs.push({ kind: "arr", ac, v, leg: a, st, on, in: Math.max(on + 90, (a.in ?? a.on + 7) * 60), len, cfg: configAt(on / 60) });
+      }
+      const d = v.dep;
+      if (d && d.status === "flown" && v.to != null && d.out != null) {
+        const out = d.out * 60;
+        deps.push({ kind: "dep", ac, v, leg: d, st, out, off: Math.max(out + 150, (d.off ?? d.out + 15) * 60 - ROLL_T), len, cfg: configAt(d.off ?? d.out + 15) });
       }
     }
   }
-  for (const m of deps) {
-    const next = moment.aircraft.flatMap((a) => (a.stand === m.ac.stand ? a.legs : [])).filter((l) => l.kind === "arr" && l.status === "flown" && l.in != null && l.in * 60 > m.out);
-    m.free = Math.min(Infinity, ...next.map((l) => l.in * 60));
+  sequence(deps, arrs);
+  const byRw = new Map();
+  for (const m of deps) (byRw.get(m.cfg.dep.id) || byRw.set(m.cfg.dep.id, []).get(m.cfg.dep.id)).push(m);
+  for (const list of byRw.values()) {
+    list.sort((a, b) => a.off - b.off);
+    list.forEach((m, i) => (m.queue = i ? Math.max(20, Math.min(QUEUE, m.off - list[i - 1].off - 50)) : QUEUE));
   }
-  sequence(deps, arrs, depRw, arrRw, moment.featured || {});
-  deps.forEach((m, i) => (m.queue = i ? Math.max(20, Math.min(QUEUE, m.off - deps[i - 1].off - 50)) : QUEUE));
-  const depDir = new Set();
   for (const m of deps) {
-    routeDep(G, depRw, m);
-    for (let i = 1; i < m.nodes.length; i++) depDir.add(m.nodes[i - 1] * G.n + m.nodes[i]);
+    const rw = m.cfg.dep;
+    const entries = once(`entries:${rw.id}`, () => {
+      const out = G.nodes.map((p, i) => i).filter((i) => onRunway(rw, G.nodes[i]) && along(rw, G.nodes[i]) < rw.len - ROLL - 700 && G.adj[i].some((e) => e[2] !== "runway"));
+      return out.length ? out.map((i) => [i, Math.max(0, along(rw, G.nodes[i])), rw.heading]) : G.thresholds[rw.id];
+    });
+    m.B = once(`dep:${rw.id}`, () => sweepBack(G, entries, G.depCost, depFree));
+    if (!G.out[G.stand_nodes[m.st.ref]].some((e) => isFinite(m.B.d[e]))) m.B = once(`dep~:${rw.id}`, () => sweepBack(G, entries, G.depCost, depFree, softTurn));
+    routeDep(G, m.cfg.dep, m);
+    for (let i = 1; i < m.nodes.length; i++) m.cfg.depDir.add(m.nodes[i - 1] * G.n + m.nodes[i]);
   }
-  const exits = G.nodes.map((p, i) => i).filter((i) => onRunway(arrRw, G.nodes[i]) && G.adj[i].some((e) => e[2] !== "runway"));
-  for (const m of arrs) routeArr(G, arrRw, m, depDir, exits);
-  const cell = (p) => `${Math.floor(p[0] / 100)},${Math.floor(p[1] / 100)}`;
-  const near = new Map();
-  for (const m of [...deps, ...arrs]) {
-    for (let i = 0; i < m.nodes.length; i++) {
-      const p = G.nodes[m.nodes[i]];
-      const [cx, cy] = [Math.floor(p[0] / 100), Math.floor(p[1] / 100)];
-      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-        const k = `${cx + dx},${cy + dy}`;
-        if (!near.has(k)) near.set(k, []);
-        near.get(k).push(p);
+  for (const m of arrs) {
+    const rw = m.cfg.arr;
+    const exits = once(`exits:${rw.id}`, () => G.nodes.map((p, i) => i).filter((i) => onRunway(rw, G.nodes[i]) && G.adj[i].some((e) => e[2] !== "runway")));
+    routeArr(G, rw, m, m.cfg.depDir, exits, once);
+  }
+  const all = [...deps, ...arrs];
+  for (const cfg of configs) {
+    const near = new Map();
+    const cell = (p) => `${Math.floor(p[0] / 100)},${Math.floor(p[1] / 100)}`;
+    for (const m of all) {
+      if (m.cfg !== cfg) continue;
+      for (let i = 0; i < m.nodes.length; i++) {
+        const p = G.nodes[m.nodes[i]];
+        const [cx, cy] = [Math.floor(p[0] / 100), Math.floor(p[1] / 100)];
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+          const k = `${cx + dx},${cy + dy}`;
+          if (!near.has(k)) near.set(k, []);
+          near.get(k).push(p);
+        }
       }
     }
+    for (const i of G.holds) {
+      const p = G.nodes[i];
+      if ((near.get(cell(p)) || []).some((q) => dist(p, q) < 90)) continue;
+      if (cfg.spots.some((j) => dist(G.nodes[j], p) < 120)) continue;
+      cfg.spots.push(i);
+    }
+    cfg.spotRes = new Map(cfg.spots.map((i) => [i, []]));
   }
-  G.spots = [];
-  for (const i of G.holds) {
-    const p = G.nodes[i];
-    if ((near.get(cell(p)) || []).some((q) => dist(p, q) < 90)) continue;
-    if (G.spots.some((j) => dist(G.nodes[j], p) < 120)) continue;
-    G.spots.push(i);
-  }
-  G.spotRes = new Map(G.spots.map((i) => [i, []]));
   const occ = new Map(strips.map((r) => [r.ref, []]));
   for (const m of arrs) {
     timeArr(m);
-    occ.get(arrRw.ref).push({ a: m.on - 75, b: m.tExit + 20, key: m.ac.key });
+    occ.get(m.cfg.arr.ref).push({ a: m.on - 75, b: m.tExit + 20, key: m.ac.key });
   }
-  const plans = [];
-  const report = { waits: 0, late: [], clashes: 0 };
-  const all = [...deps, ...arrs];
   for (const m of all) m.coarse = coarse(m);
+  const plans = timeline((S) => [S.k0 * GRID, S.k1 * GRID]);
+  const moves = timeline((m) => [m.coarse.a - 600, m.coarse.b + 900]);
+  for (const m of all) moves.add(m);
+  const reach = (m) => (m.kind === "dep" ? [m.out - 300, m.off + 1200] : [m.on - 300, m.in + 1500]);
+  const occNear = (m) => {
+    const [a, b] = reach(m);
+    return new Map([...occ].map(([k, list]) => [k, list.filter((iv) => iv.b >= a && iv.a <= b)]));
+  };
   deps.sort((a, b) => a.off - b.off);
   arrs.sort((a, b) => a.on - b.on);
-  const feat = moment.featured || {};
-  const first = (m) => (m.ac.tail === feat.tail && m.leg.flight === feat.flight ? 0 : 1);
-  const order = [...arrs, ...deps].sort((a, b) => first(a) - first(b));
+  const order = [...arrs, ...deps].sort((a, b) => (a.ac.task ? 0 : 1) - (b.ac.task ? 0 : 1));
   for (const m of order) {
-    if (m.kind === "arr") chooseGate(G, m, plans, all, strips);
-    else chooseStage(G, m, plans, all, strips);
-    m.S = settle(m, plans, occ, strips);
-    plans.push(m.S);
+    const committed = plans.near(...reach(m));
+    const nearby = moves.near(...reach(m));
+    if (m.kind === "arr") chooseGate(G, m, committed, nearby, strips);
+    else chooseStage(G, m, committed, nearby, strips);
+    m.S = settle(m, committed, occNear(m), strips);
+    plans.add(m.S);
     m.done = true;
-    if (m.kind === "dep") occ.get(depRw.ref).push({ a: m.off - 45, b: m.off + 40, key: m.ac.key });
+    if (m.kind === "dep") occ.get(m.cfg.dep.ref).push({ a: m.off - 45, b: m.off + 40, key: m.ac.key });
   }
   for (const m of order) {
-    const others = plans.filter((x) => x.m !== m);
-    const bad = clashes(m, m.S, others, occ, strips);
+    const others = plans.near(...reach(m)).filter((x) => x.m !== m);
+    const o = occNear(m);
+    const bad = clashes(m, m.S, others, o, strips);
     if (!bad) continue;
     const save = { stops: m.stops.map((x) => ({ ...x })), w0: m.w0, pause: m.pause, S: m.S };
-    const S = settle(m, others, occ, strips);
-    if (clashes(m, S, others, occ, strips) < bad) {
-      plans[plans.indexOf(m.S)] = S;
+    const S = settle(m, others, o, strips);
+    if (clashes(m, S, others, o, strips) < bad) {
+      plans.swap(m.S, S);
       m.S = S;
     } else {
       Object.assign(m, save);
       time(m);
     }
   }
+  const report = { movements: all.length, waits: 0, late: [], clashes: 0 };
   for (const m of order) {
-    report.clashes += clashes(m, m.S, plans.filter((x) => x.m !== m), occ, strips);
+    report.clashes += firstConflict(m, m.S, plans.near(...reach(m)).filter((x) => x.m !== m), occNear(m), strips, new Set()) ? 1 : 0;
     report.waits += m.stops.length;
     if (m.late > 6) report.late.push({ key: m.ac.key, flight: m.leg.flight, late: m.late });
   }
   const byAc = new Map();
-  for (const m of all) {
-    if (!byAc.has(m.ac.key)) byAc.set(m.ac.key, []);
-    byAc.get(m.ac.key).push(m);
-  }
+  for (const m of all) (byAc.get(m.ac.key) || byAc.set(m.ac.key, []).get(m.ac.key)).push(m);
   const tracks = new Map();
-  for (const ac of moment.aircraft) {
-    const tr = trackOf(ac, stands.get(ac.stand), byAc.get(ac.key) || [], depRw, arrRw, dusk / 60, w0);
-    tr.featured = ac.tail === feat.tail || ac.key === feat.tail;
+  const stays = new Map();
+  const events = [];
+  const [s0, s1] = (traffic.span || [0, 1440]).map((m) => m * 60);
+  const present = timeline((iv) => [Math.max(iv.a, s0 - 3600), Math.min(iv.b, s1 + 3600)]);
+  for (const ac of traffic.aircraft) {
+    const tr = trackOf(ac, byAc.get(ac.key) || [], stands, night);
     tracks.set(ac.key, tr);
+    for (const s of tr.stays) (stays.get(s.stand) || stays.set(s.stand, []).get(s.stand)).push(s);
+    for (const iv of tr.life) present.add({ ...iv, key: ac.key });
+    events.push(...tr.events);
   }
-  tracks.report = report;
-  tracks.dusk = dusk / 60;
-  return tracks;
+  for (const list of stays.values()) list.sort((a, b) => a.a - b.a);
+  events.sort((a, b) => a.t - b.t);
+  const rolls = new Map();
+  for (const [id, list] of byRw) {
+    const xs = list.map((m) => m.roll0[0]).sort((a, b) => a - b);
+    const ys = list.map((m) => m.roll0[1]).sort((a, b) => a - b);
+    rolls.set(id, [xs[xs.length >> 1], ys[ys.length >> 1]]);
+  }
+  return {
+    tracks,
+    events,
+    stays,
+    rolls,
+    report,
+    night,
+    config: (t) => {
+      const c = configAt(t);
+      return { departures: c.dep.id, arrivals: c.arr.id };
+    },
+    near(t, pad = 1) {
+      const keys = new Set();
+      for (const iv of present.near((t - pad) * 60, (t + pad) * 60)) keys.add(iv.key);
+      return keys;
+    },
+  };
 }
 
 export function poseAt(track, t) {
   const ts = t * 60;
   const segs = track.segs;
-  let i = 0;
-  while (i < segs.length - 1 && ts >= segs[i].b) i++;
-  const p = segs[i].pose(ts);
-  p.lights = lightsOf(p.phase, t, track.dusk, p.beacon);
+  let lo = 0;
+  let hi = segs.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (ts >= segs[mid].b) lo = mid + 1;
+    else hi = mid;
+  }
+  const p = { ...segs[lo].pose(ts) };
+  p.lights = lightsOf(p.phase, track.night(t), p.beacon);
   delete p.beacon;
   return p;
 }
 
-function sequence(deps, arrs, depRw, arrRw, feat) {
-  const pinned = (m) => m.ac.tail === feat.tail && m.leg.flight === feat.flight;
-  const X = crossing(depRw, arrRw);
-  const acc = (V_ROT * V_ROT) / (2 * ROLL);
-  const xd = X ? along(depRw, X) - 110 : -1;
-  const dT = xd > 0 && xd < ROLL ? Math.sqrt((2 * xd) / acc) : null;
-  const aT = X ? (along(arrRw, X) - TD_PAST) / V_TD : null;
+/** Items over seconds, binned so that the ones overlapping an interval come back without a scan of the day. */
+function timeline(span) {
+  const bins = new Map();
+  const where = new Map();
+  return {
+    add(it) {
+      const [a, b] = span(it);
+      const ks = [];
+      for (let k = Math.floor(a / BUCKET); k <= Math.floor(b / BUCKET); k++) {
+        if (!bins.has(k)) bins.set(k, []);
+        bins.get(k).push(it);
+        ks.push(k);
+      }
+      where.set(it, ks);
+    },
+    swap(old, it) {
+      for (const k of where.get(old) || []) {
+        const list = bins.get(k);
+        list.splice(list.indexOf(old), 1);
+      }
+      where.delete(old);
+      this.add(it);
+    },
+    near(a, b) {
+      const out = new Set();
+      for (let k = Math.floor(a / BUCKET); k <= Math.floor(b / BUCKET); k++) for (const it of bins.get(k) || []) out.add(it);
+      return [...out].filter((it) => {
+        const [x, y] = span(it);
+        return y >= a && x <= b;
+      });
+    },
+  };
+}
+
+function sequence(deps, arrs) {
+  const pinned = (m) => !!m.ac.task;
   const spread = (list, key, gap) => {
     let moved = false;
     list.sort((a, b) => a[key] - b[key]);
@@ -205,8 +296,8 @@ function sequence(deps, arrs, depRw, arrRw, feat) {
       const b = list[i];
       const d = gap - (b[key] - a[key]);
       if (d <= 0.01) continue;
-      if (pinned(a)) b[key] += d;
-      else if (pinned(b)) a[key] -= d;
+      if (pinned(a) && !pinned(b)) b[key] += d;
+      else if (pinned(b) && !pinned(a)) a[key] -= d;
       else {
         a[key] -= d / 2;
         b[key] += d / 2;
@@ -215,16 +306,44 @@ function sequence(deps, arrs, depRw, arrRw, feat) {
     }
     return moved;
   };
+  const groups = (list, rw) => {
+    const out = new Map();
+    for (const m of list) (out.get(rw(m).id) || out.set(rw(m).id, []).get(rw(m).id)).push(m);
+    return [...out.values()];
+  };
+  const depGroups = groups(deps, (m) => m.cfg.dep);
+  const arrGroups = groups(arrs, (m) => m.cfg.arr);
+  const pairs = [];
+  const acc = (V_ROT * V_ROT) / (2 * ROLL);
+  for (const cfg of new Set([...deps, ...arrs].map((m) => m.cfg))) {
+    const X = crossing(cfg.dep, cfg.arr);
+    if (!X) continue;
+    const xd = along(cfg.dep, X) - 110;
+    if (!(xd > 0 && xd < ROLL)) continue;
+    pairs.push({ cfg, dT: Math.sqrt((2 * xd) / acc), aT: (along(cfg.arr, X) - TD_PAST) / V_TD });
+  }
   for (let it = 0; it < 40; it++) {
-    const a = spread(deps, "off", DEP_SEP);
-    let moved = spread(arrs, "on", ARR_SEP) || a;
-    if (dT != null && aT != null) {
+    let moved = false;
+    for (const g of depGroups) moved = spread(g, "off", DEP_SEP) || moved;
+    for (const g of arrGroups) moved = spread(g, "on", ARR_SEP) || moved;
+    for (const { cfg, dT, aT } of pairs) {
+      const A = arrs.filter((a) => a.cfg === cfg).sort((a, b) => a.on - b.on);
       for (const d of deps) {
-        for (const a of arrs) {
+        if (d.cfg !== cfg) continue;
+        const want = d.off + dT - aT;
+        let lo = 0;
+        let hi = A.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (A[mid].on < want - X_SEP - 1) lo = mid + 1;
+          else hi = mid;
+        }
+        for (let j = lo; j < A.length && A[j].on <= want + X_SEP + 1; j++) {
+          const a = A[j];
           const gap = d.off + dT - (a.on + aT);
           if (Math.abs(gap) >= X_SEP) continue;
           const shift = gap >= 0 ? X_SEP - gap : -(X_SEP + gap);
-          if (pinned(d)) a.on -= shift;
+          if (pinned(d) && !pinned(a)) a.on -= shift;
           else d.off += shift;
           moved = true;
         }
@@ -232,6 +351,8 @@ function sequence(deps, arrs, depRw, arrRw, feat) {
     }
     if (!moved) break;
   }
+  for (const m of arrs) m.in = Math.max(m.in, m.on + 90);
+  for (const m of deps) m.off = Math.max(m.off, m.out + 150);
 }
 
 function crossing(r1, r2) {
@@ -243,11 +364,11 @@ function crossing(r1, r2) {
   return t > 0 && t < r1.len && along(r2, p) > 0 && along(r2, p) < r2.len ? p : null;
 }
 
-function lightsOf(phase, t, dusk, beacon) {
+function lightsOf(phase, dark, beacon) {
   const air = phase === "climb" || phase === "approach" || phase === "flare";
   const rwy = phase === "lineup" || phase === "roll" || phase === "rollout";
   return {
-    nav: phase !== "absent" && (t >= dusk || phase !== "parked"),
+    nav: phase !== "absent" && (dark || phase !== "parked"),
     beacon: phase !== "absent" && (phase !== "parked" || !!beacon),
     strobe: air || rwy,
     landing: air || rwy,
@@ -255,88 +376,89 @@ function lightsOf(phase, t, dusk, beacon) {
   };
 }
 
-function trackOf(ac, st, moves, depRw, arrRw, dusk, w0) {
-  const spec = { class: ac.class, length: ac.length, span: ac.span, jetblue: !!ac.jetblue };
-  const park = st ? { x: st.xy[0], y: st.xy[1], heading: st.heading } : { x: 0, y: 0, heading: 0 };
-  const flown = ac.legs.filter((l) => l.status === "flown");
-  const key = (l) => (l.kind === "dep" ? l.out : l.on) ?? 0;
-  flown.sort((a, b) => key(a) - key(b));
+/** One aircraft's day, visit by visit: parked at each stand, flown in and out where BTS saw it move, and appearing or leaving where the record has a gap. */
+function trackOf(ac, moves, stands, night) {
   const segs = [];
+  const stays = [];
+  const life = [];
+  const events = [];
+  const paths = [];
   let t = -Infinity;
-  let state = flown.length && flown[0].kind === "arr" ? "absent" : "parked";
-  let last = park;
+  let at = null;
+  let since = -Infinity;
   let beaconTo = -Infinity;
-  let beaconFrom = Infinity;
-  const hold = (b) => {
+  const parked = (st, from, to, out) => {
+    const pose = { x: st.xy[0], y: st.xy[1], heading: st.heading, alt: 0, pitch: 0, speed: 0, gear: 1, phase: "parked" };
+    const lit = [from, to, out];
+    return (ts) => ({ ...pose, beacon: ts < lit[1] || ts >= lit[2] - BEACON, since: lit[0] });
+  };
+  const hold = (b, pose) => {
     if (b <= t) return;
-    const s = state;
-    const at = { ...last };
-    const bt = beaconTo;
-    const bf = beaconFrom;
-    segs.push({
-      a: t,
-      b,
-      pose: (ts) => ({ x: at.x, y: at.y, heading: at.heading, alt: 0, pitch: 0, speed: 0, phase: s, beacon: s === "parked" && (ts < bt || ts >= bf) }),
-    });
+    segs.push({ a: t, b, pose: pose || (() => ABSENT) });
     t = b;
   };
-  const paths = [];
-  const events = [];
-  const ev = (leg, kind, ts) => events.push({ flight: leg.flight, kind, t: ts / 60 });
-  for (const leg of flown) {
-    const m = moves.find((x) => x.leg === leg);
-    if (leg.kind === "dep") {
-      if (!m) {
-        if ((leg.off ?? leg.out) * 60 + GONE < w0) {
-          hold((leg.off ?? leg.out) * 60 + GONE);
-          state = "absent";
-        }
-        continue;
-      }
-      beaconFrom = m.out;
-      hold(m.tPush);
-      beaconFrom = Infinity;
-      segs.push({ a: m.tPush, b: m.tTaxi, pose: (ts) => groundPose(m, ts) });
-      segs.push({ a: m.tTaxi, b: m.tRoll, pose: (ts) => groundPose(m, ts) });
-      segs.push({ a: m.tRoll, b: m.tRoll + GONE, pose: (ts) => climbPose(m, depRw, ts) });
-      ev(leg, "pushback", m.tPush);
-      ev(leg, "taxi", m.tTaxi);
-      ev(leg, "roll", m.tRoll);
-      ev(leg, "airborne", m.tRoll + V_ROT / ((V_ROT * V_ROT) / (2 * ROLL)));
-      ev(leg, "gone", m.tRoll + GONE);
-      t = m.tRoll + GONE;
-      const end = climbPose(m, depRw, t);
-      last = { x: end.x, y: end.y, heading: end.heading };
-      state = "absent";
-      paths.push({ kind: "push", pts: thin(m.push) }, { kind: "taxi", pts: thin(m.taxi), hold: at(m.taxi, m.sHold), gate: m.sStage != null ? at(m.taxi, m.sStage) : null, stops: m.stops.map((s) => at(m.taxi, s.s)) });
-    } else {
-      if (!m) {
-        if ((leg.in ?? leg.on) * 60 < w0) {
-          hold(Math.max(t, (leg.in ?? leg.on) * 60 - 1));
-          state = "parked";
-          last = park;
-        }
-        continue;
-      }
-      last = approachPose(m, arrRw, m.tApp);
-      hold(m.tApp);
-      segs.push({ a: m.tApp, b: m.on, pose: (ts) => approachPose(m, arrRw, ts) });
-      segs.push({ a: m.on, b: m.tExit, pose: (ts) => rolloutPose(m, arrRw, ts) });
-      segs.push({ a: m.tExit, b: m.tPark, pose: (ts) => groundPose(m, ts) });
-      ev(leg, "approach", m.tApp);
-      ev(leg, "touchdown", m.on);
-      ev(leg, "vacate", m.tExit);
-      ev(leg, "parked", m.tPark);
-      t = m.tPark;
-      const end = at(m.taxi, m.taxi.len);
-      last = { x: end.x, y: end.y, heading: end.h };
-      state = "parked";
-      beaconTo = m.in + 60;
-      paths.push({ kind: "taxi_in", pts: thin(m.taxi), gate: m.sGate != null ? at(m.taxi, m.sGate) : null, stops: m.stops.map((s) => at(m.taxi, s.s)) });
+  const stay = (end, out, leave) => {
+    if (!at) return;
+    hold(end, parked(at, since, beaconTo, out));
+    stays.push({ key: ac.key, stand: at.ref, a: since, b: end, leave });
+    life.push({ a: since, b: end });
+    at = null;
+  };
+  const ev = (leg, kind, ts) => events.push({ t: ts / 60, key: ac.key, kind, flight: leg.flight });
+  const visits = ac.visits.slice().sort((a, b) => (a.from ?? -Infinity) - (b.from ?? -Infinity));
+  visits.forEach((v, i) => {
+    const st = stands.get(v.stand);
+    if (!st) return;
+    const arr = moves.find((m) => m.v === v && m.kind === "arr");
+    const dep = moves.find((m) => m.v === v && m.kind === "dep");
+    if (arr) {
+      if (at) stay(arr.tApp, Infinity, false);
+      hold(arr.tApp);
+      segs.push({ a: arr.tApp, b: arr.on, pose: (ts) => approachPose(arr, arr.rw, ts) });
+      segs.push({ a: arr.on, b: arr.tExit, pose: (ts) => rolloutPose(arr, arr.rw, ts) });
+      segs.push({ a: arr.tExit, b: arr.tPark, pose: (ts) => groundPose(arr, ts) });
+      paths.push({ kind: "taxi_in", pts: thin(arr.taxi) });
+      ev(arr.leg, "landing", arr.on);
+      ev(arr.leg, "gate_in", arr.tPark);
+      life.push({ a: arr.tApp, b: arr.tPark });
+      t = arr.tPark;
+      at = st;
+      since = t;
+      beaconTo = Math.max(t, arr.in) + 60;
+    } else if (v.from != null && at !== st) {
+      if (at) stay(v.from * 60, Infinity, false);
+      hold(v.from * 60);
+      at = st;
+      since = t;
+      beaconTo = -Infinity;
+    } else if (!at) {
+      at = st;
+      since = v.from != null ? v.from * 60 : -Infinity;
     }
-  }
+    if (dep) {
+      stay(dep.tPush, dep.out, true);
+      segs.push({ a: dep.tPush, b: dep.tTaxi, pose: (ts) => groundPose(dep, ts) });
+      segs.push({ a: dep.tTaxi, b: dep.tRoll, pose: (ts) => groundPose(dep, ts) });
+      segs.push({ a: dep.tRoll, b: dep.tRoll + GONE, pose: (ts) => climbPose(dep, dep.rw, ts) });
+      paths.push({ kind: "push", pts: thin(dep.push) }, { kind: "taxi", pts: thin(dep.taxi) });
+      ev(dep.leg, "pushback", dep.tPush);
+      ev(dep.leg, "takeoff", dep.tRoll + ROLL_T);
+      life.push({ a: dep.tPush, b: dep.tRoll + GONE });
+      t = dep.tRoll + GONE;
+    } else if (v.to != null) {
+      const next = visits[i + 1];
+      if (!(next && next.stand === v.stand && next.from != null && Math.abs(next.from - v.to) < 1)) stay(v.to * 60, Infinity, false);
+    }
+  });
+  stay(Infinity, Infinity, false);
   hold(Infinity);
-  return { key: ac.key, tail: ac.tail, carrier: ac.carrier, jetblue: !!ac.jetblue, spec, stand: ac.stand, legs: ac.legs, segs, dusk, paths, events };
+  const merged = [];
+  for (const iv of life.sort((a, b) => a.a - b.a)) {
+    const last = merged[merged.length - 1];
+    if (last && iv.a <= last.b + 1) last.b = Math.max(last.b, iv.b);
+    else merged.push({ ...iv });
+  }
+  return { key: ac.key, tail: ac.tail, carrier: ac.carrier, jetblue: !!ac.jetblue, task: !!ac.task, spec: { class: ac.class, length: ac.length, span: ac.span, jetblue: !!ac.jetblue }, visits: ac.visits, segs, stays, life: merged, events, paths, night };
 }
 
 function thin(P) {
@@ -348,7 +470,7 @@ function thin(P) {
 
 function groundPose(m, t) {
   if (m.kind === "dep") {
-    if (t < m.tPush) return { x: m.st.xy[0], y: m.st.xy[1], heading: m.st.heading, alt: 0, pitch: 0, speed: 0, phase: "parked", beacon: true, sub: -1, s: 0 };
+    if (t < m.tPush) return { x: m.st.xy[0], y: m.st.xy[1], heading: m.st.heading, alt: 0, pitch: 0, speed: 0, gear: 1, phase: "parked", beacon: true, sub: -1, s: 0 };
     if (t < m.tTaxi) return { ...slide(m.push, m.pushProf, t - m.tPush, true), phase: "pushback", sub: 0 };
     const q = slide(m.taxi, m.taxiProf, t - m.tTaxi, false);
     const phase = q.stopped ? q.label : q.s >= m.sHold ? "lineup" : "taxi";
@@ -361,7 +483,7 @@ function groundPose(m, t) {
 function slide(P, pr, t, reverse) {
   const q = profAt(P, pr, t);
   const p = at(P, q.s);
-  return { x: p.x, y: p.y, heading: reverse ? (p.h + 180) % 360 : p.h, alt: 0, pitch: 0, speed: q.v, stopped: q.stopped, label: q.label, s: q.s };
+  return { x: p.x, y: p.y, heading: reverse ? (p.h + 180) % 360 : p.h, alt: 0, pitch: 0, speed: q.v, gear: 1, stopped: q.stopped, label: q.label, s: q.s };
 }
 
 function approachPose(m, rw, ts) {
@@ -370,7 +492,8 @@ function approachPose(m, rw, ts) {
   const flare = d < FLARE;
   const alt = flare ? GLIDE * FLARE * hermite(d / FLARE) : GLIDE * d;
   const pitch = flare ? 2.5 + 3 * ease(1 - d / FLARE) : 2.5;
-  return { x: rw.xy[0] + rw.u[0] * along, y: rw.xy[1] + rw.u[1] * along, heading: rw.heading, alt, pitch, speed: V_APP, phase: flare ? "flare" : "approach" };
+  const gear = 1 - ease((d - GEAR_DOWN[1]) / (GEAR_DOWN[0] - GEAR_DOWN[1]));
+  return { x: rw.xy[0] + rw.u[0] * along, y: rw.xy[1] + rw.u[1] * along, heading: rw.heading, alt, pitch, speed: V_APP, gear, phase: flare ? "flare" : "approach" };
 }
 
 function hermite(u) {
@@ -382,7 +505,7 @@ function rolloutPose(m, rw, ts) {
   const tau = Math.min(Math.max(ts - m.on, 0), T);
   const a = (V_TD - m.vx) / T;
   const along = TD_PAST + V_TD * tau - 0.5 * a * tau * tau;
-  return { x: rw.xy[0] + rw.u[0] * along, y: rw.xy[1] + rw.u[1] * along, heading: rw.heading, alt: 0, pitch: 5.5 * (1 - ease(tau / 4)), speed: V_TD - a * tau, phase: "rollout" };
+  return { x: rw.xy[0] + rw.u[0] * along, y: rw.xy[1] + rw.u[1] * along, heading: rw.heading, alt: 0, pitch: 5.5 * (1 - ease(tau / 4)), speed: V_TD - a * tau, gear: 1, phase: "rollout" };
 }
 
 function climbPose(m, rw, ts) {
@@ -392,7 +515,7 @@ function climbPose(m, rw, ts) {
   const [ox, oy] = m.roll0;
   if (tau < tRoll) {
     const s = 0.5 * acc * tau * tau;
-    return { x: ox + rw.u[0] * s, y: oy + rw.u[1] * s, heading: rw.heading, alt: 0, pitch: 8 * ease((s - (ROLL - 260)) / 260), speed: acc * tau, phase: "roll" };
+    return { x: ox + rw.u[0] * s, y: oy + rw.u[1] * s, heading: rw.heading, alt: 0, pitch: 8 * ease((s - (ROLL - 260)) / 260), speed: acc * tau, gear: 1, phase: "roll" };
   }
   const t2 = tau - tRoll;
   const ka = 0.6;
@@ -400,7 +523,8 @@ function climbPose(m, rw, ts) {
   const x = t2 < tc ? V_ROT * t2 + 0.5 * ka * t2 * t2 : V_ROT * tc + 0.5 * ka * tc * tc + V_CLIMB * (t2 - tc);
   const alt = x < CLIMB_R ? (CLIMB * x * x) / (2 * CLIMB_R) : CLIMB * (x - CLIMB_R / 2);
   const s = ROLL + x;
-  return { x: ox + rw.u[0] * s, y: oy + rw.u[1] * s, heading: rw.heading, alt, pitch: 8 + 5 * ease(t2 / 6), speed: Math.min(V_CLIMB, V_ROT + ka * t2), phase: "climb" };
+  const gear = 1 - ease((t2 - GEAR_UP[0]) / (GEAR_UP[1] - GEAR_UP[0]));
+  return { x: ox + rw.u[0] * s, y: oy + rw.u[1] * s, heading: rw.heading, alt, pitch: 8 + 5 * ease(t2 / 6), speed: Math.min(V_CLIMB, V_ROT + ka * t2), gear, phase: "climb" };
 }
 
 function graphOf(stage) {
@@ -430,7 +554,9 @@ function runwaysOf(stage) {
     const len = dist(a.xy, b.xy);
     for (const [e, o] of [[a, b], [b, a]]) {
       const u = unitv(e.xy, o.xy);
-      ends.set(e.id, { id: e.id, ref: r.ref, xy: e.xy, u, heading: hdgOf(u[0], u[1]), len, width: r.width });
+      const pad = STRIP + 60;
+      const box = [Math.min(a.xy[0], b.xy[0]) - pad, Math.min(a.xy[1], b.xy[1]) - pad, Math.max(a.xy[0], b.xy[0]) + pad, Math.max(a.xy[1], b.xy[1]) + pad];
+      ends.set(e.id, { id: e.id, ref: r.ref, xy: e.xy, u, heading: hdgOf(u[0], u[1]), len, width: r.width, box });
     }
   }
   return ends;
@@ -475,16 +601,20 @@ function sweep(G, src, cost, free, h0) {
   return { d, prev };
 }
 
-function sweepBack(G, dst, cost, free) {
+/** Cheapest way on to dst, a node or [node, base cost, heading to turn to] entries, from every directed edge. */
+function sweepBack(G, dst, cost, free, turn = turnCost) {
   const E = G.dir;
   const d = new Float64Array(E.length).fill(Infinity);
   const next = new Int32Array(E.length).fill(-1);
   const h = [];
-  for (const f of G.inn[dst]) {
-    const c = cost(E[f]);
-    if (c < d[f]) {
-      d[f] = c;
-      hpush(h, [c, f]);
+  for (const [node, base, hd] of Array.isArray(dst) ? dst : [[dst, 0, null]]) {
+    for (const f of G.inn[node]) {
+      if (hd != null && E[f].kind === "runway") continue;
+      const c = base + cost(E[f]) + (hd == null ? 0 : turn(E[f].h, hd));
+      if (c < d[f]) {
+        d[f] = c;
+        hpush(h, [c, f]);
+      }
     }
   }
   while (h.length) {
@@ -492,7 +622,7 @@ function sweepBack(G, dst, cost, free) {
     if (dd > d[f]) continue;
     for (const e of G.inn[E[f].a]) {
       if (E[e].a === E[f].b) continue;
-      const c = dd + cost(E[e]) + (free(E[e], E[f]) ? 0 : turnCost(E[e].h, E[f].h));
+      const c = dd + cost(E[e]) + (free(E[e], E[f]) ? 0 : turn(E[e].h, E[f].h));
       if (c < d[e]) {
         d[e] = c;
         next[e] = f;
@@ -514,11 +644,12 @@ function holdRoute(G, m, W, t0, committed) {
   const src = m.nodes[0];
   const cost = dep ? G.depCost : m.cost;
   const free = dep ? depFree : arrFree;
-  const F = sweep(G, src, cost, free, dep ? null : m.rw.heading);
-  const B = dep ? G.depBack : m.back;
+  const F = G.once(dep ? `F:${src}` : `F:${m.cfg.i}:${m.st.ref}:${src}`, () => sweep(G, src, cost, free, dep ? null : m.rw.heading));
+  const B = dep ? m.B : m.back;
   const E = G.dir;
   const cands = [];
-  for (const H of G.spots) {
+  const { spots, spotRes } = m.cfg;
+  for (const H of spots) {
     let best = null;
     for (const e of G.inn[H]) {
       if (!isFinite(F.d[e])) continue;
@@ -540,7 +671,7 @@ function holdRoute(G, m, W, t0, committed) {
     out.push(src);
     return [...out.reverse(), ...follow(G, B, c.f).slice(1)];
   };
-  const busy = (H, a, b) => G.spotRes.get(H).some(([x, y]) => x < b && y > a);
+  const busy = (H, a, b) => spotRes.get(H).some(([x, y]) => x < b && y > a);
   const crowded = (H, a, b) => {
     const [x, y] = G.nodes[H];
     return committed.some((o) => {
@@ -555,11 +686,11 @@ function holdRoute(G, m, W, t0, committed) {
     for (let i = 0, d = 0, after = false; i < nodes.length; i++) {
       if (i) d += dist(G.nodes[nodes[i - 1]], G.nodes[nodes[i]]);
       after ||= nodes[i] === c.H;
-      for (const H of G.spots) if (H !== c.H && dist(G.nodes[nodes[i]], G.nodes[H]) < 100) pass.push([H, t0 + d / (TAXI * 0.8) + (after ? W : 0)]);
+      for (const H of spots) if (H !== c.H && dist(G.nodes[nodes[i]], G.nodes[H]) < 100) pass.push([H, t0 + d / (TAXI * 0.8) + (after ? W : 0)]);
     }
     if (pass.some(([H, t]) => busy(H, t - 90, t + 90))) continue;
-    G.spotRes.get(c.H).push([c.tR - 60, c.tR + W + 60]);
-    for (const [H, t] of pass) G.spotRes.get(H).push([t - 90, t + 90]);
+    spotRes.get(c.H).push([c.tR - 60, c.tR + W + 60]);
+    for (const [H, t] of pass) spotRes.get(H).push([t - 90, t + 90]);
     return { nodes, H: c.H };
   }
   return null;
@@ -582,6 +713,8 @@ function turnCost(h1, h2) {
   const t = Math.abs(angDiff(h1, h2));
   return t <= 45 ? 0 : t <= 90 ? 30 : t <= 120 ? 300 : t <= 150 ? 3000 : Infinity;
 }
+
+const softTurn = (h1, h2) => Math.min(turnCost(h1, h2), 20000);
 
 function hpush(h, it) {
   h.push(it);
@@ -620,12 +753,12 @@ const depFree = (e) => e.kind === "lead";
 const arrFree = (e, f) => e.kind === "runway" && f.kind === "runway";
 
 function routeDep(G, rw, m) {
-  const S = G.stand_nodes[m.ac.stand];
-  const B = G.depBack;
+  const S = G.stand_nodes[m.st.ref];
+  const B = m.B;
   const f = G.out[S].reduce((a, e) => (B.d[e] < B.d[a] ? e : a), G.out[S][0]);
   m.rw = rw;
   m.base = B.d[f];
-  depGeometry(G, rw, m, isFinite(B.d[f]) ? follow(G, B, f) : [S]);
+  depGeometry(G, rw, m, isFinite(B.d[f]) ? follow(G, B, f) : [S, G.thresholds[rw.id]]);
   m.w0 = m.wBase = 0;
   m.stops = [];
   m.pause = PAUSE;
@@ -642,21 +775,12 @@ function depGeometry(G, rw, m, nodes) {
   let j = 0;
   while (j < kinds.length && kinds[j] === "lead") j++;
   j = Math.max(1, Math.min(j, e - 1));
-  const q = dirOf(m.st.heading + 180);
-  let run = 0;
-  for (let i = 1; i <= j; i++) run += dist(xy(i - 1), xy(i));
-  while (j < e - 1 && run < 250 && G.adj[nodes[j]].length < 3) {
-    const d = unitv(xy(j), xy(j + 1));
-    if (d[0] * q[0] + d[1] * q[1] < Math.cos(25 * D2R)) break;
-    run += dist(xy(j), xy(j + 1));
-    j++;
-  }
   let ahead = xy(j);
   for (let i = j, acc = 0; i < e && acc < 40; i++) {
     acc += dist(xy(i), xy(i + 1));
     ahead = xy(i + 1);
   }
-  const pb = pushback(m.st.xy, m.st.heading, xy(j), unitv(xy(j), ahead), run);
+  const pb = pushback(m.st.xy, m.st.heading, xy(j), unitv(xy(j), ahead), m.len);
   const F = pb.pts[pb.pts.length - 1];
   const nd = dirOf(pb.nose);
   let k = j;
@@ -669,26 +793,29 @@ function depGeometry(G, rw, m, nodes) {
   m.roll0 = L;
 }
 
-function pushback(A, hs, J, d, lead) {
+/** Back about a length off the stand, then a turn onto the line out: the tug lets go with the nose along d. */
+function pushback(A, hs, J, d, len) {
   const hq = (hs + 180) % 360;
   const q = dirOf(hq);
   const phi = angDiff(hq, hdgOf(d[0], d[1]) + 180);
-  if (Math.abs(phi) < 15) return { pts: [A, J], nose: hs + phi };
-  if (Math.abs(phi) <= 110) {
-    const den = q[0] * d[1] - q[1] * d[0];
-    if (Math.abs(den) > 1e-6) {
-      const tX = ((J[0] - A[0]) * d[1] - (J[1] - A[1]) * d[0]) / den;
-      const tan = Math.tan((Math.abs(phi) / 2) * D2R);
-      const r = Math.min(PUSH_R, (tX - 5) / tan);
-      if (r >= 6) {
-        const B = [A[0] + q[0] * (tX - r * tan), A[1] + q[1] * (tX - r * tan)];
-        return { pts: [A, B, ...arc(B, hq, phi, r)], nose: hs + phi };
-      }
-    }
+  const cap = 1.2 * len + 8;
+  const R = Math.max(PUSH_R, 0.4 * len);
+  if (Math.abs(phi) < 15) {
+    const s = Math.min(cap, Math.max(5, (J[0] - A[0]) * q[0] + (J[1] - A[1]) * q[1]));
+    return { pts: [A, [A[0] + q[0] * s, A[1] + q[1] * s]], nose: hs };
   }
   const ph = Math.sign(phi) * Math.min(Math.abs(phi), 110);
-  const B = [A[0] + q[0] * Math.max(5, lead - PUSH_R), A[1] + q[1] * Math.max(5, lead - PUSH_R)];
-  return { pts: [A, B, ...arc(B, hq, ph, PUSH_R)], nose: hs + ph };
+  const tan = Math.tan((Math.abs(ph) / 2) * D2R);
+  const den = q[0] * d[1] - q[1] * d[0];
+  let straight = Math.min(cap, len * 0.8);
+  let r = R;
+  if (Math.abs(phi) <= 110 && Math.abs(den) > 1e-6) {
+    const tX = ((J[0] - A[0]) * d[1] - (J[1] - A[1]) * d[0]) / den;
+    r = Math.min(R, Math.max(6, (tX - 5) / tan));
+    straight = Math.min(cap, Math.max(5, tX - r * tan));
+  }
+  const B = [A[0] + q[0] * straight, A[1] + q[1] * straight];
+  return { pts: [A, B, ...arc(B, hq, ph, r)], nose: hs + ph };
 }
 
 function arc(B, hq, ph, r) {
@@ -704,20 +831,25 @@ function arc(B, hq, ph, r) {
   return out;
 }
 
-function routeArr(G, rw, m, depDir, exits) {
-  const S = G.stand_nodes[m.ac.stand];
+function routeArr(G, rw, m, depDir, exits, once) {
+  const S = G.stand_nodes[m.st.ref];
   const ban = (e) => e.kind === "runway" && onRunway(rw, G.nodes[e.a]) && onRunway(rw, G.nodes[e.b]);
-  m.cost = (e) => (ban(e) || (G.standSet.has(e.b) && e.b !== S) ? Infinity : e.len * COST[e.kind] * (depDir.has(e.b * G.n + e.a) ? 2.5 : 1));
-  m.back = sweepBack(G, S, m.cost, arrFree);
+  const cost = (e) => (ban(e) || (G.standSet.has(e.b) && e.b !== S) ? Infinity : e.len * COST[e.kind] * (depDir.has(e.b * G.n + e.a) ? 2.5 : 1));
   let best = null;
-  for (const lo of [1300, 900]) {
-    for (const i of exits) {
-      const a = along(rw, G.nodes[i]);
-      if (a < lo || a > Math.min(2300, rw.len - 150)) continue;
-      for (const f of G.out[i]) {
-        const c = turnCost(rw.heading, G.dir[f].h) + m.back.d[f];
-        if (isFinite(c) && (!best || c + 0.4 * Math.abs(a - 1700) < best.score)) best = { f, c, score: c + 0.4 * Math.abs(a - 1700) };
+  for (const soft of [false, true]) {
+    const memo = once(`arr${soft ? "~" : ""}:${m.cfg.i}:${rw.id}:${S}`, () => ({ cost, back: sweepBack(G, S, cost, arrFree, soft ? softTurn : turnCost) }));
+    m.cost = memo.cost;
+    m.back = memo.back;
+    for (const lo of [1300, 900, 700]) {
+      for (const i of exits) {
+        const a = along(rw, G.nodes[i]);
+        if (a < lo || a > Math.min(2300, rw.len - 150)) continue;
+        for (const f of G.out[i]) {
+          const c = turnCost(rw.heading, G.dir[f].h) + m.back.d[f];
+          if (isFinite(c) && (!best || c + 0.4 * Math.abs(a - 1700) < best.score)) best = { f, c, score: c + 0.4 * Math.abs(a - 1700) };
+        }
       }
+      if (best) break;
     }
     if (best) break;
   }
@@ -734,7 +866,7 @@ function routeArr(G, rw, m, depDir, exits) {
 function arrGeometry(G, rw, m, nodes) {
   m.nodes = nodes;
   const aX = along(rw, G.nodes[nodes[0]]);
-  m.xAlong = aX - 30;
+  m.xAlong = Math.max(aX - 30, TD_PAST + 250);
   const Xp = [rw.xy[0] + rw.u[0] * m.xAlong, rw.xy[1] + rw.u[1] * m.xAlong];
   m.taxi = pathOf(rounded([Xp, ...nodes.map((n) => G.nodes[n])], TURN_R), 2);
   let lead = 0;
@@ -942,7 +1074,7 @@ function fastest(prof, vmin, vmax, fits) {
   let a = vmin;
   let b = vmax;
   let vc = vmax;
-  for (let it = 0; it < 12; it++) {
+  for (let it = 0; it < 7; it++) {
     const c = (a + b) / 2;
     const q = prof(c);
     if (fits(q)) {
@@ -1048,8 +1180,23 @@ function sampleMove(m) {
   let k = 0;
   if (dep) k = walk(S, k, Math.ceil(m.tTaxi / GRID) - 1 - k0, m.push, m.pushProf, m.tPush, true, 0, m.len);
   walk(S, k, n - 1, m.taxi, m.taxiProf, dep ? m.tTaxi : m.tExit, false, 1, m.len);
+  S.box = [Infinity, Infinity, -Infinity, -Infinity];
+  S.hash = new Map();
+  for (let i = 0; i < n; i++) {
+    S.box[0] = Math.min(S.box[0], S.cx[i]);
+    S.box[1] = Math.min(S.box[1], S.cy[i]);
+    S.box[2] = Math.max(S.box[2], S.cx[i]);
+    S.box[3] = Math.max(S.box[3], S.cy[i]);
+    const c = cellOf(S.cx[i], S.cy[i]);
+    if (!S.hash.has(c)) S.hash.set(c, []);
+    S.hash.get(c).push(i);
+  }
   return S;
 }
+
+const CELL = 100;
+const cellOf = (x, y) => (Math.floor(x / CELL) + 512) * 1024 + Math.floor(y / CELL) + 512;
+const apart = (b, x0, y0, x1, y1) => b[0] > x1 || b[2] < x0 || b[1] > y1 || b[3] < y0;
 
 function walk(S, k, kEnd, P, pr, tb, rev, sub, len) {
   const { tA, tD, v } = pr;
@@ -1101,6 +1248,9 @@ function clashes(m, S, others, occ, strips) {
 
 function firstConflict(m, S, committed, occ, strips, ignored, from = 0) {
   const n = S.k1 - S.k0 + 1;
+  const pad = SEP + 80;
+  committed = committed.filter((c) => c.k1 >= S.k0 + from && c.k0 <= S.k1 && !apart(c.box, S.box[0] - pad, S.box[1] - pad, S.box[2] + pad, S.box[3] + pad));
+  strips = strips.filter((rw) => !apart(rw.box, S.box[0] - m.len, S.box[1] - m.len, S.box[2] + m.len, S.box[3] + m.len) && occ.get(rw.ref).length);
   for (let k = from; k < n; k++) {
     const kk = S.k0 + k;
     const t = kk * GRID;
@@ -1125,34 +1275,60 @@ function firstConflict(m, S, committed, occ, strips, ignored, from = 0) {
   return null;
 }
 
+/** The first and last grid step in ka..kb at which c comes near any of pts, through c's cell hash. */
 function presence(c, pts, h, len, ka, kb) {
-  let first = -1;
-  let lastNear = -1;
-  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  const lo = Math.max(ka, c.k0);
+  const hi = Math.min(kb, c.k1);
+  if (hi < lo) return { first: -1, last: -1 };
+  const groups = new Map();
   for (const p of pts) {
-    x0 = Math.min(x0, p[0] - 90);
-    y0 = Math.min(y0, p[1] - 90);
-    x1 = Math.max(x1, p[0] + 90);
-    y1 = Math.max(y1, p[1] + 90);
+    const k = cellOf(p[0], p[1]);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(p);
   }
-  for (let kk = Math.max(ka, c.k0); kk <= Math.min(kb, c.k1); kk++) {
-    const j = kk - c.k0;
-    let near = false;
-    if (c.cx[j] > x0 && c.cx[j] < x1 && c.cy[j] > y0 && c.cy[j] < y1) {
-      for (const p of pts) {
-        const d = Math.hypot(p[0] - c.cx[j], p[1] - c.cy[j]);
-        if (d < SEP + 4 || (d < 90 && d < req(p[0], p[1], p[2] ?? h, len, c.cx[j], c.cy[j], c.h[j], c.len) + 4)) {
-          near = true;
-          break;
+  const near = new Uint8Array(hi - lo + 1);
+  const seen = new Set();
+  for (const k of groups.keys()) {
+    for (const dx of [-1024, 0, 1024]) {
+      for (const dy of [-1, 0, 1]) {
+        const ck = k + dx + dy;
+        if (seen.has(ck)) continue;
+        seen.add(ck);
+        const list = c.hash.get(ck);
+        if (!list) continue;
+        const local = [];
+        for (const ex of [-1024, 0, 1024]) for (const ey of [-1, 0, 1]) for (const p of groups.get(ck + ex + ey) || []) local.push(p);
+        let i = 0;
+        let j0 = lo - c.k0;
+        let b = list.length;
+        while (i < b) {
+          const mid = (i + b) >> 1;
+          if (list[mid] < j0) i = mid + 1;
+          else b = mid;
+        }
+        for (; i < list.length && list[i] <= hi - c.k0; i++) {
+          const j = list[i];
+          if (near[j + c.k0 - lo]) continue;
+          for (const p of local) {
+            const d = Math.hypot(p[0] - c.cx[j], p[1] - c.cy[j]);
+            if (d < SEP + 4 || (d < 90 && d < req(p[0], p[1], p[2] ?? h, len, c.cx[j], c.cy[j], c.h[j], c.len) + 4)) {
+              near[j + c.k0 - lo] = 1;
+              break;
+            }
+          }
         }
       }
     }
-    if (near) {
-      if (first < 0) first = kk;
-      lastNear = kk;
-    } else if (first >= 0 && kk - lastNear > 15) break;
   }
-  return { first, last: lastNear };
+  let first = -1;
+  let last = -1;
+  for (let kk = lo; kk <= hi; kk++) {
+    if (near[kk - lo]) {
+      if (first < 0) first = kk;
+      last = kk;
+    } else if (first >= 0 && kk - last > 15) break;
+  }
+  return { first, last };
 }
 
 function stretch(m, s0, s1) {
@@ -1196,6 +1372,17 @@ function resolve(m, S, cf, committed) {
   const c = cf.c;
   const H = HORIZON / GRID;
   const end = Math.min(m.taxi.len, sc + 150, m.kind === "dep" ? Math.max(sc, m.sHold + 10) : Infinity);
+  const box = [Infinity, Infinity, -Infinity, -Infinity];
+  for (let s = Math.max(0, sc - 900); s <= end; s += 16) {
+    const p = at(m.taxi, s);
+    box[0] = Math.min(box[0], p.x - 150);
+    box[1] = Math.min(box[1], p.y - 150);
+    box[2] = Math.max(box[2], p.x + 150);
+    box[3] = Math.max(box[3], p.y + 150);
+  }
+  const k0 = Math.ceil(tReach(m, Math.max(0, sc - 900)) / GRID) - 2;
+  const k1 = Math.ceil(tReach(m, sc) / GRID) + 2 * H;
+  committed = committed.filter((o) => o.k1 >= k0 && o.k0 <= k1 && !apart(o.box, ...box));
   for (let sw = sc - 12; sw > Math.max(-16, sc - 900); sw -= 16) {
     const s = Math.max(0, sw);
     const p = at(m.taxi, s);
@@ -1266,13 +1453,7 @@ function chooseStage(G, m, committed, all, strips) {
     depGeometry(G, m.rw, m, hr.nodes);
     m.sStage = nearestS(m.taxi, G.nodes[hr.H]);
     m.coarse = coarse(m);
-  } else if (W >= 120) {
-    m.w0 = m.wBase = Math.max(0, Math.min(W - 30, m.free - m.out - 480));
-    if (W - m.w0 >= 150) {
-      timeDep(m);
-      m.sStage = chooseSpot(m, committed, all, strips, 25, m.sHold - 250, W - m.w0);
-    }
-  }
+  } else if (W >= 150) m.sStage = chooseSpot(m, committed, all, strips, 25, m.sHold - 250, W);
 }
 
 function chooseSpot(m, committed, all, strips, s0, s1, W) {
@@ -1285,10 +1466,16 @@ function chooseSpot(m, committed, all, strips, s0, s1, W) {
     const ka = Math.ceil(tR / GRID);
     const kb = Math.floor((tR + W) / GRID);
     let score = 0;
+    const k = cellOf(c[0], c[1]);
     for (const o of committed) {
-      for (let kk = Math.max(ka, o.k0); kk <= Math.min(kb, o.k1); kk += 3) {
-        const j = kk - o.k0;
-        if (Math.hypot(o.cx[j] - c[0], o.cy[j] - c[1]) < 80) score += 3;
+      if (o.k1 < ka || o.k0 > kb) continue;
+      for (const dx of [-1024, 0, 1024]) {
+        for (const dy of [-1, 0, 1]) {
+          for (const j of o.hash.get(k + dx + dy) || []) {
+            const kk = j + o.k0;
+            if (kk >= ka && kk <= kb && kk % 3 === 0 && Math.hypot(o.cx[j] - c[0], o.cy[j] - c[1]) < 80) score += 3;
+          }
+        }
       }
     }
     for (const o of all) {
@@ -1300,14 +1487,17 @@ function chooseSpot(m, committed, all, strips, s0, s1, W) {
   return best ? best.s : null;
 }
 
-function duskOf(moment, origin) {
-  const off = tzOffset(moment.date, moment.tz);
-  for (let t = 15 * 60; t < 21 * 60; t += 0.25) if (sunElevation(moment.date, t, origin[0], origin[1], off) < -0.833) return t * 60;
-  return 18 * 3600;
+function nightOf(traffic, origin) {
+  const off = tzOffset(traffic.date, traffic.tz);
+  const t0 = Math.floor((traffic.span || [0])[0]) - 240;
+  const n = Math.ceil((traffic.span || [0, 1440])[1] - t0) + 480;
+  const el = new Float32Array(n);
+  for (let i = 0; i < n; i++) el[i] = sunElevation(traffic.date, t0 + i, origin[0], origin[1], off);
+  return (t) => el[Math.max(0, Math.min(n - 1, Math.round(t - t0)))] < 3;
 }
 
 function tzOffset(date, tz) {
-  const s = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "longOffset" }).formatToParts(new Date(`${date}T12:00:00Z`)).find((p) => p.type === "timeZoneName").value;
+  const s = new Intl.DateTimeFormat("en-US", { timeZone: tz || "UTC", timeZoneName: "longOffset" }).formatToParts(new Date(`${date}T12:00:00Z`)).find((p) => p.type === "timeZoneName").value;
   const m = /GMT([+-])(\d\d):?(\d\d)?/.exec(s);
   return m ? (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] || 0)) : 0;
 }

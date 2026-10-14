@@ -15,7 +15,7 @@ from agentenv_airops.episodes import replay
 
 ROOT = Path(__file__).resolve().parents[2]
 E2E = ROOT / "tests" / "export" / "fixtures"
-RESOLVE = "https://huggingface.co/datasets/earakely-scale/PortSimEnv-AgentEnv/resolve/main"
+RESOLVE = "https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.1.0"
 
 
 @pytest.mark.browser
@@ -31,12 +31,12 @@ def test_the_space_plays_the_datasets_episodes_from_another_origin(hub, tmp_path
         page.goto(f"{site}/index.html?index={quote(data + '/viewer/episodes/index.json')}")
         assert page.js("airops.ready") == {"episodes": 1}
         assert page.js("location.pathname") == "/viewer/index.html"
-        link = page.js("document.querySelector('table.eps a').href")
+        link = page.js("document.querySelector('a.ep-card').href")
         assert export.file_name(episode) in link
         page.goto(link)
         ready = page.js("airops.ready")
         assert ready["steps"] == len(episode["steps"]) and ready["watches"] == [w["t"] for w in episode["watches"]]
-        assert "Claude Sonnet 5.5" in page.js("document.querySelector('.hd .who').textContent")
+        assert "Claude Sonnet 5.5" in page.js("document.querySelector('.head h1').textContent")
 
 
 @pytest.mark.browser
@@ -45,7 +45,7 @@ def test_huggingface_resolve_urls_are_readable_from_another_origin(tmp_path):
     (tmp_path / "index.html").write_text("<!doctype html><title>blank</title>")
     with served(tmp_path) as site, chrome() as page:
         page.goto(f"{site}/index.html", "document.readyState === 'complete'")
-        for name in ("results/eval-v5.json", "results/board.parquet"):
+        for name in ("results/eval-v1.json", "results/board.parquet"):
             ok, status, size = page.js(f"fetch('{RESOLVE}/{name}').then(async r => [r.ok, r.status, "
                                        "(await r.arrayBuffer()).byteLength])")
             assert ok and status == 200 and size > 1000, name

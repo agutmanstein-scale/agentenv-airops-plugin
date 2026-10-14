@@ -1,6 +1,6 @@
 // Adapted from PortSimEnv v1 (FineEnvs, Apache-2.0): scene-kit.js
 import * as THREE from "three";
-import { WATER_Y, weatherAt, wetness } from "./env.js";
+import { WATER_Y } from "./env.js";
 
 const H = { far: -0.5, land: 0, apron: 0.06, lane: 0.07, taxi: 0.1, runway: 0.14, rubber: 0.17, paint: 0.2 };
 const WGS84_A = 6378137.0;
@@ -322,7 +322,8 @@ function designatorAtlas(ids) {
 
 /* ---------------- shared ground shading: wetness, apron light pools, city glow ---------------- */
 
-function patchGround(mat, U, { paved = 1, winter = false, city = 0 } = {}) {
+/** Wet, snow (1 lies everywhere, 2 ploughed pavement), apron light pools and city glow on a ground material. */
+function patchGround(mat, U, { paved = 1, winter = false, city = 0, snow = 0, detail = false } = {}) {
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader
@@ -333,8 +334,8 @@ function patchGround(mat, U, { paved = 1, winter = false, city = 0 } = {}) {
         "#include <common>",
         `#include <common>
         varying vec3 vGW;
-        uniform float uWet, uPool, uCity;
-        uniform sampler2D uPuddle, uLightMap;
+        uniform float uWet, uPool, uCity, uSnow;
+        uniform sampler2D uPuddle, uLightMap, uPlough;
         uniform vec4 uLightM;
         float gh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`,
       )
@@ -344,6 +345,14 @@ function patchGround(mat, U, { paved = 1, winter = false, city = 0 } = {}) {
         vec2 gxy = vec2(vGW.x, -vGW.z);
         float puddle = texture2D(uPuddle, gxy / 41.0).r * texture2D(uPuddle, gxy / 13.0 + 0.37).r;
         float pv = 0.0;
+        ${detail ? `{
+          float dd = length(vGW - cameraPosition);
+          float k = 1.0 - smoothstep(50.0, 450.0, dd);
+          float g1 = texture2D(uPuddle, gxy / 3.3).r;
+          float g2 = texture2D(uPuddle, gxy / 0.85 + 0.31).r;
+          float g3 = gh(floor(gxy / 0.3));
+          diffuseColor.rgb *= 1.0 + k * (0.26 * (g1 - 0.5) + 0.16 * (g2 - 0.5) + 0.12 * (g3 - 0.5));
+        }` : ""}
         ${winter ? `{
           vec3 c = diffuseColor.rgb;
           float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -354,7 +363,21 @@ function patchGround(mat, U, { paved = 1, winter = false, city = 0 } = {}) {
           c = mix(c, vec3(l) * 0.5 + 0.04, pv * 0.7);
           diffuseColor.rgb = c * 0.86;
         }` : ""}
-        float wetK = uWet * max(${paved.toFixed(2)}, pv * 0.85);
+        float snowK = 0.0;
+        ${snow ? `{
+          vec2 puv = (gxy - uLightM.xy) * uLightM.zw;
+          float inP = step(0.0, puv.x) * step(puv.x, 1.0) * step(0.0, puv.y) * step(puv.y, 1.0);
+          float n1 = texture2D(uPuddle, gxy / 7.0 + 0.13).r * 0.35 + texture2D(uPuddle, gxy / 29.0).r * 0.65;
+          float l = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+          ${snow === 1 ? `
+          snowK = uSnow * (0.8 + 0.2 * n1);
+          vec3 sc = vec3(0.84, 0.87, 0.92) * (0.82 + 0.4 * l);` : `
+          float cleared = texture2D(uPlough, puv).r * inP;
+          snowK = uSnow * max(1.0 - smoothstep(0.3, 0.85, cleared + 0.3 * (n1 - 0.5)), 0.1 + 0.22 * n1 * n1);
+          vec3 sc = mix(vec3(0.6, 0.62, 0.65), vec3(0.86, 0.88, 0.92), smoothstep(0.25, 0.75, snowK));`}
+          diffuseColor.rgb = mix(diffuseColor.rgb, sc, clamp(snowK, 0.0, 1.0));
+        }` : ""}
+        float wetK = uWet * max(${paved.toFixed(2)}, pv * 0.85) * (1.0 - 0.85 * snowK);
         diffuseColor.rgb *= 1.0 - wetK * (0.32 + 0.12 * puddle);`,
       )
       .replace(
@@ -373,13 +396,13 @@ function patchGround(mat, U, { paved = 1, winter = false, city = 0 } = {}) {
           float road = smoothstep(0.10, 0.26, lum) * (1.0 - inL);
           vec2 cell = floor(gxy / 7.0);
           vec2 fc = fract(gxy / 7.0) - 0.5;
-          float lamp = step(0.78, gh(cell)) * exp(-dot(fc, fc) * 30.0);
+          float lamp = step(0.9, gh(cell)) * exp(-dot(fc, fc) * 30.0);
           vec3 tint = mix(vec3(1.0, 0.62, 0.30), vec3(1.0, 0.86, 0.70), step(0.5, gh(cell + 7.0)));
-          totalEmissiveRadiance += tint * road * uCity * ${city.toFixed(2)} * (0.05 + 2.2 * lamp);
+          totalEmissiveRadiance += tint * road * uCity * ${city.toFixed(2)} * (0.012 + 2.2 * lamp);
         }` : ""}`,
       );
   };
-  mat.customProgramCacheKey = () => `ground-${paved}-${winter}-${city}`;
+  mat.customProgramCacheKey = () => `ground-${paved}-${winter}-${city}-${snow}-${detail}`;
   return mat;
 }
 
@@ -609,7 +632,7 @@ function loadImage(url) {
 const USGS = "https://basemap.nationalmap.gov/arcgis/rest/services";
 
 /** USGS imagery tiles around the origin, water cut out by the USGS hydrography tiles; hole is left to finer layers. */
-async function farField(stage, U, { z, n, half, y, hole, timeout = 20000 }) {
+async function farField(stage, U, { z, n, half, y, hole, winter, timeout = 20000 }) {
   const [lat0, lon0] = stage.origin;
   const proj = enuProjector(lat0, lon0);
   const [cx, cy] = tileXY(lon0, lat0, z).map(Math.floor);
@@ -645,7 +668,7 @@ async function farField(stage, U, { z, n, half, y, hole, timeout = 20000 }) {
   geo.translate(0, y, 0);
   const [w, s, e, nb] = hole;
   const m = new THREE.MeshStandardMaterial({ map: t, roughness: 0.95, metalness: 0 });
-  patchGround(m, U, { paved: 0.25, winter: true, city: 1.1 });
+  patchGround(m, U, { paved: 0.25, winter, city: 1.1, snow: 1 });
   const prev = m.onBeforeCompile;
   m.onBeforeCompile = (sh) => {
     prev(sh);
@@ -792,7 +815,10 @@ function pointInRing(p, ring) {
 export async function buildGround(stage, baseUrl = "", opts = {}) {
   const group = new THREE.Group();
   group.name = "ground";
+  const winter = !!opts.winter;
   const U = {
+    uSnow: { value: 0 },
+    uPlough: { value: null },
     uWet: { value: 0 },
     uPool: { value: 0 },
     uCity: { value: 0 },
@@ -821,7 +847,7 @@ export async function buildGround(stage, baseUrl = "", opts = {}) {
   const landGeo = land.geometry();
   const luv = landGeo.getAttribute("uv");
   for (let i = 0; i < luv.count; i++) luv.setXY(i, (luv.getX(i) - ow) / (oe - ow), (luv.getY(i) - os) / (on - os));
-  const landMat = patchGround(new THREE.MeshStandardMaterial({ map: ortho, roughness: 0.93 }), U, { paved: 0.3, winter: true, city: 1 });
+  const landMat = patchGround(new THREE.MeshStandardMaterial({ map: ortho, roughness: 0.93 }), U, { paved: 0.3, winter, city: 1, snow: 1, detail: true });
   const landMesh = new THREE.Mesh(landGeo, landMat);
   landMesh.receiveShadow = true;
   group.add(landMesh);
@@ -856,9 +882,9 @@ export async function buildGround(stage, baseUrl = "", opts = {}) {
   for (const r of stage.runways) runway.polygon(r.polygon, [], H.runway);
 
   const concrete = concreteTexture();
-  const apronMat = patchGround(new THREE.MeshStandardMaterial({ map: concrete, color: "#B0AEA9", roughness: 0.88 }), U, { paved: 0.8 });
-  const taxiMat = patchGround(new THREE.MeshStandardMaterial({ map: asphaltTexture("#7C7A76", 127), color: "#9A9894", roughness: 0.9 }), U);
-  const runwayMat = patchGround(new THREE.MeshStandardMaterial({ map: asphaltTexture("#686662", 211, 30), color: "#8E8C88", roughness: 0.88 }), U);
+  const apronMat = patchGround(new THREE.MeshStandardMaterial({ map: concrete, color: "#B0AEA9", roughness: 0.88 }), U, { paved: 0.8, snow: 2 });
+  const taxiMat = patchGround(new THREE.MeshStandardMaterial({ map: asphaltTexture("#7C7A76", 127), color: "#9A9894", roughness: 0.9 }), U, { snow: 2 });
+  const runwayMat = patchGround(new THREE.MeshStandardMaterial({ map: asphaltTexture("#686662", 211, 30), color: "#8E8C88", roughness: 0.88 }), U, { snow: 2 });
   for (const [fl, mat] of [[apron, apronMat], [lane, apronMat], [taxi, taxiMat], [runway, runwayMat]]) {
     const m = new THREE.Mesh(fl.geometry(), mat);
     m.receiveShadow = true;
@@ -1045,6 +1071,7 @@ export async function buildGround(stage, baseUrl = "", opts = {}) {
   lightTex.colorSpace = THREE.SRGBColorSpace;
   lightTex.flipY = true;
   U.uLightMap.value = lightTex;
+  U.uPlough.value = ploughMap(stage, f);
 
   const mastGeo = (() => {
     const pole = new THREE.CylinderGeometry(0.22, 0.38, 24, 8);
@@ -1071,9 +1098,9 @@ export async function buildGround(stage, baseUrl = "", opts = {}) {
   mastMesh.castShadow = true;
   group.add(mastMesh);
 
-  const whiteMat = patchGround(new THREE.MeshStandardMaterial({ color: "#D6D5CE", roughness: 0.7 }), U, { paved: 0.8 });
-  const yellowMat = patchGround(new THREE.MeshStandardMaterial({ color: "#D8A21C", roughness: 0.7 }), U, { paved: 0.8 });
-  const rubberMat = patchGround(new THREE.MeshStandardMaterial({ color: "#121110", roughness: 0.8, transparent: true, opacity: 1, alphaMap: rubberTexture(), depthWrite: false }), U, { paved: 0.15 });
+  const whiteMat = patchGround(new THREE.MeshStandardMaterial({ color: "#D6D5CE", roughness: 0.7 }), U, { paved: 0.8, snow: 2 });
+  const yellowMat = patchGround(new THREE.MeshStandardMaterial({ color: "#D8A21C", roughness: 0.7 }), U, { paved: 0.8, snow: 2 });
+  const rubberMat = patchGround(new THREE.MeshStandardMaterial({ color: "#121110", roughness: 0.8, transparent: true, opacity: 1, alphaMap: rubberTexture(), depthWrite: false }), U, { paved: 0.15, snow: 2 });
   const rubberMesh = new THREE.Mesh(frameQuads(rubber, H.rubber), rubberMat);
   rubberMesh.renderOrder = 1;
   group.add(rubberMesh, new THREE.Mesh(white.geometry(), whiteMat), new THREE.Mesh(yellow.geometry(), yellowMat));
@@ -1097,7 +1124,7 @@ export async function buildGround(stage, baseUrl = "", opts = {}) {
   dGeo.setAttribute("position", new THREE.Float32BufferAttribute(dpos, 3));
   dGeo.setAttribute("uv", new THREE.Float32BufferAttribute(duv, 2));
   dGeo.setAttribute("normal", new THREE.Float32BufferAttribute(dpos.map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
-  const dMat = patchGround(new THREE.MeshStandardMaterial({ color: "#D6D5CE", map: atlas.t, alphaTest: 0.45, roughness: 0.7, side: THREE.DoubleSide }), U, { paved: 0.8 });
+  const dMat = patchGround(new THREE.MeshStandardMaterial({ color: "#D6D5CE", map: atlas.t, alphaTest: 0.45, roughness: 0.7, side: THREE.DoubleSide }), U, { paved: 0.8, snow: 2 });
   group.add(new THREE.Mesh(dGeo, dMat));
 
   const signMesh = holdSigns(signs);
@@ -1105,12 +1132,11 @@ export async function buildGround(stage, baseUrl = "", opts = {}) {
   group.add(lampPoints(lamps, U));
   group.add(lampStreaks(streaks.filter((s) => mask(s.p)), U));
 
-  const clock = new THREE.Clock();
   const far = [];
   const [bw, bs, be, bn] = stage.ortho.bounds;
   const ready = Promise.all([
-    farField(stage, U, { z: 14, n: 9, half: 7600, y: H.far, hole: [bw + 1, bs + 1, be - 1, bn - 1] }),
-    farField(stage, U, { z: 12, n: 7, half: 26000, y: H.far - 0.3, hole: [-7000, -7000, 7000, 7000] }),
+    farField(stage, U, { z: 14, n: 9, half: 7600, y: H.far, hole: [bw + 1, bs + 1, be - 1, bn - 1], winter }),
+    farField(stage, U, { z: 12, n: 7, half: 26000, y: H.far - 0.3, hole: [-7000, -7000, 7000, 7000], winter }),
   ]).then((ms) => {
     for (const m of ms) if (m) {
       far.push(m);
@@ -1119,23 +1145,24 @@ export async function buildGround(stage, baseUrl = "", opts = {}) {
     return far.length;
   }).catch(() => 0);
 
-  function update(t, light = 1, weather = null) {
-    const daylight = typeof light === "number" ? light : light?.daylight ?? 1;
-    const w = weatherAt(weather, t) || {};
-    const wet = wetness(w);
+  function update(t, s, wall = 0) {
+    const daylight = s.atm.day;
+    const w = s.w;
+    const wet = s.wet;
     const vis = w.vis_sm ?? 10;
     const ceil = w.ceiling_ft ?? 99999;
-    const mist = (w.wx || []).some((c) => /(BR|FG|DZ)/.test(c)) ? 1 : 0;
+    const mist = s.mist;
     const ifr = vis < 3 || ceil < 1000;
     const dark = 1 - daylight;
     U.uWet.value = wet;
+    U.uSnow.value = s.snow;
     U.uPool.value = 0.5 * smooth(0.85, 0.2, daylight);
     U.uCity.value = 0.55 * smooth(0.6, 0.1, daylight);
     U.uOn.value = ifr || daylight < 0.85 ? 1 : 0;
     U.uGain.value = 0.55 + 0.6 * dark;
     U.uHalo.value = 1 + mist * 1.1 + wet * 0.4;
     U.uWetStreak.value = wet * (0.25 + 0.75 * smooth(0.85, 0.2, daylight));
-    U.uTime.value = clock.getElapsedTime();
+    U.uTime.value = wall;
     signMesh.userData.face.emissiveIntensity = 0.15 + 0.85 * smooth(0.85, 0.2, daylight);
   }
 
@@ -1143,6 +1170,7 @@ export async function buildGround(stage, baseUrl = "", opts = {}) {
     group,
     update,
     ready,
+    U,
     far,
     masts,
     lampCount: lamps.count,
@@ -1238,29 +1266,37 @@ function thinRun(flat, run, w, h) {
   flat.thin(run.map((s) => s.p), w, h);
 }
 
-/** Camera presets in ENU metres ([x, y, up]) for a stage and moment. */
-export function cameraPresets(stage, moment) {
-  const tw = stage.tower;
-  const feat = moment?.featured && moment.aircraft?.find((a) => a.tail === moment.featured.tail);
-  const stand = stage.stands.find((s) => s.ref === feat?.stand) || stage.stands.find((s) => s.terminal === "C") || stage.stands[0];
-  const depId = moment?.runways_in_use?.departures;
-  const end = stage.runways.flatMap((r) => r.ends).find((e) => e.id === depId) || stage.runways[0].ends[0];
-  const cs = stage.stands.filter((s) => s.terminal === stand.terminal);
-  const cx = cs.reduce((a, s) => a + s.xy[0], 0) / cs.length;
-  const cy = cs.reduce((a, s) => a + s.xy[1], 0) / cs.length;
-  const rw = stage.runways.flatMap((r) => r.ends.map((e) => e.xy));
-  const rx = rw.reduce((a, p) => a + p[0], 0) / rw.length;
-  const ry = rw.reduce((a, p) => a + p[1], 0) / rw.length;
-  const toR = unit([rx - tw.xy[0], ry - tw.xy[1]]);
-  const hd = dirOf(stand.heading);
-  const gateFrom = add(stand.xy, dirOf(stand.heading - 125), 60);
-  const ed = dirOf(end.heading);
-  const thFrom = add(add(end.xy, ed, -70), perp(ed), -80);
-  const hb = add([rx, ry], dirOf(110), 3600);
-  return {
-    tower: { position: [tw.xy[0] + toR[0] * 6, tw.xy[1] + toR[1] * 6, tw.height * 0.86], target: [cx * 0.35 + rx * 0.65, cy * 0.35 + ry * 0.65, 0], fov: 55 },
-    gate: { position: [gateFrom[0], gateFrom[1], 8], target: [stand.xy[0] - hd[0] * 12, stand.xy[1] - hd[1] * 12, 4], fov: 50 },
-    threshold: { position: [thFrom[0], thFrom[1], 4.5], target: [end.xy[0] + ed[0] * 1500, end.xy[1] + ed[1] * 1500, 2], fov: 45 },
-    harbour: { position: [hb[0], hb[1], 300], target: [cx * 0.6 + rx * 0.4, cy * 0.6 + ry * 0.4 - 300, 0], fov: 40 },
-  };
+/** Where the ploughs have been, in the light map's frame: runways and taxiways cleared to their edges, aprons half done. */
+function ploughMap(stage, f) {
+  const [cv, g] = frameCtx(f);
+  g.fillStyle = "#000";
+  g.fillRect(f.x0, f.y0, f.x1 - f.x0, f.y1 - f.y0);
+  g.fillStyle = "rgb(120,120,120)";
+  for (const a of stage.aprons) {
+    g.beginPath();
+    trace(g, a.outer);
+    for (const h of a.holes || []) trace(g, h);
+    g.fill("evenodd");
+  }
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  g.strokeStyle = "#fff";
+  for (const t of stage.taxiways) {
+    g.lineWidth = Math.max(4, t.width - (t.kind === "taxilane" ? 2 : 5));
+    g.beginPath();
+    t.line.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])));
+    g.stroke();
+  }
+  g.fillStyle = "#fff";
+  for (const r of stage.runways) {
+    g.beginPath();
+    trace(g, r.polygon);
+    g.fill();
+  }
+  const [out, og] = canvas(f.W, f.H);
+  og.filter = "blur(2.5px)";
+  og.drawImage(cv, 0, 0);
+  const t = new THREE.CanvasTexture(out);
+  t.flipY = true;
+  return t;
 }

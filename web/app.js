@@ -1,22 +1,35 @@
-// AirOpsEnv viewer: ?episode=<url> replays one episode on its virtual clock; ?index=<url> lists episodes. Exposes
-// window.airops {ready, view(name), show(step), time(minute)} so a recorder can drive it frame by frame.
-import { STATUS, capsAt, countersAt, esc, flightsAt, hhmm, hubState, hubVisits, positionsAt, prepare, short, stepAt } from "./model.js";
-import { MapView, aircraftMesh, framing, loadIcon, movement, runways, slots } from "./map.js";
-import { TailChart } from "./chart.js";
-import { CREDIT, OpsPanel, header } from "./panel.js";
+// AirOpsEnv v1 viewer: ?episode=<url> replays one episode on its clock, the 3D airport filling the screen with the US
+// map in a corner, cards over them and a timeline below; ?index=<url> lists episodes. window.airops {ready, time(t),
+// view(name), show(step), shot(spec), state()} lets a recorder drive it frame by frame.
+import { HUB_NAMES, cities, esc, flightsAt, positionsAt, prepare, programBands, watchAt } from "./model.js";
+import { Board, Desk, Header, Score, Timeline } from "./cards.js";
+import { Views } from "./inset.js";
+import { ATTRIBUTION, rings } from "./map.js";
+import { CREDIT, Expert } from "./panel.js";
 
 const params = new URLSearchParams(location.search);
-const VIEWS = { network: ["network", "hub"], hub: ["hub", "network"], region: ["region", "hub"] };
-const SCALE = { A32X: 1, A220: 0.95, E190: 0.9 };
-const SPEEDS = [5, 10, 20, 40, 80];
+const RECORD = params.get("record") === "1";
+const SPEEDS = [0.25, 1, 2, 5, 10, 20, 40];
+const STAGE_VIEWS = ["tower", "gate", "threshold", "harbour", "follow"];
+const ALIASES = { hub: "tower", region: "network", map: "network" };
+const KEYS = { 1: "tower", 2: "gate", 3: "threshold", 4: "harbour", 5: "follow", m: "network" };
+const CARRIERS = { AA: "an American", AS: "an Alaska", DL: "a Delta", UA: "a United", WN: "a Southwest", NK: "a Spirit", F9: "a Frontier", G4: "an Allegiant",
+  SY: "a Sun Country", HA: "a Hawaiian", MX: "a Breeze", YX: "a Republic", "9E": "an Endeavor", OH: "a PSA", MQ: "an Envoy", OO: "a SkyWest", YV: "a Mesa",
+  C5: "a CommuteAir", ZW: "an Air Wisconsin", PT: "a Piedmont", G7: "a GoJet", QX: "a Horizon" };
+const CAMERAS = { tower: ["Tower", "From the control tower"], gate: ["Gate", "At JetBlue's gates"], threshold: ["Runway", "At the end of the runway in use"],
+  harbour: ["Harbour", "Across the water"], follow: ["Follow", "Behind an aircraft (or click one)"], network: ["Map", "The US map, full screen"] };
 
 let resolveReady, rejectReady;
 window.airops = {
   ready: new Promise((res, rej) => ((resolveReady = res), (rejectReady = rej))),
+  time: async () => {},
   view: async () => {},
   show: async () => {},
-  time: async () => {},
+  shot: async () => {},
+  state: () => ({}),
 };
+if (RECORD) document.documentElement.classList.add("recording");
+if (params.get("ui") === "0") document.documentElement.classList.add("bare");
 
 boot();
 
@@ -32,290 +45,273 @@ async function boot() {
   }
 }
 
+/** The rects of the page over the airport, in the stage's pixels, which its tags keep out of. */
+function covered(root) {
+  if (root.dataset.main !== "stage") return [];
+  const box = root.querySelector(".stage-host").getBoundingClientRect();
+  return [...root.querySelectorAll(".card, .view.corner, .timeline, .credit, .follow-chip, .expert")].filter((el) => el.checkVisibility({ visibilityProperty: true }))
+    .map((el) => el.getBoundingClientRect()).filter((r) => r.width && r.height).map((r) => [r.left - box.left, r.top - box.top, r.right - box.left, r.bottom - box.top]);
+}
+
 async function getJSON(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
-  return r.json();
+  const buf = new Uint8Array(await r.arrayBuffer());
+  if (buf[0] !== 0x1f || buf[1] !== 0x8b) return JSON.parse(new TextDecoder().decode(buf));
+  return JSON.parse(await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).text());
 }
+
+const longDate = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).replace(",", "");
 
 async function indexPage(app, url) {
   const index = await getJSON(url);
-  const rows = index.episodes.map((e) => {
+  document.documentElement.classList.add("light");
+  document.title = "AirOpsEnv v1 · episodes";
+  const card = (e) => {
     const href = `?episode=${encodeURIComponent(new URL(e.url, url).href)}`;
     const gap = e.anchor ? (100 * (e.cost - e.anchor)) / e.anchor : null;
-    return `<tr><td><a href="${href}">${esc(e.task_id)}</a></td><td>${esc(e.hub)}</td><td>${esc(e.date)}</td><td>${esc(e.model_label ?? e.model)}</td><td>${esc(e.run)}</td>
-      <td class="num mono">${e.reward?.toFixed(3) ?? "–"}</td><td class="num mono">${short(e.cost)}</td><td class="num mono">${gap != null ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}%` : "–"}</td></tr>`;
-  }).join("");
-  app.innerHTML = `<div class="overview"><header class="hd"><div class="brand">AirOps<b>Env</b></div><div class="title"><h1>Episodes</h1><div class="sub">${index.episodes.length} recorded runs · ${esc(url.pathname.split("/").pop())}</div></div></header>
-    <table class="eps"><thead><tr><th>task</th><th>hub</th><th>date</th><th>planner</th><th>run</th><th class="num">reward</th><th class="num">cost</th><th class="num">vs hindsight</th></tr></thead><tbody>${rows}</tbody></table>
-    <p class="muted small">Costs in passenger-minutes. ${CREDIT}</p></div>`;
+    const thumb = e.thumb ? ` style="background-image:url('${esc(new URL(e.thumb, url).href)}')"` : "";
+    return `<a class="ep-card" href="${href}"><div class="thumb${e.thumb ? "" : " none"}"${thumb}><span>${esc(e.hub)}</span></div>
+      <div class="body"><h2>${esc(HUB_NAMES[e.hub] ?? e.hub)} · ${esc(longDate(e.date))}</h2><p class="model">${esc(e.model_label ?? e.model)}</p>
+      <dl><div><dt>Reward</dt><dd>${e.reward?.toFixed(3) ?? "–"}</dd></div><div><dt>Cost vs hindsight</dt><dd>${gap != null ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}%` : "–"}</dd></div></dl>
+      <p class="id">${esc(e.task_id)} · ${esc(e.run)}</p></div></a>`;
+  };
+  app.innerHTML = `<div class="list"><header><h1>AirOpsEnv v1</h1><p class="sub">Recover an airline's storm day at JFK or Boston</p>
+    <p class="intro">Each run puts a model at JetBlue's operations desk through a real storm day. Every hour it reads the FAA's advisories and the weather and may cancel or hold flights; the day is then flown on what really happened and scored against the best plan in hindsight. Pick one to replay it.</p></header>
+    <div class="grid">${[...index.episodes].sort((a, b) => (b.reward ?? -1) - (a.reward ?? -1)).map(card).join("")}</div>
+    <p class="credit">Reward from 0.2 to 1: 1 is the best plan in hindsight. Cost in passenger-minutes. ${esc(CREDIT)}</p></div>`;
   resolveReady({ episodes: index.episodes.length });
 }
 
 async function episodePage(app, url) {
   const ep = await getJSON(url);
-  const P = prepare(ep, url);
-  const twin = ep.twin?.url ? await getJSON(new URL(ep.twin.url, url)).then((geojson) => ({ geojson, center: geojson.center })).catch(() => null) : null;
-  const radar = P.radar ? radarFrames(P.radar, url) : null;
-  document.title = `${ep.task.hub} ${ep.task.date} · ${ep.model} · AirOpsEnv`;
-  app.innerHTML = `<div class="viewer">${header(P)}
-    <div class="stage">
-      <div class="maps"><div class="map main" id="map-main"></div>
-        <div class="map inset" id="map-inset"></div>
-        <div class="maptag main-tag" id="tag-main"></div><div class="maptag inset-tag" id="tag-inset"></div>
-        <div class="radar-key" ${radar ? "" : "hidden"}><span>NEXRAD</span><i></i><span>10</span><span>30</span><span>50 dBZ</span></div>
-        <div class="views" role="group" aria-label="Camera">${Object.keys(VIEWS).map((v) => `<button data-view="${v}">${v}</button>`).join("")}</div>
-      </div>
-      <div class="chart" id="chart"></div>
-      <div class="scrub" id="scrub"></div>
-    </div>
-    <aside class="ops" id="ops"></aside></div>`;
-  const [icons, mesh] = [await loadIcon(), aircraftMesh()];
-  const main = new MapView(document.getElementById("map-main"), P, { twin, radar, role: "main", interactive: !params.get("record") });
-  const inset = new MapView(document.getElementById("map-inset"), P, { twin, radar, role: "inset", interactive: !params.get("record") });
-  for (const m of [main, inset]) Object.assign(m, { icons, mesh });
-  const chart = new TailChart(document.getElementById("chart"), P);
-  const panel = new OpsPanel(document.getElementById("ops"), P);
-  const stands = twin ? slots(twin) : [];
-  if (twin) Object.assign(twin, framing(stands));
-  const visits = hubVisits(P), parkAt = assignSlots(visits, stands), strips = twin ? runways(twin) : [];
-  const kLat = Math.cos((P.task.airports[P.task.hub].lat * Math.PI) / 180), lags = runwayQueue(P);
-  const scrub = scrubber(document.getElementById("scrub"), P);
-  let t = clampT(Number(params.get("t") ?? P.task.start)), selected = null, viewName = VIEWS[params.get("view")] ? params.get("view") : "network";
-  let pending = null, busy = false;
-
-  function clampT(m) {
-    return Math.max(P.t0, Math.min(P.end, m));
+  const P = prepare(ep, url), task = ep.task;
+  let doc = null, traffic = null, stageUrl = null;
+  if (ep.stage) {
+    stageUrl = new URL(ep.stage.url, url);
+    [doc, traffic] = await Promise.all([getJSON(stageUrl), getJSON(new URL(ep.stage.traffic, url))]).catch((e) => (console.warn("no 3D airport:", e), [null, null]));
   }
-
-  function frameAt(m) {
-    const flights = flightsAt(P, m), byId = new Map(flights.map((f) => [f.s.id, f]));
-    const caps = capsAt(P, m), nominal = ep.nominal ?? {}, h = String(Math.floor(m / 60)), rings = new Map();
-    for (const code of Object.keys(ep.task.airports)) {
-      const cap = caps[`${code}:arr`]?.[h], nom = nominal[`${code}:arr`]?.[h];
-      if (cap === 0) rings.set(code, { rgb: STATUS.cancelled.rgb, label: "stopped" });
-      else if (cap != null && nom != null && cap < nom) rings.set(code, { rgb: STATUS.delayed.rgb, label: `${cap}/h` });
-    }
-    const parked = parkAt(m).map(({ v, slot }) => {
-      const next = v.next != null ? byId.get(v.next) : null;
-      return { pos: slot.pos, heading: slot.heading, scale: SCALE[v.family] ?? 1, cls: next ? next.cls : "scheduled",
-        label: next ? `${next.s.flight.replace(" ", "")} ${hhmm(next.r.dep)}` : "" };
-    });
-    for (const f of flights) {
-      const m2 = movement(f, m, ep.task.hub, strips, kLat, lags.get(f.s.id) ?? 0);
-      if (m2) parked.push({ ...m2, scale: SCALE[f.s.family] ?? 1, cls: f.cls, label: `${f.s.flight.replace(" ", "")} ${f.s.dest === ep.task.hub ? "arriving" : "departing"}` });
-    }
-    return { t: m, key: `${Math.round(m)}|${selected}`, cls: Math.round(m), flights, positions: positionsAt(P, flights, m), rings, parked,
-      radar: radar?.at(m) ?? null };
+  P.lo = traffic?.span?.[0] ?? task.start;
+  P.hi = traffic?.span?.[1] ?? P.end;
+  const city = cities(task, traffic), cityOf = (c) => city.get(c) ?? c, model = ep.model_label ?? ep.model;
+  const stands = new Map(), terminals = new Map();
+  for (const ac of traffic?.aircraft ?? []) {
+    if (!ac.task) continue;
+    for (const v of ac.visits) for (const [k, l] of [["arr", v.arr], ["dep", v.dep]]) if (l?.tag) stands.set(`${k}|${l.flight}`, v.stand);
   }
-
-  let lastFrame = null;
-  function draw(m) {
-    const f = (lastFrame = frameAt(m));
-    main.update(f);
-    inset.update(f);
-    const w = P.watches.findLast((v) => v.t <= m);
-    const changed = new Set(w && m - w.t < 60 ? (w.changes ?? []).map((c) => c.id) : []);
-    chart.render(m, f.flights, { changed });
-    const step = selected ?? stepAt(P, m);
-    panel.render(m, countersAt(P, m >= P.end - 25 ? Infinity : m, f.flights), step);
-    scrub.update(m);
-    tags(m);
-  }
-
-  function tags(m) {
-    const hubName = twin?.geojson?.carrier_terminal ? `${ep.task.hub} · ${twin.geojson.carrier_terminal}` : ep.task.hub;
-    const [a, b] = VIEWS[viewName];
-    const name = (cam) => (cam === "hub" ? `${hubName} · 3D` : cam === "region" ? `${ep.task.hub} region` : `Network · ${Object.keys(ep.task.airports).length} airports`);
-    const hs = hubState(P, m), stop = hs.arr.stop ? "arrivals stopped" : hs.arr.tight ? `arrivals ${hs.arr.cap}/h` : "";
-    for (const [id, cam] of [["tag-main", a], ["tag-inset", b]]) {
-      const el = document.getElementById(id), alert = cam !== "network" && stop;
-      el.innerHTML = `${esc(name(cam))}${alert ? ` · <span class="${hs.arr.stop ? "stop" : "tight"}">${ep.task.hub} ${alert}</span>` : ""}`;
+  for (const ref of stands.values()) if (ref.includes("-")) terminals.set(ref.split("-")[0], (terminals.get(ref.split("-")[0]) ?? 0) + 1);
+  const home = [...terminals].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  for (const [k, ref] of stands) stands.set(k, home && ref.startsWith(`${home}-`) ? ref.slice(home.length + 1) : ref.replace("-", " "));
+  document.title = `${HUB_NAMES[task.hub] ?? task.hub} ${task.date} · ${model} · AirOpsEnv v1`;
+  app.innerHTML = `<div class="ep">
+    <div class="view view-stage"><div class="stage-host"></div><div class="inset-caption">The airport · click to swap</div></div>
+    <div class="view view-map"><div class="map"></div><div class="inset-caption">US radar and JetBlue's flights in the air · click to swap</div>
+      <div class="radar-key" ${P.radar ? "" : "hidden"}><span>Radar: light</span><i></i><span>heavy</span></div></div>
+    <div class="cards left"><section class="card head"></section><section class="card desk"></section></div>
+    <div class="cards right"><section class="card score"></section><section class="card board"></section></div>
+    <div class="follow-chip" hidden></div>
+    <aside class="expert" hidden></aside>
+    <footer class="timeline"></footer>
+    <div class="credit"></div></div>`;
+  const root = app.querySelector(".ep");
+  let stage = null, legAt = null;
+  if (doc) {
+    try {
+      const { AirportStage, legAt: leg } = await import("./stage/stage.js");
+      legAt = leg;
+      stage = new AirportStage(root.querySelector(".stage-host"), { stage: doc, traffic, base: new URL(".", stageUrl).href, manual: RECORD, controls: !RECORD, avoid: () => covered(root) });
+      await stage.ready;
+    } catch (e) {
+      console.error("the 3D airport failed, showing the map:", e);
+      stage?.dispose?.();
+      stage = null;
     }
   }
+  const views = new Views(root, P, { stage, interactive: !RECORD, onSwap: (main) => setView(main === "map" ? "network" : stageView) });
+  const ctx = { task, earlier: P.news, city: cityOf, hub: task.hub, sched: P.sched, flightOf: (ref) => P.sched.get(Number(String(ref).replace(/^f/, "")))?.flight };
+  const header = new Header(root.querySelector(".head"), P, { model, weather: stage ? traffic.weather : null });
+  const desk = new Desk(root.querySelector(".desk"), P, { model, city: cityOf });
+  const score = new Score(root.querySelector(".score"), P, { model });
+  const board = new Board(root.querySelector(".board"), P, { city: cityOf, stands, terminal: home?.replace(/^T/, ""), rows: 8, scene: !!stage });
+  const expertEl = root.querySelector(".expert");
+  let expert = null;
+  const cameras = (stage ? [...STAGE_VIEWS, "network"] : []).map((id, i) => ({ id, label: id === "harbour" && task.hub === "JFK" ? "Bay" : CAMERAS[id][0],
+    title: `${CAMERAS[id][1]} (${id === "network" ? "m" : i + 1})` }));
+  const speed0 = SPEEDS.includes(Number(params.get("speed"))) ? Number(params.get("speed")) : 5;
+  const timeline = new Timeline(root.querySelector(".timeline"), P, { bands: programBands(P), speeds: SPEEDS, speed: speed0, cameras });
+  root.querySelector(".credit").textContent = `${stage ? "Gates, taxi routes and runways in use are inferred, for display · airport © OpenStreetMap contributors (ODbL), imagery USGS · " : ""}${ATTRIBUTION} · flights BTS · weather NWS, IEM`;
+  const followChip = root.querySelector(".follow-chip");
 
-  async function setTime(m, { wait = true } = {}) {
-    t = clampT(m);
-    if (radar && wait) await radar.load(t);
-    draw(t);
-    if (wait) await Promise.all([main.idle(), inset.idle()]).then(frames);
+  const moves = ep.executed.filter((e) => e.status === "flown").flatMap((e) => [P.sched.get(e.id).orig === task.hub ? e.dep : null, P.sched.get(e.id).dest === task.hub ? e.arr : null]).filter((m) => m != null);
+  const quiet = (m) => m > P.lastWatch + 60 && !moves.some((x) => x >= m - 5 && x <= m + 30);
+  let t = clamp(Number(params.get("t") ?? P.lo)), step = null, viewName = stage ? "tower" : "network", stageView = "tower", following = null;
+  let playing = false, speed = speed0, rate = null, boost = 1, last = performance.now(), lastMap = -1, busy = false;
+
+  function clamp(m) {
+    return Math.max(P.lo, Math.min(P.hi, Number.isFinite(m) ? m : P.lo));
   }
 
-  function applyView(name) {
-    viewName = VIEWS[name] ? name : "network";
-    const [a, b] = VIEWS[viewName];
-    main.setCamera(a);
-    inset.setCamera(b);
-    for (const btn of document.querySelectorAll(".views button")) btn.classList.toggle("on", btn.dataset.view === viewName);
-    draw(t);
-  }
-
-  scrub.onInput = (m) => {
-    selected = null;
-    pending = m;
-    if (!busy) {
-      busy = true;
-      requestAnimationFrame(() => {
-        busy = false;
-        draw(clampT(pending));
-        t = clampT(pending);
-        radar?.load(t);
-      });
+  function draw(m, { force = false } = {}) {
+    const flights = flightsAt(P, m);
+    header.render(m, { rate, quiet: boost > 1 });
+    desk.render(m, step);
+    score.render(m);
+    board.render(m, flights);
+    timeline.update(m);
+    if (expert && !expertEl.hidden) expert.render(m, flights, step);
+    if (force || RECORD || Math.abs(m - lastMap) >= 0.25) {
+      lastMap = m;
+      views.map.update({ positions: positionsAt(P, flights, m), rings: rings(P, m), radar: views.radar?.at(m) ?? null });
     }
-  };
-  let playing = false, last = 0, speed = 20;
-  scrub.onPlay = () => {
-    playing = !playing;
-    scrub.playing(playing);
+    if (following) followChip.innerHTML = followText(m);
+  }
+
+  function followText(m) {
+    const ac = traffic?.aircraft.find((a) => a.key === following);
+    if (!ac) return "";
+    const leg = ac.task ? legAt?.(ac, m) : null;
+    const what = leg?.tag ?? (ac.task ? "a JetBlue aircraft of the task" : ac.jetblue ? "a JetBlue aircraft outside the task" : `${CARRIERS[ac.carrier] ?? ac.carrier} aircraft`);
+    return `Following <b>${esc(what)}</b> <span>${esc(ac.type ?? "")} ${esc(ac.tail)}</span> <button type="button">Stop · Esc</button>`;
+  }
+
+  async function setView(name, opts = {}) {
+    name = ALIASES[name] ?? name;
+    if (name === "network" || !stage) {
+      views.show("map");
+      viewName = "network";
+      following = null;
+    } else {
+      views.show("stage");
+      viewName = stageView = STAGE_VIEWS.includes(name) ? name : "tower";
+      if (viewName === "follow") opts = { ...opts, key: opts.key ?? following ?? nextFeatured(t) };
+      following = viewName === "follow" ? opts.key ?? null : null;
+      await stage.view(viewName, opts);
+    }
+    followChip.hidden = !following;
+    timeline.camera(viewName);
+    draw(t, { force: true });
+    return viewName;
+  }
+
+  function nextFeatured(m) {
+    const f = traffic?.featured ?? [], ours = (traffic?.aircraft ?? []).filter((a) => a.task).map((a) => a.key);
+    const phase = (k) => stage?.pose(m, k)?.phase ?? "absent", moving = (k) => !["absent", "parked"].includes(phase(k));
+    const soon = f.filter((x) => x.t >= m - 20 && x.t <= m + 90).map((x) => x.key);
+    return soon.find(moving) ?? ours.find(moving) ?? [...soon, ...f.map((x) => x.key), ...ours].find((k) => phase(k) !== "absent") ?? f[0]?.key;
+  }
+
+  function setExpert(on) {
+    if (on && !expert) expert = new Expert(expertEl, P, ctx);
+    expertEl.hidden = !on;
+    root.classList.toggle("expert-on", on);
+    timeline.expert(on);
+    draw(t, { force: true });
+  }
+
+  function play(on = !playing) {
+    playing = on && t < P.hi;
+    timeline.playing(playing);
     last = performance.now();
-    if (playing) requestAnimationFrame(tick);
-  };
-  scrub.onSpeed = (v) => (speed = v);
-  function tick(now) {
-    if (!playing) return;
-    const dt = (now - last) / 1000;
-    last = now;
-    selected = null;
-    t = clampT(t + dt * speed);
+  }
+
+  async function settle() {
+    await Promise.all([views.map.idle(), new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))]);
+  }
+
+  const seek = (m) => {
+    step = null;
+    t = clamp(m);
     draw(t);
-    radar?.load(t);
-    if (t >= P.end) {
-      playing = false;
-      scrub.playing(false);
-      return;
+  };
+  timeline.on("seek", seek).on("play", () => play()).on("speed", (v) => (speed = v)).on("camera", (id) => setView(id))
+    .on("expert", () => setExpert(expertEl.hidden));
+  followChip.addEventListener("click", (e) => e.target.closest("button") && setView("tower"));
+  stage?.onPick?.((key) => key && setView("follow", { key }));
+  addEventListener("resize", () => views.resize());
+  document.addEventListener("keydown", (e) => {
+    if (e.target.closest("input, select, textarea") || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key;
+    if (k === " ") {
+      e.preventDefault();
+      play();
+    } else if (k === "ArrowRight" || k === "ArrowLeft") {
+      e.preventDefault();
+      seek(t + (k === "ArrowRight" ? 1 : -1) * (e.shiftKey ? 60 : 10));
+    } else if (k === "]" || k === "[") {
+      const ws = P.watches.map((w) => w.t), to = k === "]" ? ws.find((x) => x > t + 0.5) : ws.findLast((x) => x < t - 0.5);
+      if (to != null) seek(to);
+    } else if (k === "Home" || k === "End") seek(k === "Home" ? P.lo : P.hi);
+    else if (k === "+" || k === "=" || k === "-") {
+      speed = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, SPEEDS.indexOf(speed) + (k === "-" ? -1 : 1)))];
+      root.querySelector(".speed").value = String(speed);
+    } else if (KEYS[k] && (stage || KEYS[k] === "network")) setView(KEYS[k]);
+    else if (k === "Escape" && following) setView("tower");
+    else if (k === "x") setExpert(expertEl.hidden);
+  });
+
+  function tick(now) {
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    boost = playing && quiet(t) ? 6 : 1;
+    if (playing) {
+      t = clamp(t + dt * speed * boost);
+      if (t >= P.hi) play(false);
+    }
+    rate = playing ? speed * 60 * boost : null;
+    draw(t);
+    if (stage && !busy) {
+      busy = true;
+      Promise.resolve(stage.time(t, { dt, speed: rate ?? 0 })).finally(() => (busy = false));
     }
     requestAnimationFrame(tick);
   }
-  document.addEventListener("keydown", (e) => {
-    if (e.target.closest("input, select, textarea")) return;
-    if (e.key === " ") (e.preventDefault(), scrub.onPlay());
-    else if (e.key === "ArrowRight" || e.key === "ArrowLeft") setTime(t + (e.key === "ArrowRight" ? 10 : -10), { wait: false });
-    else if (e.key === "]" || e.key === "[") {
-      const ws = P.watches.map((w) => w.t), next = e.key === "]" ? ws.find((x) => x > t) : ws.findLast((x) => x < t);
-      if (next != null) setTime(next, { wait: false });
-    }
-  });
-  for (const btn of document.querySelectorAll(".views button")) btn.addEventListener("click", () => applyView(btn.dataset.view));
-  new ResizeObserver(() => {
-    main.resize();
-    inset.resize();
-    draw(t);
-  }).observe(document.querySelector(".stage"));
 
-  await Promise.all([main.loaded, inset.loaded]);
-  applyView(viewName);
-  await setTime(t);
+  await views.map.loaded;
+  await setView(params.get("view") ?? viewName);
+  if (params.get("expert") === "1") setExpert(true);
+  draw(t, { force: true });
+  if (stage) await stage.time(t, { dt: 0, speed: 0 });
+  await settle();
+  if (!RECORD) {
+    if (params.get("play") === "1") play(true);
+    requestAnimationFrame(tick);
+  }
+
   window.airops = {
     ready: window.airops.ready,
-    async view(name) {
-      applyView(name);
-      await Promise.all([main.idle(), inset.idle()]).then(frames);
+    async time(m, opts = {}) {
+      t = clamp(Number(m));
+      rate = opts.speed ?? null;
+      draw(t);
+      if (stage) await stage.time(t, { dt: opts.dt ?? 1 / 30, speed: rate ?? 0 });
+      if (RECORD) await settle();
+      return t;
+    },
+    async view(name, opts) {
+      const v = await setView(name, opts);
+      if (RECORD) await settle();
+      return v;
     },
     async show(k) {
-      selected = k;
-      await setTime(P.steps[k]?.t ?? t);
+      step = k == null || P.steps[k] == null ? null : k;
+      if (step != null) t = clamp(P.steps[step].t);
+      draw(t, { force: true });
+      if (stage && step != null) await stage.time(t, { dt: 0, speed: 0 });
+      if (RECORD) await settle();
     },
-    async time(m) {
-      await setTime(m);
+    async shot(spec) {
+      views.show("stage");
+      return stage?.shot(spec);
     },
-    state: () => ({ t, view: viewName, step: selected, airborne: lastFrame?.positions.length, parked: lastFrame?.parked.length,
-      phases: lastFrame?.flights.reduce((a, f) => ((a[f.phase] = (a[f.phase] ?? 0) + 1), a), {}) }),
-    maps: { main, inset },
+    expert: (on = true) => setExpert(on),
+    events: () => stage?.events?.() ?? [],
+    state: () => ({ t, view: viewName, main: views.main, step, following, expert: !expertEl.hidden, watch: watchAt(P, t),
+      airborne: positionsAt(P, flightsAt(P, t), t).length, board: root.querySelectorAll(".board li:not(.none)").length,
+      stage: stage?.state?.() ?? null }),
+    stage,
+    map: views.map,
   };
-  resolveReady({ steps: P.steps.length, watches: P.watches.map((w) => w.t), start: ep.task.start, t0: P.t0, end: P.end,
-    horizon: P.end, last_watch: P.lastWatch, views: Object.keys(VIEWS), radar: radar?.count ?? 0, twin: !!twin });
-}
-
-const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-
-/** Movements at the hub in the same minute go one after another on the runway: 1.2 min apart, in id order. */
-function runwayQueue(P) {
-  const lags = new Map(), seen = new Map();
-  for (const e of [...P.ep.executed].filter((x) => x.status === "flown").sort((a, b) => a.dep - b.dep || a.id - b.id)) {
-    const s = P.sched.get(e.id);
-    for (const [kind, at] of [["d", s.orig === P.task.hub && e.dep], ["a", s.dest === P.task.hub && e.arr]]) {
-      if (at === false) continue;
-      const n = seen.get(`${kind}${at}`) ?? 0;
-      seen.set(`${kind}${at}`, n + 1);
-      if (n) lags.set(e.id, n * 1.2);
-    }
-  }
-  return lags;
-}
-
-/** Each hub visit gets the first slot free for its whole stay, in order of arrival. */
-function assignSlots(visits, all) {
-  const busyUntil = all.map(() => -Infinity), placed = [];
-  for (const v of visits) {
-    const k = busyUntil.findIndex((u) => u + 10 <= v.from);
-    if (k < 0) continue;
-    busyUntil[k] = v.to;
-    placed.push({ v, slot: all[k] });
-  }
-  return (m) => placed.filter(({ v }) => v.from <= m && m < v.to);
-}
-
-/** Radar frames as images, decoded on demand; at(t) cross-fades the two around t. */
-function radarFrames(radar, base) {
-  const frames = radar.frames.map((f, k) => ({ ...f, k, url: new URL(f.url, base).href, img: null, ready: null }));
-  const get = (f) => {
-    if (!f.ready) {
-      f.img = new Image();
-      f.img.crossOrigin = "anonymous";
-      f.img.dataset.k = String(f.k);
-      f.img.src = f.url;
-      f.ready = f.img.decode().then(() => true, () => false);
-      f.ready.then((ok) => (f.ok = ok));
-    }
-    return f.ready;
-  };
-  const around = (t) => {
-    let i = 0;
-    while (i + 1 < frames.length && frames[i + 1].t <= t) i++;
-    const a = frames[i], b = frames[Math.min(i + 1, frames.length - 1)];
-    const f = b === a || t <= a.t ? 0 : Math.min(1, (t - a.t) / (b.t - a.t));
-    return [a, b, f];
-  };
-  let warm = 0;
-  const preload = () => {
-    for (let n = 0; n < 4 && warm < frames.length; n++) get(frames[warm++]);
-    if (warm < frames.length) setTimeout(preload, 120);
-  };
-  setTimeout(preload, 500);
-  return {
-    count: frames.length,
-    bounds: radar.bounds,
-    load: (t) => Promise.all(around(t).slice(0, 2).map(get)),
-    at(t) {
-      const [a, b, f] = around(t);
-      if (t > frames.at(-1).t + (radar.step ?? 10) || t < frames[0].t - (radar.step ?? 10)) return null;
-      get(a);
-      get(b);
-      return { a: a.ok ? a.img : null, b: b.ok ? b.img : null, f: a.ok && b.ok ? f : a.ok ? 0 : 1 };
-    },
-  };
-}
-
-function scrubber(el, P) {
-  const lo = P.t0, hi = P.end, pct = (m) => (100 * (m - lo)) / (hi - lo);
-  const marks = P.watches.map((w, i) => `<i class="wm" style="left:${pct(w.t)}%" title="watch ${i + 1} · ${hhmm(w.t)}"><b>${i + 1}</b></i>`).join("");
-  const plans = P.steps.filter((s) => s.tool !== "advance" && s.tool !== "get_situation").map((s) => `<i class="sm" style="left:${pct(s.t)}%"></i>`).join("");
-  const win = `<i class="win" style="left:${pct(P.task.window[0])}%;width:${pct(P.task.window[1]) - pct(P.task.window[0])}%"></i>`;
-  el.innerHTML = `<button class="play" aria-label="Play">▶</button>
-    <select class="speed" aria-label="Speed">${SPEEDS.map((v) => `<option value="${v}" ${v === 20 ? "selected" : ""}>${v} min/s</option>`).join("")}</select>
-    <div class="track"><div class="rail">${win}${marks}${plans}<i class="fill"></i></div>
-      <input type="range" min="${lo}" max="${hi}" step="1" value="${lo}" aria-label="Virtual clock"></div>
-    <span class="now mono"></span>`;
-  const input = el.querySelector("input"), now = el.querySelector(".now"), fill = el.querySelector(".fill"), play = el.querySelector(".play");
-  const api = { onInput: null, onPlay: null, onSpeed: null };
-  input.addEventListener("input", () => api.onInput?.(Number(input.value)));
-  play.addEventListener("click", () => api.onPlay?.());
-  el.querySelector(".speed").addEventListener("change", (e) => api.onSpeed?.(Number(e.target.value)));
-  api.update = (m) => {
-    input.value = String(Math.round(m));
-    now.textContent = hhmm(m);
-    fill.style.width = `${pct(m)}%`;
-  };
-  api.playing = (on) => ((play.textContent = on ? "❚❚" : "▶"), play.setAttribute("aria-label", on ? "Pause" : "Play"));
-  return api;
+  resolveReady({ steps: P.steps.length, watches: P.watches.map((w) => w.t), start: task.start, t0: P.lo, end: P.hi, horizon: P.hi,
+    last_watch: P.lastWatch, views: [...(stage ? STAGE_VIEWS : []), "network"], radar: views.radar?.count ?? 0, twin: !!ep.twin,
+    stage: !!stage, span: [P.lo, P.hi], featured: traffic?.featured ?? [], hub: task.hub });
 }

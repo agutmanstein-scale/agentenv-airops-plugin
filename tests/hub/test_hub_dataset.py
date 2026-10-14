@@ -1,7 +1,8 @@
-"""scripts/hub_dataset.py: its rows, the board and the eval card, the card it writes for agent-env hf run, a dry build
-without a sweep and with one (its run in both kinds of table, on the board and in the viewer), the secret scan, and the
-static Space it assembles."""
+"""scripts/hub_dataset.py: its rows, the board and the eval card, the card it writes for agent-env hf run, the pins, a
+dry build without a sweep and with one (its run in both kinds of table, on the board and in the viewer with the assets
+and traffic its episode points at), the secret scan, and the static Space it assembles."""
 
+import gzip
 import io
 import json
 import re
@@ -18,7 +19,7 @@ from agent_env.store.routing import namespace_routing
 from agent_env.task.store import TASK_INSTANCES_COLLECTION
 from huggingface_hub import DatasetCard
 
-from agentenv_airops import export, tasks
+from agentenv_airops import export, stage, tasks
 from agentenv_airops.core.model import load_pack
 from agentenv_airops.core.reward import reward
 from agentenv_airops.day import Day
@@ -88,7 +89,7 @@ def test_the_board_ranks_models_by_their_mean_over_days_next_to_the_references_o
 def test_the_eval_card_has_fineenvs_shape(hub):
     days = load_pack(FIXTURES)
     rows = hub.board([_run(SONNET, days[0].task_id, 0.9)], {t.task_id: t for t in days})
-    card = hub.eval_card(rows, days, "b6-v1", ["2023-06"], "2026-10-13")
+    card = hub.eval_card(rows, days, ["2023-06"], "2026-10-13")
     assert set(card) == EVAL_CARD and card["env"] == "airops-day" and card["version"] == "v1"
     assert card["tasks"]["n"] == len(days) and "2023-06" in card["tasks"]["source"]
     assert card["harness"] == {"agent": "airops-llm", "tools": list(TOOLS),
@@ -97,30 +98,33 @@ def test_the_eval_card_has_fineenvs_shape(hub):
         "the follower", "the blind follower", "naive", "the airline"]
     assert card["models"] == [{"model": "Claude Sonnet 5.5", "provider": "Anthropic", "runs": 1, "mean": 0.9,
                                "ci95": [0.9, 0.9], "finished": 1, "usd_per_episode": 0.5}]
-    assert card["links"]["runs"].endswith("/viewer/b6-v1_episodes")
+    assert card["links"]["runs"].endswith("/viewer/v1_episodes")
 
 
 def test_the_card_lists_the_tables_with_the_days_first_and_the_bundle_for_agent_env_hf_run(hub):
-    files = {"tasks/b6-v1-train.parquet": b"", "tasks/b6-v1-eval.parquet": b"", "results/board.parquet": b"",
-             "episodes/b6-v1-eval.parquet": b""}
-    text = hub.card_text(PLUGIN, files, "b6-v1", "| Claude |")
+    files = {"tasks/v1-train.parquet": b"", "tasks/v1-eval.parquet": b"", "results/board.parquet": b"",
+             "episodes/v1-eval.parquet": b""}
+    text = hub.card_text(PLUGIN, files, "| Claude |")
     data = DatasetCard(text).data.to_dict()
     assert [c["config_name"] for c in data["configs"]] == [
-        "b6-v1_tasks", "results", "b6-v1_episodes", "airops_tasks", "airops_episodes"]
+        "v1_tasks", "results", "v1_episodes", "airops_tasks", "airops_episodes"]
     assert data["configs"][0]["default"] is True and [c for c in data["configs"] if c.get("default")] == [
         data["configs"][0]]
-    assert data["configs"][0]["data_files"] == [{"split": "eval", "path": "tasks/b6-v1-eval.parquet"},
-                                                {"split": "train", "path": "tasks/b6-v1-train.parquet"}]
+    assert data["configs"][0]["data_files"] == [{"split": "eval", "path": "tasks/v1-eval.parquet"},
+                                                {"split": "train", "path": "tasks/v1-train.parquet"}]
     assert data["agentenv"] == {"default": "airops", "bundles": {"airops": {
         "plugins": [PLUGIN], "setup": "agent-env airops setup --agent"}}}
     assert {"rl-environment", "agentenv"} <= set(data["tags"]) and data["license"] == "other"
+    assert data["pretty_name"] == "AirOpsEnv v1" and "\n<h1>AirOpsEnv v1</h1>\n" in text
     assert "<!-- board -->\n\n| Claude |\n\n<!-- /board -->" in text
-    assert "<!-- board -->\n\n<!-- /board -->" in hub.card_text(PLUGIN, files, "b6-v1")
+    assert "<!-- board -->\n\n<!-- /board -->" in hub.card_text(PLUGIN, files)
 
 
-def test_the_hub_sources_pin_this_version_of_the_plugin():
-    for path in ("hub/dataset/README.md", "hub/space/README.md"):
-        pins = re.findall(r"agentenv-airops-plugin(?:@|/blob/)(v[0-9.]+)", (ROOT / path).read_text())
+def test_the_readme_and_the_hub_sources_pin_this_version_of_the_plugin_and_the_dataset():
+    pin = re.compile(r"(?:agentenv-airops-plugin(?:@|/blob/|/releases/tag/|/)"
+                     r"|AirOpsEnv-AgentEnv(?:@|/resolve/|%2Fresolve%2F))(v\d+\.\d+\.\d+)")
+    for path in ("README.md", "hub/dataset/README.md", "hub/space/README.md"):
+        pins = pin.findall((ROOT / path).read_text())
         assert pins and set(pins) == {TAG}, path
 
 
@@ -141,16 +145,16 @@ def test_a_dry_build_without_a_sweep_has_the_days_the_bundle_and_no_runs(hub, lo
     out = _dry_build(hub, tmp_path, monkeypatch)
     pack = tasks.pack_tasks()
     for split in ("eval", "control", "train"):
-        assert [r["task_id"] for r in _rows(out, f"tasks/b6-v1-{split}.parquet")] == [
+        assert [r["task_id"] for r in _rows(out, f"tasks/v1-{split}.parquet")] == [
             t.task_id for t in pack if t.split == split]
     eval_days = [t.task_id for t in pack if t.split == "eval"]
     bundled = sorted(p.stem for p in (out / "bundles/airops/tasks").glob("*.json"))
     assert bundled == sorted([*eval_days, "wiring-noplay"])
     assert len(_rows(out, "tasks/airops.parquet")) == len(eval_days) + 1 and _rows(out, "episodes/airops.parquet") == []
-    assert not (out / "results").exists() and not list(out.glob("episodes/b6-v1-*"))
+    assert not (out / "results").exists() and not list(out.glob("episodes/v1-*"))
     assert json.loads((out / "viewer/episodes/index.json").read_text()) == {"version": 1, "episodes": []}
     data = DatasetCard((out / "README.md").read_text()).data.to_dict()
-    assert data["configs"][0]["config_name"] == "b6-v1_tasks" and data["agentenv"]["default"] == "airops"
+    assert data["configs"][0]["config_name"] == "v1_tasks" and data["agentenv"]["default"] == "airops"
 
 
 def _sweep(tmp_path: Path, transcript: bytes) -> tuple[Path, str]:
@@ -193,19 +197,19 @@ def test_a_dry_build_with_a_sweep_publishes_its_run_in_both_kinds_of_table_on_th
     _sweep(tmp_path, (E2E / "e2e-transcript.json").read_bytes())
     (tmp_path / "cache").mkdir()
     out = _dry_build(hub, tmp_path, monkeypatch, "--pack", str(DAY), "--date", "2026-10-13")
-    [run] = _rows(out, "episodes/e2e-day-eval.parquet")
+    [run] = _rows(out, "episodes/v1-eval.parquet")
     assert run["episode_id"].startswith("airops/") and (run["sweep"], run["reward"], run["cost"]) == (
         "e2e-sonnet", 0.840588, 691780)
     assert run["gap_pct"] == round(100 * (691780 - 667266) / 667266, 3) and run["model_name"] == "Claude Sonnet 5.5"
     assert json.loads(run["final_plan"])[0] == {"flight": 0, "cancel": False, "not_before": 1129}
-    assert pq.read_schema(out / "episodes/e2e-day-eval.parquet").field("messages").type == pa.list_(
+    assert pq.read_schema(out / "episodes/v1-eval.parquet").field("messages").type == pa.list_(
         hub.tables.MESSAGE)
     tool = next(m for m in run["messages"] if m["tool_calls"])
     assert json.loads(tool["tool_calls"][0])["function"]["arguments"] == {}
     [published] = _rows(out, "episodes/airops.parquet")
     assert (published["episode_id"], published["reward"]) == (run["episode_id"], 0.840588)
     assert len((out / "raw/airops.jsonl").read_text().splitlines()) == 1
-    [ref] = _rows(out, "references/e2e-day-eval.parquet")
+    [ref] = _rows(out, "references/v1-eval.parquet")
     assert ref["anchor"] == 667266
     [board] = _rows(out, "results/board.parquet")
     assert (board["model"], board["days"], board["mean_reward"]) == (SONNET, 1, 0.840588)
@@ -223,8 +227,7 @@ def test_a_dry_build_with_a_sweep_publishes_its_run_in_both_kinds_of_table_on_th
     text = (out / "README.md").read_text()
     assert "| Claude Sonnet 5.5 | Anthropic | 1 of 1 | **0.841** (0.841 to 0.841) |" in text
     names = [c["config_name"] for c in DatasetCard(text).data.to_dict()["configs"]]
-    assert names == ["e2e-day_tasks", "results", "e2e-day_references", "e2e-day_episodes", "airops_tasks",
-                     "airops_episodes"]
+    assert names == ["v1_tasks", "results", "v1_references", "v1_episodes", "airops_tasks", "airops_episodes"]
 
 
 def test_a_key_in_a_transcript_stops_the_build_before_anything_is_written(hub, local_stores, tmp_path, monkeypatch):
@@ -236,11 +239,11 @@ def test_a_key_in_a_transcript_stops_the_build_before_anything_is_written(hub, l
 
 
 def test_the_space_is_the_viewer_opened_on_the_datasets_episodes_at_a_revision(hub):
-    files = hub.space_files("v0.1.0")
+    files = hub.space_files(TAG)
     card = DatasetCard(files["README.md"].decode()).data.to_dict()
     assert (card["sdk"], card["app_file"], card["datasets"]) == ("static", "index.html", [hub.REPO])
-    assert len(card["short_description"]) <= 60
-    assert (b"https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.1.0"
+    assert card["title"] == "AirOpsEnv v1" and len(card["short_description"]) <= 60
+    assert (f"https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/{TAG}".encode()
             in files["index.html"]) and b"viewer/index.html" in files["index.html"]
     web = {f"viewer/{p.relative_to(export.WEB).as_posix()}": p.read_bytes() for p in export.WEB.rglob("*")
            if p.is_file()}
@@ -260,16 +263,29 @@ def test_messages_are_typed_as_agentenv_hf_types_a_transcript(hub):
     assert json.loads(message["tool_calls"][0])["function"]["arguments"] == {"changes": []}
 
 
-def test_the_dry_build_copies_the_radar_and_twin_the_viewer_episodes_point_at(hub, local_stores, tmp_path,
-                                                                                monkeypatch):
+def test_the_dry_build_copies_the_twin_and_stage_the_viewer_episodes_point_at_with_their_traffic(
+        hub, local_stores, tmp_path, monkeypatch):
     _sweep(tmp_path, (E2E / "e2e-transcript.json").read_bytes())
-    twin = tmp_path / "cache" / "twin"
-    twin.mkdir(parents=True)
+    cache = tmp_path / "cache"
+    twin, stage_dir = cache / "twin", cache / "stage" / "JFK"
+    for folder in (twin, stage_dir, cache / "traffic"):
+        folder.mkdir(parents=True)
     (twin / "JFK.geojson").write_text('{"type": "FeatureCollection", "features": []}')
     (twin / "index.json").write_text(json.dumps({"JFK": {"url": "JFK.geojson", "sha256": "0" * 64,
                                                          "attribution": "© OpenStreetMap contributors"}}))
+    (stage_dir / "stage.json.gz").write_bytes(gzip.compress(json.dumps({"hub": "JFK"}).encode()))
+    (stage_dir / "ortho.jpg").write_bytes(b"\xff\xd8\xff\xd9")
+    (cache / "traffic" / f"{ID}.json.gz").write_bytes(gzip.compress(json.dumps({"task_id": ID}).encode()))
+    monkeypatch.setattr(stage, "sidecar", lambda task, executed, traffic, hub_stage: {
+        "hub": hub_stage["hub"], "task_id": traffic["task_id"], "legs": len(executed)})
     out = _dry_build(hub, tmp_path, monkeypatch, "--pack", str(DAY))
     [entry] = json.loads((out / "viewer/episodes/index.json").read_text())["episodes"]
     episode = json.loads((out / "viewer/episodes" / entry["url"]).read_text())
     assert episode["twin"]["url"] == "../twin/JFK.geojson"
     assert (out / "viewer/twin/JFK.geojson").read_bytes() == (twin / "JFK.geojson").read_bytes()
+    assert episode["stage"] == {"hub": "JFK", "url": "../stage/JFK/stage.json.gz",
+                                "traffic": f"{entry['url'].removesuffix('.json')}.stage.json.gz"}
+    for name in ("stage.json.gz", "ortho.jpg"):
+        assert (out / "viewer/stage/JFK" / name).read_bytes() == (stage_dir / name).read_bytes()
+    traffic = json.loads(gzip.decompress((out / "viewer/episodes" / episode["stage"]["traffic"]).read_bytes()))
+    assert traffic == {"hub": "JFK", "task_id": ID, "legs": len(episode["executed"])}

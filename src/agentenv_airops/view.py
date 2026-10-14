@@ -1,6 +1,6 @@
 """`agent-env airops view`: recorded sweeps replayed and served read-only on the AirOpsEnv viewer: the viewer at /web/,
-the episodes and their index at /cache/episodes/, where it looks by default, and the radar frames and hub twins they
-point at under /cache/."""
+the episodes, their traffic and their index at /cache/episodes/, where it looks by default, and the airport stages,
+radar frames and hub twins they point at under /cache/."""
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -12,9 +12,10 @@ from . import export
 from .episodes import Runs, require
 from .sweep import RUNS
 
-TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
-         ".html": "text/html; charset=utf-8", ".json": "application/json", ".geojson": "application/geo+json",
-         ".png": "image/png", ".webp": "image/webp"}
+TYPES = {".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
+         ".css": "text/css; charset=utf-8", ".html": "text/html; charset=utf-8", ".json": "application/json",
+         ".geojson": "application/geo+json", ".gz": "application/gzip", ".png": "image/png", ".jpg": "image/jpeg",
+         ".webp": "image/webp", ".svg": "image/svg+xml", ".mp4": "video/mp4"}
 NOT_FOUND = (404, {"Content-Type": "text/plain"}, b"not found")
 
 Response = tuple[int, dict[str, str], bytes]
@@ -65,10 +66,12 @@ def serve(files: dict[str, bytes], port: int, host: str = "127.0.0.1") -> Thread
 @click.option("--host", default="127.0.0.1", show_default=True,
               help="Address to serve on: 0.0.0.0 for every interface, as in a container.")
 @click.option("--cache", type=click.Path(file_okay=False, path_type=Path), default=export.CACHE, show_default=True,
-              help="Where scripts/prebake_radar.py and scripts/build_twin.py left the radar frames and hub twins.")
+              help="Where scripts/build_stage.py, prebake_traffic.py, prebake_radar.py and build_twin.py left the "
+                   "airport stages, the traffic, the radar frames and the hub twins.")
 def view_command(sweeps: tuple[str, ...], port: int, host: str, cache: Path):
-    """Replay recorded sweeps (default: all under results/runs) on the AirOpsEnv viewer: the network and the hub on
-    the virtual clock, each watch's news, caps and changes, the planner's tool calls, and the day flown on the truth."""
+    """Replay recorded sweeps (default: all under results/runs) on the AirOpsEnv viewer: the airport in 3D and the US
+    map on the virtual clock, each watch's news and changes in plain English, the score and the departures board, the
+    agent's tool calls in expert mode, and the day flown on the truth."""
     runs = require(Runs(RUNS, list(sweeps) or None, cache))
     episodes = runs.episodes()
     for f in runs.failed:

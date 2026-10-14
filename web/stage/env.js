@@ -5,6 +5,11 @@ import { Water } from "three/addons/objects/Water.js";
 export const WATER_Y = -1.6;
 const DEG = Math.PI / 180;
 const COVER = { FEW: 0.2, SCT: 0.45, BKN: 0.78, OVC: 1, VV: 1 };
+const POINTS = { N: 0, NNE: 22.5, NE: 45, ENE: 67.5, E: 90, ESE: 112.5, SE: 135, SSE: 157.5, S: 180, SSW: 202.5, SW: 225, WSW: 247.5, W: 270, WNW: 292.5, NW: 315, NNW: 337.5 };
+const DIRS = String.raw`(ALQDS|[NSEW]{1,3}(?:-[NSEW]{1,3})?(?:\s+AND\s+[NSEW]{1,3}(?:-[NSEW]{1,3})?)*)`;
+const LTG = new RegExp(String.raw`\b(?:(OCNL|FRQ|CONS)\s+)?LTG[A-Z]*\s+(?:(DSNT|VC|OHD)\s+)?` + DIRS, "g");
+const CELL = new RegExp(String.raw`\b(CB|TCU|TS)\s+(?:(DSNT|VC|OHD)\s+)?` + DIRS, "g");
+const STALE = 90;
 const smooth = (a, b, x) => {
   const u = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return u * u * (3 - 2 * u);
@@ -35,35 +40,126 @@ function tzOffsetMinutes(date, tz) {
   return m ? (m[1] === "-" ? -1 : 1) * (+m[2] * 60 + +(m[3] || 0)) : 0;
 }
 
-/** The METAR in force at t, eased into the next report over the BLEND minutes before it is observed. */
-export function weatherAt(list, t, BLEND = 15) {
+function sectors(s) {
+  if (s === "ALQDS") return [[0, 360]];
+  return s.split(/\s+AND\s+/).map((part) => {
+    const [a, b] = part.split("-").map((p) => POINTS[p]);
+    if (b == null) return [a - 25, a + 25];
+    return [a, b < a ? b + 360 : b];
+  });
+}
+
+const DECODED = new WeakMap();
+
+/** Precipitation (0 none .. 1.5 heavy), thunder at the field or near it, mist, cloud cover and the storm cells the remarks place on the horizon. */
+export function decode(w) {
+  if (!w) return { rain: 0, drizzle: 0, snow: 0, ts: 0, vcts: 0, mist: 0, cover: 0, overcast: 0, cells: [] };
+  if (DECODED.has(w)) return DECODED.get(w);
+  const out = { rain: 0, drizzle: 0, snow: 0, ts: 0, vcts: 0, mist: 0, cover: 0, overcast: 0, cells: [] };
+  for (const c of w.wx || []) {
+    const k = c.startsWith("+") ? 1.5 : c.startsWith("-") ? 0.5 : 1;
+    if (c.startsWith("VC")) {
+      if (/TS/.test(c)) out.vcts = 1;
+      continue;
+    }
+    if (/TS/.test(c)) out.ts = 1;
+    if (/RA/.test(c)) out.rain = Math.max(out.rain, /SN/.test(c) ? k * 0.5 : k);
+    if (/DZ/.test(c)) out.drizzle = Math.max(out.drizzle, k);
+    if (/(SN|SG|PL)/.test(c)) out.snow = Math.max(out.snow, /RA/.test(c) ? k * 0.6 : k);
+    if (/(BR|FG|HZ)/.test(c)) out.mist = Math.max(out.mist, /FG/.test(c) ? 1 : 0.6);
+  }
+  for (const [c, ft] of w.clouds || []) {
+    out.cover = Math.max(out.cover, (COVER[c] ?? 0) * (ft < 12000 ? 1 : 0.35));
+    out.overcast = Math.max(out.overcast, COVER[c] ?? 0);
+  }
+  const rmk = (w.metar || "").split(" RMK ")[1] || "";
+  const ltg = [];
+  for (const m of rmk.matchAll(LTG)) for (const [a, b] of sectors(m[3])) ltg.push({ a, b, ltg: m[1] === "FRQ" || m[1] === "CONS" ? 2 : 1 });
+  for (const m of rmk.matchAll(CELL)) for (const [a, b] of sectors(m[3])) out.cells.push({ a, b, cb: m[1] !== "TCU", ltg: m[1] === "TS" ? 1 : 0, far: m[2] !== "VC" && m[2] !== "OHD" });
+  for (const l of ltg) {
+    const c = out.cells.find((x) => x.a < l.b && x.b > l.a);
+    if (c) c.ltg = Math.max(c.ltg, l.ltg);
+    else out.cells.push({ ...l, cb: true, far: true });
+  }
+  if ((out.ts || out.vcts) && !out.cells.length) out.cells.push({ a: (w.wind_dir ?? 270) - 40, b: (w.wind_dir ?? 270) + 40, cb: true, ltg: 1, far: !out.ts });
+  DECODED.set(w, out);
+  return out;
+}
+
+/** The METAR in force at t, eased into the next report over the BLEND minutes before it is observed; a report older than STALE minutes with none after it lets its precipitation go. */
+export function weatherAt(list, t, BLEND = 20) {
   if (!Array.isArray(list)) return list || {};
+  if (!list.length) return { ...decode(null) };
   let i = 0;
   while (i + 1 < list.length && list[i + 1].t <= t) i++;
-  const w = list[i] || {};
+  const w = list[i];
   const n = list[i + 1];
-  if (!n || t < w.t || t < n.t - BLEND) return w;
-  const u = (t - (n.t - BLEND)) / BLEND;
+  const fw = decode(w);
+  let u = 0;
+  if (n && t >= w.t && t >= n.t - BLEND) u = (t - (n.t - BLEND)) / BLEND;
+  const fn = n ? decode(n) : fw;
+  const fade = n || t < w.t + STALE ? 1 : Math.max(0, 1 - (t - w.t - STALE) / 30);
   const mix = (a, b) => (a == null || b == null ? (u < 0.5 ? a : b) : a + (b - a) * u);
   const base = u < 0.5 ? w : n;
   return {
     ...base,
-    vis_sm: Math.exp(mix(Math.log(w.vis_sm ?? 10), Math.log(n.vis_sm ?? 10))),
-    ceiling_ft: mix(w.ceiling_ft, n.ceiling_ft),
-    wind_kt: mix(w.wind_kt ?? 0, n.wind_kt ?? 0),
+    plain: w.plain,
+    vis_sm: Math.exp(mix(Math.log(w.vis_sm ?? 10), Math.log((n || w).vis_sm ?? 10))),
+    ceiling_ft: mix(w.ceiling_ft, (n || w).ceiling_ft),
+    wind_kt: mix(w.wind_kt ?? 0, (n || w).wind_kt ?? 0),
+    rain: mix(fw.rain, fn.rain) * fade,
+    drizzle: mix(fw.drizzle, fn.drizzle) * fade,
+    snow: mix(fw.snow, fn.snow) * fade,
+    ts: mix(fw.ts, fn.ts) * fade,
+    vcts: mix(fw.vcts, fn.vcts) * fade,
+    mist: mix(fw.mist, fn.mist),
+    cover: mix(fw.cover, fn.cover),
+    overcast: mix(fw.overcast, fn.overcast),
+    cells: (u < 0.5 ? fw : fn).cells,
+    cellsK: Math.min(1, (u < 0.5 ? 1 - 2 * u : 2 * u - 1) * 1.5) * fade,
   };
 }
 
-export function wetness(w) {
-  const wx = (w && w.wx) || [];
-  if (wx.some((c) => /(RA|SH|TS)/.test(c))) return 1;
-  if (wx.some((c) => /(DZ|SN|PL|GR|FZ)/.test(c))) return 0.9;
-  if (wx.some((c) => /(BR|FG)/.test(c))) return 0.55;
-  return 0;
+/** Snow on the upward faces of a material while snow lies (uSnow 0..1). */
+export function snowOn(mat, uSnow) {
+  const prev = mat.onBeforeCompile;
+  const base = mat.customProgramCacheKey();
+  mat.onBeforeCompile = (sh, r) => {
+    prev?.call(mat, sh, r);
+    sh.uniforms.uSnowLie = uSnow;
+    sh.fragmentShader = "uniform float uSnowLie;\n" + sh.fragmentShader.replace(
+      "#include <normal_fragment_maps>",
+      `#include <normal_fragment_maps>
+      {
+        float up = dot(normal, normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz));
+        float lie = uSnowLie * smoothstep(0.3, 0.75, up);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.88, 0.9, 0.94), lie);
+      }`,
+    );
+  };
+  mat.customProgramCacheKey = () => `${base}-snow`;
+  return mat;
 }
 
-function cloudCover(w) {
-  return Math.max(0, ...((w && w.clouds) || []).map(([c]) => COVER[c] ?? 0));
+export function wetness(w) {
+  if (!w) return 0;
+  return Math.min(1, Math.max(w.rain ?? 0, w.ts ?? 0) * 1.4 + (w.drizzle ?? 0) * 1.2 + (w.snow ?? 0) * 0.9 + (w.mist ?? 0) * 0.5);
+}
+
+/** Lying snow 0..1 by minute: light snow covers the grass in an hour or two, flurries in good visibility hardly settle, a thaw above freezing takes it off. */
+function snowCover(list, span) {
+  const t0 = Math.floor(Math.min(list[0]?.t ?? span[0], span[0]));
+  const n = Math.ceil(span[1] + 60 - t0);
+  const out = new Float32Array(n);
+  let acc = 0;
+  for (let i = 0; i < n; i++) {
+    const w = weatherAt(list, t0 + i);
+    acc += ((w.snow || 0) * Math.min(1, 3 / Math.max(0.25, w.vis_sm ?? 10))) / 60;
+    const temp = w.temp_c ?? 0;
+    if (temp > 1 && (w.snow || 0) < 0.05) acc *= Math.exp(-((temp - 1) * (1 + 3 * (w.rain || 0))) / 600);
+    out[i] = 1 - Math.exp(-acc / 1.4);
+  }
+  return (t) => out[Math.max(0, Math.min(n - 1, Math.round(t - t0)))];
 }
 
 function daylightFor(el) {
@@ -122,7 +218,7 @@ function atmosphereFor(el, cover, gloom, cityGlow = 1) {
     sunCol,
     sunI: 3.0 * smooth(-1, 12, el) * (1 - 0.94 * cover),
     sunGlow: smooth(-8, 2, el) * (1 - smooth(4, 30, el)) * (1 - 0.6 * cover),
-    hemi: 1.0 + 5.0 * Math.pow(1 - day, 1.3),
+    hemi: 1.0 + 4.0 * Math.pow(1 - day, 1.3),
     environment: 1.0 + 0.25 * (1 - day),
     exposure: 1.05 + 0.7 * smooth(0.6, 0.1, day),
   };
@@ -146,6 +242,9 @@ function buildSky(radius = 30000) {
       uDisc: { value: 1 },
       uTime: { value: 0 },
       uWind: { value: new THREE.Vector2() },
+      uStars: { value: 0 },
+      uFlash: { value: 0 },
+      uFlashDir: { value: new THREE.Vector3(0, 1, 0) },
     },
     vertexShader: /* glsl */ `
       varying vec3 vDir;
@@ -155,11 +254,12 @@ function buildSky(radius = 30000) {
         gl_Position = p.xyww;
       }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 uZenith, uMid, uHorizon, uBelow, uSun, uSunCol;
-      uniform float uSunGlow, uCover, uDisc, uTime;
+      uniform vec3 uZenith, uMid, uHorizon, uBelow, uSun, uSunCol, uFlashDir;
+      uniform float uSunGlow, uCover, uDisc, uTime, uStars, uFlash;
       uniform vec2 uWind;
       varying vec3 vDir;
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float hash3(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
       float noise(vec2 p) {
         vec2 i = floor(p), f = fract(p);
         vec2 u = f * f * (3.0 - 2.0 * f);
@@ -185,17 +285,29 @@ function buildSky(radius = 30000) {
         vec2 hz = normalize(d.xz + 1e-5), sz = normalize(sd.xz + 1e-5);
         float side = pow(max(dot(hz, sz), 0.0), 2.0) * (1.0 - smoothstep(0.0, 0.35, h));
         col += uSunCol * side * uSunGlow * 0.16;
-        col += uSunCol * (pow(s, 1400.0) * 6.0 * uDisc + pow(s, 60.0) * 0.18 + pow(s, 6.0) * 0.08) * (1.0 - uCover) * step(-0.02, sd.y);
+        float clouds = 0.0;
         if (h > 0.0) {
           vec2 cp = d.xz / (h + 0.12) * 1.6;
           float c = fbm(cp + vec2(3.0, 1.0) + uWind * uTime);
-          float scattered = smoothstep(0.57, 0.76, c) * smoothstep(0.015, 0.12, h) * (1.0 - uCover);
-          vec3 cloud = mix(vec3(0.80, 0.83, 0.88), vec3(1.0, 0.99, 0.97), smoothstep(0.55, 0.9, fbm(cp * 1.7 + 5.0)));
-          col = mix(col, cloud * (uMid + uHorizon) * 0.62, scattered * 0.72);
+          float t0 = 0.74 - 0.42 * uCover;
+          clouds = smoothstep(t0, t0 + 0.16, c) * smoothstep(0.015, 0.12, h) * (1.0 - smoothstep(0.85, 1.0, uCover));
+          float lit = smoothstep(0.45, 0.95, fbm(cp * 1.7 + 5.0 - sd.xz * 0.6));
+          vec3 cloud = mix(vec3(0.62, 0.65, 0.71), vec3(1.0, 0.99, 0.97), lit) * (uMid + uHorizon) * 0.66 + uSunCol * uSunGlow * lit * 0.25;
+          col = mix(col, cloud, clouds * 0.85);
+          if (uStars > 0.0) {
+            vec3 cell = floor(d * 380.0);
+            float r = hash3(cell);
+            vec3 c3 = (cell + 0.5) / 380.0;
+            float star = step(0.9965, r) * exp(-dot(d - normalize(c3), d - normalize(c3)) * 6.0e5) * (0.5 + 0.5 * hash3(cell + 7.0));
+            col += vec3(0.9, 0.93, 1.0) * star * uStars * (1.0 - clouds) * (1.0 - uCover) * smoothstep(0.02, 0.2, h) * 1.6;
+          }
           float base = fbm(cp * 2.6 + uWind * uTime * 1.6);
           float wisp = fbm(cp * 7.0 - uWind * uTime * 2.5);
-          col *= mix(1.0, 0.86 + 0.2 * base + 0.06 * wisp, uCover * smoothstep(0.0, 0.25, h));
+          col *= mix(1.0, 0.86 + 0.2 * base + 0.06 * wisp, smoothstep(0.7, 1.0, uCover) * smoothstep(0.0, 0.25, h));
         }
+        col += uSunCol * (smoothstep(0.999984, 0.999992, s) * 16.0 * uDisc + pow(s, 900.0) * 0.6 + pow(s, 60.0) * 0.14 + pow(s, 6.0) * 0.07) * (1.0 - uCover) * (1.0 - clouds) * step(-0.02, sd.y);
+        float fl = uFlash * (0.25 + 0.75 * pow(max(dot(d, normalize(uFlashDir)), 0.0), 3.0)) * smoothstep(-0.05, 0.12, h);
+        col += vec3(0.55, 0.6, 0.78) * fl;
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>
       }`,
@@ -330,13 +442,14 @@ function buildWater({ lite = false } = {}) {
   return water;
 }
 
-/** update(t) applies the sky, sun, light, haze and water for t and returns the state; daylight(t) is 0 night .. 1 day. */
-export function buildEnvironment(renderer, scene, stage, moment) {
+/** update(t, wall) applies the sky, sun, shadows, haze and water for minute t and returns the state; focus(camera, target) keeps the sun's shadows on what the camera looks at. */
+export function buildEnvironment(renderer, scene, stage, traffic) {
   const [lat, lon] = stage.origin;
-  const [Y, M, D] = moment.date.split("-").map(Number);
-  const offset = tzOffsetMinutes(moment.date, moment.tz || "UTC");
+  const [Y, M, D] = traffic.date.split("-").map(Number);
+  const offset = tzOffsetMinutes(traffic.date, traffic.tz || "UTC");
   const utc = (t) => Date.UTC(Y, M - 1, D) + (t - offset) * 60000;
-  const weather = moment.weather || [];
+  const weather = traffic.weather || [];
+  const snowAt = snowCover(weather, traffic.span || [0, 1440]);
 
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -350,6 +463,10 @@ export function buildEnvironment(renderer, scene, stage, moment) {
   const hemi = new THREE.HemisphereLight("#9aa3ad", "#3a3a38", 0.5);
   const sun = new THREE.DirectionalLight("#fff", 0);
   sun.position.set(0, 1000, 0);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(4096, 4096);
+  sun.shadow.bias = -0.0003;
+  sun.shadow.normalBias = 0.4;
   scene.add(hemi, sun, sun.target);
 
   const pm = new THREE.PMREMGenerator(renderer);
@@ -358,23 +475,22 @@ export function buildEnvironment(renderer, scene, stage, moment) {
   let last = null;
   const sunDir = new THREE.Vector3();
   const groundCol = new THREE.Color();
-  const clock = new THREE.Clock();
-
   const sunAt = (t) => sunPosition(utc(t), lat, lon);
   const daylight = (t) => daylightFor(sunAt(t).el);
 
   function stateAt(t) {
     const w = weatherAt(weather, t);
     const { el, az } = sunAt(t);
-    const cover = cloudCover(w);
+    const cover = w.cover ?? 0;
     const ceil = w.ceiling_ft ?? 99999;
-    const gloom = Math.min(1, cover * (ceil < 1000 ? 1 : ceil < 3000 ? 0.7 : 0.4) + (wetness(w) > 0.8 ? 0.15 : 0));
+    const wet = wetness(w);
+    const gloom = Math.min(1, cover * (ceil < 1000 ? 1 : ceil < 3000 ? 0.7 : 0.4) + (wet > 0.8 ? 0.15 : 0) + 0.25 * (w.ts || 0));
     const vis = Math.max(0.1, w.vis_sm ?? 10) * 1609.34;
-    const mist = (w.wx || []).some((c) => /(BR|FG|HZ|DZ)/.test(c)) ? 1 : 0;
-    return { t, w, el, az, cover, gloom, vis, mist, wet: wetness(w), atm: atmosphereFor(el, cover, gloom) };
+    const mist = Math.max(w.mist || 0, w.drizzle ? 0.6 : 0, Math.min(1, (w.snow || 0) * 0.8));
+    return { t, w, el, az, cover, gloom, vis, mist, wet, snow: snowAt(t), atm: atmosphereFor(el, cover, gloom) };
   }
 
-  function update(t) {
+  function update(t, wall = 0) {
     const s = stateAt(t);
     const { atm } = s;
     const u = sky.material.uniforms;
@@ -387,30 +503,36 @@ export function buildEnvironment(renderer, scene, stage, moment) {
     u.uSunCol.value.copy(atm.sunCol);
     u.uSunGlow.value = atm.sunGlow;
     u.uCover.value = s.cover;
+    u.uStars.value = smooth(-6, -12, s.el) * (1 - 0.92 * (s.w.overcast ?? 0));
     const wind = s.w.wind_kt || 0;
     const wd = ((s.w.wind_dir || 0) + 180) * DEG;
     u.uWind.value.set(Math.sin(wd), -Math.cos(wd)).multiplyScalar(0.002 * wind);
-    u.uTime.value = clock.getElapsedTime();
+    u.uTime.value = wall;
 
     const fogCol = atm.sky.horizon.clone().lerp(atm.sky.mid, 0.25).multiplyScalar(0.92 + 0.05 * s.mist);
+    if (s.snow > 0 || s.w.snow) fogCol.lerp(new THREE.Color(fogCol.r, fogCol.g, fogCol.b).addScalar(0.03).multiplyScalar(1.12), Math.min(1, s.w.snow || 0));
     scene.background.copy(fogCol);
     scene.fog.color.copy(fogCol);
-    scene.fog.density = (s.mist ? 1.75 : 1.4) / s.vis;
+    scene.fog.density = (1.4 + 0.35 * s.mist) / s.vis;
+    s.fogCol = fogCol;
 
     sun.color.copy(atm.sunCol);
     sun.intensity = atm.sunI;
-    sun.position.copy(sunDir).multiplyScalar(2000);
+    s.sunDir = sunDir;
     hemi.color.copy(atm.sky.mid);
-    groundCol.copy(atm.sky.below).multiplyScalar(0.6);
+    groundCol.copy(atm.sky.below).multiplyScalar(0.6).lerp(atm.sky.mid.clone().multiplyScalar(0.75), 0.45 * atm.day).lerp(atm.sky.mid.clone().multiplyScalar(0.9), 0.6 * s.snow);
     hemi.groundColor.copy(groundCol);
-    hemi.intensity = atm.hemi;
+    hemi.intensity = atm.hemi * (1 + 0.25 * s.snow);
     renderer.toneMappingExposure = atm.exposure;
 
-    const key = [atm.day.toFixed(2), s.cover.toFixed(2), s.gloom.toFixed(2)].join("|");
+    const key = [atm.day.toFixed(2), s.cover.toFixed(2), s.gloom.toFixed(2), s.snow.toFixed(1)].join("|");
     if (key !== envKey) {
       envKey = key;
       if (envTarget) envTarget.dispose();
+      const flash = u.uFlash.value;
+      u.uFlash.value = 0;
       envTarget = skyEnvironment(pm, sky, groundCol);
+      u.uFlash.value = flash;
       scene.environment = envTarget.texture;
     }
     scene.environmentIntensity = atm.environment;
@@ -420,16 +542,48 @@ export function buildEnvironment(renderer, scene, stage, moment) {
     wu.sunColor.value.copy(atm.sunCol).multiplyScalar(atm.sunI * 0.35);
     wu.waterColor.value.set("#34464A").multiplyScalar(0.1 + 0.9 * atm.day * (1 - 0.35 * s.gloom)).lerp(fogCol, 0.12);
     wu.uRough.value = Math.min(1, (wind + (s.w.gust_kt || 0) * 0.3) / 30);
-    wu.uRain.value = s.wet > 0.8 ? 1 : 0;
-    water.userData.tick(clock.getElapsedTime());
+    wu.uRain.value = Math.min(1, (s.w.rain || 0) + (s.w.drizzle || 0) * 0.5);
+    water.userData.tick(wall);
     last = s;
     return s;
   }
 
+  const _t = new THREE.Vector3();
+  function focus(camera, target) {
+    const on = last && last.atm.sunI > 0.18 && last.el > 1;
+    sun.castShadow = !!on;
+    if (!on || !target) return;
+    const r = Math.min(2600, Math.max(140, camera.position.distanceTo(target) * 0.85));
+    _t.copy(target);
+    _t.y = 0;
+    sun.target.position.copy(_t);
+    sun.position.copy(_t).addScaledVector(sunDir, 4000);
+    const c = sun.shadow.camera;
+    if (c.right !== r) {
+      c.left = -r;
+      c.right = r;
+      c.top = r;
+      c.bottom = -r;
+      c.near = 1000;
+      c.far = 7000;
+      c.updateProjectionMatrix();
+    }
+    sun.target.updateMatrixWorld();
+  }
+
+  function flash(f) {
+    const u = sky.material.uniforms;
+    u.uFlash.value = f ? f.local * 1.1 + f.far * 0.3 : 0;
+    if (f) u.uFlashDir.value.set(...f.dir);
+  }
+
   return {
     update,
+    focus,
+    flash,
     daylight,
     weatherAt: (t) => weatherAt(weather, t),
+    snowAt,
     sunAt,
     get state() {
       return last;

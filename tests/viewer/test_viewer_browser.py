@@ -71,25 +71,63 @@ def page():
             server.shutdown()
 
 
-def test_the_viewer_loads_an_episode_and_takes_the_hooks(page):
+HERO = ROOT / "cache" / "episodes" / "sol-v1.openai-gpt-6.1-sol.b6-bos-20250216-1500.json"
+
+
+def test_an_episode_without_a_stage_plays_on_the_map(page):
     goto, js = page
     goto("record=1&episode=/tests/viewer/fixtures/episode_small.json")
     fixture = json.loads((ROOT / "tests/viewer/fixtures/episode_small.json").read_text())
     ready = js("airops.ready")
-    assert ready["steps"] == len(fixture["steps"])
-    assert ready["watches"] == [w["t"] for w in fixture["watches"]]
-    js("airops.view('hub')")
+    assert ready["steps"] == len(fixture["steps"]) and ready["watches"] == [w["t"] for w in fixture["watches"]]
+    assert ready["stage"] is False and ready["views"] == ["network"]
+    assert js("airops.view('hub')") == "network"
     js(f"airops.show({len(fixture['steps']) - 1})")
     js(f"airops.time({fixture['watches'][-1]['t'] + 30})")
     state = js("airops.state()")
-    assert state["view"] == "hub" and state["t"] == fixture["watches"][-1]["t"] + 30
-    clock, scrubber = (js(f"document.querySelector('{q}').textContent") for q in (".ops .time", ".scrub .now"))
+    assert (state["view"], state["main"], state["t"]) == ("network", "map", fixture["watches"][-1]["t"] + 30)
+    assert js("document.querySelector('.ep .view-map').classList.contains('main')")
+    clock, scrubber = (js(f"document.querySelector('{q}').textContent") for q in (".head .clock b", ".timeline .now"))
     assert clock == scrubber
-    assert js("document.querySelectorAll('svg.tails rect.bar').length") >= len(fixture["schedule"]) // 2
+    assert js("document.querySelector('.desk-h b').textContent").startswith(f"Watch {len(fixture['watches'])} of ")
+    assert js("document.querySelectorAll('.board li:not(.none)').length") > 0
+    assert "GPT" not in js("document.querySelector('.head h1').textContent")
+    js("airops.expert(true)")
+    assert js("document.querySelectorAll('.expert svg.tails rect.bar').length") >= len(fixture["schedule"]) // 2
+    assert js("document.querySelectorAll('.expert .calls li').length") > 0
 
 
 def test_the_viewer_lists_episodes(page):
     goto, js = page
     goto("index=/tests/viewer/fixtures/index.json")
     assert js("airops.ready")["episodes"] == 1
-    assert "episode_small.json" in js("document.querySelector('table.eps a').href")
+    assert "episode_small.json" in js("document.querySelector('a.ep-card').href")
+    assert js("document.querySelector('.list h1').textContent") == "AirOpsEnv v1"
+    assert js("document.querySelector('.ep-card dd').textContent") == "0.588"
+
+
+@pytest.mark.skipif(not HERO.is_file(), reason="Sol's Boston run is not exported under cache/episodes")
+def test_an_episode_with_a_stage_fills_the_screen_with_the_airport(page):
+    goto, js = page
+    goto(f"record=1&episode=/{HERO.relative_to(ROOT)}")
+    ready = js("airops.ready")
+    assert ready["stage"] is True and ready["span"][0] == 840 and ready["end"] > ready["last_watch"]
+    assert set(ready["views"]) == {"tower", "gate", "threshold", "harbour", "follow", "network"}
+    assert js("document.querySelector('.ep .view-stage').classList.contains('main')")
+    assert js("document.querySelector('.ep .view-map').classList.contains('corner')")
+    js("airops.time(1035)")
+    state = js("airops.state()")
+    assert state["main"] == "stage" and state["stage"]["t"] == 1035 and state["stage"]["aircraft"] > 10
+    assert js("document.querySelector('.desk-h b').textContent") == "Watch 4 of 12 · 17:00"
+    assert "Light rain" in js("document.querySelector('.head .wx').textContent")
+    statuses = js("[...document.querySelectorAll('.board li .s')].map(e => e.textContent)")
+    words = {"On", "Delayed", "Held", "May", "Cancelled", "Departed", "Landed"}
+    assert statuses and all(s.split()[0] in words for s in statuses)
+    assert js("airops.view('network')") == "network" and js("airops.state()")["main"] == "map"
+    js("document.querySelector('.ep .view-stage').click()")
+    assert js("airops.state()")["main"] == "stage"
+    for name in ("gate", "threshold", "harbour", "tower"):
+        assert js(f"airops.view('{name}')") == name
+    key = ready["featured"][0]["key"]
+    assert js(f"airops.view('follow', {{key: '{key}'}})") == "follow" and js("airops.state()")["following"] == key
+    assert js("document.querySelector('.follow-chip').hidden") is False

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
-async function json(url) {
+/** A JSON document, gzip or not, by URL. */
+export async function loadJSON(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
   const buf = new Uint8Array(await res.arrayBuffer());
@@ -8,9 +9,6 @@ async function json(url) {
   const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"));
   return JSON.parse(await new Response(stream).text());
 }
-
-export const loadStage = (url) => json(url);
-export const loadMoment = (url) => json(url);
 
 export const toScene = ([x, y], h = 0) => new THREE.Vector3(x, h, -y);
 export const headingToRotY = (deg) => -THREE.MathUtils.degToRad(deg);

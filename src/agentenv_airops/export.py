@@ -1,8 +1,9 @@
 """A played day as the viewer's Episode JSON (DESIGN.md; web/episode.schema.json): the schedule, the final plan flown on
 the truth, each watch as the desk knew it (its news, the caps, the changes, the plan run on the day as known), the
-transcript's steps, the truth's caps, and the radar and hub twin found under the cache; and the folder the viewer reads,
-episodes/ beside radar/ and twin/."""
+transcript's steps, the truth's caps, and the radar, hub twin and 3D airport stage found under the cache; and the folder
+the viewer reads, episodes/ (with each episode's traffic sidecar) beside radar/, twin/ and stage/."""
 
+import gzip
 import json
 import re
 from collections.abc import Mapping
@@ -11,6 +12,7 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator, FormatChecker
 
+from . import stage as hub_stage
 from .core.known import known_caps, known_lb
 from .core.model import Caps, Flight, Task
 from .core.sim import AUTO_CANCELLED, CANCELLED, FLOWN, execute
@@ -66,6 +68,7 @@ def episode(task: Task, day: Mapping, steps: list[dict], *, model: str, run: str
         "news": [items[n] for w in watches for n in w.news],
         "caps": raw["caps"], "nominal": raw["nominal"],
         "radar": radar(task, cache), "twin": twin(task, cache),
+        "stage": stage(task, cache, f"{slug(run)}.{slug(model)}.{task.task_id}"),
         "end_reason": day["end_reason"], "audit": day["audit"], "record": dict(record or {}),
         "sources": SOURCES,
     }
@@ -170,6 +173,26 @@ def twin(task: Task, cache: Path) -> dict | None:
             "attribution": f"Hub twin {t['attribution']}"}
 
 
+def stage(task: Task, cache: Path, stem: str) -> dict | None:
+    """The hub's 3D stage scripts/build_stage.py built and the episode's traffic sidecar beside the episode, when
+    scripts/prebake_traffic.py baked the task's traffic."""
+    if not ((cache / "stage" / task.hub / "stage.json.gz").is_file()
+            and (cache / "traffic" / f"{task.task_id}.json.gz").is_file()):
+        return None
+    return {"hub": task.hub, "url": f"../stage/{task.hub}/stage.json.gz", "traffic": f"{stem}.stage.json.gz"}
+
+
+def sidecar(ep: Mapping, cache: Path, stages: dict[str, dict] | None = None) -> bytes:
+    """The episode's traffic sidecar, gzipped: its run laid over the task's baked traffic at the hub's stage."""
+    hub, task_id = ep["task"]["hub"], ep["task"]["task_id"]
+    stages = {} if stages is None else stages
+    if hub not in stages:
+        stages[hub] = json.loads(gzip.decompress((cache / "stage" / hub / "stage.json.gz").read_bytes()))
+    traffic = json.loads(gzip.decompress((cache / "traffic" / f"{task_id}.json.gz").read_bytes()))
+    doc = hub_stage.sidecar(ep["task"], ep["executed"], traffic, stages[hub])
+    return gzip.compress(json.dumps(doc, ensure_ascii=False, separators=(",", ":")).encode(), mtime=0)
+
+
 def validate(ep: Mapping) -> None:
     errors = sorted(VALIDATOR.iter_errors(ep), key=lambda e: list(e.absolute_path))
     if errors:
@@ -181,35 +204,43 @@ def file_name(ep: Mapping) -> str:
     return f"{slug(ep['run'])}.{slug(ep['model'])}.{ep['task']['task_id']}.json"
 
 
-def entry(ep: Mapping, url: str) -> dict:
-    t = ep["task"]
+def entry(ep: Mapping, url: str, cache: Path = CACHE) -> dict:
+    """The episode's row in the index, with the list thumbnail scripts/record.py --thumb made for it, if it did."""
+    t, thumb = ep["task"], f"thumbs/{file_name(ep)[:-5]}.jpg"
     return {"url": url, "task_id": t["task_id"], "hub": t["hub"], "date": t["date"], "model": ep["model"],
             "model_label": ep["model_label"], "run": ep["run"], "reward": ep["reward"], "cost": ep["cost"]["total"],
-            "anchor": ep["reference"]["anchor"]}
+            "anchor": ep["reference"]["anchor"]} | ({"thumb": f"../{thumb}"} if (cache / thumb).is_file() else {})
 
 
 def folder(episodes: list[dict], cache: Path = CACHE, index: Mapping | None = None) -> dict[str, bytes]:
-    """The viewer's files for ``episodes``, by path: episodes/<name>.json, episodes/index.json listing them after the
-    entries of ``index`` it keeps, and the radar frames and hub twins they point at, read from ``cache``."""
+    """The viewer's files for ``episodes``, by path: episodes/<name>.json and its traffic sidecar, episodes/index.json
+    listing them after the entries of ``index`` it keeps, and the radar frames, hub twins, stages and list thumbnails
+    they point at, read from ``cache``."""
     files: dict[str, bytes] = {}
+    stages: dict[str, dict] = {}
     entries = list((index or {}).get("episodes", []))
     for ep in episodes:
         validate(ep)
         name = file_name(ep)
         files[f"episodes/{name}"] = json.dumps(ep, ensure_ascii=False, separators=(",", ":")).encode()
-        entries = [e for e in entries if e["url"] != name] + [entry(ep, name)]
-        for rel in assets(ep):
+        if ep.get("stage"):
+            files[f"episodes/{ep['stage']['traffic']}"] = sidecar(ep, cache, stages)
+        entries = [e for e in entries if e["url"] != name] + [entry(ep, name, cache)]
+        for rel in assets(ep, cache):
             files[rel] = (cache / rel).read_bytes()
     files["episodes/index.json"] = (json.dumps({"version": 1, "episodes": entries}, indent=1, ensure_ascii=False)
                                     + "\n").encode()
     return files
 
 
-def assets(ep: Mapping) -> list[str]:
-    task_id = ep["task"]["task_id"]
+def assets(ep: Mapping, cache: Path = CACHE) -> list[str]:
+    task_id, thumb = ep["task"]["task_id"], f"thumbs/{file_name(ep)[:-5]}.jpg"
     found = [f"radar/{task_id}/index.json", *(f"radar/{task_id}/{Path(f['url']).name}" for f in ep["radar"]["frames"])
              ] if ep["radar"] else []
-    return found + ([f"twin/{Path(ep['twin']['url']).name}"] if ep["twin"] else [])
+    found += [f"twin/{Path(ep['twin']['url']).name}"] if ep["twin"] else []
+    found += [thumb] if (cache / thumb).is_file() else []
+    hub = (ep.get("stage") or {}).get("hub")
+    return found + ([f"stage/{hub}/stage.json.gz", f"stage/{hub}/ortho.jpg"] if hub else [])
 
 
 def write(out: Path, episodes: list[dict], cache: Path = CACHE) -> None:

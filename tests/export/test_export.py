@@ -1,13 +1,17 @@
 """A replayed day as the viewer's Episode JSON: valid against web/episode.schema.json and consistent with the day the
 env played (each watch's plan and cost as known, the final plan on the truth), its changes one per flight and watch,
-and the viewer folder with the radar frames and hub twin it points at."""
+and the viewer folder with the radar frames, hub twin and 3D stage it points at and the run's traffic sidecar."""
 
+import csv
+import gzip
+import io
 import json
+import zipfile
 from pathlib import Path
 
 import pytest
 
-from agentenv_airops import export
+from agentenv_airops import export, stage
 from agentenv_airops.core.known import view
 from agentenv_airops.core.model import hhmm
 from agentenv_airops.core.sim import FLOWN, execute
@@ -158,3 +162,86 @@ def test_the_viewer_folder_holds_the_episodes_their_index_and_the_radar_and_twin
     assert (out / "twin/JFK.geojson").read_bytes() == (cache / "twin/JFK.geojson").read_bytes()
     export.write(cache, [ep], cache)
     assert (cache / "episodes" / name).is_file() and len(list((cache / "radar" / task.task_id).iterdir())) == 3
+
+
+def _bts(inputs: Path) -> None:
+    """A BTS month with three movements of other aircraft at JFK on the day, one of a task tail and a cancelled one."""
+    cols = [*stage.COLUMNS, "TaxiOut", "TaxiIn", "OriginCityName", "DestCityName"]
+    rows = [("DL", "N123DL", "1", "ATL", "JFK", "1600", "1830", "150", "", "20", "0", "", "9"),
+            ("DL", "N123DL", "2", "JFK", "ATL", "2000", "2230", "150", "15", "", "0", "22", ""),
+            ("B6", "N999JB", "3", "BOS", "JFK", "1900", "2015", "75", "0", "0", "0", "", "8"),
+            ("B6", "N2016J", "4", "JFK", "BOS", "1930", "2045", "75", "0", "0", "0", "18", ""),
+            ("AA", "N1AA", "5", "JFK", "MIA", "1900", "2200", "180", "", "", "1", "", "")]
+    cities = {"ATL": "Atlanta, GA", "JFK": "New York, NY", "BOS": "Boston, MA", "MIA": "Miami, FL"}
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(cols)
+    for carrier, tail, number, orig, dest, dep, arr, block, dd, ad, cancelled, taxi_out, taxi_in in rows:
+        w.writerow(["2024-01-09", carrier, tail, number, orig, dest, dep, arr, block, dd, ad, cancelled, "0", "", "",
+                    taxi_out, taxi_in, cities[orig], cities[dest]])
+    (inputs / "bts").mkdir(parents=True)
+    with zipfile.ZipFile(inputs / "bts" / "ontime_2024_01.zip", "w") as z:
+        z.writestr("On_Time_2024_1.csv", out.getvalue())
+
+
+def _stage_cache(root: Path, task) -> Path:
+    """A synthetic JFK stage (forty Terminal 5 gates, ten Terminal 4 gates, thirty remote stands) and the task's
+    traffic baked from the BTS month above."""
+    stands = [{"ref": f"T5-{i + 1}", "terminal": "T5", "xy": [50.0 * i, 0.0], "heading": 0.0} for i in range(40)]
+    stands += [{"ref": f"T4-{i + 1}", "terminal": "T4", "xy": [60.0 * i, 600.0], "heading": 0.0} for i in range(10)]
+    stands += [{"ref": f"H{i + 1}", "terminal": "remote", "xy": [80.0 * i, -500.0], "heading": 180.0}
+               for i in range(30)]
+    doc = {"hub": "JFK", "stands": stands, "terminals": [], "hangars": [], "ortho": {"url": "ortho.jpg"},
+           "runways": [{"ref": "13L/31R", "ends": [{"id": "13L", "xy": [0, 3000], "heading": 121.0},
+                                                   {"id": "31R", "xy": [2600, 1450], "heading": 301.0}]},
+                       {"ref": "13R/31L", "ends": [{"id": "13R", "xy": [0, 2500], "heading": 121.0},
+                                                   {"id": "31L", "xy": [2600, 950], "heading": 301.0}]}],
+           "taxi_graph": {"stand_nodes": {s["ref"]: i for i, s in enumerate(stands)}, "thresholds": {}}}
+    (root / "stage" / "JFK").mkdir(parents=True)
+    (root / "stage" / "JFK" / "stage.json.gz").write_bytes(gzip.compress(json.dumps(doc).encode()))
+    (root / "stage" / "JFK" / "ortho.jpg").write_bytes(b"\xff\xd8ortho")
+    _bts(root / "inputs")
+    (root / "traffic").mkdir()
+    traffic = stage.traffic(task, root / "inputs")
+    (root / "traffic" / f"{task.task_id}.json.gz").write_bytes(gzip.compress(json.dumps(traffic).encode()))
+    return root
+
+
+def test_the_viewer_folder_holds_the_stage_and_the_runs_traffic_over_it(task, played, tmp_path):
+    cache = _stage_cache(tmp_path / "cache", task)
+    ep = export.episode(task, played.day.data(), played.steps, model=SONNET, run="e2e", cache=cache)
+    stem = f"e2e.{export.slug(SONNET)}.{task.task_id}"
+    assert ep["stage"] == {"hub": "JFK", "url": "../stage/JFK/stage.json.gz", "traffic": f"{stem}.stage.json.gz"}
+    export.validate(ep)
+    files = export.folder([ep], cache)
+    assert sorted(files) == sorted([f"episodes/{stem}.json", f"episodes/{stem}.stage.json.gz", "episodes/index.json",
+                                    "stage/JFK/stage.json.gz", "stage/JFK/ortho.jpg"])
+    doc = json.loads(gzip.decompress(files[f"episodes/{stem}.stage.json.gz"]))
+    assert (doc["hub"], doc["date"], doc["span"][0]) == ("JFK", "2024-01-09", task.start)
+    aircraft = {a["key"]: a for a in doc["aircraft"]}
+    legs = {(a["key"], g["flight"], g["kind"]): g for a in doc["aircraft"] for v in a["visits"]
+            for g in (v["arr"], v["dep"]) if g}
+    wanted = sorted((task.flight(r["id"]).flight, kind) for r in ep["executed"] for kind in ("dep", "arr")
+                    if (task.flight(r["id"]).orig if kind == "dep" else task.flight(r["id"]).dest) == "JFK")
+    shown = sorted((f, kind) for (key, f, kind), g in legs.items() if aircraft[key]["task"]
+                   and (f, kind) in set(wanted))
+    assert shown == wanted
+    assert all(g["tag"] and g["tone"] for (key, _, _), g in legs.items() if aircraft[key]["task"])
+    assert all(g["tag"] is None for (key, _, _), g in legs.items() if not aircraft[key]["task"])
+    dl, ours = aircraft["N123DL"], aircraft["N999JB"]
+    assert (dl["jetblue"], dl["task"], ours["jetblue"], ours["task"], aircraft["N2016J"]["task"]) == (
+        False, False, True, False, True)
+    assert [(v["stand"][:3], v["arr"]["in"], v["arr"]["on"], v["dep"]["out"], v["dep"]["off"], v["arr"]["city"])
+            for v in dl["visits"]] == [("T4-", 1130, 1121, 1215, 1237, "Atlanta")]
+    assert "N1AA" not in aircraft and doc["runways"][0]["arrivals"] in ("13L", "31R")
+    by_stand: dict[str, list] = {}
+    for a in doc["aircraft"]:
+        for v in a["visits"]:
+            lo, hi = doc["span"]
+            by_stand.setdefault(v["stand"], []).append((lo if v["from"] is None else v["from"],
+                                                        hi if v["to"] is None else v["to"], a["key"]))
+    for spans in by_stand.values():
+        spans.sort()
+        assert all(a1 <= b0 or k1 == k2 for (_, a1, k1), (b0, _, k2) in zip(spans, spans[1:], strict=False))
+    export.write(cache, [ep], cache)
+    assert (cache / "episodes" / f"{stem}.stage.json.gz").read_bytes() == files[f"episodes/{stem}.stage.json.gz"]

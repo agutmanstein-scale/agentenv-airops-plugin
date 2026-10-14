@@ -1,21 +1,22 @@
 """Build the Hugging Face dataset earakely-scale/AirOpsEnv-AgentEnv from this checkout and the recorded sweeps, and the
 static replay Space that reads it; push either. Two kinds of tables share the dataset:
 
-- AirOps's own, per split of the pack: the days (what the planner is told, each watch's news, the reference costs and
-  the task line itself), their references, and the scored runs (the grade, the final plan, the tool calls and the
-  chat transcript); the model board (results) and its eval card, results/eval-v1.json, in FineEnvs' shape.
+- AirOps's own, v1_*, per split of the pack: the days (what the planner is told, each watch's news, the reference
+  costs and the task line itself), their references, and the scored runs (the grade, the final plan, the tool calls
+  and the chat transcript); the model board (results) and its eval card, results/eval-v1.json, in FineEnvs' shape.
 - agentenv-hf's for the bundle airops, as `agent-env hf publish` writes them: the eval days and the scored runs, each
   run's record and native trajectory, and the bundle itself, which `agent-env hf run` plays. Each sweep played a
   bundle of its own, so its runs are built from it and joined under the bundle name.
 
-Beside them: viewer/, the runs (and any --fixture episodes) as the viewer reads them with the radar frames and hub
-twins they point at; runs/, the sweeps as recorded; and the card, hub/dataset/README.md with the configs, the board and
-the bundle's needs added. Every file goes through agentenv-hf's check for keys and token shapes before anything is
-written. --repo pushes the folder as one commit on top of the commit it read, removing what the build no longer
-writes; --space-out writes the Space (hub/space/ and the viewer, web/) and --space-repo pushes it.
+Beside them: viewer/, the runs (and any --fixture episodes) as the viewer reads them with what they point at (the
+airport stages and each episode's traffic, the radar frames, the hub twins and the films' stills); runs/, the sweeps as
+recorded; and the card, hub/dataset/README.md with the configs, the board and the bundle's needs added. Every file goes
+through agentenv-hf's check for keys and token shapes before anything is written. --repo pushes the folder as one commit
+on top of the commit it read, removing what the build no longer writes; --space-out writes the Space (hub/space/ and
+the viewer, web/) and --space-repo pushes it.
 
     python scripts/hub_dataset.py --out cache/hub/dataset --space-out cache/hub/space
-    python scripts/hub_dataset.py --out cache/hub/dataset --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.1.0
+    python scripts/hub_dataset.py --out cache/hub/dataset --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.2.0
 """
 
 import argparse
@@ -54,6 +55,7 @@ DATASET_URL = f"https://huggingface.co/datasets/{REPO}"
 SPACE_URL = f"https://huggingface.co/spaces/{REPO}"
 CODE_URL = "https://github.com/earakely-scale/agentenv-airops-plugin"
 BUNDLE = "airops"
+TABLES = "v1"
 SPLIT = "eval"
 SETUP = "agent-env airops setup --agent"
 AUTHORS = [{"name": "Edgar Arakelyan", "github": "earakely-scale", "affiliation": "Scale AI"}]
@@ -200,7 +202,7 @@ def board_markdown(rows: list[dict], days: int) -> str:
     return "\n".join(lines)
 
 
-def eval_card(rows: list[dict], days: list[Task], name: str, months: list[str], date: str) -> dict:
+def eval_card(rows: list[dict], days: list[Task], months: list[str], date: str) -> dict:
     """The eval card in the shape FineEnvs' simulation catalog renders."""
     graded = [t for t in days if t.split == SPLIT and "anchor" in t.reference]
     when = f" in {', '.join(months)}" if months else ""
@@ -218,7 +220,7 @@ def eval_card(rows: list[dict], days: list[Task], name: str, months: list[str], 
                     "finished": r["finished"],
                     "usd_per_episode": None if r["cost_per_episode"] is None else round(r["cost_per_episode"], 4)}
                    for r in rows],
-        "links": {"runs": f"{DATASET_URL}/viewer/{name}_episodes", "replay": SPACE_URL, "code": CODE_URL},
+        "links": {"runs": f"{DATASET_URL}/viewer/{TABLES}_episodes", "replay": SPACE_URL, "code": CODE_URL},
         "date": date,
     }
 
@@ -248,18 +250,18 @@ def agentenv_files(bundle: Path, sweeps: list[tuple[Path, list[str]]]) -> tuple[
     return files, episode_ids, graded
 
 
-def manifest(pack: Path) -> dict:
-    """The pack's manifest; a bare tasks file is named by its stem."""
-    return json.loads((pack / "manifest.json").read_text()) if pack.is_dir() else {"name": pack.stem, "months": []}
+def months(pack: Path) -> list[str]:
+    """The months the pack was built from, as its manifest lists them; none for a bare tasks file."""
+    return json.loads((pack / "manifest.json").read_text())["months"] if pack.is_dir() else []
 
 
-def configs(files: dict[str, bytes], name: str) -> list[dict]:
+def configs(files: dict[str, bytes]) -> list[dict]:
     """The dataset's own configs, tasks first: one per table, a split per file."""
     out = []
     for table in ("tasks", "references", "episodes"):
-        found = sorted((p for p in files if p.startswith(f"{table}/{name}-")), key=lambda p: split_order(p))
+        found = sorted((p for p in files if p.startswith(f"{table}/{TABLES}-")), key=lambda p: split_order(p))
         if found:
-            out.append({"config_name": f"{name}_{table}", "data_files": [
+            out.append({"config_name": f"{TABLES}_{table}", "data_files": [
                 {"split": p.removesuffix(".parquet").rsplit("-", 1)[1], "path": p} for p in found]})
     if "results/board.parquet" in files:
         out.insert(1, {"config_name": "results", "data_files": [{"split": SPLIT, "path": "results/board.parquet"}]})
@@ -271,12 +273,12 @@ def split_order(path: str) -> int:
     return ("eval", "control", "train").index(split)
 
 
-def card_text(plugin: str, files: dict[str, bytes], name: str, board_md: str = "") -> str:
+def card_text(plugin: str, files: dict[str, bytes], board_md: str = "") -> str:
     """hub/dataset/README.md with the dataset's configs, the board between its markers, and the bundle's two configs
     and needs, as agentenv-hf's publish writes them."""
     text = BOARD.sub(lambda m: m[1] + (f"\n{board_md}\n" if board_md else "") + m[2], CARD.read_text())
     ours = DatasetCard(text)
-    ours.data.configs = configs(files, name)
+    ours.data.configs = configs(files)
     if ours.data.configs:
         ours.data.configs[0]["default"] = True
     return card(str(ours), name=BUNDLE, split=SPLIT, repo=None, description=None, license=None,
@@ -286,8 +288,6 @@ def card_text(plugin: str, files: dict[str, bytes], name: str, board_md: str = "
 def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str, fixtures: list[Path], cache: Path,
           date: str) -> dict[str, bytes]:
     days = tasks.pack_tasks(pack)
-    meta = manifest(pack)
-    name = meta["name"]
     raw = {json.loads(line)["task_id"]: line for line in tasks_file(pack).read_text().splitlines() if line.strip()}
     bundle = out / "bundles" / BUNDLE
     shutil.rmtree(bundle, ignore_errors=True)
@@ -295,18 +295,18 @@ def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str,
     played = [(runs_dir / name, [r["instance"] for r in results(runs_dir / name) if r["outcome"] == "scored"])
               for name in sweeps]
     files, episode_ids, graded = agentenv_files(bundle, [(d, ids) for d, ids in played if ids])
-    files |= by_split(f"tasks/{name}", [task_row(t, raw[t.task_id]) for t in days])
-    files |= by_split(f"references/{name}", [reference_row(t) for t in days if "anchor" in t.reference])
+    files |= by_split(f"tasks/{TABLES}", [task_row(t, raw[t.task_id]) for t in days])
+    files |= by_split(f"references/{TABLES}", [reference_row(t) for t in days if "anchor" in t.reference])
     sweep_days = {name: load(name, runs_dir).days() for name in sweeps}
     episodes = [row for d, _ in played for row in episode_rows(d, sweep_days[d.name], episode_ids, graded)]
     played_days = {t: day for found in sweep_days.values() for t, day in found.items()}
-    files |= by_split(f"episodes/{name}", sorted(episodes, key=lambda r: (r["model"], r["task_id"], r["rep"])))
+    files |= by_split(f"episodes/{TABLES}", sorted(episodes, key=lambda r: (r["model"], r["task_id"], r["rep"])))
     board_md = ""
     if episodes:
         rows = board(episodes, played_days)
         board_md = board_markdown(rows, len({e["task_id"] for e in episodes}))
         files["results/board.parquet"] = table_bytes(rows)
-        card_json = eval_card(rows, days, name, meta["months"], date)
+        card_json = eval_card(rows, days, months(pack), date)
         files["results/eval-v1.json"] = (json.dumps(card_json, indent=2, ensure_ascii=False) + "\n").encode()
     viewer = Runs(runs_dir, sweeps, cache)
     shown = viewer.episodes() + [json.loads(p.read_text()) for p in fixtures]
@@ -318,7 +318,7 @@ def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str,
             rel = path.relative_to(d)
             if path.is_file() and rel.parts[0] not in ("logs", "bundle"):
                 files[f"runs/{d.name}/{rel.as_posix()}"] = path.read_bytes()
-    return files | {"README.md": card_text(plugin, files, name, board_md).encode()}
+    return files | {"README.md": card_text(plugin, files, board_md).encode()}
 
 
 def tasks_file(pack: Path) -> Path:
@@ -365,11 +365,12 @@ def main():
     ap.add_argument("--pack", type=Path, default=Path(str(tasks.PACK)), help="Default: the packaged b6-v1 pack.")
     ap.add_argument("--fixture", type=Path, action="append", default=[],
                     help="An episode JSON to show in the viewer too, e.g. scripts/fixture_episode.py's follower.")
-    ap.add_argument("--cache", type=Path, default=ROOT / "cache", help="Where the radar frames and hub twins are.")
+    ap.add_argument("--cache", type=Path, default=ROOT / "cache",
+                    help="Where the viewer's stages, traffic, radar frames, hub twins and stills are.")
     ap.add_argument("--plugin-ref", default=f"v{VERSION}", help="The plugin tag the card's bundle pins.")
     ap.add_argument("--repo", help="Push the folder to this dataset repo after writing it.")
-    ap.add_argument("--tag", help="Tag the pushed commit, e.g. v0.1.0; the Space reads the dataset at it.")
-    ap.add_argument("--message", default="Publish AirOpsEnv on AgentEnv")
+    ap.add_argument("--tag", help="Tag the pushed commit, e.g. v0.2.0; the Space reads the dataset at it.")
+    ap.add_argument("--message", default="Publish AirOpsEnv v1")
     ap.add_argument("--date", default=datetime.date.today().isoformat(), help="The eval card's date.")
     ap.add_argument("--space-out", type=Path, help="Write the static Space here.")
     ap.add_argument("--space-repo", help="Push the Space folder to this Space repo after writing it.")

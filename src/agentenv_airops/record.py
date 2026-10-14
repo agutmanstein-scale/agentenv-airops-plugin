@@ -1,6 +1,6 @@
 """`agent-env airops record`: film a recorded run on the viewer with the checkout's scripts/record.py (headless Chrome
-and ffmpeg): the run is replayed and exported under the checkout's cache/episodes, beside the radar frames and hub
-twins it points at, and filmed from there."""
+and ffmpeg): the run is replayed and exported under the checkout's cache/episodes, beside the radar frames, hub twins
+and 3D airport stages it points at, and filmed from there."""
 
 import subprocess
 import sys
@@ -24,8 +24,9 @@ SCRIPT = ROOT / "scripts" / "record.py"
 @click.argument("record_args", nargs=-1, type=click.UNPROCESSED)
 def record_command(sweep: str, task_id: str, model: str | None, rep: int, record_args: tuple[str, ...]):
     """Film the scored run of SWEEP on a day; the rest of the arguments go to scripts/record.py, e.g.
-    --out cache/films/NAME.mp4 [--webp cache/films/NAME.webp] [--cut 1020:hub], or --shots cache/shots. Needs a
-    checkout of the plugin with the viewer extra, Chrome and ffmpeg."""
+    --director --out cache/films/NAME.mp4 [--webp cache/films/NAME.webp] [--seconds 66] for a cut of the day on the
+    3D airport, --shots cache/shots for stills or --thumb cache/thumbs/NAME.jpg for the episode list. Needs a checkout
+    of the plugin with the viewer extra, Chrome and ffmpeg."""
     if not SCRIPT.is_file():
         raise click.UsageError(f"filming needs a checkout of the plugin: {SCRIPT} doesn't exist")
     runs = require(Runs(RUNS, [sweep]))

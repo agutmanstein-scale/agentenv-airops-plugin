@@ -1,3 +1,4 @@
+import gzip
 import json
 from pathlib import Path
 
@@ -61,3 +62,21 @@ def test_built_episodes_are_valid(path):
         assert (path.parent / frame["url"]).resolve().is_file()
     if episode["twin"]:
         assert (path.parent / episode["twin"]["url"]).resolve().is_file()
+    if episode.get("stage"):
+        stage = (path.parent / episode["stage"]["url"]).resolve()
+        assert stage.is_file() and (stage.parent / "ortho.jpg").is_file()
+        traffic = json.loads(gzip.decompress((path.parent / episode["stage"]["traffic"]).read_bytes()))
+        assert (traffic["hub"], traffic["date"]) == (episode["task"]["hub"], episode["task"]["date"])
+        assert traffic["span"][0] == episode["task"]["start"] and traffic["span"][1] > episode["watches"][-1]["t"]
+        tagged = {leg["flight"] for a in traffic["aircraft"] for v in a["visits"] for leg in (v["arr"], v["dep"])
+                  if leg and leg["tag"]}
+        hub = episode["task"]["hub"]
+        assert tagged <= {f["flight"] for f in episode["schedule"] + episode["frozen"] if hub in (f["orig"], f["dest"])}
+
+
+def test_the_schema_takes_a_stage_or_none():
+    episode = json.loads(SMALL.read_text())
+    for stage in (None, {"hub": "BOS", "url": "../stage/BOS/stage.json.gz", "traffic": "x.stage.json.gz"}):
+        validate(episode | {"stage": stage})
+    errors = list(Draft202012Validator(SCHEMA).iter_errors(episode | {"stage": {"hub": "BOS"}}))
+    assert [tuple(e.absolute_path) for e in errors] == [("stage",)]

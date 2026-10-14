@@ -1,7 +1,7 @@
-// The tail chart: one row per aircraft over the day. The schedule as a dashed outline, the flown or planned leg as a bar
-// coloured by status (with its label when it fits), the delay as a tail back to the scheduled departure, holds as a
-// violet tick, cancellations hatched in lanes of their own, the morning's legs in grey, the end-of-day ferries, the
-// now line with the freeze zone, and above the rows the hub's arrival and departure slots by hour against its caps.
+// The tail chart (expert mode): one row per aircraft over the day. The schedule as a dashed outline, the flown or planned
+// leg as a bar coloured by status (with its label when it fits), the delay as a tail back to the scheduled departure,
+// holds as a blue tick, cancellations hatched in lanes of their own, the morning's legs in grey, the end-of-day ferries,
+// the now line with the freeze zone, and above the rows the hub's arrival and departure slots by hour against its caps.
 import { STATUS, capsAt, css, esc, hhmm, miles } from "./model.js";
 
 const NS = "http://www.w3.org/2000/svg";

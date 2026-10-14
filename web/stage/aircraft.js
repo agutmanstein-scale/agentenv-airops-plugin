@@ -6,7 +6,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 const DEG = Math.PI / 180;
 const NAVY = "#0b2a5c";
 
-export const aircraftLook = { cabin: { value: 0 }, wet: { value: 0 }, beam: { value: 1 } };
+export const aircraftLook = { cabin: { value: 0 }, wet: { value: 0 }, beam: { value: 1 }, pool: { value: 0 }, lightMap: { value: null }, lightM: { value: new THREE.Vector4() } };
 
 const LIVERIES = {
   jetblue: { body: "#f2f3f4", belly: "#e2e4e6", fin: NAVY, cowl: NAVY, wing: "#c3c7cb", strut: "#d6d9dc", pylon: "#e6e8ea" },
@@ -676,17 +676,62 @@ function shared() {
   const metal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.35, side: THREE.DoubleSide });
   const dark = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0.15, side: THREE.DoubleSide });
   const fan = new THREE.MeshStandardMaterial({ map: fanTexture(), roughness: 0.45, metalness: 0.5 });
-  for (const m of [metal, dark]) wetten(m);
-  SHARED = { metal, dark, fan, glow: glowMaterial(), beam: beamMaterial(), cone: beamCone() };
+  const gearMetal = metal.clone();
+  const gearDark = dark.clone();
+  for (const [m, snow] of [[metal, true], [dark, true], [gearMetal, false], [gearDark, false]]) wetten(m, snow);
+  SHARED = { metal, dark, fan, gearMetal, gearDark, glow: glowMaterial(), beam: beamMaterial(), cone: beamCone() };
   return SHARED;
 }
 
-function wetten(m) {
+function wetten(m, snow) {
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uWet = aircraftLook.wet;
     sh.fragmentShader = "uniform float uWet;\n" + sh.fragmentShader.replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\n roughnessFactor *= 1.0 - 0.45 * uWet;");
+    if (snow) snowy(sh);
+    floodlit(sh);
   };
-  m.customProgramCacheKey = () => "ac-wet";
+  m.customProgramCacheKey = () => `ac-wet-${snow}-lit`;
+}
+
+/** The apron floodlights' pools (the ground's light map) on whatever stands in them. */
+function floodlit(sh) {
+  Object.assign(sh.uniforms, { uPool: aircraftLook.pool, uLightMap: aircraftLook.lightMap, uLightM: aircraftLook.lightM });
+  sh.vertexShader = "varying vec3 vWP;\n" + sh.vertexShader.replace(
+    "#include <begin_vertex>",
+    `#include <begin_vertex>
+    {
+      vec4 wp4 = vec4(transformed, 1.0);
+      #ifdef USE_INSTANCING
+        wp4 = instanceMatrix * wp4;
+      #endif
+      vWP = (modelMatrix * wp4).xyz;
+    }`,
+  );
+  sh.fragmentShader = "varying vec3 vWP;\nuniform float uPool;\nuniform sampler2D uLightMap;\nuniform vec4 uLightM;\n" + sh.fragmentShader.replace(
+    "#include <emissivemap_fragment>",
+    `#include <emissivemap_fragment>
+    {
+      vec2 luv = (vec2(vWP.x, -vWP.z) - uLightM.xy) * uLightM.zw;
+      float inL = step(0.0, luv.x) * step(luv.x, 1.0) * step(0.0, luv.y) * step(luv.y, 1.0);
+      float up = dot(normal, normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz));
+      totalEmissiveRadiance += diffuseColor.rgb * texture2D(uLightMap, luv).rgb * uPool * inL * (0.55 + 0.45 * up) * 1.5 * step(vWP.y, 30.0);
+    }`,
+  );
+}
+
+/** Snow lying on the upward faces of a parked aircraft, per instance (aSnow 0..1). */
+function snowy(sh) {
+  sh.vertexShader = "attribute float aSnow;\nvarying float vSnow;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n vSnow = aSnow;");
+  sh.fragmentShader = "varying float vSnow;\n" + sh.fragmentShader.replace(
+    "#include <normal_fragment_maps>",
+    `#include <normal_fragment_maps>
+    {
+      float up = dot(normal, normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz));
+      float lie = vSnow * smoothstep(0.25, 0.75, up);
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.95, 0.98), lie);
+      roughnessFactor = mix(roughnessFactor, 0.85, lie);
+    }`,
+  );
 }
 
 function skinMaterial(D) {
@@ -718,12 +763,14 @@ function skinMaterial(D) {
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, u);
     sh.vertexShader = "attribute vec2 aSkin;\nvarying vec2 vSkin;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n vSkin = aSkin;");
+    snowy(sh);
+    floodlit(sh);
     sh.fragmentShader = SKIN_PARS + sh.fragmentShader
       .replace("#include <color_fragment>", "#include <color_fragment>\n" + SKIN_COLOR)
       .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\n roughnessFactor = mix(roughnessFactor * (1.0 - 0.45 * uWet), 0.08, gls);")
       .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n totalEmissiveRadiance += uCabin * cab * vec3(1.0, 0.74, 0.45) * 0.9;");
   };
-  m.customProgramCacheKey = () => "ac-skin-v1";
+  m.customProgramCacheKey = () => "ac-skin";
   return m;
 }
 
@@ -811,7 +858,7 @@ function glowMaterial() {
           float k = max(dot(normalize((modelViewMatrix * vec4(aDir, 0.0)).xyz), normalize(-mvPosition.xyz)), 0.0);
           float f = 0.03 + 0.97 * pow(k, 8.0);
           vColor *= f;
-          vGlare = on * pow(k, 14.0);
+          vGlare = on * pow(k, 14.0) * smoothstep(1.5, 12.0, px);
           gl_PointSize = min(gl_PointSize * (0.35 + 0.65 * f) * (1.0 + 3.0 * vGlare), 180.0);
         }
         #include <logdepthbuf_vertex>
@@ -913,9 +960,10 @@ function kit(spec) {
   if (D.rear) rearEngines(D, paint, metal, dark, fanGeos);
   else underwingEngines(D, P, paint, metal, dark, fanGeos);
   flapTracks(D, P, metal);
-  const sNG = gear(D, P, metal, dark);
+  const gearMetal = new Parts(), gearDark = new Parts();
+  const sNG = gear(D, P, gearMetal, gearDark);
   antennas(D, paint);
-  const geos = { paint: paint.merged(), metal: metal.merged(), dark: dark.merged(), fan: mergeGeometries(fanGeos) };
+  const geos = { paint: paint.merged(), metal: metal.merged(), dark: dark.merged(), fan: mergeGeometries(fanGeos), gearMetal: gearMetal.merged(), gearDark: gearDark.merged() };
   for (const g of Object.values(geos)) {
     g.translate(0, 0, -sNG);
     g.computeBoundingSphere();
@@ -945,8 +993,8 @@ function kit(spec) {
   const lightDir = new THREE.Float32BufferAttribute(lights.flatMap((l) => (l[0] === "landing" || l[0] === "taxi" ? [0, -0.05, -1] : [0, 0, 0])), 3);
   const tris = Object.values(geos).reduce((n, g) => n + g.index.count / 3, 0);
   const K = {
-    geos, lights, lightPos, lightSize, lightDir, tris, shadow, skin: skinMaterial(D),
-    dims: { length: D.L, span: D.span, nose: sNG, height: f.tip.y + 0.2, lx, ly: P.yAt(lx) - 0.4, lz: P.leZ(lx) + 0.5 - sNG, ng: D.gear.nr * 2 + 0.4, main: D.wingLE + D.gear.main - sNG },
+    key, geos, lights, lightPos, lightSize, lightDir, tris, shadow, skin: skinMaterial(D),
+    dims: { length: D.L, span: D.span, nose: sNG, height: f.tip.y + 0.2, fin: f.tip.z - sNG, lx, ly: P.yAt(lx) - 0.4, lz: P.leZ(lx) + 0.5 - sNG, ng: D.gear.nr * 2 + 0.4, main: D.wingLE + D.gear.main - sNG, belly: D.belly, width: D.w, doors: forwardDoors(D, sNG) },
   };
   KIT.set(key, K);
   return K;
@@ -956,79 +1004,30 @@ const LIGHT_COLORS = {
   beacon: [7, 0.35, 0.18], navL: [3.6, 0.12, 0.08], navR: [0.15, 3.4, 1.1], navT: [3, 3, 3], strobe: [14, 14, 16], landing: [12, 11.4, 10.4], taxi: [9, 8.6, 7.8],
 };
 
-export function buildAircraft(spec) {
-  const K = kit(spec);
-  const S = shared();
-  const object = new THREE.Group();
-  object.name = `aircraft:${spec.class}`;
-  for (const [name, mat] of [["paint", K.skin], ["metal", S.metal], ["dark", S.dark], ["fan", S.fan]]) {
-    const m = new THREE.Mesh(K.geos[name], mat);
-    m.castShadow = name !== "fan";
-    m.receiveShadow = true;
-    object.add(m);
-  }
-  const gg = new THREE.BufferGeometry();
-  gg.setAttribute("position", K.lightPos);
-  const col = new THREE.Float32BufferAttribute(new Float32Array(K.lights.length * 3), 3);
-  gg.setAttribute("aColor", col);
-  gg.setAttribute("aSize", K.lightSize);
-  gg.setAttribute("aDir", K.lightDir);
-  const glow = new THREE.Points(gg, S.glow);
-  glow.frustumCulled = false;
-  glow.renderOrder = 5;
-  glow.onBeforeRender = (r) => { S.glow.uniforms.uPx.value = r.getDrawingBufferSize(_v2).y / 2; };
-  object.add(glow);
-  const d = K.dims;
-  const beam = (x, y, z, len, rad, tilt) => {
-    const m = new THREE.Mesh(S.cone, S.beam);
-    m.position.set(x, y, z);
-    m.scale.set(rad, rad, len);
-    m.rotation.x = -tilt * DEG;
-    m.visible = false;
-    m.renderOrder = 4;
-    object.add(m);
-    return m;
-  };
-  const landing = [beam(-d.lx, d.ly, d.lz, 90, 9, 2.5), beam(d.lx, d.ly, d.lz, 90, 9, 2.5), beam(0, d.ng + 0.15, -0.2, 80, 8, 2)];
-  const taxi = [beam(0, d.ng, -0.25, 45, 9, 4.5)];
-  const blob = new THREE.Mesh(K.shadow.geo, K.shadow.mat);
-  blob.renderOrder = -1;
-  object.add(blob);
-  object.userData.dims = d;
-  object.userData.blob = blob;
-  object.userData.tris = K.tris;
-  const phase = (++SEQ * 0.618034) % 1 * 10;
-  let spot = null;
-  return {
-    object,
-    setLights(st = {}) {
-      const t = (st.time || 0) + phase;
-      const bp = t % 1.05;
-      const beacon = st.beacon ? Math.exp(-Math.max(0, bp - 0.04) * 18) * (bp < 0.45 ? 1 : 0) : 0;
-      const sp = t % 1.3;
-      const strobe = st.strobe ? (sp < 0.05 || (sp > 0.13 && sp < 0.18) ? 1 : 0) : 0;
-      const level = { beacon, navL: st.nav ? 1 : 0, navR: st.nav ? 1 : 0, navT: st.nav ? 1 : 0, strobe, landing: st.landing ? 1 : 0, taxi: st.taxi ? 1 : 0 };
-      K.lights.forEach(([kind], i) => {
-        const c = LIGHT_COLORS[kind], v = level[kind];
-        col.setXYZ(i, c[0] * v, c[1] * v, c[2] * v);
-      });
-      col.needsUpdate = true;
-      blob.visible = object.position.y < 0.5;
-      for (const m of landing) m.visible = !!st.landing;
-      for (const m of taxi) m.visible = !!st.taxi && !st.landing;
-      if (spot) spot.intensity = st.landing ? spot.userData.on : st.taxi ? spot.userData.on * 0.4 : 0;
-    },
-    addLandingSpot(intensity = 40000) {
-      if (spot) return spot;
-      spot = new THREE.SpotLight(0xfff2e2, 0, 260, 0.32, 0.55, 2);
-      spot.userData.on = intensity;
-      spot.position.set(0, d.ng + 0.2, -0.4);
-      spot.target.position.set(0, 0, -60);
-      object.add(spot, spot.target);
-      return spot;
-    },
-  };
+/** The kit of an aircraft spec ({class, length, span, jetblue}): geometries in metres about the nose-gear contact, the skin, the lights and the dimensions the stage needs. */
+export function aircraftKit(spec) {
+  return kit(spec);
 }
 
-const _v2 = new THREE.Vector2();
-let SEQ = 0;
+export function aircraftMaterials() {
+  return shared();
+}
+
+export { LIGHT_COLORS };
+
+/** The sill of each passenger door ahead of the wing on the left side, [x, y, z] about the nose-gear contact. */
+function forwardDoors(D, sNG) {
+  const W = D.win;
+  const winArc = arcWhere(D, D.wingLE - 1, ([, y]) => D.belly + D.h * W.y - y);
+  return D.doors.filter((p) => !p.ow && D.at(p) < D.wingLE + 2).map((p) => {
+    const s = D.at(p);
+    const sill = winArc - W.h / 2 - 0.3 + D.door[1];
+    const { pts, arc } = halfRing(D, s);
+    let k = 1;
+    while (k < arc.length - 1 && arc[k] < sill) k++;
+    const f = (sill - arc[k - 1]) / (arc[k] - arc[k - 1] || 1);
+    const x = lerp(pts[k - 1][0], pts[k][0], f);
+    const y = lerp(pts[k - 1][1], pts[k][1], f);
+    return [-x, y, s - sNG];
+  });
+}

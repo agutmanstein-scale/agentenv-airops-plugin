@@ -1,0 +1,438 @@
+{
+ "b6-bos-20250216-1500": {
+  "task": {
+   "hub": "BOS",
+   "date": "2025-02-16",
+   "tz": "America/New_York",
+   "dmax": 360
+  },
+  "news": [
+   {
+    "id": "adv-20250216-053",
+    "at": 500,
+    "kind": "advisory",
+    "speaker": "FAA Command Center",
+    "text": "ATCSCC ADVZY 053 BOS/ZBW 02/16/2025 CDM GROUND DELAY PROGRAM\nCTL ELEMENT: BOS\nELEMENT TYPE: APT\nADL TIME: 1317Z\nDELAY ASSIGNMENT MODE: UDP\nARRIVALS ESTIMATED FOR: 16/1317Z - 17/0059Z\nCUMULATIVE PROGRAM PERIOD: 16/1317Z - 17/0059Z\nPROGRAM RATE: 18/18/18/26/36/36/36/36/36/36/36/36\nFLT INCL: ALL CONTIGUOUS US DEP\nDEP SCOPE: 1200\nCANADIAN DEP ARPTS INCLUDED: CYHZ CYOW CYUL CYYZ CYTZ CYQB\nDELAY ASSIGNMENT TABLE APPLIES TO: ZBW\nMAXIMUM DELAY: 163\nAVERAGE DELAY: 41\nIMPACTING CONDITION: WEATHER / SNOW-ICE\nCOMMENTS: 1ST TIER GROUND STOP CANCELED",
+    "data": {
+     "advzy": 53,
+     "element": "BOS",
+     "kind": "gdp",
+     "title": "CDM GROUND DELAY PROGRAM",
+     "program_period": [
+      497,
+      1199
+     ],
+     "arrivals_for": [
+      497,
+      1199
+     ],
+     "program_rate": [
+      18,
+      18,
+      18,
+      26,
+      36,
+      36,
+      36,
+      36,
+      36,
+      36,
+      36,
+      36
+     ],
+     "flt_incl": "ALL CONTIGUOUS US DEP",
+     "max_delay": 163,
+     "avg_delay": 41,
+     "condition": "WEATHER / SNOW-ICE"
+    }
+   },
+   {
+    "id": "adv-20250216-061",
+    "at": 542,
+    "kind": "advisory",
+    "speaker": "FAA Command Center",
+    "text": "ATCSCC ADVZY 061 BOS/ZBW 02/16/2025 CDM GROUND STOP\nCTL ELEMENT: BOS\nELEMENT TYPE: APT\nADL TIME: 1400Z\nGROUND STOP PERIOD: 16/1345Z - 16/1500Z\nCUMULATIVE PROGRAM PERIOD: 16/1317Z - 17/0059Z\nFLT INCL: CARRIER JBU ONLY\nDEP FACILITIES INCLUDED:  ALL\nPREVIOUS TOTAL, MAXIMUM, AVERAGE DELAYS: 333 / 87 / 28\nNEW TOTAL, MAXIMUM, AVERAGE DELAYS: 841 / 119 / 70\nPROBABILITY OF EXTENSION: MEDIUM\nIMPACTING CONDITION: OTHER / OTHER\nCOMMENTS: JETBLUE ONLY GROUND STOP. CARRIER REQUEST DUE TO GATE\n CONSTRAINTS.",
+    "data": {
+     "advzy": 61,
+     "element": "BOS",
+     "kind": "gs",
+     "title": "CDM GROUND STOP",
+     "program_period": [
+      497,
+      1199
+     ],
+     "gs_period": [
+      525,
+      600
+     ],
+     "flt_incl": "CARRIER JBU ONLY",
+     "gs_delays": "841 / 119 / 70",
+     "probability_of_extension": "MEDIUM",
+     "condition": "OTHER / OTHER"
+    }
+   },
+   {
+    "id": "adv-20250216-072",
+    "at": 591,
+    "kind": "advisory",
+    "speaker": "FAA Command Center",
+    "text": "ATCSCC ADVZY 072 BOS/ZBW 02/16/2025 CDM GROUND STOP\nCTL ELEMENT: BOS\nELEMENT TYPE: APT\nADL TIME: 1447Z\nGROUND STOP PERIOD: 16/1445Z - 16/1600Z\nCUMULATIVE PROGRAM PERIOD: 16/1317Z - 17/0059Z\nFLT INCL: CARRIER JBU ONLY\nDEP FACILITIES INCLUDED:  ALL\nPREVIOUS TOTAL, MAXIMUM, AVERAGE DELAYS: 855 / 119 / 53\nNEW TOTAL, MAXIMUM, AVERAGE DELAYS: 1525 / 179 / 95\nPROBABILITY OF EXTENSION: MEDIUM\nIMPACTING CONDITION: OTHER / OTHER\nCOMMENTS:",
+    "data": {
+     "advzy": 72,
+     "element": "BOS",
+     "kind": "gs",
+     "title": "CDM GROUND STOP",
+     "program_period": [
+      497,
+      1199
+     ],
+     "gs_period": [
+      585,
+      660
+     ],
+     "flt_incl": "CARRIER JBU ONLY",
+     "gs_delays": "1525 / 179 / 95",
+     "probability_of_extension": "MEDIUM",
+     "condition": "OTHER / OTHER"
+    }
+   },
+   {
+    "id": "adv-20250216-084",
+    "at": 676,
+    "kind": "advisory",
+    "speaker": "FAA Command Center",
+    "text": "ATCSCC ADVZY 084 BOS/ZBW 02/16/2025 JBU BOS GROUND STOP CANCELLATION\nEVENT TIME: 16/1615 - 1630\nCONSTRAINED FACILITIES: ZBW\nDESTINATION AIRPORT: BOS\nRELEASED FACILITIES: ALL\nREMARKS: JBU AIRCRAFT RELEASED ON EDCTS",
+    "data": {
+     "advzy": 84,
+     "element": "BOS",
+     "kind": "gs_cnx",
+     "title": "JBU BOS GROUND STOP CANCELLATION",
+     "event_time": [
+      675,
+      690
+     ]
+    }
+   },
+   {
+    "id": "taf-bos-202502161720",
+    "at": 740,
+    "kind": "taf",
+    "speaker": "NWS BOS TAF",
+    "text": "TAF\nKBOS 161720Z 1618/1724 07013G18KT 2SM SHRA OVC008\n     FM162000 05009KT 2SM SHRA OVC008 WS020/22045KT\n     FM170100 25014G32KT P6SM BKN020\n     FM170600 27015G38KT P6SM SCT050\n     FM171600 27024G45KT P6SM SCT060=",
+    "data": {
+     "station": "KBOS",
+     "amendment": false,
+     "valid": [
+      780,
+      2580
+     ]
+    }
+   },
+   {
+    "id": "afd-box-202502161735",
+    "at": 755,
+    "kind": "outlook",
+    "speaker": "NWS Boston forecast discussion",
+    "text": ".AVIATION /18Z SUNDAY THROUGH THURSDAY/...\nForecast Confidence Levels:\n\nLow - less than 30 percent.\nModerate - 30 to 60 percent.\nHigh - greater than 60 percent.\n\nRest of Today:\n\nSnow and sleet have mostly ended with just rain showers with\nfreezing rain in isolated spots in the high terrain. IFR/LIFR\nCIGS continue through the afternoon. Wind shear picks up from\nthe SW this afternoon, especially near coastal areas. Winds\nover the Cape and the Islands could briefly become very gusty\nout of the SW late this afternoon to early this evening at 40-50\nknots.\n\nTonight:\n\nCold front sweeps the remaining precip and IFR CIGS offshore\nthis evening from west to east between 23z-02z. CIGS quickly pop\nup to MVFR then VFR. Winds turn west and become gusty around\n30-40 knots.\n\nSunday:\n\nVFR and very windy. Winds gusting 40-50 knots, possibly up to 60\nknots in the elevated terrain and near the Cape and Islands.\n\nSunday Night:\n\nVFR. Winds remain strong out of the west at 35-45 knots.\n\nKBOS TAF...Moderate Confidence\n\nIFR/LIFR. Periods of moderate to heavy rain this afternoon.\nWind shear from the SW increase this afternoon to 40-60 knots.\nCold front moves through around 01z lifting CIGS back to VFR and\ndrying out any remaining rain showers. Very windy behind the\ncold front with west winds gusting 40-50 knots through Monday\nnight.\n\nKBDL TAF...Moderate confidence .\n\nIFR/LIFR. Periods of moderate to heavy rain this afternoon.\nWind shear from the SW increase this afternoon to 30-50 knots.\nCold front moves through around 23z lifting CIGS back to VFR and\ndrying out any remaining rain showers. Very windy behind the\ncold front with west winds gusting 40-50knots through Monday\nnight.\n\nOutlook /Monday Night through Thursday/...\n\nMonday Night: VFR. Strong winds with gusts up to 45 kt.\n\nTuesday: VFR. Strong winds with areas of gusts up to 40 kt.\n\nTuesday Night: VFR. Windy with gusts up to 35 kt.\n\nWednesday: VFR. Breezy.\n\nWednesday Night: VFR. Slight chance SN.\n\nThursday: Mainly VFR, with local IFR possible. Breezy. Chance\nSN.",
+    "data": {
+     "office": "BOX",
+     "issued": "1235 PM EST Sun Feb 16 2025"
+    }
+   },
+   {
+    "id": "metar-bos-202502161854",
+    "at": 834,
+    "kind": "metar",
+    "speaker": "BOS METAR",
+    "text": "KBOS 161854Z 05015KT 1 1/4SM R04R/3500V6000FT -RA BR BKN004 OVC007 02/01 A2935 RMK AO2 PRESFR SLP938 P0003 T00220011 $",
+    "data": {
+     "vis_sm": 1.25,
+     "ceiling_ft": 400,
+     "wind_dir": 50,
+     "wind_kt": 15,
+     "gust_kt": null,
+     "wx": "-RA BR",
+     "category": "LIFR"
+    }
+   },
+   {
+    "id": "metar-bos-202502161954",
+    "at": 894,
+    "kind": "metar",
+    "speaker": "BOS METAR",
+    "text": "KBOS 161954Z 03020G26KT 1 1/2SM R04R/5500VP6000FT RA BR OVC004 02/01 A2926 RMK AO2 PK WND 03028/1942 SLP908 V1S NE-SE 1 1/4 P0007 T00220011 $",
+    "data": {
+     "vis_sm": 1.5,
+     "ceiling_ft": 400,
+     "wind_dir": 30,
+     "wind_kt": 20,
+     "gust_kt": 26,
+     "wx": "RA BR",
+     "category": "LIFR"
+    }
+   },
+   {
+    "id": "adv-20250216-127",
+    "at": 966,
+    "kind": "advisory",
+    "speaker": "FAA Command Center",
+    "text": "ATCSCC ADVZY 127 BOS/ZBW 02/16/2025 CDM GROUND DELAY PROGRAM CNX\nCTL ELEMENT: BOS\nELEMENT TYPE: APT\nADL TIME: 2105Z\nGDP CNX PERIOD: 16/2105Z - 17/0658Z\nFLIGHTS MAY RECEIVE NEW EDCTS DUE TO AN ACTIVE AFP\nCOMMENTS:",
+    "data": {
+     "advzy": 127,
+     "element": "BOS",
+     "kind": "gdp_cnx",
+     "title": "CDM GROUND DELAY PROGRAM CNX",
+     "cnx_period": [
+      965,
+      1558
+     ]
+    }
+   }
+  ]
+ },
+ "b6-bos-20240107-0600": {
+  "task": {
+   "hub": "BOS",
+   "date": "2024-01-07",
+   "tz": "America/New_York",
+   "dmax": 360
+  },
+  "news": [
+   {
+    "id": "adv-20240107-040",
+    "at": 708,
+    "kind": "advisory",
+    "speaker": "FAA Command Center",
+    "text": "ATCSCC ADVZY 040 BOS/ZBW 01/07/2024 CDM PROPOSED GROUND DELAY PROGRAM\nCTL ELEMENT: BOS\nELEMENT TYPE: APT\nADL TIME: 1647Z\nDELAY ASSIGNMENT MODE: UDP\nARRIVALS ESTIMATED FOR: 07/1800Z - 08/0459Z\nANTICIPATED CUMULATIVE PROGRAM PERIOD: 07/1800Z - 08/0459Z\nANTICIPATED PROGRAM RATE: 28/28/24/24/24/24/24/24/24/24/24\nFLT INCL: ALL CONTIGUOUS US DEP\nDEP SCOPE: (ALL+CZY_AP) ZLA ZAU ZLC ZTL ZDC ZNY ZHU ZJX ZFW ZOB ZDV\n ZOA ZSE ZBW ZMA ZKC ZME ZID ZAB ZMP\nCANADIAN DEP ARPTS INCLUDED: CYHZ CYOW CYUL CYYZ CYTZ CYQB\nDELAY ASSIGNMENT TABLE APPLIES TO: ZBW\nANTICIPATED MAXIMUM DELAY: 207\nANTICIPATED AVERAGE DELAY: 122\nIMPACTING CONDITION: WEATHER / SNOW-ICE\nCOMMENTS: CONFERENCE AT 17Z.\nUSER UPDATES MUST BE RECEIVED BY: 07/1730Z",
+    "data": {
+     "advzy": 40,
+     "element": "BOS",
+     "kind": "gdp_proposed",
+     "title": "CDM PROPOSED GROUND DELAY PROGRAM",
+     "proposed_period": [
+      780,
+      1439
+     ],
+     "arrivals_for": [
+      780,
+      1439
+     ],
+     "program_rate": [
+      28,
+      28,
+      24,
+      24,
+      24,
+      24,
+      24,
+      24,
+      24,
+      24,
+      24
+     ],
+     "flt_incl": "ALL CONTIGUOUS US DEP",
+     "max_delay": 207,
+     "avg_delay": 122,
+     "condition": "WEATHER / SNOW-ICE"
+    }
+   },
+   {
+    "id": "adv-20240107-045",
+    "at": 813,
+    "kind": "advisory",
+    "speaker": "FAA Command Center",
+    "text": "ATCSCC ADVZY 045 BOS/ZBW 01/07/2024 BOSTON AIRPORT ARRIVAL DELAYS\nEVENT TIME: 07/1830 - 08/0500\nCONSTRAINED FACILITIES: ZBW\nUSERS CAN EXPECT ARRIVAL DELAYS / AIRBORNE HOLDING INTO THE BOSTON\nAIRPORT OF UP TO 30 MINUTES DUE TO SNOW, RUNWAY TREATMENTS, AND/OR\nSNOW REMOVAL. UPDATES WILL FOLLOW IF NECESSARY.",
+    "data": {
+     "advzy": 45,
+     "element": "BOS",
+     "kind": "other",
+     "title": "BOSTON AIRPORT ARRIVAL DELAYS",
+     "event_time": [
+      810,
+      1440
+     ]
+    }
+   },
+   {
+    "id": "adv-20240107-051",
+    "at": 890,
+    "kind": "advisory",
+    "speaker": "FAA Command Center",
+    "text": "ATCSCC ADVZY 051 BOS/ZBW 01/07/2024 BOS DIVERSION RECOVERY\nEVENT TIME: 07/1945 - 8/0500\nCONSTRAINED FACILITIES: ZBW\nTHE ATCSCC HAS ACTIVATED THE DIVERSION RECOVERY TOOL FOR BOSTON\nAIRPORT. CUSTOMERS SHOULD ENSURE THAT DVRSN IS INCLUDED IN FLIGHT\nPLAN REMARKS OF DIVERTED AIRCRAFT.NOTE THAT IF THERE IS A GROUND\nDELAY PROGRAM OR GROUND STOP IN EFFECT FOR THE DESTINATION AIRPORT\nDIVERTED FLIGHTS ARE NOT AUTOMATICALLY EXEMPT AND WILL STILL\nRECEIVE\nAN EDCT.",
+    "data": {
+     "advzy": 51,
+     "element": "BOS",
+     "kind": "other",
+     "title": "BOS DIVERSION RECOVERY"
+    }
+   },
+   {
+    "id": "metar-bos-202401071954",
+    "at": 894,
+    "kind": "metar",
+    "speaker": "BOS METAR",
+    "text": "KBOS 071954Z 35015G25KT 1/4SM R04R/2000V2600FT +SN FZFG VV005 M03/M03 A2959 RMK AO2 PK WND 36029/1924 TWR VIS 1 1/4 PRESRR SLP019 P0004 T10331033 $",
+    "data": {
+     "vis_sm": 0.25,
+     "ceiling_ft": null,
+     "wind_dir": 350,
+     "wind_kt": 15,
+     "gust_kt": 25,
+     "wx": "+SN FZFG",
+     "category": "LIFR"
+    }
+   },
+   {
+    "id": "adv-20240107-059",
+    "at": 979,
+    "kind": "advisory",
+    "speaker": "FAA Command Center",
+    "text": "ATCSCC ADVZY 059 BOS/ZBW 01/07/2024 CDM GROUND DELAY PROGRAM\nCTL ELEMENT: BOS\nELEMENT TYPE: APT\nADL TIME: 2117Z\nDELAY ASSIGNMENT MODE: UDP\nARRIVALS ESTIMATED FOR: 07/2115Z - 08/0459Z\nCUMULATIVE PROGRAM PERIOD: 07/1800Z - 08/0459Z\nPROGRAM RATE: 18/18/24/24/24/24/28/28\nFLT INCL: ALL CONTIGUOUS US DEP\nDEP SCOPE: (MANUAL) ZLA ZAU ZLC ZTL ZDC ZNY ZHU ZJX ZFW ZOB ZDV ZOA\n ZSE ZBW ZMA ZKC ZME ZID ZAB ZMP\nCANADIAN DEP ARPTS INCLUDED: CYHZ CYOW CYUL CYYZ CYTZ CYQB CYYJ CYVR\n CYLW CYEG CYYC\nDELAY ASSIGNMENT TABLE APPLIES TO: ZBW\nMAXIMUM DELAY: 631\nAVERAGE DELAY: 197\nIMPACTING CONDITION: WEATHER / SNOW-ICE\nCOMMENTS: ARR/DEP 04R, MODIFIED LOW POPUPS, BY STATUS. GROUND STOP\n CANCELED. LOOK FOR REVISED EDCTS.",
+    "data": {
+     "advzy": 59,
+     "element": "BOS",
+     "kind": "gdp",
+     "title": "CDM GROUND DELAY PROGRAM",
+     "program_period": [
+      780,
+      1439
+     ],
+     "arrivals_for": [
+      975,
+      1439
+     ],
+     "program_rate": [
+      18,
+      18,
+      24,
+      24,
+      24,
+      24,
+      28,
+      28
+     ],
+     "flt_incl": "ALL CONTIGUOUS US DEP",
+     "max_delay": 631,
+     "avg_delay": 197,
+     "condition": "WEATHER / SNOW-ICE"
+    }
+   },
+   {
+    "id": "afd-box-202401071148",
+    "at": 408,
+    "kind": "outlook",
+    "speaker": "NWS Boston forecast discussion",
+    "text": ".AVIATION /12Z SUNDAY THROUGH THURSDAY/...\n\nForecast Confidence Levels:\n\nLow - less than 30 percent.\nModerate - 30 to 60 percent.\nHigh - greater than 60 percent.\n\nToday...High confidence on trends, lower on exact timing.\n\nIFR/LIFR across the region with mixed precip and rain along the\nsouth coast, snow with -FZDZ possible BDL/BAF/ORH/BED. Then all\nsites transition to snow, light to moderate 16-23Z, except\n18-21Z for Cape Cod and Islands. ENE winds up to 35 kt along\nthe coast, shift to NNE this afternoon and remain gusty.\n\nTonight...High confidence on trends, lower on exact timing of\nimproving conditions.\n\nMVFR/IFR to start with any lingering snow tapering off, but will\ntake the longest for the Cape/Islands. Should improve to VFR by\nroughly 03-09Z from west to east. Strong gusty NNW winds up to\n40 kt across Cape Cod and Islands, slowly diminishing overnight.\n\nMonday...High confidence.\n\nVFR with diminishing winds and dry weather.\n\nKBOS TAF...Moderate confidence.\n\nRain/snow mix through the morning with temps rising to 33-35F.\nThen changes over to light/moderate snow 16-18Z with\naccumulating snow until about 21-23Z. Then light snow/flurries\ntapering off 00-03Z. Strong ENE winds up to 30 kt this morning,\nshifts to NNE this afternoon, then NNW this evening and\nremaining gusty.\n\nKBDL TAF...Moderate confidence.\n\nLight to moderate snows throughout the day, but could have brief\nperiods of -FZDZ through roughly 15Z. Confidence too low at this\npoint to include in the TAF. NNE winds shift to the N later\ntoday and NW tonight.\n\nOutlook /Monday Night through Thursday/...\n\nMonday Night: VFR. Breezy.\n\nTuesday: Mainly VFR, with local IFR possible. Windy with local\ngusts up to 30 kt. Chance RA, chance SN.\n\nTuesday Night: Mainly IFR, with local MVFR possible. Strong\nwinds with gusts up to 60 kt. RA, chance SN.\n\nWednesday: Mainly VFR, with local IFR possible. Strong winds\nwith gusts up to 60 kt. Chance RA.\n\nWednesday Night: VFR. Windy with gusts up to 35 kt.\n\nThursday: VFR. Breezy.",
+    "data": {
+     "office": "BOX",
+     "issued": "648 AM EST Sun Jan 7 2024"
+    }
+   }
+  ]
+ },
+ "b6-jfk-20230714-1400": {
+  "task": {
+   "hub": "JFK",
+   "date": "2023-07-14",
+   "tz": "America/New_York",
+   "dmax": 360
+  },
+  "news": [
+   {
+    "id": "adv-20230714-040",
+    "at": 324,
+    "kind": "advisory",
+    "speaker": "FAA Command Center",
+    "text": "ATCSCC ADVZY 040 JFK/ZNY 07/14/2023 CDM GROUND STOP\nCTL ELEMENT: JFK\nELEMENT TYPE: APT\nADL TIME: 0921Z\nGROUND STOP PERIOD: 14/0911Z - 14/1030Z\nDEP FACILITIES INCLUDED: (Manual) ZDC ZOB ZBW\nPREVIOUS TOTAL, MAXIMUM, AVERAGE DELAYS: 0 / 0 / 0\nNEW TOTAL, MAXIMUM, AVERAGE DELAYS: 284 / 58 / 28\nPROBABILITY OF EXTENSION: MEDIUM\nIMPACTING CONDITION: WEATHER / THUNDERSTORMS\nCOMMENTS: USERS CAN EXPECT HOLDING DURING THIS TIME DUE TO\n THUNDERSTORMS.",
+    "data": {
+     "advzy": 40,
+     "element": "JFK",
+     "kind": "gs",
+     "title": "CDM GROUND STOP",
+     "gs_period": [
+      311,
+      390
+     ],
+     "gs_delays": "284 / 58 / 28",
+     "probability_of_extension": "MEDIUM",
+     "condition": "WEATHER / THUNDERSTORMS"
+    }
+   },
+   {
+    "id": "adv-20230714-042",
+    "at": 371,
+    "kind": "advisory",
+    "speaker": "FAA Command Center",
+    "text": "ATCSCC ADVZY 042 JFK/ZNY 07/14/2023 CDM GROUND STOP\nCTL ELEMENT: JFK\nELEMENT TYPE: APT\nADL TIME: 1009Z\nGROUND STOP PERIOD: 14/0911Z - 14/1030Z\nDEP FACILITIES INCLUDED: (Manual) ZOB\nPREVIOUS TOTAL, MAXIMUM, AVERAGE DELAYS: 0 / 0 / 0\nNEW TOTAL, MAXIMUM, AVERAGE DELAYS: 0 / 0 / 0\nPROBABILITY OF EXTENSION: MEDIUM\nIMPACTING CONDITION: WEATHER / THUNDERSTORMS\nCOMMENTS: REMOVES ZDC ZBW, ZOB REMAINS IN INTERNAL STOP DUE TO\n HOLDING.",
+    "data": {
+     "advzy": 42,
+     "element": "JFK",
+     "kind": "gs",
+     "title": "CDM GROUND STOP",
+     "gs_period": [
+      311,
+      390
+     ],
+     "gs_delays": "0 / 0 / 0",
+     "probability_of_extension": "MEDIUM",
+     "condition": "WEATHER / THUNDERSTORMS"
+    }
+   },
+   {
+    "id": "taf-jfk-202307141455",
+    "at": 655,
+    "kind": "taf",
+    "speaker": "NWS JFK TAF",
+    "text": "TAF AMD\nKJFK 141455Z 1415/1518 06009KT P6SM BKN015 BKN110 BKN250\n      TEMPO 1420/1424 3SM TSRA BKN025CB\n     FM150000 20009KT P6SM SCT025 BKN035 PROB30 1500/1506 -SHRA\n     FM150600 20007KT P6SM SCT040 BKN100=",
+    "data": {
+     "station": "KJFK",
+     "amendment": true,
+     "valid": [
+      660,
+      2280
+     ]
+    }
+   },
+   {
+    "id": "adv-20230714-214",
+    "at": 1142,
+    "kind": "advisory",
+    "speaker": "FAA Command Center",
+    "text": "ATCSCC ADVZY 214 JFK/ZNY 07/14/2023 CDM GROUND STOP\nCTL ELEMENT: JFK\nELEMENT TYPE: APT\nADL TIME: 2301Z\nGROUND STOP PERIOD: 14/2246Z - 15/0000Z\nCUMULATIVE PROGRAM PERIOD: 14/1900Z - 15/0259Z\nDEP FACILITIES INCLUDED: (Manual) ZAU ZOB ZKC ZID ZMP  CYHZ CYOW CYUL\n CYYZ CYTZ CYQB\nPREVIOUS TOTAL, MAXIMUM, AVERAGE DELAYS: 896 / 437 / 224\nNEW TOTAL, MAXIMUM, AVERAGE DELAYS: 953 / 440 / 238\nPROBABILITY OF EXTENSION: MEDIUM\nIMPACTING CONDITION: WEATHER / THUNDERSTORMS\nCOMMENTS: NO ROUTES THRU ZOB",
+    "data": {
+     "advzy": 214,
+     "element": "JFK",
+     "kind": "gs",
+     "title": "CDM GROUND STOP",
+     "program_period": [
+      900,
+      1379
+     ],
+     "gs_period": [
+      1126,
+      1200
+     ],
+     "gs_delays": "953 / 440 / 238",
+     "probability_of_extension": "MEDIUM",
+     "condition": "WEATHER / THUNDERSTORMS"
+    }
+   },
+   {
+    "id": "metar-jfk-202307150251",
+    "at": 1371,
+    "kind": "metar",
+    "speaker": "JFK METAR",
+    "text": "KJFK 150251Z 00000KT 10SM VCTS -RA SCT030 BKN043 OVC100 26/22 A2993 RMK AO2 LTG DSNT W-N RAB45 TSE46 SLP133 CB DSNT W-N MOV NE P0000 60000 T02610222 53006",
+    "data": {
+     "vis_sm": 10,
+     "ceiling_ft": 4300,
+     "wind_dir": 0,
+     "wind_kt": 0,
+     "gust_kt": null,
+     "wx": "VCTS -RA",
+     "category": "VFR"
+    }
+   }
+  ]
+ }
+}

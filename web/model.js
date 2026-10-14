@@ -1,12 +1,13 @@
 // The episode as the viewer reads it at a minute t: what had flown, what the planner had decided and planned by then,
-// what it knew (caps, news), and the running counters. Pure functions over the prepared episode, no DOM.
+// what it knew (caps, news, the FAA's programs), the departures board and the running score. Pure functions over the
+// prepared episode, no DOM.
 
 export const LATE = 15;
 export const STATUS = {
-  ontime: { label: "on time", rgb: [95, 191, 127] },
-  delayed: { label: "delayed", rgb: [232, 176, 74] },
-  held: { label: "held", rgb: [157, 140, 240] },
-  cancelled: { label: "cancelled", rgb: [229, 96, 90] },
+  ontime: { label: "on time", rgb: [90, 208, 143] },
+  delayed: { label: "delayed", rgb: [243, 177, 63] },
+  held: { label: "held", rgb: [90, 168, 255] },
+  cancelled: { label: "cancelled", rgb: [255, 106, 92] },
   auto: { label: "auto-cancelled", rgb: [236, 121, 185] },
   scheduled: { label: "scheduled", rgb: [125, 138, 153] },
   morning: { label: "flown before the first watch", rgb: [88, 96, 108] },
@@ -37,11 +38,6 @@ function offsetMinutes(tz, utcMs) {
 export function zoneName(task, m) {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: task.tz, timeZoneName: "short" }).formatToParts(new Date(utcAt(task, m)));
   return parts.find((p) => p.type === "timeZoneName")?.value ?? "";
-}
-
-export function dayLabel(task, m = 0) {
-  return new Intl.DateTimeFormat("en-GB", { timeZone: task.tz, weekday: "short", day: "numeric", month: "short", year: "numeric" })
-    .format(new Date(utcAt(task, m)));
 }
 
 export const fmt = (n) => (n == null ? "–" : Math.round(n).toLocaleString("en-US"));
@@ -192,48 +188,7 @@ export function capsAt(P, t) {
   return w >= 0 && P.watches[w].caps_known ? P.watches[w].caps_known : P.ep.nominal ?? {};
 }
 
-export function hubState(P, t) {
-  const caps = capsAt(P, t), hub = P.task.hub, h = String(Math.floor(t / 60));
-  const nominal = P.ep.nominal ?? {};
-  const one = (kind) => {
-    const cap = caps[`${hub}:${kind}`]?.[h], nom = nominal[`${hub}:${kind}`]?.[h];
-    return { cap: cap ?? null, nominal: nom ?? null, stop: cap === 0, tight: cap != null && nom != null && cap < nom };
-  };
-  return { arr: one("arr"), dep: one("dep") };
-}
-
-/** Running counters at t, from the outcome up to t: delay accrues as the clock passes each scheduled arrival. */
-export function countersAt(P, t, flights) {
-  let cancelled = 0, auto = 0, paxDelay = 0, disrupted = 0, cancelPax = 0;
-  for (const e of P.ep.executed) {
-    const s = P.sched.get(e.id);
-    if (e.status !== "flown") {
-      if (e.decided != null && e.decided <= t) {
-        e.status === "cancelled" ? cancelled++ : auto++;
-        disrupted += s.pax;
-        cancelPax += s.pax;
-      }
-      continue;
-    }
-    const late = Math.max(0, Math.min(t, e.arr) - s.sched_arr);
-    paxDelay += s.pax * late;
-    if (late >= LATE) disrupted += s.pax;
-  }
-  const held = flights.filter((f) => f.r.held && f.r.dep > t && f.phase !== "cancelled").length;
-  return { cancelled, auto, paxDelay, disrupted, held, costSoFar: paxDelay + 523 * cancelPax };
-}
-
-export function newsAt(P, t) {
-  return P.news.filter((n) => n.at <= t);
-}
-
-export function stepAt(P, t) {
-  let k = -1;
-  for (const s of P.steps) if (s.t <= t && (s.tool !== "advance" || k < 0 || P.steps[k].t !== s.t)) k = s.k;
-  return k;
-}
-
-/** Where each tail is at t: at a station between legs, or in the air along a leg. */
+/** The aircraft in the air at t along their legs: position, heading and the path flown so far. */
 export function positionsAt(P, flights, t) {
   const air = flights.filter((f) => f.phase === "air" && f.s._path);
   return air.map((f) => {
@@ -243,21 +198,107 @@ export function positionsAt(P, flights, t) {
   });
 }
 
-/** Ground visits at the hub from the outcome and the morning's legs: [{tail, from, to, next}] by arrival. */
-export function hubVisits(P) {
-  const hub = P.task.hub, legs = new Map(), fam = new Map(P.tailRows.map((r) => [r.tail, r.family]));
-  const add = (tail, leg) => tail && (legs.get(tail) ?? legs.set(tail, []).get(tail)).push(leg);
-  for (const f of P.frozen) add(f.tail, { orig: f.orig, dest: f.dest, dep: f.dep, arr: f.arr, id: null });
-  for (const e of P.ep.executed) if (e.status === "flown") add(e.tail, { ...P.sched.get(e.id), dep: e.dep, arr: e.arr, id: e.id });
-  const visits = [];
-  for (const t of P.task.tails) if (t.pos === hub && !(legs.get(t.tail) ?? []).some((l) => l.dep < P.task.start)) add(t.tail, { orig: "", dest: hub, dep: -Infinity, arr: -Infinity, id: null, start: true });
-  for (const [tail, ls] of legs) {
-    ls.sort((a, b) => a.dep - b.dep);
-    for (let i = 0; i < ls.length; i++) {
-      if (ls[i].dest !== hub) continue;
-      const next = ls.slice(i + 1).find((l) => l.orig === hub);
-      visits.push({ tail, from: ls[i].arr, to: next ? next.dep : Infinity, next: next?.id ?? null, family: fam.get(tail) });
+export const HUB_NAMES = { BOS: "Boston Logan", JFK: "New York JFK" };
+const SUFFIX = / (International|Intl|Regional|Municipal|Metropolitan|County)?\s*(Airport|Field|Jetport|Airfield)$| International$/;
+const CITY = Object.fromEntries(("ABQ Albuquerque|ACK Nantucket|ATL Atlanta|AUS Austin|BDL Hartford|BOS Boston|BQN Aguadilla|BTV Burlington|"
+  + "BUF Buffalo|BUR Burbank|BWI Baltimore|BZN Bozeman|CHS Charleston|CLE Cleveland|CLT Charlotte|DCA Washington|DFW Dallas/Fort Worth|"
+  + "DTW Detroit|EWR Newark|FLL Fort Lauderdale|HDN Steamboat Springs|HPN White Plains|HYA Hyannis|IAH Houston|JFK New York|LAS Las Vegas|"
+  + "LGA New York|MHT Manchester|MKE Milwaukee|MSP Minneapolis|MSY New Orleans|MVY Martha's Vineyard|ONT Ontario|ORD Chicago|PBI West Palm Beach|"
+  + "PHX Phoenix|PSE Ponce|PVD Providence|PWM Portland|RDU Raleigh/Durham|RNO Reno|ROC Rochester|RSW Fort Myers|SAV Savannah|SEA Seattle|"
+  + "SJC San Jose|SJU San Juan|SRQ Sarasota/Bradenton|STT Charlotte Amalie|SYR Syracuse|TVC Traverse City").split("|").map((x) => [x.slice(0, 3), x.slice(4)]));
+
+/** City names by airport code: the traffic sidecar's, else a short name for the task's airport. */
+export function cities(task, traffic) {
+  const out = new Map(Object.entries(task.airports).map(([code, a]) => [code, CITY[code] ?? (a.name ?? code).replace(SUFFIX, "").replace(SUFFIX, "")]));
+  for (const ac of traffic?.aircraft ?? []) for (const v of ac.visits) for (const l of [v.arr, v.dep]) if (l?.city) out.set(l.other, l.city);
+  return out;
+}
+
+/** The env's reward for a cost (DESIGN.md): 0.2 + 0.8·exp(−g/0.5) against the hindsight anchor and the floor. */
+export function rewardOf(ref, cost) {
+  if (cost == null || ref.anchor == null || ref.floor == null) return null;
+  const g = Math.max(0, cost - ref.anchor) / (ref.anchor - ref.floor + 0.02 * ref.anchor);
+  return 0.2 + 0.8 * Math.exp(-g / 0.5);
+}
+
+const hubAdvisories = (P) => P.news.filter((n) => n.kind === "advisory" && n.data?.element === P.task.hub);
+
+/** The hub's ground stops (each cut short by its cancellation) and ground delay programs over the day, from the
+ * FAA's advisories as they were issued, as [{kind: "gs" | "gdp", from, to}]. */
+export function programBands(P) {
+  const advs = hubAdvisories(P), out = [];
+  const ends = (kinds) => advs.filter((n) => kinds.includes(n.data.kind)).map((n) => (n.data.event_time ?? n.data.cnx_period ?? [n.at])[0]);
+  for (const [kind, key, cnx] of [["gs", "gs_period", ["gs_cnx"]], ["gdp", "program_period", ["gdp_cnx"]]]) {
+    const stop = ends(cnx), merged = [];
+    for (const [a, b] of advs.filter((n) => n.data.kind === kind && n.data[key]).map((n) => [...n.data[key]]).sort((x, y) => x[0] - y[0])) {
+      if (merged.length && a <= merged.at(-1)[1]) merged.at(-1)[1] = Math.max(merged.at(-1)[1], b);
+      else merged.push([a, b]);
     }
+    for (const [a, b] of merged) out.push({ kind, from: a, to: Math.min(b, ...stop.filter((e) => a < e && e < b)) });
   }
-  return visits.sort((a, b) => a.from - b.from);
+  return out;
+}
+
+/** The FAA programs at the hub in force at t as the desk knew them: the latest ground stop and delay program issued
+ * by then that covers t and that no later cancellation ended. */
+export function programsAt(P, t) {
+  const known = hubAdvisories(P).filter((n) => n.at <= t);
+  const live = (kind, key, cnx) => {
+    const n = known.findLast((x) => x.data.kind === kind && x.data[key]);
+    if (!n || known.some((x) => x.data.kind === cnx && x.at >= n.at)) return null;
+    const [a, b] = n.data[key];
+    return a <= t + 1 && t < b ? n : null;
+  };
+  return { gs: live("gs", "gs_period", "gs_cnx"), gdp: live("gdp", "program_period", "gdp_cnx") };
+}
+
+/** The departures and arrivals board at t: the task's flights at the hub as the plan stood, or as they flew, by
+ * scheduled time, from half an hour back; each with its status, the new time and its tone. */
+export function boardAt(P, t, flights = flightsAt(P, t), { stands = new Map(), rows = 7 } = {}) {
+  const hub = P.task.hub, w = watchAt(P, t), changed = new Set(w >= 0 && t - P.watches[w].t < 60 ? (P.watches[w].changes ?? []).map((c) => c.id) : []);
+  const board = { dep: [], arr: [] };
+  for (const f of flights) {
+    const kind = f.s.orig === hub ? "dep" : f.s.dest === hub ? "arr" : null;
+    if (!kind) continue;
+    const ex = P.exec.get(f.s.id), sched = kind === "dep" ? f.s.sched_dep : f.s.sched_arr;
+    const done = ex?.status === "flown" && (kind === "dep" ? ex.dep : ex.arr) <= t;
+    const at = done ? (kind === "dep" ? ex.dep : ex.arr) : kind === "dep" ? f.r.dep : f.r.arr;
+    const cancelled = (ex && ex.status !== "flown" && ex.decided != null && ex.decided <= t) || (f.phase === "cancelled" && f.r.status === "cancelled");
+    let status, tone, time = null;
+    if (cancelled) [status, tone] = ["Cancelled", "cancel"];
+    else if (done) [status, tone, time] = [kind === "dep" ? "Departed" : "Landed", at - sched >= LATE ? "delay" : "ok", at];
+    else if (kind === "dep" && f.r.not_before > t && (f.r.held || f.r.status !== "flown")) [status, tone, time] = [`Held until ${hhmm(f.r.not_before).slice(0, 5)}`, "hold", at];
+    else if (f.r.status !== "flown") [status, tone] = ["May be cancelled", "delay"];
+    else if (at - sched >= LATE) [status, tone, time] = [`Delayed ${late(at - sched)}`, "delay", at];
+    else [status, tone] = ["On time", "ok"];
+    if ((done && t - at > 12) || (cancelled && sched < t - 30)) continue;
+    board[kind].push({ id: f.s.id, flight: f.s.flight, other: kind === "dep" ? f.s.dest : f.s.orig, sched, time, status, tone,
+      stand: stands.get(`${kind}|${f.s.flight}`) ?? null, pax: f.s.pax, changed: changed.has(f.s.id) });
+  }
+  for (const k of ["dep", "arr"]) board[k] = board[k].sort((a, b) => a.sched - b.sched || a.flight.localeCompare(b.flight)).slice(0, rows);
+  return board;
+}
+
+const late = (m) => {
+  if (m < 60) return `${Math.round(m)} min`;
+  const q = Math.round(m / 15), h = Math.floor(q / 4);
+  return `${h || ""}${["", "¼", "½", "¾"][q % 4]} h`;
+};
+
+/** The score at t: passengers already 15 minutes late or more, flights and passengers cancelled, and the cost so far
+ * (delay accrues as the clock passes each scheduled arrival; a cancelled passenger counts 523 once decided). */
+export function scoreAt(P, t) {
+  let delayedPax = 0, cancelled = 0, cancelPax = 0, paxDelay = 0;
+  for (const e of P.ep.executed) {
+    const s = P.sched.get(e.id);
+    if (e.status !== "flown") {
+      if (e.decided != null && e.decided <= t) (cancelled++, (cancelPax += s.pax));
+      continue;
+    }
+    const lateBy = Math.max(0, Math.min(t, e.arr) - s.sched_arr);
+    paxDelay += s.pax * lateBy;
+    if (lateBy >= LATE) delayedPax += s.pax;
+  }
+  const done = t >= (P.hi ?? P.end);
+  return { delayedPax, cancelled, cancelPax, paxDelay, cost: done ? P.ep.cost.total : paxDelay + 523 * cancelPax, done };
 }

@@ -1,9 +1,10 @@
-AirOpsEnv for AgentEnv
+AirOpsEnv v1
 Copyright 2026 Scale AI. Code licensed under Apache-2.0 (LICENSE).
 
 Data sources (see data/*/SOURCE.md for each file):
 - U.S. DOT Bureau of Transportation Statistics: Reporting Carrier On-Time Performance, Form 41 Schedule B-43,
-  T-100 Domestic Segment, DB1B. U.S. Government works, public domain.
+  T-100 Domestic Segment, DB1B. U.S. Government works, public domain. The viewer's traffic at the hubs comes from the
+  on-time data.
 - FAA Air Traffic Control System Command Center advisories (fly.faa.gov). U.S. Government works, public domain.
 - FAA Aircraft Registry releasable database. U.S. Government work, public domain.
 - Iowa Environmental Mesonet (Iowa State University): archived METAR, TAF, NEXRAD composites. Public domain;
@@ -11,9 +12,12 @@ Data sources (see data/*/SOURCE.md for each file):
 - airportsdata (MIT licence): airport coordinates and time zones.
 - OpenStreetMap contributors (ODbL 1.0), via Overpass: the airport twin and the 3D airport stage (runways, taxiways,
   aprons, stands, terminals, buildings), hosted with the dataset and attributed in the viewer.
-- USGS The National Map, USGSImageryOnly orthoimagery: the aerial photo under the 3D stage. U.S. Government work,
-  public domain.
+- USGS The National Map, USGSImageryOnly orthoimagery: the aerial photo under the 3D stage, and the coarser imagery
+  and USGSHydroCached hydrography tiles the viewer loads around it at run time. U.S. Government works, public domain.
+- The viewer's US map, loaded at run time: Natural Earth shaded relief (public domain) and OpenMapTiles vector tiles
+  (© OpenMapTiles, © OpenStreetMap contributors, ODbL 1.0), served by OpenFreeMap.
 
 Third-party code:
 - PortSimEnv v1 (FineEnvs), Apache-2.0: Three.js scene code (sky, sun, image-based light, haze, water, materials and
   instancing helpers) adapted in web/stage/*.js; each adapted file names its source on its first line.
+- Three.js (MIT) and MapLibre GL JS (BSD-3-Clause), loaded by the viewer from jsDelivr, not bundled.

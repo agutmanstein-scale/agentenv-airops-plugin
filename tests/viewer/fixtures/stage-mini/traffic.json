@@ -1,0 +1,428 @@
+{
+ "hub": "MINI",
+ "date": "2025-02-16",
+ "tz": "America/New_York",
+ "span": [
+  600,
+  1500
+ ],
+ "weather": [
+  {
+   "t": 594,
+   "metar": "KMIN 161554Z 25012KT 6SM -RA BKN008 OVC015 03/02 A2990 RMK AO2",
+   "wind_dir": 250,
+   "wind_kt": 12,
+   "gust_kt": null,
+   "vis_sm": 6.0,
+   "wx": [
+    "-RA"
+   ],
+   "clouds": [
+    [
+     "BKN",
+     800
+    ],
+    [
+     "OVC",
+     1500
+    ]
+   ],
+   "ceiling_ft": 800,
+   "temp_c": 3,
+   "dew_c": 2,
+   "plain": "-RA"
+  },
+  {
+   "t": 774,
+   "metar": "KMIN 161854Z 26010KT 3SM -SN BR OVC006 00/M01 A2992 RMK AO2",
+   "wind_dir": 260,
+   "wind_kt": 10,
+   "gust_kt": null,
+   "vis_sm": 3.0,
+   "wx": [
+    "-SN",
+    "BR"
+   ],
+   "clouds": [
+    [
+     "OVC",
+     600
+    ]
+   ],
+   "ceiling_ft": 600,
+   "temp_c": 0,
+   "dew_c": -1,
+   "plain": "-SN · BR"
+  },
+  {
+   "t": 954,
+   "metar": "KMIN 162154Z 08008KT 10SM VCTS SCT040CB BKN090 22/18 A2988 RMK AO2 OCNL LTGIC DSNT W CB DSNT W",
+   "wind_dir": 80,
+   "wind_kt": 8,
+   "gust_kt": null,
+   "vis_sm": 10.0,
+   "wx": [
+    "VCTS"
+   ],
+   "clouds": [
+    [
+     "SCT",
+     4000
+    ],
+    [
+     "BKN",
+     9000
+    ]
+   ],
+   "ceiling_ft": 9000,
+   "temp_c": 22,
+   "dew_c": 21,
+   "plain": "VCTS"
+  }
+ ],
+ "runways": [
+  {
+   "t": 600,
+   "departures": "27",
+   "arrivals": "27"
+  },
+  {
+   "t": 900,
+   "departures": "9",
+   "arrivals": "9"
+  }
+ ],
+ "aircraft": [
+  {
+   "key": "N1A",
+   "tail": "N1A",
+   "carrier": "B6",
+   "jetblue": true,
+   "task": true,
+   "class": "a320",
+   "type": null,
+   "length": 37.6,
+   "span": 35.8,
+   "visits": [
+    {
+     "stand": "S1",
+     "from": null,
+     "to": 640,
+     "arr": null,
+     "dep": {
+      "flight": "B6 1",
+      "kind": "dep",
+      "other": "MIA",
+      "city": "Mia",
+      "status": "flown",
+      "sched": 630,
+      "out": 640,
+      "off": 655,
+      "on": null,
+      "in": null,
+      "tag": "B6 1 → Miami · delayed 10 min",
+      "tone": "delay"
+     }
+    },
+    {
+     "stand": "S1",
+     "from": 722,
+     "to": 780,
+     "arr": {
+      "flight": "B6 2",
+      "kind": "arr",
+      "other": "MIA",
+      "city": "Mia",
+      "status": "flown",
+      "sched": 700,
+      "out": null,
+      "off": null,
+      "on": 712,
+      "in": 722,
+      "tag": "B6 2 from Miami · delayed 22 min",
+      "tone": "delay"
+     },
+     "dep": {
+      "flight": "B6 3",
+      "kind": "dep",
+      "other": "BUF",
+      "city": "Buf",
+      "status": "cancelled",
+      "sched": 780,
+      "out": null,
+      "off": null,
+      "on": null,
+      "in": null,
+      "tag": "B6 3 → Buffalo · cancelled",
+      "tone": "cancel"
+     }
+    },
+    {
+     "stand": "S1",
+     "from": 780,
+     "to": null,
+     "arr": null,
+     "dep": null
+    }
+   ]
+  },
+  {
+   "key": "N2B",
+   "tail": "N2B",
+   "carrier": "B6",
+   "jetblue": true,
+   "task": true,
+   "class": "e190",
+   "type": null,
+   "length": 36.2,
+   "span": 28.7,
+   "visits": [
+    {
+     "stand": "S2",
+     "from": 658,
+     "to": 700,
+     "arr": {
+      "flight": "B6 4",
+      "kind": "arr",
+      "other": "JFK",
+      "city": "Jfk",
+      "status": "flown",
+      "sched": 650,
+      "out": null,
+      "off": null,
+      "on": 650,
+      "in": 658,
+      "tag": "B6 4 from New York · on time",
+      "tone": "ok"
+     },
+     "dep": {
+      "flight": "B6 5",
+      "kind": "dep",
+      "other": "JFK",
+      "city": "Jfk",
+      "status": "flown",
+      "sched": 690,
+      "out": 700,
+      "off": 714,
+      "on": null,
+      "in": null,
+      "tag": "B6 5 → New York · held until 11:40",
+      "tone": "hold"
+     }
+    },
+    {
+     "stand": "S3",
+     "from": 1390,
+     "to": 1460,
+     "arr": {
+      "flight": "B6 6",
+      "kind": "arr",
+      "other": "JFK",
+      "city": "Jfk",
+      "status": "flown",
+      "sched": 1380,
+      "out": null,
+      "off": null,
+      "on": 1381,
+      "in": 1390,
+      "tag": "B6 6 from New York · on time",
+      "tone": "ok"
+     },
+     "dep": {
+      "flight": "B6 7",
+      "kind": "dep",
+      "other": "JFK",
+      "city": "Jfk",
+      "status": "flown",
+      "sched": 1450,
+      "out": 1460,
+      "off": 1474,
+      "on": null,
+      "in": null,
+      "tag": "B6 7 → New York · delayed 10 min",
+      "tone": "delay"
+     }
+    }
+   ]
+  },
+  {
+   "key": "N3C",
+   "tail": "N3C",
+   "carrier": "AA",
+   "jetblue": false,
+   "task": false,
+   "class": "narrowbody",
+   "type": null,
+   "length": 39.5,
+   "span": 35.8,
+   "visits": [
+    {
+     "stand": "S3",
+     "from": null,
+     "to": 620,
+     "arr": null,
+     "dep": {
+      "flight": "AA 8",
+      "kind": "dep",
+      "other": "ORD",
+      "city": "Ord",
+      "status": "flown",
+      "sched": 615,
+      "out": 620,
+      "off": 636,
+      "on": null,
+      "in": null,
+      "tag": null,
+      "tone": null
+     }
+    },
+    {
+     "stand": "S4",
+     "from": 900,
+     "to": 960,
+     "arr": null,
+     "dep": null
+    }
+   ]
+  },
+  {
+   "key": "N4D",
+   "tail": "N4D",
+   "carrier": "DL",
+   "jetblue": false,
+   "task": false,
+   "class": "widebody",
+   "type": null,
+   "length": 62.8,
+   "span": 60.1,
+   "visits": [
+    {
+     "stand": "S4",
+     "from": 1012,
+     "to": null,
+     "arr": {
+      "flight": "DL 9",
+      "kind": "arr",
+      "other": "LHR",
+      "city": "Lhr",
+      "status": "flown",
+      "sched": 1000,
+      "out": null,
+      "off": null,
+      "on": 1001,
+      "in": 1012,
+      "tag": null,
+      "tone": null
+     },
+     "dep": null
+    }
+   ]
+  },
+  {
+   "key": "N5E",
+   "tail": "N5E",
+   "carrier": "B6",
+   "jetblue": true,
+   "task": false,
+   "class": "a321",
+   "type": null,
+   "length": 44.5,
+   "span": 35.8,
+   "visits": [
+    {
+     "stand": "S2",
+     "from": 760,
+     "to": 830,
+     "arr": {
+      "flight": "B6 10",
+      "kind": "arr",
+      "other": "FLL",
+      "city": "Fll",
+      "status": "flown",
+      "sched": 750,
+      "out": null,
+      "off": null,
+      "on": 750,
+      "in": 760,
+      "tag": null,
+      "tone": null
+     },
+     "dep": {
+      "flight": "B6 11",
+      "kind": "dep",
+      "other": "FLL",
+      "city": "Fll",
+      "status": "flown",
+      "sched": 830,
+      "out": 830,
+      "off": 845,
+      "on": null,
+      "in": null,
+      "tag": null,
+      "tone": null
+     }
+    }
+   ]
+  },
+  {
+   "key": "N6F",
+   "tail": "N6F",
+   "carrier": "9E",
+   "jetblue": false,
+   "task": false,
+   "class": "regional_t",
+   "type": null,
+   "length": 36.2,
+   "span": 24.9,
+   "visits": [
+    {
+     "stand": "S3",
+     "from": 906,
+     "to": 960,
+     "arr": {
+      "flight": "9E 12",
+      "kind": "arr",
+      "other": "DCA",
+      "city": "Dca",
+      "status": "flown",
+      "sched": 900,
+      "out": null,
+      "off": null,
+      "on": 898,
+      "in": 906,
+      "tag": null,
+      "tone": null
+     },
+     "dep": {
+      "flight": "9E 13",
+      "kind": "dep",
+      "other": "DCA",
+      "city": "Dca",
+      "status": "flown",
+      "sched": 960,
+      "out": 960,
+      "off": 975,
+      "on": null,
+      "in": null,
+      "tag": null,
+      "tone": null
+     }
+    }
+   ]
+  }
+ ],
+ "featured": [
+  {
+   "key": "N1A",
+   "flight": "B6 1",
+   "reason": "delayed",
+   "t": 640
+  },
+  {
+   "key": "N2B",
+   "flight": "B6 5",
+   "reason": "held",
+   "t": 700
+  }
+ ]
+}

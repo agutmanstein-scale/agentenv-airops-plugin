@@ -167,6 +167,18 @@
         }
       ]
     },
+    "stage": {
+      "description": "The hub's 3D airport (url) and the episode's traffic sidecar (traffic), both gzipped JSON relative to the episode file.",
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["hub", "url", "traffic"],
+          "properties": {"hub": {"type": "string", "pattern": "^[A-Z]{3}$"}, "url": {"type": "string"},
+                         "traffic": {"type": "string"}}
+        }
+      ]
+    },
     "sources": {"type": "object"}
   },
   "$defs": {
