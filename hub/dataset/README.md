@@ -62,7 +62,7 @@ The final plan is flown on the day as it happened. Its cost, in passenger-minute
 delay, plus 523 per passenger on a cancelled flight (NEXTOR's average re-accommodation delay plus refund exposure at
 the FAA's value of time), plus the end-of-day ferries. The reward is 0.2 + 0.8 exp(−g/0.5), with g the cost over the
 hindsight optimum in units of that optimum's avoidable cost (hindsight − floor + 2% of hindsight): 1.0 at the
-hindsight optimum, 0.2 for any day, since the env never strands a flight. The references, each run on the truth:
+hindsight optimum and never below 0.2, since the env never strands a flight. The references, each run on the truth:
 
 - **hindsight** (the anchor): the time-line MIP (HiGHS, 1-minute arcs) on the day as it happened, proven to 0.01%;
 - **floor**: the same without aircraft routing, a lower bound;
@@ -118,7 +118,7 @@ agent-env run airops --task wiring-noplay
 Then play a day straight from this dataset with a model on your LiteLLM endpoint (or the Hugging Face router):
 
 ```bash
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.1.0 --task b6-jfk-20240109-1800 \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.1.0 --task b6-bos-20250216-1500 \
     --model anthropic/claude-sonnet-5-5
 ```
 

@@ -1,4 +1,4 @@
-"""The grade: 0.2 for any day (the env never strands a flight), up to 1 at the anchor."""
+"""The grade: never below 0.2 (the env never strands a flight), 1 at the anchor."""
 
 import math
 
