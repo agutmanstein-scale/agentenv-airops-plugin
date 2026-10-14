@@ -1,0 +1,704 @@
+[
+  {
+    "id": "deploy",
+    "type": "deploy_env",
+    "env_id": "airops-day"
+  },
+  {
+    "id": "load-task",
+    "type": "apply_server_config",
+    "env_id": "airops-day",
+    "directives": [
+      {
+        "service": "airops-day",
+        "uri": "urn:airops:live-load/v1",
+        "args": {
+          "task_id": "b6-jfk-20240804-0700"
+        }
+      }
+    ]
+  },
+  {
+    "id": "hide-notice",
+    "type": "modify_env_tool_access",
+    "env_id": "airops-day",
+    "action": "disable",
+    "role": "default",
+    "tools": [
+      "airops_notice"
+    ]
+  },
+  {
+    "id": "watches",
+    "type": "register_env_triggers",
+    "env_id": "airops-day",
+    "watch_roles": [
+      "default"
+    ],
+    "triggers": [
+      {
+        "id": "watch-1",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 1
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408041051"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "afd-okx-202408041052"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-2",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 2
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "taf-jfk-202408041124"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "afd-okx-202408041130"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408041151"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-3",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 3
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408041251"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-4",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 4
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408041351"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-5",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 5
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "taf-jfk-202408041435"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "afd-okx-202408041447"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408041451"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-6",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 6
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408041551"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-7",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 7
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408041651"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-8",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 8
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "taf-jfk-202408041738"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408041751"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "afd-okx-202408041754"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-9",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 9
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20240804-153"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408041851"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-10",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 10
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20240804-170"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "taf-jfk-202408041940"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408041951"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "afd-okx-202408041957"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-11",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 11
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20240804-184"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408042051"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-12",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 12
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "taf-jfk-202408042111"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408042151"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-13",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 13
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20240804-200"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "taf-jfk-202408042209"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20240804-209"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408042251"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-14",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 14
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "taf-jfk-202408042320"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "afd-okx-202408042333"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408042351"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-15",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 15
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408050051"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-16",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 16
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408050151"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-17",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 17
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "afd-okx-202408050235"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408050251"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "taf-jfk-202408050257"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-18",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 18
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408050351"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-19",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 19
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-jfk-202408050451"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "deploy-agent",
+    "type": "deploy_agent",
+    "a2a_agent_id": "airops-llm",
+    "env_ids": [
+      "airops-day"
+    ]
+  },
+  {
+    "id": "clock",
+    "type": "sync_env_clock",
+    "env_id": "airops-day",
+    "virtual_time": "2024-08-04T10:00:00Z",
+    "virtual_seconds_per_real_second": 0,
+    "tolerate_missing_sync_time": false
+  },
+  {
+    "id": "play",
+    "type": "prompt_agent",
+    "prompt_id": "b6-jfk-20240804-0700",
+    "system_prompt": "You run the JetBlue operations desk at one of its hubs on a disrupted day: thunderstorms, snow or wind, and the FAA ground stops and ground delay programs that follow, cut how many JetBlue flights can land and take off each hour. Your job is to decide which flights to cancel and which to hold, watch by watch, so that passengers lose as little time as possible over the day.\n\nHow the day runs:\n- The day is played in watches, one an hour, starting at watch 0, an hour before the disruption. The first message gives the day as the desk knows it at watch 0. Time only passes when you call advance.\n- What the desk knows: a flight's own departure delay (weather, air traffic control, crews: anything but waiting for its aircraft) becomes known 2 hours before its scheduled departure; until then it is assumed on time. How many JetBlue arrivals and departures an airport can take in an hour (its slot cap) becomes known 4 hours ahead; until then the table shows JetBlue's own schedule for that hour. FAA Command Center advisories, the hub's METARs and TAFs and the forecasters' discussion arrive as messages as they are issued.\n- The env flies your plan on the day as it happens: each flight leaves at the earliest time its delay, its hold and an aircraft allow. It takes the first aircraft of its type ready at its origin (aircraft of one type at one airport are interchangeable; an aircraft needs its turn time on the ground between flights), and leaves only when the hour has a free slot at its origin and the hour it lands has one at its destination; otherwise it waits for the next hour with room. A flight that can't leave within 6 hours of its schedule is cancelled automatically. At the end of the day the env ferries each aircraft to the airport it is needed at tomorrow.\n- Your decisions: cancel a flight (its aircraft stays on the ground, free for other flights), restore a cancelled flight, or hold a flight until a time (not_before) so that its slot or aircraft goes to another flight first. A flight you don't touch leaves as early as it can.\n- The freeze: at watch 0 nothing is frozen. From watch 1 on, flights your plan has leaving before the freeze line, an hour after the watch, are frozen: they can't be changed, and stay frozen. Changes reach no further back than the freeze line: the env holds any other flight your plan would have leaving before it to the freeze line.\n- You have 3 planning calls (check_plan or confirm_changes) per watch. Call advance and get_situation together in one turn: the new watch's news arrives with the first tool result after advance.\n\nTools:\n- get_situation(): the time, the freeze line, the slot caps as known for the next 8 hours, the FAA programs in effect, the latest METAR and TAF, every flight (its status, its expected departure once its delay is known, your plan, where your plan has it leave and land on the day as known, how late it lands and the aircraft it takes), where the aircraft are, and new messages.\n- check_plan(changes): your changes over your plan, run on the day as known now: the plan's cost, the flights whose plan or times change, the automatic cancellations, the flights the env would hold to the freeze line, and the changes confirm_changes would refuse. It confirms nothing.\n- confirm_changes(changes): commits the changes; flights you leave out keep their plan.\n- advance(): ends the watch. After the last watch it returns \"done\": the rest of the day runs on your plan.\nA change is {\"flight\": \"f12\", \"action\": \"cancel\" | \"restore\" | \"hold\", \"not_before\": \"HH:MM\" | null}: cancel takes not_before null; restore and hold fly the flight, held until not_before (local time, \"00:30+1\" after midnight), or as early as it can with null.\n\nThe cost, in passenger-minutes: every passenger's minutes of arrival delay, 523 minutes for each passenger on a cancelled flight (rebooking takes most of a day, and some ask for a refund), and the end-of-day ferries (a few thousand each). A cancellation frees an aircraft and a slot; it pays when it saves the other passengers more delay than it costs its own. The day is graded once, on your final plan flown on the day as it really happened: the closer its cost to the best plan possible in hindsight, the higher the score. If you stop before the last watch, the rest of the day runs on your plan.",
+    "prompt": "# JetBlue operations desk, JFK (John F Kennedy International Airport), Sunday 2024-08-04; times are local (America/New_York).\n\nNow 06:00, watch 0. First watch: nothing is frozen; changes take effect at once. Planning calls left this watch: 3.\n\nYour plan on the day as known costs 2,976,961 passenger-minutes (arrival delay 1,515,024, cancellations 1,361,892, ferries 100,045): 0 cancelled, 25 cancelled automatically, 0 held.\n\n## Slot caps: JetBlue movements per hour, known through the 10:00 hour; later hours show JetBlue's own schedule (- = no limit)\nhour 06 07 08 09 10 11 12 13\nJFK arr 0 1 4 1 3 6 11 2\nJFK dep 4 4 6 4 7 3 5 5\nBOS arr 0 0 2 2 0 0 1 0\nBOS dep 3 0 0 1 4 1 0 1\nLGA arr 0 1 1 0 1 0 0 1\nLGA dep 0 1 0 2 0 0 0 1\n\n## Programs in effect (FAA Command Center)\nNone.\n\n## Weather\nLatest METAR (05:51): KJFK 040951Z 23007KT 10SM BKN009 BKN120 23/23 A2989 RMK AO2 SLP121 T02330228 $\nLatest TAF (04:32): TAF AMD\nKJFK 040832Z 0408/0512 22010KT P6SM SCT008 BKN050 BKN100\n      TEMPO 0409/0412 BKN008\n     FM041200 22009KT P6SM BKN020\n     FM041700 20012KT P6SM BKN050\n      TEMPO 0419/0423 3SM TSRA BKN030CB\n     FM050100 24005KT P6SM FEW120 SCT250=\n\n## Flights (sched = scheduled dep-arr; exp = earliest departure once its delay is known, ? before; plan = cancel or hold@HH:MM; proj = where your plan has it leave and land on the day as known; late = arrival delay; tail = the aircraft it takes)\nid flight route sched pax type status exp plan proj late tail\nf0 201 BUF-JFK 05:33-07:00 125 A220 open 09:54 - auto-cancel - -\nf1 601 JFK-FLL 05:45-08:40 181 A32X open 06:02 - 06:02-08:56 +16 N2043J\nf2 1285 ROC-JFK 05:45-07:08 109 A220 open 10:32 - 10:32-11:55 +287 N3123J\nf3 884 MCO-JFK 06:00-08:40 130 A220 open 06:05 - 06:05-08:47 +7 N3102J\nf4 1073 JFK-BNA 06:00-08:20 118 A220 open 06:03 - 06:03-08:21 +1 N3112J\nf5 1883 BOS-RDU 06:00-08:03 109 A220 open 06:42 - 06:42-08:45 +42 N3065J\nf6 1902 FLL-JFK 06:00-08:53 146 A32X open 06:00 - 06:00-08:53 +0 N552JB\nf7 519 JFK-ATL 06:03-08:24 123 A220 open 07:56 - 08:00-10:11 +107 N3139J\nf8 1529 JFK-RSW 06:30-09:34 127 A220 open 07:07 - 07:07-10:11 +37 N3157J\nf9 2285 JFK-RDU 06:30-08:10 117 A220 open 07:07 - 07:07-08:47 +37 N3194J\nf10 2293 JFK-MIA 06:30-09:35 183 A32X open 07:07 - 07:07-10:12 +37 N4064J\nf11 2725 JFK-TPA 06:30-09:20 129 A220 open 07:27 - 07:27-14:22 +302 N3062J\nf12 1187 BOS-JFK 06:37-07:52 103 A220 open 09:02 - 09:54-11:00 +188 N3152J\nf13 2204 SJU-JFK 07:00-11:02 182 A32X open 07:00 - 07:00-10:51 +0 N913JB\nf14 1184 MCO-JFK 07:05-09:49 185 A32X open 07:32 - 07:32-10:00 +11 N715JB\nf15 154 PBI-JFK 07:10-09:55 148 A32X open 07:10 - 07:10-09:42 +0 N793JB\nf16 677 JFK-JAX 07:15-09:46 127 A220 open 10:44 - 13:00-15:29 +343 N3123J\nf17 341 JFK-SAV 07:30-09:45 140 A32X open 07:32 - 08:00-10:18 +33 N959JB\nf18 411 JFK-LAS 07:30-13:03 136 A32X open 07:44 - 08:00-12:54 +0 N988JT\nf19 508 JFK-PWM 07:30-08:49 73 E190 open 08:07 - 13:00-14:19 +330 N281JB\nf20 2001 BUF-JFK 07:30-08:57 125 A220 open 07:53 - 08:33-10:00 +63 N3185J\nf21 2015 JFK-SFO 07:30-13:44 144 A32X open 07:30 - 08:00-13:34 +0 N606JB\nf22 75 JFK-MSY 08:00-11:13 120 A220 open 08:25 - 10:00-13:13 +120 N3102J\nf23 723 JFK-LAX 08:00-13:55 137 A32X open 08:06 - 08:06-13:25 +0 N977JE\nf24 1083 JFK-MCO 08:00-10:49 148 A32X open 08:25 - 09:00-11:49 +60 N986JB\nf25 1105 JFK-ORD 08:00-10:43 124 A220 open 08:25 - 11:00-13:43 +180 N3185J\nf26 2473 JFK-CHS 08:00-10:18 118 A220 open 08:25 - 12:00-14:18 +240 N3152J\nf27 2718 JFK-BOS 08:00-09:19 100 A220 open 08:30 - 13:00-14:06 +287 N3115J\nf28 404 SJU-JFK 08:05-12:00 182 A32X open ? - 12:40-16:35 +275 N980JT\nf29 503 JFK-SJU 08:14-12:15 133 A32X open ? - 08:14-11:50 +0 N980JT\nf30 1601 JFK-FLL 08:30-11:32 181 A32X open ? - 09:00-12:02 +30 N946JL\nf31 602 FLL-JFK 08:36-11:33 146 A32X open ? - 08:36-11:22 +0 N794JB\nf32 2786 RDU-JFK 08:55-10:35 119 A220 open ? - 09:31-11:11 +36 N3065J\nf33 323 JFK-LAX 09:00-14:55 137 A32X open ? - 09:00-14:29 +0 N996JL\nf34 1602 JFK-BUF 09:00-10:30 128 A220 open ? - 12:00-13:21 +171 N3065J\nf35 2091 JFK-ACK 09:00-10:20 73 E190 open ? - auto-cancel - -\nf36 1074 BNA-JFK 09:05-11:28 108 A220 open ? - 09:07-11:16 +0 N3112J\nf37 520 ATL-JFK 09:09-11:30 127 A220 open ? - 09:09-11:18 +0 N3115J\nf38 183 JFK-MCO 09:13-12:05 182 A32X open ? - 09:13-12:00 +0 N992JB\nf39 599 LGA-MCO 09:15-12:04 130 A220 open ? - 13:46-16:35 +271 N3139J\nf40 725 JFK-SAT 09:25-13:35 110 A220 open ? - 12:02-15:53 +138 N3112J\nf41 1054 PBI-JFK 09:32-12:19 128 A220 open ? - 09:32-12:10 +0 N3203J\nf42 1 JFK-FLL 09:38-12:38 146 A32X open ? - 10:00-13:01 +23 N993JE\nf43 115 JFK-SFO 09:40-16:00 144 A32X open ? - 10:00-17:03 +63 N592JB\nf44 407 PWM-JFK 09:45-11:00 71 E190 open ? - auto-cancel - -\nf45 1584 MCO-JFK 09:45-12:30 150 A32X open ? - 09:45-12:20 +0 N907JB\nf46 1002 FLL-JFK 09:50-12:47 181 A32X open ? - 09:50-12:36 +0 N2043J\nf47 1497 JFK-DEN 09:50-14:13 141 A32X open ? - 10:00-14:15 +2 N947JB\nf48 2123 JFK-LAX 10:00-15:55 137 A32X open ? - 10:00-15:29 +0 N597JB\nf49 2417 BOS-JFK 10:05-11:22 103 A220 open ? - auto-cancel - -\nf50 126 TPA-JFK 10:10-12:59 132 A220 open ? - 15:10-18:00 +301 N3062J\nf51 1613 JFK-LAS 10:20-15:53 136 A32X open ? - 10:20-15:26 +0 N635JB\nf52 83 JFK-MCO 10:30-13:15 148 A32X open ? - 10:30-13:25 +10 N552JB\nf53 2592 MIA-JFK 10:35-13:44 178 A32X open ? - 11:02-14:11 +27 N4064J\nf54 678 JAX-JFK 10:37-12:59 128 A220 open ? - 16:15-18:37 +338 N3123J\nf55 342 SAV-JFK 10:40-12:49 139 A32X open ? - 11:08-13:05 +16 N959JB\nf56 947 JFK-BZN 10:45-15:35 142 A32X open ? - 11:00-15:42 +7 N590JB\nf57 1401 JFK-FLL 10:59-13:56 146 A32X open ? - 11:00-13:57 +1 N793JB\nf58 523 JFK-LAX 11:00-16:54 119 A32X open ? - 12:00-17:54 +60 N715JB\nf59 2813 ATL-LGA 11:00-13:13 129 A220 open ? - 11:00-13:00 +0 N3139J\nf60 1274 CHS-JFK 11:03-12:59 111 A220 open ? - 11:03-12:56 +0 N3156J\nf61 92 ACK-JFK 11:05-12:13 71 E190 open ? - 11:05-12:16 +3 N281JB\nf62 1901 BUF-JFK 11:15-12:43 125 A220 open ? - 14:07-15:29 +166 N3065J\nf63 718 JFK-BOS 11:29-12:49 100 A220 open ? - auto-cancel - -\nf64 217 BOS-JFK 11:30-12:44 103 A220 open ? - auto-cancel - -\nf65 906 ORD-JFK 11:30-13:50 120 A220 open ? - 14:40-17:00 +190 N3185J\nf66 1076 MCO-PVD 11:34-14:25 154 A32X open ? - 12:39-15:18 +53 N986JB\nf67 1338 JFK-MVY 11:35-12:46 81 E190 open ? - auto-cancel - -\nf68 176 MSY-JFK 11:59-15:05 122 A220 open ? - 13:59-17:05 +120 N3102J\nf69 2503 JFK-SJU 12:02-16:03 168 A32X open ? - 12:02-15:32 +0 N623JB\nf70 285 JFK-RDU 12:15-14:03 117 A220 open ? - 13:00-14:48 +45 N3203J\nf71 2719 JFK-ATL 12:15-14:40 123 A220 open ? - 14:00-16:14 +94 N3156J\nf72 186 JFK-ROC 12:30-13:49 118 A220 open ? - 16:15-18:34 +285 N3065J\nf73 1802 FLL-JFK 12:40-15:44 181 A32X open ? - 12:52-16:12 +28 N946JL\nf74 295 JFK-AUS 12:55-16:55 145 A32X open ? - 13:00-16:51 +0 N913JB\nf75 1273 JFK-CHS 13:04-15:20 118 A220 open ? - 18:00-20:07 +287 N3185J\nf76 2516 JFK-HYA 13:05-14:14 75 E190 open ? - auto-cancel - -\nf77 2404 SJU-JFK 13:25-17:29 145 A32X open ? - 17:09-21:00 +211 N623JB\nf78 679 JFK-MKE 13:29-15:55 128 A220 open ? - 18:00-20:26 +271 N3102J\nf79 218 JFK-BOS 13:30-14:47 100 A220 open ? - 18:46-20:14 +327 N3062J\nf80 1339 MVY-JFK 13:34-14:40 75 E190 open ? - auto-cancel - -\nf81 184 MCO-JFK 13:45-16:30 185 A32X open ? - 13:45-16:30 +0 N992JB\nf82 207 BOS-BNA 13:53-16:43 122 A220 open ? - 15:00-17:50 +67 N3115J\nf83 53 JFK-PBI 13:59-16:59 129 A220 open ? - 19:00-22:05 +306 N3194J\nf84 2614 LGA-ATL 13:59-16:21 130 A220 open ? - auto-cancel - -\nf85 821 JFK-RSW 14:00-17:10 127 A220 open ? - 20:00-23:10 +360 N3123J\nf86 991 FLL-SJU 14:05-16:50 138 A32X open ? - 14:05-16:38 +0 N993JE\nf87 1178 LAS-BOS 14:13-19:33 143 A32X open ? - 14:13-19:33 +0 N988JT\nf88 2993 JFK-MIA 14:25-17:38 128 A220 open ? - 20:00-23:40 +362 N3152J\nf89 726 SAT-JFK 14:30-18:40 108 A220 open ? - 16:39-21:03 +143 N3112J\nf90 383 JFK-MCO 14:50-17:50 182 A32X open ? - 14:50-18:06 +16 N794JB\nf91 86 RDU-JFK 14:58-16:43 119 A220 open ? - 16:15-18:00 +77 N3194J\nf92 415 HYA-JFK 15:00-16:03 66 E190 open ? - auto-cancel - -\nf93 1498 DEN-JFK 15:03-18:59 140 A32X open ? - 15:05-18:52 +0 N947JB\nf94 1075 PVD-MCO 15:10-18:14 144 A32X open ? - 16:08-19:34 +80 N986JB\nf95 1116 SFO-JFK 15:20-21:05 148 A32X open ? - 15:20-20:52 +0 N606JB\nf96 1124 LAX-JFK 15:21-21:00 144 A32X open ? - 15:27-21:00 +0 N977JE\nf97 720 ATL-JFK 15:35-18:04 127 A220 open ? - auto-cancel - -\nf98 2291 JFK-ACK 15:45-17:09 73 E190 open ? - auto-cancel - -\nf99 1205 JFK-ORD 15:50-18:43 124 A220 open ? - 21:49-00:25+1 +342 N3112J\nf100 835 BOS-MSP 15:55-19:10 127 A220 open ? - auto-cancel - -\nf101 1225 MVY-BOS 16:05-16:54 71 E190 open ? - auto-cancel - -\nf102 485 ROC-JFK 16:15-17:40 109 A220 open ? - 20:30-22:00 +260 N3065J\nf103 2474 CHS-JFK 16:15-18:23 111 A220 open ? - 16:15-19:01 +38 N3152J\nf104 944 BZN-JFK 16:25-20:59 119 A32X open ? - 16:32-21:06 +7 N590JB\nf105 888 LAX-BOS 16:30-22:00 146 A32X open ? - 16:30-22:14 +14 N996JL\nf106 1538 JFK-MVY 16:40-17:59 81 E190 open ? - auto-cancel - -\nf107 680 MKE-JFK 17:00-19:21 123 A220 open ? - 21:12-23:33 +252 N3102J\nf108 148 LAS-JFK 17:03-22:17 140 A32X open ? - 17:03-22:26 +9 N635JB\nf109 424 LAX-JFK 17:10-22:54 144 A32X open ? - 17:10-22:37 +0 N597JB\nf110 1348 SJU-DCA 17:13-21:15 183 A32X open ? - 17:28-21:26 +11 N993JE\nf111 2513 ATL-LGA 17:30-19:50 129 A220 open ? - 17:30-19:34 +0 N3156J\nf112 276 SJU-BDL 17:35-21:42 152 A32X open ? - auto-cancel - -\nf113 206 BNA-BOS 17:48-20:30 130 A220 open ? - 19:18-22:00 +90 N3115J\nf114 694 AUS-JFK 17:55-21:52 128 A32X open ? - 17:55-21:39 +0 N913JB\nf115 734 SFO-BOS 18:00-23:41 146 A32X open ? - 18:00-23:28 +0 N592JB\nf116 247 BOS-SLC 18:05-23:34 126 A220 open ? - 00:00+1-05:31+1 +357 N3062J\nf117 1154 PBI-JFK 18:08-21:01 128 A220 open ? - 22:51-01:39+1 +278 N3194J\nf118 1524 LAX-JFK 18:10-23:47 125 A32X open ? - 18:44-00:21+1 +34 N715JB\nf119 2122 ACK-HPN 18:10-19:18 74 E190 open ? - 18:10-19:13 +0 N334JB\nf120 822 RSW-JFK 18:15-21:13 130 A220 open ? - 18:15-21:13 +0 N3157J\nf121 1118 JFK-BOS 18:30-20:02 100 A220 open ? - 22:46-00:07+1 +245 N3065J\nf122 2892 MIA-JFK 18:35-21:45 125 A220 open ? - 00:26+1-03:22+1 +337 N3152J\nf123 263 JFK-SEA 18:49-01:18+1 146 A32X open ? - 20:00-02:31+1 +73 N907JB\nf124 918 JFK-BOS 18:59-20:31 100 A220 open ? - 00:19+1-01:51+1 +320 N3102J\nf125 384 MCO-JFK 19:00-21:59 185 A32X open ? - 19:00-21:38 +0 N552JB\nf126 1494 MCO-HPN 19:00-22:00 144 A32X open ? - 19:00-21:41 +0 N794JB\nf127 1355 BOS-DCA 19:10-20:58 87 E190 open ? - auto-cancel - -\nf128 2 JFK-BUF 19:29-21:11 128 A220 open ? - 22:00-23:42 +151 N3157J\nf129 1206 ORD-JFK 19:38-22:03 120 A220 open ? - 01:11+1-03:46+1 +343 N3112J\nf130 836 MSP-BOS 20:05-22:51 123 A220 open ? - auto-cancel - -\nf131 65 JFK-ABQ 20:12-00:55+1 123 A220 open ? - auto-cancel - -\nf132 97 JFK-DEN 20:20-00:57+1 141 A32X open ? - 21:00-01:08+1 +11 N2043J\nf133 1387 BOS-LAX 20:43-02:59+1 141 A32X open ? - 20:43-02:59+1 +0 N662JB\nf134 1983 BOS-RDU 20:45-22:51 109 A220 open ? - 00:00+1-01:58+1 +187 N3115J\nf135 2514 LGA-ATL 20:45-23:15 130 A220 open ? - 20:45-22:59 +0 N3156J\nf136 2583 JFK-MCO 20:59-23:59 128 A220 open ? - 02:25+1-05:12+1 +313 N3194J\nf137 102 JFK-BUF 21:29-23:13 128 A220 open ? - auto-cancel - -\nf138 1186 JFK-ROC 21:59-23:34 118 A220 open ? - auto-cancel - -\nf139 1823 JFK-LAX 22:15-04:24+1 137 A32X open ? - 22:15-03:56+1 +0 N959JB\nf140 275 BDL-SJU 22:30-02:26+1 135 A32X open ? - auto-cancel - -\nf141 1318 JFK-BOS 22:59-00:18+1 100 A220 open ? - 04:08+1-05:27+1 +309 N3152J\nf142 2403 JFK-BQN 22:59-02:50+1 141 A32X open ? - 22:59-02:39+1 +0 N4064J\nf143 2903 JFK-SJU 22:59-02:57+1 168 A32X open ? - 00:00+1-03:58+1 +61 N946JL\nf144 248 SLC-BOS 00:29+1-05:01+1 123 A220 open ? - 06:17+1-10:44+1 +343 N3062J\nf145 66 ABQ-JFK 01:50+1-05:59+1 117 A220 open ? - auto-cancel - -\nf146 98 DEN-JFK 01:59+1-05:45+1 140 A32X open ? - 01:59+1-05:50+1 +5 N2043J\nf147 264 SEA-JFK 02:38+1-07:59+1 148 A32X open ? - 03:21+1-08:09+1 +10 N907JB\nf148 948 LAS-JFK 02:59+1-08:06+1 140 A32X open ? - auto-cancel - -\n\n## Aircraft now, as your plan has them (@ = ready at)\nJFK A220: N3062J N3112J N3139J N3157J N3194J\nJFK A32X: N2043J N4064J N590JB@09:57 N592JB@08:09 N597JB@09:34 N606JB N623JB@10:54 N635JB@09:38 N946JL N947JB@08:59 N959JB N977JE N980JT N986JB N988JT N992JB@06:46 N993JE@07:28 N996JL\nACK E190: N281JB N334JB\nATL A220: N3115J\nBOS A220: N3065J N3152J\nBOS A32X: N662JB\nBUF A220: N3185J\nCHS A220: N3156J\nFLL A32X: N794JB\nMCO A220: N3102J\nMCO A32X: N715JB N907JB\nPBI A220: N3203J\nPBI A32X: N793JB\nROC A220: N3123J\nSJU A32X: N913JB\nairborne: N552JB f6>JFK@08:53\n\n## News so far\n[19:06-1] FAA Command Center: ATCSCC ADVZY 191 JFK/ZNY 08/03/2024 CDM GROUND STOP\nCTL ELEMENT: JFK\nELEMENT TYPE: APT\nADL TIME: 2303Z\nGROUND STOP PERIOD: 03/2253Z - 04/0015Z\nCUMULATIVE PROGRAM PERIOD: 03/2000Z - 04/0459Z\nDEP FACILITIES INCLUDED: (1stTier) ZDC ZNY ZOB ZBW\nPREVIOUS TOTAL, MAXIMUM, AVERAGE DELAYS: 281 / 190 / 47\nNEW TOTAL, MAXIMUM, AVERAGE DELAYS: 517 / 213 / 86\nPROBABILITY OF EXTENSION: MEDIUM\nIMPACTING CONDITION: WEATHER / THUNDERSTORMS\nCOMMENTS: DIVERSION AIRCRAFT CAUSING SURFACE CONGESTION\n\n[19:59-1] FAA Command Center: ATCSCC ADVZY 222 JFK/ZNY 08/03/2024 CDM GROUND STOP\nCTL ELEMENT: JFK\nELEMENT TYPE: APT\nADL TIME: 2356Z\nGROUND STOP PERIOD: 03/2346Z - 04/0115Z\nCUMULATIVE PROGRAM PERIOD: 03/2000Z - 04/0459Z\nDEP FACILITIES INCLUDED: (Manual) ZTL ZDC ZNY ZOB ZBW ZID\nPREVIOUS TOTAL, MAXIMUM, AVERAGE DELAYS: 800 / 213 / 67\nNEW TOTAL, MAXIMUM, AVERAGE DELAYS: 1388 / 273 / 116\nPROBABILITY OF EXTENSION: MEDIUM\nIMPACTING CONDITION: WEATHER / THUNDERSTORMS\nCOMMENTS:\n\n[21:02-1] FAA Command Center: ATCSCC ADVZY 030 JFK/ZNY 08/04/2024 CDM GROUND STOP\nCTL ELEMENT: JFK\nELEMENT TYPE: APT\nADL TIME: 0059Z\nGROUND STOP PERIOD: 04/0049Z - 04/0200Z\nCUMULATIVE PROGRAM PERIOD: 03/2000Z - 04/0459Z\nDEP FACILITIES INCLUDED: (Manual) ZTL ZDC ZJX\nPREVIOUS TOTAL, MAXIMUM, AVERAGE DELAYS: 1603 / 310 / 229\nNEW TOTAL, MAXIMUM, AVERAGE DELAYS: 1857 / 347 / 265\nPROBABILITY OF EXTENSION: MEDIUM\nIMPACTING CONDITION: WEATHER / THUNDERSTORMS\nCOMMENTS: EXTENSION. SCOPE REDUCTION. LACK OF ROUTES\n\n[21:53-1] FAA Command Center: ATCSCC ADVZY 045 JFK/ZNY 08/04/2024 CDM GROUND STOP\nCTL ELEMENT: JFK\nELEMENT TYPE: APT\nADL TIME: 0152Z\nGROUND STOP PERIOD: 04/0049Z - 04/0300Z\nCUMULATIVE PROGRAM PERIOD: 03/2000Z - 04/0459Z\nDEP FACILITIES INCLUDED: (Manual) ZTL ZDC ZJX\nPREVIOUS TOTAL, MAXIMUM, AVERAGE DELAYS: 2104 / 386 / 263\nNEW TOTAL, MAXIMUM, AVERAGE DELAYS: 2516 / 445 / 314\nPROBABILITY OF EXTENSION: MEDIUM\nIMPACTING CONDITION: WEATHER / THUNDERSTORMS\nCOMMENTS:\n\n[22:11-1] FAA Command Center: ATCSCC ADVZY 051 JFK/ZNY 08/04/2024 JFK GROUND STOP CANCELLATION\nEVENT TIME: 04/0049 - 04/0210\nCONSTRAINED FACILITIES: ZNY\nDESTINATION AIRPORT: JFK\nRELEASED FACILITIES: ZTL ZDC ZJX\nREMARKS: AIRCRAFT RELEASED AT OR AFTER EDCTS\n\n[23:49-1] FAA Command Center: ATCSCC ADVZY 060 JFK/ZNY 08/04/2024 CDM GROUND DELAY PROGRAM CNX\nCTL ELEMENT: JFK\nELEMENT TYPE: APT\nADL TIME: 0348Z\nGDP CNX PERIOD: 04/0348Z - 04/1857Z\nDISREGARD EDCTS FOR DEST JFK\nCOMMENTS:\n\n[03:51] JFK METAR: KJFK 040751Z 23011KT 10SM BKN008 BKN120 23/22 A2990 RMK AO2 SLP125 T02330222 $\n\n[04:32] NWS JFK TAF: TAF AMD\nKJFK 040832Z 0408/0512 22010KT P6SM SCT008 BKN050 BKN100\n      TEMPO 0409/0412 BKN008\n     FM041200 22009KT P6SM BKN020\n     FM041700 20012KT P6SM BKN050\n      TEMPO 0419/0423 3SM TSRA BKN030CB\n     FM050100 24005KT P6SM FEW120 SCT250=\n\n[04:38] NWS New York forecast discussion: .AVIATION /09Z SUNDAY THROUGH THURSDAY/...\nWeak low pressure, along with a stationary front, remains in\nthe vicinity into Sunday evening, shifting east late Sunday\nevening.\n\nMVFR to IFR cigs are being observed at most terminals and may\nlinger all morning given the recent rainfall. However, there is\nmuch uncertainty regarding this and amendments are expected.\nAnother round of showers and thunderstorms with MVFR is likely\nmid afternoon into the early evening. VFR expected tonight\nexcept for KGON.\n\nA S to SW 5-10 kt flow continues this morning with the winds\nbecoming more SW toward later this morning and into the\nafternoon. Afternoon sea breezes are expected to develop.\nAfternoon winds expected between 8-12 kt. A light SW flow\nis expected tonight.\n\n NY Metro (KEWR/KLGA/KJFK/KTEB) TAF Uncertainty...\n\nAmendments expected for MVFR/IFR ceilings all morning due to\nuncertainty regarding timing.\n\nAmendments are possible later Sunday for timing of thunderstorms\nafter 18Z.\n\nOUTLOOK FOR 09Z MONDAY THROUGH THURSDAY...\n\nMonday: VFR.\n\nTuesday-Wednesday: MVFR or lower possible in SHRA/TSRA.\n\nThursday: Mainly VFR. Chance of MVFR or lower in SHRA/TSRA.\n\nDetailed information, including hourly TAF wind component forecasts,\ncan be found at: https:/www.weather.gov/zny/n90\n\n[04:51] JFK METAR: KJFK 040851Z 24010KT 10SM BKN009 BKN120 23/22 A2989 RMK AO2 SLP122 T02330222 50003 $\n\n[05:51] JFK METAR: KJFK 040951Z 23007KT 10SM BKN009 BKN120 23/23 A2989 RMK AO2 SLP121 T02330228 $\n\nIt is the first watch, 06:00. Nothing is frozen yet: set the day up with confirm_changes, then call advance.",
+    "max_turns": 104,
+    "model_params": {
+      "max_tokens": 32000
+    },
+    "timeout_seconds": 7200
+  },
+  {
+    "id": "end-day",
+    "type": "apply_server_config",
+    "env_id": "airops-day",
+    "directives": [
+      {
+        "service": "airops-day",
+        "uri": "urn:airops:end-day/v1",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "id": "grade",
+    "type": "env_outcome_verifier",
+    "env_id": "airops-day",
+    "file_artifact_id": "airops-verifier",
+    "verifier_id": "airops",
+    "score_aggregator": "weighted_average"
+  }
+]

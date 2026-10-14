@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agentenv_airops.build import pack
+from agentenv_airops.build import pack, windows
 
 ROOT = Path(__file__).resolve().parents[2]
 INPUTS = Path(__file__).resolve().parent / "fixtures" / "inputs"
@@ -20,10 +20,21 @@ def load_build_pack():
 def run(out: Path, derived: Path, inputs: Path = INPUTS, *extra: str) -> int:
     """The build on the fixture slice: one month, JFK, eight tails, so the size and disruption floors come down."""
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(pack, "MIN_TAILS", 3)
-        mp.setitem(pack.MIN_DISRUPTION, "eval", 1)
+        mp.setattr(pack, "MIN_TAILS", 5)
+        mp.setattr(pack, "MIN_DISRUPTION", 1)
+        mp.setattr(pack, "EVAL", (("2023-06-26", "JFK"),))
         return load_build_pack().main(["--offline", "--months", "2023-06", "--hubs", "JFK", "--inputs", str(inputs),
-                                       "--derived", str(derived), "--out", str(out), *extra])
+                                       "--derived", str(derived), "--out", str(out), "--workers", "1", *extra])
+
+
+@pytest.fixture(scope="session", autouse=True)
+def solve_once(tmp_path_factory):
+    """Every build of the session reads the window search's MIPs from one cache, whichever --derived it uses."""
+    shared = tmp_path_factory.mktemp("leverage")
+    solve = windows.leverage
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(windows, "leverage", lambda task, cache: solve(task, shared))
+        yield
 
 
 @pytest.fixture(scope="session")

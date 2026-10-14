@@ -18,7 +18,7 @@ from ..core.sim import FLOWN, Execution, execute
 from .mip import solve
 
 PERSIST, BLIND = "persist", "blind"
-WATCH_GAP = 1e-3
+WATCH_GAP = 0.0
 
 
 @dataclass(frozen=True)
@@ -35,7 +35,7 @@ class Followed:
         return {str(i): {"cancel": int(v["cancel"]), "dep": v["not_before"]} for i, v in sorted(self.plan.items())}
 
 
-def follow(task: Task, mode: str = PERSIST, time_limit: float = 60.0, gap: float = WATCH_GAP,
+def follow(task: Task, mode: str = PERSIST, time_limit: float = 600.0, gap: float = WATCH_GAP,
            threads: int = 1) -> Followed:
     plan: dict[int, dict] = {}
     pinned: set[int] = set()
@@ -46,7 +46,7 @@ def follow(task: Task, mode: str = PERSIST, time_limit: float = 60.0, gap: float
         run = execute(task, plan, lb, caps)
         fixed = {i: run.flights[i].dep if run.flights[i].status == FLOWN else None for i in pinned}
         sol = solve(task, lb, caps, fixed, earliest=t + FREEZE if t > task.start else None, time_limit=time_limit,
-                    gap=gap, threads=threads)
+                    gap=gap, threads=threads, canonical=True)
         plan = {i: plan[i] if i in pinned else d for i, d in sol.plan.items()}
         log.append({"t": t, "frozen": len(pinned), "planned": sol.objective, "status": sol.status,
                     "gap_pct": sol.gap_pct, "wall_s": sol.wall_s})

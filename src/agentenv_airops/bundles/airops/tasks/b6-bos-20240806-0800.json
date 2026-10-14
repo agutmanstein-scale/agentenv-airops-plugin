@@ -1,0 +1,654 @@
+[
+  {
+    "id": "deploy",
+    "type": "deploy_env",
+    "env_id": "airops-day"
+  },
+  {
+    "id": "load-task",
+    "type": "apply_server_config",
+    "env_id": "airops-day",
+    "directives": [
+      {
+        "service": "airops-day",
+        "uri": "urn:airops:live-load/v1",
+        "args": {
+          "task_id": "b6-bos-20240806-0800"
+        }
+      }
+    ]
+  },
+  {
+    "id": "hide-notice",
+    "type": "modify_env_tool_access",
+    "env_id": "airops-day",
+    "action": "disable",
+    "role": "default",
+    "tools": [
+      "airops_notice"
+    ]
+  },
+  {
+    "id": "watches",
+    "type": "register_env_triggers",
+    "env_id": "airops-day",
+    "watch_roles": [
+      "default"
+    ],
+    "triggers": [
+      {
+        "id": "watch-1",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 1
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "afd-box-202408061118"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "taf-bos-202408061120"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408061154"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-2",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 2
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408061254"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-3",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 3
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "taf-bos-202408061319"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408061354"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-4",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 4
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "afd-box-202408061403"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20240806-059"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408061454"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-5",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 5
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "taf-bos-202408061503"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20240806-062"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408061554"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-6",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 6
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408061654"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-7",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 7
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "taf-bos-202408061736"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408061754"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "afd-box-202408061758"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-8",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 8
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408061854"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-9",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 9
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20240806-122"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20240806-123"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20240806-127"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408061954"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "afd-box-202408061955"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20240806-131"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-10",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 10
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "taf-bos-202408062014"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20240806-139"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408062054"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-11",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 11
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408062154"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-12",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 12
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408062254"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-13",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 13
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "taf-bos-202408062320"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408062354"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-14",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 14
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "afd-box-202408070003"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20240807-009"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408070054"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-15",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 15
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408070154"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-16",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 16
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "afd-box-202408070243"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408070254"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-17",
+        "when": {
+          "type": "action",
+          "tool": "advance",
+          "where": {
+            "result.watch": {
+              "equals": 17
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "metar-bos-202408070354"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "deploy-agent",
+    "type": "deploy_agent",
+    "a2a_agent_id": "airops-llm",
+    "env_ids": [
+      "airops-day"
+    ]
+  },
+  {
+    "id": "clock",
+    "type": "sync_env_clock",
+    "env_id": "airops-day",
+    "virtual_time": "2024-08-06T11:00:00Z",
+    "virtual_seconds_per_real_second": 0,
+    "tolerate_missing_sync_time": false
+  },
+  {
+    "id": "play",
+    "type": "prompt_agent",
+    "prompt_id": "b6-bos-20240806-0800",
+    "system_prompt": "You run the JetBlue operations desk at one of its hubs on a disrupted day: thunderstorms, snow or wind, and the FAA ground stops and ground delay programs that follow, cut how many JetBlue flights can land and take off each hour. Your job is to decide which flights to cancel and which to hold, watch by watch, so that passengers lose as little time as possible over the day.\n\nHow the day runs:\n- The day is played in watches, one an hour, starting at watch 0, an hour before the disruption. The first message gives the day as the desk knows it at watch 0. Time only passes when you call advance.\n- What the desk knows: a flight's own departure delay (weather, air traffic control, crews: anything but waiting for its aircraft) becomes known 2 hours before its scheduled departure; until then it is assumed on time. How many JetBlue arrivals and departures an airport can take in an hour (its slot cap) becomes known 4 hours ahead; until then the table shows JetBlue's own schedule for that hour. FAA Command Center advisories, the hub's METARs and TAFs and the forecasters' discussion arrive as messages as they are issued.\n- The env flies your plan on the day as it happens: each flight leaves at the earliest time its delay, its hold and an aircraft allow. It takes the first aircraft of its type ready at its origin (aircraft of one type at one airport are interchangeable; an aircraft needs its turn time on the ground between flights), and leaves only when the hour has a free slot at its origin and the hour it lands has one at its destination; otherwise it waits for the next hour with room. A flight that can't leave within 6 hours of its schedule is cancelled automatically. At the end of the day the env ferries each aircraft to the airport it is needed at tomorrow.\n- Your decisions: cancel a flight (its aircraft stays on the ground, free for other flights), restore a cancelled flight, or hold a flight until a time (not_before) so that its slot or aircraft goes to another flight first. A flight you don't touch leaves as early as it can.\n- The freeze: at watch 0 nothing is frozen. From watch 1 on, flights your plan has leaving before the freeze line, an hour after the watch, are frozen: they can't be changed, and stay frozen. Changes reach no further back than the freeze line: the env holds any other flight your plan would have leaving before it to the freeze line.\n- You have 3 planning calls (check_plan or confirm_changes) per watch. Call advance and get_situation together in one turn: the new watch's news arrives with the first tool result after advance.\n\nTools:\n- get_situation(): the time, the freeze line, the slot caps as known for the next 8 hours, the FAA programs in effect, the latest METAR and TAF, every flight (its status, its expected departure once its delay is known, your plan, where your plan has it leave and land on the day as known, how late it lands and the aircraft it takes), where the aircraft are, and new messages.\n- check_plan(changes): your changes over your plan, run on the day as known now: the plan's cost, the flights whose plan or times change, the automatic cancellations, the flights the env would hold to the freeze line, and the changes confirm_changes would refuse. It confirms nothing.\n- confirm_changes(changes): commits the changes; flights you leave out keep their plan.\n- advance(): ends the watch. After the last watch it returns \"done\": the rest of the day runs on your plan.\nA change is {\"flight\": \"f12\", \"action\": \"cancel\" | \"restore\" | \"hold\", \"not_before\": \"HH:MM\" | null}: cancel takes not_before null; restore and hold fly the flight, held until not_before (local time, \"00:30+1\" after midnight), or as early as it can with null.\n\nThe cost, in passenger-minutes: every passenger's minutes of arrival delay, 523 minutes for each passenger on a cancelled flight (rebooking takes most of a day, and some ask for a refund), and the end-of-day ferries (a few thousand each). A cancellation frees an aircraft and a slot; it pays when it saves the other passengers more delay than it costs its own. The day is graded once, on your final plan flown on the day as it really happened: the closer its cost to the best plan possible in hindsight, the higher the score. If you stop before the last watch, the rest of the day runs on your plan.",
+    "prompt": "# JetBlue operations desk, BOS (General Edward Lawrence Logan International Airport), Tuesday 2024-08-06; times are local (America/New_York).\n\nNow 07:00, watch 0. First watch: nothing is frozen; changes take effect at once. Planning calls left this watch: 3.\n\nYour plan on the day as known costs 945,341 passenger-minutes (arrival delay 570,530, cancellations 303,863, ferries 70,948): 0 cancelled, 6 cancelled automatically, 0 held.\n\n## Slot caps: JetBlue movements per hour, known through the 11:00 hour; later hours show JetBlue's own schedule (- = no limit)\nhour 07 08 09 10 11 12 13 14\nBOS arr 2 4 2 3 3 2 3 1\nBOS dep 6 6 6 8 4 4 2 2\nEWR arr 0 0 0 0 1 0 0 0\nEWR dep 0 0 0 0 0 0 0 0\nJFK arr 0 3 0 0 2 1 0 1\nJFK dep 0 1 1 2 0 1 1 0\nLGA arr 0 0 1 1 0 0 0 0\nLGA dep 0 0 2 0 1 1 0 0\n\n## Programs in effect (FAA Command Center)\nNone.\n\n## Weather\nLatest METAR (06:54): KBOS 061054Z 06008KT 3SM RA BR FEW005 SCT015 OVC030 22/20 A2996 RMK AO2 RAE05B32 SLP145 P0008 T02220200\nLatest TAF (04:37): TAF AMD\nKBOS 060837Z 0609/0712 25006KT P6SM VCSH BKN090\n     FM061000 32004KT 6SM -SHRA BKN015\n      TEMPO 0612/0616 1SM -SHRA OVC008\n     FM061800 06008KT P6SM BKN012\n     FM070000 07007KT P6SM -RA OVC010\n     FM070300 05005KT 4SM -RA BR OVC007=\n\n## Flights (sched = scheduled dep-arr; exp = earliest departure once its delay is known, ? before; plan = cancel or hold@HH:MM; proj = where your plan has it leave and land on the day as known; late = arrival delay; tail = the aircraft it takes)\nid flight route sched pax type status exp plan proj late tail\nf0 560 PHL-BOS 06:00-07:24 63 E190 open 07:10 - auto-cancel - -\nf1 540 CLE-BOS 07:00-08:44 86 E190 open 09:18 - 09:18-11:03 +139 N339JB\nf2 716 BUF-BOS 07:15-08:39 93 E190 open 07:18 - 07:18-08:34 +0 N281JB\nf3 392 TPA-BOS 07:45-10:55 149 A32X open 09:09 - 09:09-12:29 +94 N760JB\nf4 515 BOS-BUF 07:45-09:22 93 E190 open 07:45 - 07:45-09:12 +0 N337JB\nf5 1081 BOS-RIC 07:45-09:34 88 E190 open 07:45 - 07:45-09:32 +0 N284JB\nf6 1137 BOS-DTW 07:45-09:54 121 A220 open 09:04 - 09:04-11:11 +77 N3023J\nf7 331 BOS-LGA 08:00-09:19 73 E190 open 08:00 - 08:00-09:10 +0 N328JB\nf8 887 BOS-LAX 08:00-14:16 141 A32X open 08:32 - 08:32-14:23 +7 N993JE\nf9 2041 BOS-CLE 08:00-10:08 86 E190 open 08:07 - 08:07-10:04 +0 N323JB\nf10 2718 JFK-BOS 08:00-09:19 116 A32X open 09:18 - 09:18-10:37 +78 N618JB\nf11 633 BOS-IAH 08:15-12:22 136 A32X open 08:15 - 08:15-12:13 +0 N523JB\nf12 891 BOS-TPA 08:15-11:35 186 A32X open 08:27 - 08:27-11:52 +17 N991JT\nf13 1519 BOS-MIA 08:15-11:45 142 A32X open 08:17 - 08:17-12:47 +62 N966JT\nf14 1160 PHL-BOS 08:20-09:49 88 A220 open 08:20 - 08:20-09:25 +0 N3058J\nf15 533 BDL-TPA 08:21-11:19 147 A32X open 08:35 - 08:35-12:10 +51 N796JB\nf16 117 BOS-JFK 08:30-09:52 120 A32X open 10:17 - 10:17-11:21 +89 N662JB\nf17 1954 DCA-BOS 08:30-10:15 87 E190 open 08:30 - 08:30-09:49 +0 N307JB\nf18 1585 BOS-PIT 08:50-10:38 86 E190 open 08:50 - 09:00-10:45 +7 N306JB\nf19 1455 BOS-DCA 09:15-10:58 87 E190 open ? - 09:15-10:51 +0 N258JB\nf20 484 RDU-BOS 09:18-11:15 98 A220 open ? - 09:18-11:02 +0 N3112J\nf21 267 BOS-CHS 09:30-11:55 88 E190 open ? - 09:30-11:55 +0 N281JB\nf22 531 BOS-LGA 09:30-10:46 73 E190 open ? - auto-cancel - -\nf23 2432 LGA-BOS 09:30-10:47 70 E190 open ? - 09:30-10:33 +0 N279JB\nf24 2277 BOS-AVL 09:35-12:00 84 E190 open ? - 10:25-12:47 +47 N307JB\nf25 2051 BOS-MCO 09:45-12:59 147 A32X open ? - 09:45-12:55 +0 N652JB\nf26 516 BUF-BOS 10:00-11:25 93 E190 open ? - 10:00-11:22 +0 N337JB\nf27 554 DCA-BOS 10:00-11:40 87 E190 open ? - 13:39-15:00 +200 N258JB\nf28 1039 BOS-AUS 10:00-14:15 137 A32X open ? - 10:00-14:00 +0 N935JB\nf29 1655 BOS-DCA 10:00-11:40 87 E190 open ? - 11:09-12:52 +72 N279JB\nf30 2417 BOS-JFK 10:00-11:14 74 E190 open ? - 11:39-12:47 +93 N339JB\nf31 731 BOS-SJU 10:10-14:12 123 A32X open ? - 10:10-13:53 +0 N564JB\nf32 733 BOS-SFO 10:10-16:39 137 A32X open ? - 10:10-17:12 +33 N985JT\nf33 1182 RIC-BOS 10:15-11:51 85 E190 open ? - 10:37-12:00 +9 N284JB\nf34 2192 TPA-BOS 10:15-13:25 149 A32X open ? - 10:15-13:13 +0 N568JB\nf35 687 BOS-LAX 10:30-16:43 141 A32X open ? - 10:30-16:22 +0 N948JB\nf36 215 BOS-DFW 10:34-14:39 117 A220 open ? - 10:34-14:32 +0 N3058J\nf37 109 BOS-JAX 10:40-13:30 149 A32X open ? - 10:40-13:43 +13 N526JL\nf38 2036 DTW-BOS 10:45-12:40 121 A220 open ? - 12:15-14:00 +80 N3023J\nf39 2040 CLE-BOS 10:55-12:35 86 E190 open ? - 11:27-13:00 +25 N323JB\nf40 1286 PIT-BOS 11:25-13:05 80 E190 open ? - 11:25-13:03 +0 N306JB\nf41 217 BOS-JFK 11:30-12:47 74 E190 open ? - 13:36-14:44 +117 N323JB\nf42 2310 LGA-ACK 11:35-12:49 82 E190 open ? - 11:35-12:43 +0 N283JB\nf43 1093 BOS-DEN 11:54-16:20 146 A32X open ? - 11:54-16:39 +19 N634JB\nf44 755 BOS-DCA 12:00-13:40 87 E190 open ? - 12:00-13:46 +6 N337JB\nf45 1338 JFK-MVY 12:00-13:10 81 E190 open ? - 13:23-15:44 +154 N339JB\nf46 1534 TPA-BDL 12:04-14:55 150 A32X open ? - 12:37-15:34 +39 N991JT\nf47 2352 BOS-ACK 12:15-13:07 74 E190 open ? - 12:36-13:27 +20 N284JB\nf48 1220 MIA-BOS 12:30-15:59 149 A32X open ? - 13:32-17:10 +71 N966JT\nf49 2283 BOS-RDU 12:30-14:30 78 E190 open ? - 13:39-15:34 +64 N306JB\nf50 2732 LGA-BOS 12:30-13:48 70 E190 open ? - auto-cancel - -\nf51 892 TPA-BOS 12:35-15:41 184 A32X open ? - 12:55-16:13 +32 N796JB\nf52 68 CHS-BOS 12:40-15:04 81 E190 open ? - 12:40-15:04 +0 N281JB\nf53 2467 BOS-CHS 12:40-15:10 123 A220 open ? - 12:40-15:47 +37 N3112J\nf54 1414 DCA-MVY 12:50-14:15 77 E190 open ? - 12:50-14:09 +0 N334JB\nf55 2278 AVL-BOS 13:00-15:16 83 E190 open ? - 13:23-15:55 +39 N307JB\nf56 932 IAH-BOS 13:15-17:10 135 A32X open ? - 13:15-16:50 +0 N523JB\nf57 218 JFK-BOS 13:30-14:48 72 E190 open ? - 15:27-17:00 +132 N323JB\nf58 2215 BOS-BUF 13:30-15:03 93 E190 open ? - 15:36-17:02 +119 N258JB\nf59 410 ACK-LGA 13:45-15:05 78 E190 open ? - 13:45-15:13 +8 N283JB\nf60 207 BOS-BNA 13:55-16:45 122 A220 open ? - 14:43-17:23 +38 N3023J\nf61 1339 MVY-JFK 13:55-14:59 75 E190 open ? - auto-cancel - -\nf62 1855 BOS-DCA 14:00-15:45 87 E190 open ? - 15:40-17:17 +92 N281JB\nf63 1122 ACK-HPN 14:05-15:08 74 E190 open ? - 14:05-15:05 +0 N284JB\nf64 1310 JAX-BOS 14:20-17:13 142 A32X open ? - 14:30-17:00 +0 N526JL\nf65 2554 DCA-BOS 14:30-16:14 87 E190 open ? - 15:17-17:00 +46 N279JB\nf66 1324 BOS-MVY 14:35-15:20 68 E190 open ? - 16:31-17:15 +115 N307JB\nf67 1413 MVY-DCA 15:00-16:40 81 E190 open ? - 15:00-16:50 +10 N334JB\nf68 1138 AUS-BOS 15:10-19:25 134 A32X open ? - 15:10-19:48 +23 N935JB\nf69 2184 RDU-BOS 15:15-17:20 70 E190 open ? - 16:10-18:15 +55 N306JB\nf70 1890 SJU-EWR 15:25-19:45 156 A32X open ? - 15:25-19:45 +0 N564JB\nf71 1188 LAX-BOS 15:30-21:05 146 A32X open ? - 15:30-21:10 +5 N993JE\nf72 2259 BOS-PHL 15:30-17:00 68 E190 open ? - 17:36-19:06 +126 N279JB\nf73 1214 DFW-BOS 15:34-19:28 115 A220 open ? - 15:34-19:50 +22 N3058J\nf74 2291 JFK-ACK 15:35-16:59 73 E190 open ? - 21:00-22:24 +325 N284JB\nf75 1032 LGA-BOS 15:40-17:03 70 E190 open ? - 15:40-17:03 +0 N328JB\nf76 2016 BUF-BOS 15:50-17:20 93 E190 open ? - 17:38-19:08 +108 N258JB\nf77 2185 BOS-PIT 15:50-17:38 86 E190 open ? - 17:36-19:24 +106 N323JB\nf78 732 SJU-BOS 15:55-20:05 145 A32X open ? - 20:47-00:27+1 +262 N991JT\nf79 1121 HPN-ACK 15:55-17:00 75 E190 open ? - 15:55-17:07 +7 N284JB\nf80 1475 BDL-SJU 16:00-20:02 135 A32X open ? - 16:19-20:02 +0 N991JT\nf81 1225 MVY-BOS 16:05-16:52 71 E190 open ? - 19:00-20:00 +188 N339JB\nf82 2474 CHS-JFK 16:15-18:22 111 A220 open ? - 16:30-18:37 +15 N3112J\nf83 641 BOS-CLE 16:25-18:25 86 E190 open ? - 17:39-19:39 +74 N328JB\nf84 1354 DCA-BOS 16:30-18:14 87 E190 open ? - 17:16-19:00 +46 N337JB\nf85 861 BOS-SJU 16:45-20:49 152 A32X open ? - 16:45-20:34 +0 N618JB\nf86 2055 BOS-DCA 17:00-18:45 87 E190 open ? - 18:51-20:36 +111 N306JB\nf87 1094 DEN-BOS 17:14-21:10 146 A32X open ? - 17:24-21:17 +7 N634JB\nf88 2233 BOS-SFO 17:15-23:55 137 A32X open ? - 17:15-23:37 +0 N760JB\nf89 2754 DCA-BOS 17:30-19:14 87 E190 open ? - 18:42-20:00 +46 N334JB\nf90 2783 BOS-RDU 17:40-19:49 78 E190 open ? - 19:36-22:45 +176 N337JB\nf91 192 ACK-JFK 17:45-19:00 71 E190 open ? - 17:45-19:00 +0 N284JB\nf92 2460 PHL-BOS 17:45-19:12 63 E190 open ? - 19:42-21:09 +117 N279JB\nf93 206 BNA-BOS 17:50-20:30 130 A220 open ? - 18:06-20:46 +16 N3023J\nf94 811 BOS-ORD 17:50-20:47 84 E190 open ? - 19:44-22:41 +114 N258JB\nf95 2122 ACK-HPN 17:50-19:00 74 E190 open ? - 23:00-01:37+1 +397 N284JB\nf96 616 SFO-JFK 18:00-23:42 148 A32X open ? - 18:00-23:42 +0 N985JT\nf97 2255 BOS-DCA 18:10-19:59 87 E190 open ? - 20:36-22:14 +135 N334JB\nf98 95 BOS-PDX 18:15-00:30+1 138 A32X open ? - 18:15-00:49+1 +19 N568JB\nf99 2186 PIT-BOS 18:24-20:05 80 E190 open ? - 20:19-22:00 +115 N323JB\nf100 524 LAX-JFK 19:10-00:47+1 144 A32X open ? - 19:10-00:50+1 +3 N948JB\nf101 640 CLE-BOS 19:10-21:01 86 E190 open ? - 20:15-22:06 +65 N328JB\nf102 135 JFK-PHX 19:15-00:42+1 118 A220 open ? - 19:20-00:47+1 +5 N3112J\nf103 715 BOS-BUF 19:15-20:50 93 E190 open ? - 20:36-22:11 +81 N339JB\nf104 2354 DCA-BOS 19:30-21:09 87 E190 open ? - 19:30-21:09 +0 N281JB\nf105 2459 BOS-PHL 19:59-21:32 68 E190 open ? - 00:00+1-01:33+1 +241 N279JB\nf106 2385 BOS-PIT 20:05-21:58 86 E190 open ? - 00:00+1-01:37+1 +219 N281JB\nf107 1983 BOS-RDU 20:30-22:36 116 A32X open ? - 20:30-22:31 +0 N796JB\nf108 1484 RDU-BOS 20:35-22:37 70 E190 open ? - 23:21-01:03+1 +146 N337JB\nf109 1952 MCO-BOS 20:45-23:56 146 A32X open ? - 20:45-23:34 +0 N652JB\nf110 2854 DCA-BOS 20:45-22:21 87 E190 open ? - 21:30-23:00 +39 N306JB\nf111 1451 BOS-MCO 20:50-23:58 147 A32X open ? - 20:50-23:58 +0 N523JB\nf112 369 BOS-FLL 20:55-00:09+1 146 A32X open ? - 00:00+1-03:22+1 +193 N526JL\nf113 2054 SJU-FLL 20:59-23:41 141 A32X open ? - 21:19-23:56 +15 N618JB\nf114 1012 ORD-BOS 21:33-23:59 83 E190 open ? - 23:17-01:43+1 +104 N258JB\nf115 1004 SJU-JFK 21:59-01:56+1 182 A32X open ? - auto-cancel - -\nf116 1186 JFK-ROC 21:59-23:33 118 A220 open ? - auto-cancel - -\nf117 278 SFO-FLL 01:05+1-06:35+1 146 A32X open ? - 01:05+1-06:46+1 +11 N760JB\nf118 96 PDX-BOS 01:20+1-06:34+1 149 A32X open ? - 01:34+1-07:01+1 +27 N568JB\nf119 136 PHX-JFK 01:40+1-06:30+1 117 A220 open ? - 01:40+1-06:30+1 +0 N3112J\n\n## Aircraft now, as your plan has them (@ = ready at)\nBOS A220: N3023J@08:42\nBOS A32X: N523JB N526JL@09:57 N564JB@07:09 N634JB@10:02 N652JB N662JB@08:38 N935JB N948JB@09:48 N966JT N985JT@07:32 N991JT N993JE\nBOS E190: N258JB@08:22 N284JB N306JB@08:15 N323JB@07:35 N328JB N337JB\nBDL A32X: N796JB@07:50\nBUF E190: N281JB\nCLE E190: N339JB\nDCA E190: N307JB N334JB\nJFK A32X: N618JB\nLGA E190: N279JB N283JB@07:55\nPHL A220: N3058J@08:05\nRDU A220: N3112J@09:03\nTPA A32X: N568JB@10:08 N760JB\nairborne: none\n\n## News so far\n[03:55] NWS Boston forecast discussion: .AVIATION /08Z TUESDAY THROUGH SATURDAY/...\nForecast Confidence Levels:\n\nLow - less than 30 percent.\nModerate - 30 to 60 percent.\nHigh - greater than 60 percent.\n\n06z Update:\n\nThrough 12z...Moderate Confidence.\n\nVFR to MVFR, with IFR/LIFR over the Cape and Islands. Winds stay out\nof the SE at 5-10 knots, gusting 20 knots over the Cape and Islands.\nLight to moderate showers move from west to east late overnight with\nshowers starting around 09z/10z.\n\nToday...Moderate Confidence.\n\nMVFR/IFR with light to moderate rain showers. Showers may linger\nacross eastern MA into 18z to 20z along with MVFR/IFR conditions.\nElsewhere should have slight improvements to low-end VFR 18z/20z to\naround 00z. Winds are east/northeast around 10 knots.\n\nTonight...Moderate Confidence.\n\nMVFR north to IFR south with periods of heavy rain and low risk for\nembedded thunder. Winds are east less than 10 knots.\n\nWednesday...Moderate Confidence.\n\nMVFR/IFR with periods of rain early in the day, drying with\nimproving conditions to VFR/MVFR early afternoon. Winds are\neast/northeast around 10 to 15 knots.\n\nKBOS TAF... Moderate confidence in TAF.\n\nLight to moderate rain return early this morning with light to\nmoderate rain showers possible between 10z-17z, possibly even\nlingering into 19z. MVFR conditions after 10z through mush of today,\ncould have slight improvements to VFR late afternoon. Another round\nof moderate to heavy rain late tonight into Wednesday morning with\nMVFR/IFR conditions.\n\nKBDL TAF... Moderate confidence in TAF.\n\nVFR early, becoming MVFR this morning with light to moderate rain\nshowers between 07z-14z, but could linger as late as 16z. Lull for\nthe afternoon but another around of rain arrives overnight into\nWednesday morning.\n\nOutlook /Wednesday Night through Saturday/...\n\nWednesday Night through Thursday: VFR. Slight chance SHRA.\n\nThursday Night: Mainly VFR, with local IFR possible. Chance\nSHRA, isolated TSRA.\n\nFriday: Mainly IFR, with areas MVFR possible. SHRA, isolated\nTSRA.\n\nFriday Night: Mainly IFR, with areas MVFR possible. Breezy.\nSHRA, isolated TSRA.\n\nSaturday: Mainly IFR, with areas MVFR possible. Breezy. SHRA\nlikely, isolated TSRA.\n\n[04:37] NWS BOS TAF: TAF AMD\nKBOS 060837Z 0609/0712 25006KT P6SM VCSH BKN090\n     FM061000 32004KT 6SM -SHRA BKN015\n      TEMPO 0612/0616 1SM -SHRA OVC008\n     FM061800 06008KT P6SM BKN012\n     FM070000 07007KT P6SM -RA OVC010\n     FM070300 05005KT 4SM -RA BR OVC007=\n\n[04:54] BOS METAR: KBOS 060854Z 29008KT 10SM -RA BKN090 OVC250 25/20 A2991 RMK AO2 RAB24 SLP127 PCPN VRY LGT P0000 60000 T02500200 53002\n\n[05:54] BOS METAR: KBOS 060954Z 33005KT 10SM -RA SCT090 BKN130 OVC250 24/20 A2994 RMK AO2 SLP137 P0000 T02390200\n\n[06:54] BOS METAR: KBOS 061054Z 06008KT 3SM RA BR FEW005 SCT015 OVC030 22/20 A2996 RMK AO2 RAE05B32 SLP145 P0008 T02220200\n\nIt is the first watch, 07:00. Nothing is frozen yet: set the day up with confirm_changes, then call advance.",
+    "max_turns": 94,
+    "model_params": {
+      "max_tokens": 32000
+    },
+    "timeout_seconds": 7200
+  },
+  {
+    "id": "end-day",
+    "type": "apply_server_config",
+    "env_id": "airops-day",
+    "directives": [
+      {
+        "service": "airops-day",
+        "uri": "urn:airops:end-day/v1",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "id": "grade",
+    "type": "env_outcome_verifier",
+    "env_id": "airops-day",
+    "file_artifact_id": "airops-verifier",
+    "verifier_id": "airops",
+    "score_aggregator": "weighted_average"
+  }
+]

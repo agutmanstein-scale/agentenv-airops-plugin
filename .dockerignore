@@ -1,0 +1,12 @@
+*
+!LICENSE
+!NOTICE
+!data
+!src/agentenv_airops
+src/agentenv_airops/data
+src/agentenv_airops/web
+src/agentenv_airops/build
+src/agentenv_airops/refs
+src/agentenv_airops/bundles
+**/__pycache__
+**/*.pyc

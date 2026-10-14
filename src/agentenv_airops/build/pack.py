@@ -3,10 +3,15 @@
 Scope: JetBlue's tails that fly a leg touching the hub inside the window; their legs from `start` (window start - 1 h)
 to the end of the day are the flights, those flown before `start` are frozen. The data-only clauses keep a window
 whose every hub movement has a typed tail, whose airline cancellations in scope are at least 80% weather or NAS
-(codes B, C over A, B, C) and whose scope has 30 to 80 tails. `reference` is left empty for scripts/references.py."""
+(codes B, C over A, B, C) and whose scope has 30 to 80 tails. The SHORTLIST most disrupted (day, hub) are the
+candidates, each at its window of most leverage (windows.most_leverage). `reference` is left empty for
+scripts/references.py."""
 
 import json
 import math
+from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -23,21 +28,27 @@ NEWS_BEFORE = 720
 METAR_BEFORE = 180
 MIN_TAILS, MAX_TAILS = 30, 80
 MIN_WEATHER_SHARE = 0.8
-MIN_DISRUPTION = {"eval": 5 * windows.CANCEL_WEIGHT, "train": 2 * windows.CANCEL_WEIGHT}
-"""Real disruption: an eval window holds at least five weather or NAS cancellations' worth at the hub, a train window
-two."""
+MIN_DISRUPTION = 2 * windows.CANCEL_WEIGHT
+"""A candidate's disruption window holds at least two weather or NAS cancellations' worth at the hub."""
+SHORTLIST = 60
+"""The candidates: this many (day, hub) of most disruption, each searched for its window of most leverage."""
 LIFT_PCT = 75
 LIFT_WINDOW = 90
 CONSTRAINED = ("BOS", "EWR", "JFK", "LGA")
+AROUND = ["Reporting_Airline", "Origin", "Dest", "sd", "sa", "ad", "aa"]
 KINDS = ("advisory", "taf", "metar", "outlook")
 SPLITS = ("eval", "control", "train")
-EVAL_DAYS = ("2022-12-16", "2022-12-23", "2022-12-24", "2023-06-16", "2023-06-17", "2023-06-18", "2023-06-19",
-             "2023-06-24", "2023-06-25", "2023-06-26", "2023-06-27", "2023-06-28", "2024-01-06", "2024-01-07",
-             "2024-01-09", "2024-01-16", "2024-01-17", "2024-01-19")
-"""The candidate storm days of the flight-records research (section 5), each tried at every hub."""
+EVAL = (("2023-07-09", "BOS"), ("2023-07-14", "JFK"), ("2023-07-16", "BOS"), ("2023-07-16", "JFK"),
+        ("2024-01-07", "BOS"), ("2024-02-13", "JFK"), ("2024-08-02", "JFK"), ("2024-08-03", "JFK"),
+        ("2024-08-04", "BOS"), ("2024-08-04", "JFK"), ("2024-08-06", "BOS"), ("2024-08-19", "BOS"),
+        ("2024-08-19", "JFK"), ("2025-01-19", "BOS"), ("2025-01-19", "JFK"), ("2025-02-16", "BOS"),
+        ("2025-07-02", "JFK"), ("2025-07-09", "JFK"), ("2025-07-13", "JFK"), ("2025-07-14", "JFK"))
+"""The 20 candidates of most leverage passing every clause of scripts/references.py screen (run on every candidate at
+its window), at most one per (date, hub)."""
 CONTROL_DAYS = (("2023-06-10", ("JFK",)), ("2024-01-04", ("JFK", "BOS")), ("2024-01-24", ("JFK", "BOS")))
-"""Normal days with no cancellations: the first hub of each whose window passes the clauses."""
-MONTHS = ("2022-12", "2023-06", "2024-01")
+"""Normal days with no cancellations: the first hub of each whose disruption window passes the clauses."""
+MONTHS = ("2022-12", "2023-06", "2023-07", "2023-08", "2023-12", "2024-01", "2024-02", "2024-06", "2024-07",
+          "2024-08", "2025-01", "2025-02", "2025-07")
 
 
 @dataclass(frozen=True)
@@ -109,9 +120,11 @@ def fetch_inputs(inputs: Path, months: list[str], hubs: list[str]) -> None:
     fleet.fetch_registry(inputs)
 
 
-def build(inputs: Path, derived: Path, months: list[str], hubs: list[str]) -> tuple[list[dict], list[dict]]:
+def build(inputs: Path, derived: Path, months: list[str], hubs: list[str],
+          workers: int = 1) -> tuple[list[dict], list[dict]]:
     """Every task of the pack, sorted, and a row per (day, hub) tried, with its window or why there is none."""
-    df = bts.load([bts.ontime_path(inputs, m) for m in months], derived)
+    df = pd.concat([relevant(bts.read_ontime(bts.ontime_path(inputs, m), derived)) for m in months],
+                   ignore_index=True)
     carrier = df[df.Reporting_Airline == CARRIER]
     by_date = dict(tuple(carrier.groupby("FlightDate")))
     near = df[df.Origin.isin(CONSTRAINED) | df.Dest.isin(CONSTRAINED)]
@@ -121,50 +134,104 @@ def build(inputs: Path, derived: Path, months: list[str], hubs: list[str]) -> tu
     lfs = {m: fleet.load_factors(CARRIER, m, inputs) for m in months}
     sources = Sources(inputs)
     dates = sorted(d for d in by_date if shift(d, -1) in by_date and shift(d, 1) in by_date)
-    eval_days, control = set(EVAL_DAYS), dict(CONTROL_DAYS)
+
+    def day_of(d: str, hub: str) -> Day:
+        return context(d, hub, by_date, near_by_date, fleets[d[:7]], lfs[d[:7]])
+
+    control = dict(CONTROL_DAYS)
     tasks, tried = [], []
-    for d in dates:
-        split = "eval" if d in eval_days else "control" if d in control else "train"
-        for hub in [h for h in control[d] if h in hubs] if split == "control" else hubs:
-            day = context(d, hub, by_date, near_by_date, fleets[d[:7]], lfs[d[:7]])
-            task, row = attempt(day, split, inputs, sources)
+    for d in (d for d in dates if d in control):
+        for hub in (h for h in control[d] if h in hubs):
+            task, row = control_attempt(day_of(d, hub), inputs, sources)
             tried.append(row)
             if task:
                 tasks.append(task)
-                if split == "control":
-                    break
+                break
+    with ProcessPoolExecutor(workers) if workers > 1 else nullcontext() as pool:
+        run = pool.map if pool else map
+        rows, allowed = [], {}
+        for month in months:
+            keys = [(d, hub) for d in dates if d.startswith(month) and d not in control for hub in hubs]
+            for (d, hub), (ok, chosen) in zip(keys, run(disrupted, [day_of(*k) for k in keys]), strict=True):
+                allowed[d, hub] = ok
+                row = {"date": d, "hub": hub, "split": "eval" if (d, hub) in EVAL else "train", "window": None,
+                       "disruption": round(chosen[2]) if chosen else 0, "reason": ""}
+                if not chosen:
+                    row["reason"] = "no window passes the data-only clauses"
+                elif chosen[2] < MIN_DISRUPTION:
+                    row["reason"] = f"disruption below {MIN_DISRUPTION}"
+                rows.append(row)
+        ranked = sorted((r for r in rows if not r["reason"]), key=lambda r: (-r["disruption"], r["date"], r["hub"]))
+        for r in ranked[SHORTLIST:]:
+            r["reason"] = f"not among the {SHORTLIST} most disrupted"
+        days = {(r["date"], r["hub"]): day_of(r["date"], r["hub"]) for r in ranked[:SHORTLIST]}
+        found = search(days, allowed, derived / "leverage", run)
+    eval_dates = {d for d, _ in EVAL}
+    for r in ranked[:SHORTLIST]:
+        best = found[r["date"], r["hub"]]
+        if best is None:
+            r["reason"] = "no window's hindsight is proven"
+            continue
+        r.update(window=best["window"], naive=best["naive"], hindsight=best["hindsight"],
+                 naive_gap=round(windows.gap(best), 4))
+        if r["split"] == "train" and r["date"] in eval_dates:
+            r["reason"] = "an eval date"
+            continue
+        day = days[r["date"], r["hub"]]
+        task = make_task(day, scope(day, *best["window"]), r["split"], inputs, sources)
+        tasks.append(task)
+        r["task_id"] = task["task_id"]
     tasks.sort(key=lambda t: (SPLITS.index(t["split"]), t["task_id"]))
-    return tasks, tried
+    return tasks, tried + rows
 
 
-def attempt(day: Day, split: str, inputs: Path, sources: "Sources") -> tuple[dict | None, dict]:
-    x = day.cur
-    disruption = windows.hourly(x, day.hub)
-    scopes: dict[tuple[int, int], Scope] = {}
+def relevant(df: pd.DataFrame) -> pd.DataFrame:
+    """The carrier's flights and every flight at a constrained airport: all the build reads of a month."""
+    return df[(df.Reporting_Airline == CARRIER) | df.Origin.isin(CONSTRAINED) | df.Dest.isin(CONSTRAINED)]
 
-    def allowed(a: int, b: int) -> bool:
-        scopes[a, b] = scope(day, a * 60, b * 60)
-        return scopes[a, b].ok
 
-    chosen = windows.choose(disruption, windows.movements(x, day.hub), allowed)
-    row = {"date": day.date, "hub": day.hub, "split": split, "window": None, "disruption": 0, "reason": ""}
+def disrupted(day: Day) -> tuple[list[tuple[int, int]], tuple[int, int, float] | None]:
+    """The windows passing the data-only clauses and, of them, the disruption window (windows.choose)."""
+    ok = [(a, b) for a, b in windows.spans() if scope(day, a * 60, b * 60).ok]
+    return ok, windows.choose(windows.hourly(day.cur, day.hub), windows.movements(day.cur, day.hub),
+                              lambda a, b: (a, b) in ok)
+
+
+def control_attempt(day: Day, inputs: Path, sources: "Sources") -> tuple[dict | None, dict]:
+    _, chosen = disrupted(day)
+    row = {"date": day.date, "hub": day.hub, "split": "control", "window": None, "disruption": 0, "reason": ""}
     if chosen is None:
         return None, {**row, "reason": "no window passes the data-only clauses"}
     a, b, score = chosen
+    sc = scope(day, a * 60, b * 60)
     row.update(window=[a * 60, b * 60], disruption=round(score))
-    if split == "control" and scopes[a, b].codes:
+    if sc.codes:
         return None, {**row, "reason": "cancellations on a control day"}
-    if split != "control" and score < MIN_DISRUPTION[split]:
-        return None, {**row, "reason": f"disruption below {MIN_DISRUPTION[split]}"}
-    task = make_task(day, scopes[a, b], split, inputs, sources)
+    task = make_task(day, sc, "control", inputs, sources)
     return task, {**row, "task_id": task["task_id"]}
+
+
+def search(days: dict[tuple[str, str], Day], allowed: dict[tuple[str, str], list[tuple[int, int]]], cache: Path,
+           run: Callable) -> dict[tuple[str, str], dict | None]:
+    """Each day's window of most leverage among those passing the data-only clauses, a job per window."""
+    jobs = [(key, day, a * 60, b * 60, cache) for key, day in days.items() for a, b in allowed[key]]
+    by: dict[tuple[str, str], list[dict]] = {key: [] for key in days}
+    for job, r in zip(jobs, run(window_leverage, jobs), strict=True):
+        by[job[0]].append(r)
+    return {key: windows.most_leverage(rs) for key, rs in by.items()}
+
+
+def window_leverage(job: tuple) -> dict:
+    _, day, w0, w1, cache = job
+    return {"window": [w0, w1], **windows.leverage(scoped_task(day, scope(day, w0, w1), "train"), cache)}
 
 
 def context(d: str, hub: str, by_date: dict, near_by_date: dict, aircraft: dict, lf: dict) -> Day:
     tz = bts.airports()[hub]["tz"]
     base = bts.epoch_minutes(pd.Timestamp(d).tz_localize(tz).tz_convert("UTC").to_pydatetime())
     frames = [local(by_date[shift(d, k)], base) for k in (-1, 0, 1)]
-    around = local(pd.concat([near_by_date[shift(d, k)] for k in (-1, 0, 1) if shift(d, k) in near_by_date]), base)
+    around = local(pd.concat([near_by_date[shift(d, k)] for k in (-1, 0, 1) if shift(d, k) in near_by_date]),
+                   base)[AROUND]
     turn, turn_all = turns(frames[1], aircraft)
     return Day(d, hub, tz, base, *frames, around, aircraft, lf, turn, turn_all)
 
@@ -219,14 +286,20 @@ def scope(day: Day, w0: int, w1: int) -> Scope:
 
 
 def make_task(day: Day, sc: Scope, split: str, inputs: Path, sources: "Sources") -> dict:
+    task = scoped_task(day, sc, split)
+    horizon = max(f["sched_dep"] + f["dmax"] for f in task["flights"])
+    news, used = make_news(day, sc.start, horizon, inputs)
+    return {**task, "news": news, "sources": sources.of(day, sc, used)}
+
+
+def scoped_task(day: Day, sc: Scope, split: str) -> dict:
+    """The task without its news and sources: all that running a plan reads."""
     flights = make_flights(day, sc)
     tails = make_tails(day, sc)
     frozen = [{"flight": f"{CARRIER} {int(r.Flight_Number_Reporting_Airline)}", "orig": r.Origin, "dest": r.Dest,
                "dep": int(r.ad), "arr": None if pd.isna(r.aa) else int(r.aa), "tail": r.Tail_Number}
               for r in sc.frozen.sort_values(["ad", "Tail_Number"]).itertuples()]
     caps, nominal = make_caps(day, sc)
-    horizon = max(f["sched_dep"] + f["dmax"] for f in flights)
-    news, used = make_news(day, sc.start, horizon, inputs)
     codes = {f["orig"] for f in flights} | {f["dest"] for f in flights} | {r["dest"] for r in frozen} | {
         r["orig"] for r in frozen} | {t[k] for t in tails for k in ("pos", "end_req", "actual_end")}
     w0 = sc.window[0]
@@ -234,8 +307,8 @@ def make_task(day: Day, sc: Scope, split: str, inputs: Path, sources: "Sources")
         "task_id": f"{CARRIER.lower()}-{day.hub.lower()}-{day.date.replace('-', '')}-{w0 // 60:02d}{w0 % 60:02d}",
         "split": split, "carrier": CARRIER, "hub": day.hub, "date": day.date, "tz": day.tz, "window": list(sc.window),
         "start": sc.start, "turn": day.turn, "turn_all": day.turn_all, "dmax": DMAX, "airports": airports(codes),
-        "tails": tails, "flights": flights, "caps": caps, "nominal": nominal, "news": news, "frozen": frozen,
-        "reference": {}, "sources": sources.of(day, sc, used)}
+        "tails": tails, "flights": flights, "caps": caps, "nominal": nominal, "news": [], "frozen": frozen,
+        "reference": {}, "sources": {}}
 
 
 def make_flights(day: Day, sc: Scope) -> list[dict]:

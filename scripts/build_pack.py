@@ -5,11 +5,16 @@ IEM METARs, TAFs and forecast discussions), checks every input against the pins 
 the tasks (reference left empty for scripts/references.py) and writes tasks.jsonl, manifest.json and
 sources/<source>/SOURCE.md. A rerun on the same inputs writes the same bytes.
 
-    python scripts/build_pack.py [--months 2022-12,2023-06,2024-01] [--hubs JFK,BOS] [--offline] [--repin]
+    python scripts/build_pack.py [--months 2022-12,2023-06,...] [--hubs JFK,BOS] [--out DIR] [--name NAME]
+                                 [--workers N] [--offline] [--repin] [--keep-references]
+
+Each candidate's window is searched by solving the hindsight MIP of every window passing the data-only clauses, in
+--workers processes; the solutions are cached under --derived, so a rebuild reads them.
 """
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -25,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--inputs", type=Path, default=ROOT / "cache" / "inputs")
     ap.add_argument("--derived", type=Path, default=ROOT / "cache" / "derived")
     ap.add_argument("--out", type=Path, default=ROOT / "data" / "b6-v1")
+    ap.add_argument("--name", help="the pack's name in its manifest (default: the --out directory's)")
+    ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     ap.add_argument("--offline", action="store_true", help="download nothing: every input must be in --inputs")
     ap.add_argument("--repin", action="store_true", help="accept inputs whose sha256 differs from the manifest's pin")
     ap.add_argument("--keep-references", action="store_true",
@@ -40,15 +47,15 @@ def main(argv: list[str] | None = None) -> int:
         if changed:
             print("inputs differ from their pins (--repin accepts them):", *changed, sep="\n  ", file=sys.stderr)
             return 1
-    tasks, tried = pack.build(args.inputs, args.derived, months, hubs)
+    tasks, tried = pack.build(args.inputs, args.derived, months, hubs, args.workers)
     previous = args.out / "tasks.jsonl"
     if args.keep_references and previous.exists():
         kept = {t["task_id"]: t["reference"] for t in map(json.loads, previous.read_text().splitlines())}
         for t in tasks:
             t["reference"] = kept.get(t["task_id"], {})
     path = pack.write(tasks, args.out)
-    m = manifest.build_manifest(args.out.name, tasks, tried, current, fetch.fetched(args.inputs), fetch.sha256(path),
-                                months, hubs)
+    m = manifest.build_manifest(args.name or args.out.name, tasks, tried, current, fetch.fetched(args.inputs),
+                                fetch.sha256(path), months, hubs)
     manifest.write(args.out, m)
     print(json.dumps({"tasks": m["tasks"], "splits": m["splits"], "sha256": m["sha256"]}))
     return 0

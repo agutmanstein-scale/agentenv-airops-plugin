@@ -56,6 +56,23 @@ def test_the_window_is_the_shortest_holding_most_of_the_disruption():
     assert windows.choose({}, {14: 9, 6: 1}, lambda a, b: True)[:2] == (12, 15)
 
 
+def test_the_spans_start_on_the_hour_from_5_to_20_and_end_by_midnight():
+    spans = windows.spans()
+    assert len(spans) == 61 and spans[0] == (5, 8) and (20, 23) in spans and (21, 24) not in spans
+    assert all(3 <= b - a <= 6 and 5 <= a <= 20 and b <= 24 for a, b in spans)
+
+
+def test_the_candidate_window_is_the_proven_one_of_most_leverage():
+    def row(w0, w1, naive, proven=True):
+        return {"window": [w0 * 60, w1 * 60], "naive": naive, "hindsight": 100, "proven": proven}
+
+    rows = [row(9, 12, 115), row(14, 20, 130), row(13, 18, 140, proven=False), row(14, 17, 130), row(12, 18, 130)]
+    assert windows.most_leverage(rows)["window"] == [720, 1080]
+    assert windows.most_leverage(rows[1:2] + rows[3:4])["window"] == [840, 1020]
+    assert windows.gap(rows[0]) == 0.15
+    assert windows.most_leverage(rows[2:3]) is None
+
+
 def test_caps_are_the_rbs_share_of_realized_movements_never_below_the_scope():
     rows = []
     for k in range(10):

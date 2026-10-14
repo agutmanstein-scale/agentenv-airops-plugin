@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>AirOpsEnv on AgentEnv</title>
+  <script>
+    const DATASET = "https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/main";
+    const q = new URLSearchParams(location.search);
+    if (!q.has("episode") && !q.has("index")) q.set("index", `${DATASET}/viewer/episodes/index.json`);
+    location.replace(`viewer/index.html?${q}`);
+  </script>
+</head>
+<body><noscript>The replay viewer needs JavaScript.</noscript></body>
+</html>

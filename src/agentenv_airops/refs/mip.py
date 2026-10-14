@@ -47,9 +47,11 @@ class Solution:
 
 def solve(task: Task, lb: Mapping[int, int] | None = None, caps: Mapping[str, Mapping[int, int]] | None = None,
           fixed: Mapping[int, int | None] | None = None, earliest: int | None = None, floor: bool = False,
-          step: int = 1, time_limit: float = 60.0, gap: float = GAP, threads: int = 1) -> Solution:
+          step: int = 1, time_limit: float = 60.0, gap: float = GAP, threads: int = 1,
+          canonical: bool = False) -> Solution:
     """The optimum under ``lb`` and ``caps`` (the truth by default). ``fixed`` pins flights to a departure minute
-    (None: cancelled); the others leave at or after ``earliest``."""
+    (None: cancelled); the others leave at or after ``earliest``. ``canonical`` re-solves among the optimal plans for
+    the one with the earliest weighted departures, so the plan, not just its cost, is the same on every run."""
     lb = task.lb if lb is None else lb
     caps = task.caps if caps is None else caps
     fixed = fixed or {}
@@ -88,7 +90,7 @@ def solve(task: Task, lb: Mapping[int, int] | None = None, caps: Mapping[str, Ma
     for f in task.flights:
         turn = task.turn_for(f.family)
         for d in copies[f.id]:
-            c = m.col(f.pax * max(0, d + f.block - f.sched_arr), 1, True)
+            c = m.col(f.pax * max(0, d + f.block - f.sched_arr), 1, True, (d - f.sched_dep + 1) * _weight(task, f.id))
             xs[(f.id, d)] = c
             arc(node[((f.family, f.orig), d)], node[((f.family, f.dest), d + f.block + turn)], c)
             cover[f.id][c] = 1
@@ -99,7 +101,7 @@ def solve(task: Task, lb: Mapping[int, int] | None = None, caps: Mapping[str, Ma
                     else:
                         capr[(key, tm // 60)][c] = 1
         flies = f.id in fixed and fixed[f.id] is not None
-        cover[f.id][m.col(cancel_cost(f.pax), 0 if flies else 1, True)] = 1
+        cover[f.id][m.col(cancel_cost(f.pax), 0 if flies else 1, True, (f.dmax + 2) * _weight(task, f.id))] = 1
     if not floor:
         n_tails = len(task.tails)
         for key, ts in events.items():
@@ -129,6 +131,11 @@ def solve(task: Task, lb: Mapping[int, int] | None = None, caps: Mapping[str, Ma
     for (key, h), r in capr.items():
         m.row(r, -highspy.kHighsInf, max(0, caps[key][h] - pinned_use[(key, h)]))
     status, objective, bound, mip_gap, wall, x = m.run(time_limit, gap, threads)
+    if canonical and status == "Optimal":
+        m.row({c: v for c, v in enumerate(m.cost) if v}, -highspy.kHighsInf, round(objective) + 0.5)
+        m.cost, main = m.second, m.cost
+        status, _, _, _, wall_second, x = m.run(time_limit, 0.0, threads)
+        m.cost, wall = main, wall + wall_second
     deps = {}
     for f in task.flights:
         flown = [d for d in copies[f.id] if x[xs[(f.id, d)]] > 0.5]
@@ -137,12 +144,17 @@ def solve(task: Task, lb: Mapping[int, int] | None = None, caps: Mapping[str, Ma
                     len(m.rows))
 
 
+def _weight(task: Task, i: int) -> float:
+    return 1 + i / (len(task.flights) + 1)
+
+
 class _Model:
     def __init__(self):
-        self.cost, self.ub, self.integer, self.rows = [], [], [], []
+        self.cost, self.second, self.ub, self.integer, self.rows = [], [], [], [], []
 
-    def col(self, cost: int, ub: int, integer: bool) -> int:
+    def col(self, cost: int, ub: int, integer: bool, second: float = 0.0) -> int:
         self.cost.append(cost)
+        self.second.append(second)
         self.ub.append(ub)
         self.integer.append(integer)
         return len(self.cost) - 1

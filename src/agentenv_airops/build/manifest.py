@@ -110,20 +110,28 @@ def build_manifest(name: str, tasks: list[dict], tried: list[dict], pinned: dict
         "name": name, "carrier": pack.CARRIER, "hubs": hubs, "months": months, "tasks": len(tasks),
         "splits": splits, "sha256": tasks_sha256,
         "rules": {
-            "window": f"whole local hours, {windows.MIN_HOURS} to {windows.MAX_HOURS}, from "
-                      f"{windows.FIRST_HOUR:02d}:00 to {windows.LAST_HOUR:02d}:00: the shortest window "
-                      f"holding {windows.SHARE:.0%} of the most hub disruption any window passing the clauses "
-                      f"holds (disruption = {windows.CANCEL_WEIGHT} per B6 hub movement cancelled with code B "
-                      "or C + its weather and NAS delay minutes); then most disrupted, busiest, earliest",
+            "window": f"whole local hours, {windows.MIN_HOURS} to {windows.MAX_HOURS}, starting from "
+                      f"{windows.FIRST_HOUR:02d}:00 to {windows.LAST_START:02d}:00 and ending by "
+                      f"{windows.LAST_HOUR:02d}:00, passing the clauses. A candidate's is the one of most leverage: "
+                      "the largest (naive - hindsight) / hindsight, naive the empty plan run by core.sim.execute and "
+                      f"hindsight the MIP optimum (refs.mip, proven within {windows.PROVE_SECONDS:.0f} s), ties to "
+                      "the earlier start, then the shorter. A control's is its disruption window: the shortest "
+                      f"holding {windows.SHARE:.0%} of the most hub disruption any window passing the clauses holds "
+                      f"(disruption = {windows.CANCEL_WEIGHT} per B6 hub movement cancelled with code B or C + its "
+                      "weather and NAS delay minutes); then most disrupted, busiest, earliest",
             "clauses": {"tails_known": "every B6 hub movement in the window has a tail, and every tail is typed",
                         "weather_causes": f"(B+C)/(A+B+C) of the airline's cancellations in scope >= "
                                           f"{pack.MIN_WEATHER_SHARE}, vacuous with none",
                         "size": f"{pack.MIN_TAILS} to {pack.MAX_TAILS} tails"},
-            "disruption": {**pack.MIN_DISRUPTION, "control": "no airline cancellation in scope"},
-            "days": "a day whose previous and next days are in the loaded months; eval days are "
-                    f"{', '.join(pack.EVAL_DAYS)} at every hub; controls the first hub passing of "
-                    + "; ".join(f"{d} ({', '.join(h)})" for d, h in pack.CONTROL_DAYS)
-                    + "; train every other day and hub",
+            "disruption": {"candidates": f"the {pack.SHORTLIST} (day, hub) of most disruption in their disruption "
+                                         f"window, at least {pack.MIN_DISRUPTION}",
+                           "control": "no airline cancellation in scope"},
+            "days": "a day whose previous and next days are in the loaded months; controls the first hub passing "
+                    "of " + "; ".join(f"{d} ({', '.join(h)})" for d, h in pack.CONTROL_DAYS)
+                    + "; eval the candidates of most leverage passing every clause of scripts/references.py screen "
+                    "(naive >= 10% above the anchor, the follower <= 15% above hindsight, hindsight proven), at most "
+                    "one per (date, hub): " + ", ".join(f"{d} {h}" for d, h in pack.EVAL)
+                    + "; train every other candidate on a date with no eval or control task",
             "news": f"advisories signed from start - {pack.NEWS_BEFORE} min, routine METARs from start - "
                     f"{pack.METAR_BEFORE} min, the TAF and forecast discussion in force at start; all up to the "
                     "latest flight's sched_dep + dmax",
@@ -138,6 +146,7 @@ def build_manifest(name: str, tasks: list[dict], tried: list[dict], pinned: dict
         "attempts": reasons,
         "summary": [pack.summary(t) for t in tasks],
         "dropped": [r for r in tried if r["split"] != "train" and not r.get("task_id")],
+        "candidates": [r for r in tried if "naive_gap" in r],
         "inputs": inputs,
         "airportsdata": {"version": airportsdata.__version__, "airports.csv": airports_csv()},
     }
