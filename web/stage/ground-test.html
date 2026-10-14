@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AirOpsEnv · airport</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; overflow: hidden; font: 12px/1.4 Inter, system-ui, sans-serif; }
+  canvas { display: block; }
+  #hud { position: fixed; left: 12px; bottom: 10px; color: #e9eef4; background: rgba(12, 18, 26, 0.6); padding: 5px 10px; border-radius: 999px; }
+  #hud a { color: #9fc6ff; margin-left: 6px; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="hud"></div>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { loadMoment, loadStage, toScene } from "./data.js";
+import { buildEnvironment } from "./env.js";
+import { buildGround, cameraPresets } from "./ground.js";
+import { buildBuildings } from "./buildings.js";
+import { buildWeather } from "./weather.js";
+
+const Q = new URLSearchParams(location.search);
+const base = Q.get("base") || "../../cache/stage/BOS/";
+const camName = Q.get("cam") || "tower";
+let t = +(Q.get("t") || 1035);
+const [stage, moment] = await Promise.all([loadStage(`${base}stage.json.gz`), loadMoment(`${base}${Q.get("moment") || "moment-bos-20250216.json"}`)]);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, preserveDrawingBuffer: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.5, 60000);
+
+const env = buildEnvironment(renderer, scene, stage, moment);
+const ground = await buildGround(stage, base, { approach: [moment.runways_in_use?.arrivals, "4R"].filter(Boolean) });
+scene.add(ground.group);
+const buildings = buildBuildings(stage);
+scene.add(buildings.group);
+const weather = buildWeather(scene);
+
+const CAMERAS = cameraPresets(stage, moment);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.maxPolarAngle = 1.53;
+controls.screenSpacePanning = false;
+
+if (Q.get("pos")) CAMERAS.custom = { position: Q.get("pos").split(",").map(Number), target: (Q.get("look") || "0,0,0").split(",").map(Number), fov: +(Q.get("fov") || 50) };
+
+function setCam(name) {
+  const c = CAMERAS[name] || CAMERAS.tower;
+  camera.position.copy(toScene(c.position, c.position[2]));
+  controls.target.copy(toScene(c.target, c.target[2]));
+  camera.fov = c.fov;
+  camera.updateProjectionMatrix();
+  controls.update();
+}
+setCam(camName);
+
+const hud = document.getElementById("hud");
+const clock = new THREE.Clock();
+function frame() {
+  const dt = clock.getDelta();
+  const s = env.update(t);
+  const w = env.weatherAt(t);
+  ground.update(t, s.atm.day, w);
+  buildings.update(t, s.atm.day);
+  weather.update(dt, t, w, camera);
+  controls.update();
+  renderer.render(scene, camera);
+}
+const hh = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(Math.round(m % 60)).padStart(2, "0")}`;
+function label() {
+  const w = env.weatherAt(t);
+  hud.innerHTML = `${hh(t)} · ${w.metar || ""} · ${Object.keys(CAMERAS).map((k) => `<a href="?t=${t}&cam=${k}">${k}</a>`).join("")}`;
+}
+label();
+renderer.setAnimationLoop(frame);
+addEventListener("resize", () => {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+});
+
+const farOk = await ground.ready;
+renderer.setAnimationLoop(null);
+for (let i = 0; i < 4; i++) frame();
+const gl = renderer.getContext();
+const px = new Uint8Array(4);
+const N = 20;
+const t0 = performance.now();
+for (let i = 0; i < N; i++) {
+  frame();
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+}
+const ms = (performance.now() - t0) / N;
+const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+window.groundTest = {
+  n: Q.get("n"),
+  ms: +ms.toFixed(2),
+  calls: renderer.info.render.calls,
+  tris: renderer.info.render.triangles,
+  lamps: ground.lampCount,
+  masts: ground.masts.length,
+  far: farOk,
+  gpu: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : "",
+  sun: env.sunAt(t),
+  daylight: env.daylight(t),
+  cameras: CAMERAS,
+  setT: (v) => { t = v; label(); },
+  setCam,
+  scene,
+  camera,
+};
+renderer.setAnimationLoop(frame);
+</script>
+</body>
+</html>
