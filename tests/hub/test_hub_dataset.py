@@ -5,7 +5,6 @@ static Space it assembles."""
 import io
 import json
 import re
-import shutil
 import sys
 import tomllib
 from pathlib import Path
@@ -264,10 +263,13 @@ def test_messages_are_typed_as_agentenv_hf_types_a_transcript(hub):
 def test_the_dry_build_copies_the_radar_and_twin_the_viewer_episodes_point_at(hub, local_stores, tmp_path,
                                                                                 monkeypatch):
     _sweep(tmp_path, (E2E / "e2e-transcript.json").read_bytes())
-    cache = tmp_path / "cache"
-    shutil.copytree(ROOT / "cache" / "twin", cache / "twin", ignore=shutil.ignore_patterns("raw"))
+    twin = tmp_path / "cache" / "twin"
+    twin.mkdir(parents=True)
+    (twin / "JFK.geojson").write_text('{"type": "FeatureCollection", "features": []}')
+    (twin / "index.json").write_text(json.dumps({"JFK": {"url": "JFK.geojson", "sha256": "0" * 64,
+                                                         "attribution": "© OpenStreetMap contributors"}}))
     out = _dry_build(hub, tmp_path, monkeypatch, "--pack", str(DAY))
     [entry] = json.loads((out / "viewer/episodes/index.json").read_text())["episodes"]
     episode = json.loads((out / "viewer/episodes" / entry["url"]).read_text())
     assert episode["twin"]["url"] == "../twin/JFK.geojson"
-    assert (out / "viewer/twin/JFK.geojson").read_bytes() == (cache / "twin/JFK.geojson").read_bytes()
+    assert (out / "viewer/twin/JFK.geojson").read_bytes() == (twin / "JFK.geojson").read_bytes()

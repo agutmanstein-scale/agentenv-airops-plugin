@@ -88,8 +88,8 @@ export class MapView {
 
 function radarLayers(view, frame, hub) {
   const r = frame.radar;
-  if (!r || !view.radar) return [];
-  const base = (hub ? 0.32 : 0.72);
+  if (!r || !view.radar || hub) return [];
+  const base = 0.72;
   const out = [];
   for (const [key, img, a] of [["a", r.a, 1 - r.f], ["b", r.b, r.f]]) {
     if (!img || a <= 0.001) continue;

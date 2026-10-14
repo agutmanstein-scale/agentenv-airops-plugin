@@ -5,6 +5,11 @@
 [![Dataset on Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-days%20and%20runs-yellow)](https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv)
 [![Replay Space on Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Space-replays-yellow)](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv)
 
+<p align="center">
+  <a href="https://github.com/earakely-scale/agentenv-airops-plugin/releases/tag/v0.1.0"><img src="assets/airops-hero.webp" width="100%" alt="GPT-6.1 Sol runs JetBlue's Boston operations desk through the storm of 16 February 2025 on AgentEnv: NEXRAD radar over the network map, the 3D Terminal C from OpenStreetMap, the tail chart with the FAA's hourly slot caps, and the ops panel with the Command Center's advisories and the TAF as issued"></a>
+</p>
+<p align="center"><sub>GPT-6.1 Sol runs JetBlue's Boston desk through the storm of Sunday 16 February 2025 (<code>b6-bos-20250216-1500</code>): 81 flights to 38 airports, 12 hourly watches on AgentEnv's virtual clock. The FAA Command Center's ground delay program, three ground stops and their cancellations reach it as they were issued, with 8 TAFs and 21 METARs. In 21 planning calls it cancels and holds flights; the day, flown on what really happened, costs 11.3% more than the plan a MIP proves optimal in hindsight: reward 0.672. The re-planning reference scores 0.937, doing nothing 0.366 and JetBlue's own decisions that day 0.224. Replayed on the env's viewer; <a href="https://github.com/earakely-scale/agentenv-airops-plugin/releases/tag/v0.1.0">full film</a>. Basemap © OpenStreetMap contributors via OpenFreeMap; hub twin © OpenStreetMap contributors (ODbL); radar NEXRAD n0q via the Iowa Environmental Mesonet.</sub></p>
+
 An agent runs the JetBlue operations desk at one of its hubs, JFK or Boston, on a real day that went wrong:
 thunderstorms, snow or wind, and the FAA ground stops and ground delay programs that followed, cut how many JetBlue
 flights could land and take off each hour. Watch by watch, on AgentEnv's virtual clock, it cancels, restores and holds
@@ -57,7 +62,7 @@ reference) and the verifier scores it. Then play a day with a model on the endpo
 `.agentenv/config.toml` names (LiteLLM, or the Hugging Face router):
 
 ```bash
-agent-env run airops --task b6-jfk-20240109-1800 --model anthropic/claude-sonnet-5-5
+agent-env run airops --task b6-bos-20250216-1500 --model openai/gpt-6.1-sol
 ```
 
 From a checkout, `uv sync --extra dev --extra viewer` (or `pip install -e '.[dev,viewer]'`) and the same commands.
@@ -65,8 +70,13 @@ From a checkout, `uv sync --extra dev --extra viewer` (or `pip install -e '.[dev
 
 ## The day
 
-A task is one hub window on a real day of the pack `b6-v1` (JetBlue, JFK and Boston): 22 eval days, 3 control days
-(no cancellation in scope) and 23 training days, with 23 to 191 flights on 30 to 54 aircraft.
+A task is one hub window on a real day of the pack `b6-v1` (JetBlue, JFK and Boston), built from 13 months of 2022 to
+2025: 20 eval days, 3 control days (no cancellation in scope) and 34 training days, with 59 to 194 flights on 30 to 59
+aircraft and 10 to 22 watches. The eval days span 7 months of thunderstorms and winter storms, 12 at JFK and 8 at
+Boston. Each day's window is the 3 to 6 hours where planning matters most: the largest gap between doing nothing and
+the hindsight optimum, among windows where every flight has its aircraft, weather and air traffic control caused at
+least 80% of the cancellations, and 30 to 80 aircraft are in play. An eval day also needs doing nothing to cost at
+least 10% over the optimum, the follower to land within 15% of it, and the optimum proven within 60 seconds.
 
 - **Watches.** The first watch is an hour before the disruption window; a watch every hour after it, until every delay
   and cap is known (or no flight is left to decide). Time only passes when the planner calls `advance`.
@@ -94,7 +104,7 @@ A task is one hub window on a real day of the pack `b6-v1` (JetBlue, JFK and Bos
 The final plan is flown on the truth (`core.sim.execute`). Its cost, in passenger-minutes, is each passenger's
 arrival delay, plus 523 per passenger on a cancelled flight, plus the ferries. The reward is
 0.2 + 0.8 exp(−g/0.5), g = max(0, cost − anchor) / (anchor − floor + 0.02 anchor): 1.0 at the anchor, the hindsight
-optimum, and 0.2 for any day, since the env never strands a flight. A day that never finished or whose news broke the
+optimum, and never below 0.2, since the env never strands a flight. A day that never finished or whose news broke the
 reveal schedule fails the verifier and is not scored.
 
 | Reference | What it is |
@@ -106,7 +116,28 @@ reveal schedule fails the verifier and is not scored.
 | naive | the empty plan: every flight as early as it can |
 | airline | JetBlue's own cancellations and departure times as the plan (shown, never the anchor) |
 
-`scripts/references.py` computes them into each task line; a day without them can be played but not scored.
+`scripts/references.py` computes them into each task line; a day without them can be played but not scored. The
+follower's watch solves prove their optimum and then pick, among the optimal plans, the one with the earliest weighted
+departures, so the references come out the same on every run and machine.
+
+## Results
+
+GPT-6.1 Sol on 5 eval days, one run each through the real DAG on local Docker (`sol-v1`, $2.99 in all). Every run
+finished, passed the verifier's audit, and replays byte for byte through the env's day.
+
+| Day | Flights | Watches | GPT-6.1 Sol | Follower | Blind follower | Doing nothing | JetBlue |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `b6-bos-20250216-1500` | 81 | 12 | **0.672** | 0.937 | 0.937 | 0.366 | 0.224 |
+| `b6-jfk-20230714-1400` | 91 | 13 | **0.441** | 0.782 | 0.229 | 0.212 | 0.200 |
+| `b6-jfk-20240804-0700` | 149 | 20 | **0.382** | 0.901 | 0.627 | 0.213 | 0.202 |
+| `b6-jfk-20250709-1500` | 76 | 12 | **0.324** | 0.614 | 0.743 | 0.224 | 0.200 |
+| `b6-bos-20240107-0600` | 188 | 19 | **0.276** | 0.417 | 0.436 | 0.220 | 0.202 |
+| **Mean** | | | **0.419** | 0.730 | 0.594 | 0.247 | 0.206 |
+
+Sol beats doing nothing and JetBlue's own decisions on every day, and stays well below the re-planning reference: on
+average its day costs 18.9% over the hindsight optimum. JetBlue's real day scores near the floor of the reward because
+it cancelled far more than the passenger-centric cost favours, with crews and information this model leaves out; it is
+shown, never the anchor. One run per day, so these are a first look, not a board.
 
 ## Play a model: sweeps
 
@@ -134,8 +165,8 @@ agent-env airops sweep report pilot           # results/airops.md
 ## Watch a run
 
 ```bash
-agent-env airops view pilot                   # http://127.0.0.1:8238/web/
-agent-env airops record pilot --task b6-jfk-20240109-1800 --out cache/films/pilot.mp4 --cut 1080:hub
+agent-env airops view sol-v1                  # http://127.0.0.1:8238/web/
+agent-env airops record sol-v1 --task b6-bos-20250216-1500 --out cache/films/sol.mp4 --cut 1020:hub
 ```
 
 `view` replays every scored run of the sweeps through the env's day (`agentenv_airops.episodes`): each recorded tool
@@ -159,9 +190,8 @@ board and its eval card (`results/eval-v1.json`), agentenv-hf's tables and the b
 under `viewer/`, and the raw sweeps under `runs/`. agentenv-hf scans every file for keys and token shapes first.
 
 ```bash
-python scripts/hub_dataset.py --out cache/hub/dataset --space-out cache/hub/space \
-    --fixture cache/episodes/fixture.follower.b6-bos-20240106-1900.json
-python scripts/hub_dataset.py --out cache/hub/dataset --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.1.0
+python scripts/hub_dataset.py sol-v1 --out cache/hub/dataset --space-out cache/hub/space
+python scripts/hub_dataset.py sol-v1 --out cache/hub/dataset --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.1.0
 ```
 
 The [replay Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv) is static: `hub/space/` and the
@@ -189,9 +219,8 @@ AirOpsEnv v1 is a model of a day, not an airline's operations system. What it le
   line and release it once the truth is known.
 - **The weather is text.** The planner reads METARs, TAFs, the forecast discussion and the FAA's advisories; the radar
   in the viewer is for people.
-- **Reproducibility of the follower.** HiGHS can return different optimal solutions to the same watch, so the
-  follower's cost on the truth can differ slightly from run to run; the stored reference is one run's. The anchor
-  (a proven optimum's objective) does not move.
+- **The anchor is hindsight.** It knows every delay and cap in advance, so 1.0 is out of reach online; the follower,
+  re-planning on the day as known, is the online reference. No excuse is given for news after a flight's freeze.
 
 ## Repository
 
