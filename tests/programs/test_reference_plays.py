@@ -32,6 +32,13 @@ def committed_then_stopped():
                advisories=(adv("s1", "gs", 90, 90, 300),))
 
 
+def released_early():
+    """A ground stop issued to 05:00 and cancelled at 02:30, after which the flight it held may leave."""
+    flights = [flight(0, "BUF", "JFK", 100, 60, deadline=900), flight(1, "JFK", "MCO", 500, 150)]
+    return day(flights, [tail("N1", "BUF", end="JFK"), tail("N2", "JFK", end="MCO")], stops=(stop(0, 150),),
+               advisories=(adv("s1", "gs", -30, 0, 300), adv("c1", "gs_cnx", 150, 150, None)))
+
+
 def test_watches_run_hourly_until_every_delay_is_known():
     task = stopped_then_released()
     assert references.watch_times(task) == [0, 60, 120, 180, 240, 300, 360, 420]
@@ -62,8 +69,19 @@ def test_neither_the_rule_nor_the_follower_cancels_a_flight_once_it_is_committed
     task = committed_then_stopped()
     rule, followed = references.rule(task), references.follow(task)
     assert [w["cancelled"] for w in rule.watches] == [[]] * len(rule.watches)
-    assert not followed.plan[0].get("cancel") and followed.run.flights[0].status == "auto_cancelled"
+    assert not followed.plan.get(0, {}).get("cancel") and followed.run.flights[0].status == "auto_cancelled"
     assert rule.run.flights[0].decided == followed.run.flights[0].decided == 220
+
+
+def test_the_follower_holds_only_what_it_decides_to_and_a_flight_it_did_not_hold_leaves_when_the_stop_ends():
+    task = released_early()
+    followed = references.follow(task)
+    assert 0 not in followed.plan and followed.run.flights[0].dep == 150
+    assert [w["held"] for w in followed.watches] == [0] * len(followed.watches)
+    world = sim.known(task, 0)
+    assert references.deliberate(task, {}, {0: 300, 1: 500}, world, 0) == {}
+    assert references.deliberate(task, {}, {0: 330, 1: 500}, world, 0) == {0: 330}
+    assert references.deliberate(task, {0: {"cancel": True, "decided": 0}}, {1: 520}, world, 0) == {1: 520}
 
 
 def test_each_cancellation_is_priced_at_the_watch_that_confirms_it():

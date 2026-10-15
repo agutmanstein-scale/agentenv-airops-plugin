@@ -4,9 +4,11 @@
 - follower: at every watch (M13) the MIP on the day as known (M12; unknown delays 0, W6; the programs as issued, a
   proposed GDP included), its plan frozen as the env freezes (M11): a flight the plan, run on that day, has leaving
   before t + FREEZE commits to fly; a projected auto-cancel stays open until its deadline - FREEZE; a cancellation is
-  final from the watch that confirms it, priced there and fixed in every later solve (W21). As v1's, its plan holds
-  each flight to the minute its last solve gave it, and that plan runs on the truth; every watch solve is canonical
-  (the earliest optimal departures, v1's), and starts from the plan's own projection, so no truth reaches the search;
+  final from the watch that confirms it, priced there and fixed in every later solve (W21). Its plan holds a flight
+  only where its last solve has it leaving later than it would with no hold on the day as known (`deliberate`): an
+  EDCT or a stop the forecast expects is the FAA's, not the desk's, so on the truth a flight the desk did not hold
+  leaves as soon as its aircraft, the stops and its slot allow (M11). Every watch solve is canonical (the earliest
+  optimal departures, v1's) and starts from the plan's own projection, so no truth reaches the search;
 - program-blind follower: the follower with every program removed from its model (the nominal caps stay);
 - rule: at every watch, cancel what the plan run on the day as known auto-cancels while it is still open and not
   committed (a flight an earlier watch had leaving before its freeze line commits to fly, as in the follower);
@@ -96,20 +98,23 @@ def follow(task: Task, programs: bool = True, time_limit: float = 600.0, canonic
                         canonical=canonical, start=run)
         if not sol.proven:
             raise RuntimeError(f"{task.task_id}: watch {t} solve {sol.status} at gap {sol.gap_pct}%")
-        cancelled = []
-        for i, d in sol.deps.items():
-            if i in pinned:
-                continue
-            if d is None:
-                plan[i] = {"cancel": True, "decided": t}
-                pinned.add(i)
-                cancelled.append(i)
-            else:
-                plan[i] = {"not_before": d}
-        log.append({"t": t, "frozen": len(pinned), "cancelled": cancelled, "planned": sol.objective,
-                    "status": sol.status, "gap_pct": sol.gap_pct, "wall_s": sol.wall_s, "cols": sol.cols,
-                    "rows": sol.rows})
+        cancelled = sorted(i for i, d in sol.deps.items() if i not in pinned and d is None)
+        plan = {i: v for i, v in plan.items() if i in pinned} | {i: {"cancel": True, "decided": t} for i in cancelled}
+        pinned |= set(cancelled)
+        held = deliberate(task, plan, {i: d for i, d in sol.deps.items() if i not in pinned}, world, t)
+        plan |= {i: {"not_before": d} for i, d in held.items()}
+        log.append({"t": t, "frozen": len(pinned), "cancelled": cancelled, "held": len(held),
+                    "planned": sol.objective, "status": sol.status, "gap_pct": sol.gap_pct, "wall_s": sol.wall_s,
+                    "cols": sol.cols, "rows": sol.rows})
     return Followed(plan, sim.execute(task, plan), tuple(log))
+
+
+def deliberate(task: Task, plan: Mapping[int, Mapping], deps: Mapping[int, int], world: sim.World,
+               t: int) -> dict[int, int]:
+    """The holds of a solve at watch t: each open flight's departure in `deps` that is later than the one `plan`
+    (without a hold on any open flight) gives it on the day as known."""
+    free = sim.execute(task, so_far(task, plan, t), world).flights
+    return {i: d for i, d in deps.items() if free[i].status != FLOWN or d > free[i].dep}
 
 
 def rule(task: Task) -> Followed:
