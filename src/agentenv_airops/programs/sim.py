@@ -25,8 +25,9 @@ auto-cancels there, decided there.
 
 Moves are fixed and uncosted, and decoupled: an aircraft of the tail's family appears at the Move's destination,
 ready at its `ready`, and the first aircraft of that family ready at its origin from `leave` on leaves, before any
-flight at the same minute. If none ever comes, the family ends the day one aircraft spare, which needs no ferry. At
-the end of the day v1's ferries put the aircraft on tomorrow's needs.
+flight at the same minute. If none ever comes, the family ends the day one aircraft spare, which needs no ferry. A busy
+block keeps the aircraft that flew its leg until the block's ready time, if that is later than its turn; a cancelled
+leg has none. At the end of the day v1's ferries put the aircraft on tomorrow's needs.
 
 A World is what a day runs on: the truth (the task's lb, truth blocks and programs as they ran), the day as known at
 a watch (M12: lb and the truth block once the scheduled departure is within LOOK, else 0 and the scheduled block, the
@@ -195,7 +196,7 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
         at[(t.family, t.pos)].add(t.tail)
     sinks = []
     for t in task.tails:
-        for k, m in enumerate((*t.repositions, *t.busy)):
+        for k, m in enumerate(t.repositions):
             name = f"{t.tail}~{k}"
             ready[name], family[name] = m.ready, t.family
             at[(t.family, m.dest)].add(name)
@@ -249,7 +250,7 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
         p = min(free, key=lambda p: (ready[p], p))
         here.remove(p)
         arr = t + world.block[i]
-        ready[p] = arr + task.turn_for(f.family)
+        ready[p] = task.back(f, arr)
         at[(f.family, f.dest)].add(p)
         if slot is not None:
             taken.add(slot)

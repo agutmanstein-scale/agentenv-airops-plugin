@@ -88,6 +88,6 @@ def test_every_chain_connects_or_repositions_and_pax_fit_the_smallest_tail(task)
         assert not legs or legs[0].orig == t.pos
         breaks = [(a.dest, b.orig) for a, b in zip(legs, legs[1:], strict=False) if a.dest != b.orig]
         assert breaks == [(m.orig, m.dest) for m in t.repositions]
-        assert all(m.orig == m.dest and m.ready > m.leave for m in t.busy)
+        assert all(b.leg in t.legs[:-1] and b.ready > task.flight(b.leg).sched_arr for b in t.busy)
     assert all(f.pax == min(f.pax_raw, *seats[f.family]) for f in task.flights)
     assert {f.family for f in task.flights} <= set(task.turn)

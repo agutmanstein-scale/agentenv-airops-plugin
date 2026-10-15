@@ -7,7 +7,7 @@ everything the truth, the forecast and the references read, and nothing they wou
   flight controlled or GS-held on its recorded departure, the out-and-back `pair`, the `deadline` and
   JetBlue's recorded outcome;
 - tails: split family, the schedule's position and ready time, their legs in scheduled order, same-station gaps as
-  busy blocks and chain breaks as fixed repositionings (scope closure), and tomorrow's need;
+  busy blocks on the leg before them and chain breaks as fixed repositionings (scope closure), and tomorrow's need;
 - programs per hub (both hubs in every task): the advisories as parsed, the in-sample unseen arrivals per hour of
   each GDP or proposed advisory and the airport's scale, the truth segments with JetBlue's slot pool, the ground-stop
   pieces, the VMC called arrival rate, and the demand: every BTS-scheduled arrival at the hub over the task, so the
@@ -103,8 +103,7 @@ class Move:
     """A tail away from the schedule's flying, fixed and uncosted. Decoupled: an aircraft of its family is ready at
     `dest` at `ready`, and one leaves `orig` at the first moment from `leave` that one is there. A repositioning
     closes a chain break (`ready` before `leave` where BTS shows a swap: the cancelled legs keep the tail they were
-    assigned, the flown ones the tail that flew them); a same-station Move is a busy block, a long daytime gap that
-    likely hides an international leg BTS lacks."""
+    assigned, the flown ones the tail that flew them)."""
 
     orig: str
     dest: str
@@ -120,6 +119,23 @@ class Move:
 
 
 @dataclass(frozen=True)
+class Busy:
+    """A long daytime same-station gap in a tail's schedule, which likely hides an international leg BTS lacks: the
+    aircraft that flies `leg` is busy after it lands until `ready`, or to the end of its turn if that is later. A
+    cancelled `leg` has no block, so nothing is taken or added."""
+
+    leg: int
+    ready: int
+
+    @classmethod
+    def from_dict(cls, d: Mapping) -> "Busy":
+        return cls(d["leg"], d["ready"])
+
+    def to_dict(self) -> dict:
+        return {"leg": self.leg, "ready": self.ready}
+
+
+@dataclass(frozen=True)
 class Tail:
     """`pos` and `ready` already close a break before the first leg (the tail reappears at its origin, ready at its
     scheduled departure less the turn); `legs` are its flights in scheduled order, cancelled ones included."""
@@ -131,7 +147,7 @@ class Tail:
     pos: str
     ready: int
     legs: tuple[int, ...]
-    busy: tuple[Move, ...]
+    busy: tuple[Busy, ...]
     repositions: tuple[Move, ...]
     end_req: str
     actual_end: str
@@ -139,12 +155,12 @@ class Tail:
     @classmethod
     def from_dict(cls, d: Mapping) -> "Tail":
         return cls(d["tail"], d["family"], d["type"], d["seats"], d["pos"], d["ready"], tuple(d["legs"]),
-                   tuple(Move.from_dict(m) for m in d["busy"]), tuple(Move.from_dict(m) for m in d["repositions"]),
+                   tuple(Busy.from_dict(b) for b in d["busy"]), tuple(Move.from_dict(m) for m in d["repositions"]),
                    d["end_req"], d["actual_end"])
 
     def to_dict(self) -> dict:
         return {"tail": self.tail, "family": self.family, "type": self.type, "seats": self.seats, "pos": self.pos,
-                "ready": self.ready, "legs": list(self.legs), "busy": [m.to_dict() for m in self.busy],
+                "ready": self.ready, "legs": list(self.legs), "busy": [b.to_dict() for b in self.busy],
                 "repositions": [m.to_dict() for m in self.repositions], "end_req": self.end_req,
                 "actual_end": self.actual_end}
 
@@ -306,6 +322,14 @@ class Task:
 
     def turn_for(self, family: str) -> int:
         return self.turn[family]
+
+    def back(self, f: Flight, arr: int) -> int:
+        """When the aircraft that flew f, landing at `arr`, is ready again: after its turn or a busy block on f."""
+        return max(arr + self.turn_for(f.family), self._busy.get(f.id, arr))
+
+    @cached_property
+    def _busy(self) -> dict[int, int]:
+        return {b.leg: b.ready for t in self.tails for b in t.busy}
 
     def earliest(self, f: Flight, lb: int) -> int:
         """Nothing in scope leaves before the first watch; an early departure (lb < 0) leaves before its schedule."""

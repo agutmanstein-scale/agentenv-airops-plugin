@@ -1,6 +1,6 @@
 from dataclasses import replace
 
-from day_helpers import GDP, day, flight, stop, tail, three_into_a_program
+from day_helpers import GDP, busy_day, day, flight, stop, tail, three_into_a_program
 
 from agentenv_airops.programs import sim
 from agentenv_airops.programs.model import Move
@@ -82,11 +82,24 @@ def test_a_move_adds_an_aircraft_at_its_destination_and_takes_the_first_one_at_i
 
 def test_a_waiting_move_takes_the_aircraft_before_a_flight_at_the_same_minute():
     flights = [flight(0, "JFK", "BUF", 100, 60, deadline=600)]
-    busy = (Move("JFK", "JFK", 100, 400),)
-    run = sim.execute(day(flights, [tail("N1", "JFK", busy=busy)]), {})
+
+    def moved(leave):
+        return day(flights, [tail("N1", "JFK", repositions=(Move("JFK", "DCA", leave, 50),)), tail("N2", "JFK", 400)])
+
+    run = sim.execute(moved(100), {})
     assert (run.flights[0].dep, run.moves) == (400, {"N1~0": 100})
-    run = sim.execute(day(flights, [tail("N1", "JFK", busy=(Move("JFK", "JFK", 101, 400),))]), {})
+    run = sim.execute(moved(101), {})
     assert (run.flights[0].dep, run.moves) == (100, {"N1~0": 400})
+
+
+def test_a_busy_block_keeps_the_aircraft_that_flew_its_leg_and_a_cancelled_leg_has_none():
+    task = busy_day()
+    run = sim.execute(task, {})
+    assert [(r.tail, r.dep) for r in run.flights.values()] == [("N2", 160), ("N1", 170), ("N2", 430)]
+    assert not run.moves and not run.spare
+    run = sim.execute(task, {0: {"cancel": True}})
+    assert [(r.status, r.tail, r.dep) for r in run.flights.values()] == [
+        ("cancelled", None, None), ("flown", "N1", 170), ("auto_cancelled", None, None)]
 
 
 def test_the_day_as_known_hides_delays_and_true_blocks_until_look():

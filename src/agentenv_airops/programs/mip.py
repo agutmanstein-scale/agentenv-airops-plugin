@@ -8,9 +8,10 @@ arrival hour (the minute plus the block). A copy costs its pax x minutes late at
 notice price at the solve time, which keeps the model linear, or the flat 523 per passenger. Pinned flights keep their
 minute or their cancellation, and use up the slots and nominal room they take.
 
-Aircraft flow as in v1, over nodes per (family, station) at every event time, with the Moves on top. A Move adds an
-aircraft at its destination at `ready`; at its origin it takes the first aircraft free from `leave` on, before any
-departure at that minute. While it waits its station has no aircraft free, so it fires at `leave` if an aircraft
+Aircraft flow as in v1, over nodes per (family, station) at every event time, with the Moves on top; a copy of a leg
+with a busy block reaches its destination's node at the block's ready time when that is later than its turn. A Move
+adds an aircraft at its destination at `ready`; at its origin it takes the first aircraft free from `leave` on, before
+any departure at that minute. While it waits its station has no aircraft free, so it fires at `leave` if an aircraft
 idles there, else at the first arrival that no other waiting Move takes: per Move a monotone 0/1 fired-by variable F
 runs over `leave` and the later nodes an aircraft can reach, each increment drawn from that node's flow, and at each
 of them the aircraft reaching it (the idle ones too at `leave`), less those the station's other Moves take there, are
@@ -102,12 +103,10 @@ class Network:
                 lo = max(task.earliest(f, world.lb[f.id]), earliest or 0)
                 copies[f.id] = [(d, at) for d in range(lo, f.deadline + 1, step)
                                 if rules.held(f, d) == d and (at := _place(f, d, rules, pools))]
-            turn = task.turn_for(f.family)
             for d, _ in copies[f.id]:
                 events[(f.family, f.orig)].add(d)
-                events[(f.family, f.dest)].add(d + world.block[f.id] + turn)
-        self.moves = moves = [(f"{t.tail}~{k}", t.family, mv) for t in task.tails
-                              for k, mv in enumerate((*t.repositions, *t.busy))]
+                events[(f.family, f.dest)].add(task.back(f, d + world.block[f.id]))
+        self.moves = moves = [(f"{t.tail}~{k}", t.family, mv) for t in task.tails for k, mv in enumerate(t.repositions)]
         for t in task.tails:
             events[(t.family, t.pos)].add(t.ready)
         for _, fam, mv in moves:
@@ -132,13 +131,13 @@ class Network:
         pinned: Counter = Counter()
         cover = []
         for f in task.flights:
-            turn, w = task.turn_for(f.family), _weight(task, f.id)
+            w = _weight(task, f.id)
             r = {}
             for d, (kind, key) in copies[f.id]:
                 arr = d + world.block[f.id]
                 c = m.col(f.pax * max(0, arr - f.sched_arr), 1, True, (d - f.sched_dep + 1) * w)
                 self.xs[(f.id, d)] = c
-                v = node[((f.family, f.dest), arr + turn)]
+                v = node[((f.family, f.dest), task.back(f, arr))]
                 arc(node[((f.family, f.orig), d)], v, c)
                 arriving[v].append(c)
                 r[c] = 1
@@ -262,7 +261,7 @@ class Network:
                 return None
             x[c] = 1
             delta[(f.family, f.orig)][r.dep] -= 1
-            delta[(f.family, f.dest)][r.dep + world.block[f.id] + task.turn_for(f.family)] += 1
+            delta[(f.family, f.dest)][task.back(f, r.dep + world.block[f.id])] += 1
         for t in task.tails:
             delta[(t.family, t.pos)][t.ready] += 1
         for name, fam, mv in self.moves:

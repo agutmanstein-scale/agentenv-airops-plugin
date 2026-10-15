@@ -5,7 +5,9 @@
 - Chains and positions come from each tail's scheduled legs, cancelled ones included. A break in a task tail's chain is
   closed by a fixed, uncosted repositioning: the tail reappears at the next origin, ready at its scheduled departure
   less the turn (before the first leg this sets `pos` and `ready`). A same-station gap of BUSY_GAP or more that starts
-  in BUSY_HOURS is a busy block, standing for an international leg BTS lacks (before the first leg it delays `ready`).
+  in BUSY_HOURS is a busy block on the leg before it, standing for an international leg BTS lacks: the aircraft that
+  flies that leg is busy until the next leg's scheduled departure less the turn (before the first leg it delays
+  `ready`).
 - Turns are the 5th percentile of scheduled ground times per family on the month's calm days (no GDP or ground stop
   listed for JFK or BOS), floored at MIN_TURN. Tomorrow's need is the origin of the tail's first scheduled departure
   the next day, else its last scheduled destination today.
@@ -29,7 +31,7 @@ import pandas as pd
 
 from ..build import fleet, pack
 from .advisories import HUBS
-from .model import Flight, Move, Outcome, Tail
+from .model import Busy, Flight, Move, Outcome, Tail
 
 FAMILIES = ("A320", "A321", "A321P", "A220", "E190")
 MIN_TURN = 25
@@ -151,7 +153,7 @@ def tails(day: pack.Day, sc: pack.Scope, flights: list[Flight], families: Mappin
             if f.dest != g.orig:
                 moves.append(Move(f.dest, g.orig, f.sched_arr, g.sched_dep - tt))
             elif g.sched_dep - f.sched_arr >= BUSY_GAP and BUSY_HOURS[0] <= f.sched_arr < BUSY_HOURS[1]:
-                busy.append(Move(f.dest, f.dest, f.sched_arr, g.sched_dep - tt))
+                busy.append(Busy(f.id, g.sched_dep - tt))
         counts["repositions"] += len(moves)
         counts["busy"] += len(busy)
         flown_today = today[today.Cancelled == 0].sort_values("ad")

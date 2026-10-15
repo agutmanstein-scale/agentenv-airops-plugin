@@ -7,7 +7,7 @@ from program_helpers import EVERY, adv
 
 from agentenv_airops.core.model import Airport
 from agentenv_airops.programs.advisories import HUBS, Advisory, Stop
-from agentenv_airops.programs.model import Flight, Move, Outcome, Programs, Segment, Tail, Task
+from agentenv_airops.programs.model import Busy, Flight, Move, Outcome, Programs, Segment, Tail, Task
 
 PLACES = {"JFK": (40.64, -73.78), "BOS": (42.36, -71.01), "BUF": (42.94, -78.73), "DCA": (38.85, -77.04),
           "MCO": (28.43, -81.31), "PWM": (43.65, -70.31)}
@@ -25,7 +25,7 @@ def flight(i: int, orig: str, dest: str, dep: int, block: int, pax: int = 100, l
 
 
 def tail(name: str, pos: str, ready: int = 0, end: str | None = None, repositions: tuple[Move, ...] = (),
-         busy: tuple[Move, ...] = (), seats: int = 150) -> Tail:
+         busy: tuple[Busy, ...] = (), seats: int = 150) -> Tail:
     return Tail(name, "A320", "A320-232", seats, pos, ready, (), busy, repositions, end or pos, end or pos)
 
 
@@ -68,3 +68,10 @@ def shortened(task: Task, slack: int = 150) -> Task:
     """The task with every deadline at most `slack` after the earliest departure, to keep a test's MIP small."""
     return replace(task, flights=tuple(replace(f, deadline=min(f.deadline, task.earliest(f, f.lb) + slack))
                                        for f in task.flights))
+
+
+def busy_day() -> Task:
+    """N2 lands late at JFK at 220 and is busy there until 400, while N1 idles at JFK for the 170 departure."""
+    flights = [flight(0, "BUF", "JFK", 100, 60, lb=60), flight(1, "JFK", "DCA", 170, 60),
+               flight(2, "JFK", "MCO", 430, 150)]
+    return day(flights, [tail("N1", "JFK", end="DCA"), tail("N2", "BUF", busy=(Busy(0, 400),), end="MCO")])
