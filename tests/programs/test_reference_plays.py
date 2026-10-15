@@ -100,6 +100,16 @@ def test_the_airline_replay_holds_jetblues_departures_and_claims_its_arrival_ord
     assert 0 <= replay.auto <= replay.flew
 
 
+def test_the_airline_replay_counts_no_leg_whose_aircraft_came_on_a_leg_flown_past_its_deadline():
+    out = flight(0, "JFK", "MCO", 1300, 150, actual=Outcome(False, False, "", 1650, 1800, "MCO", "N1"))
+    back = flight(1, "MCO", "JFK", 1500, 150, actual=Outcome(False, False, "", 1900, 2050, "JFK", "N1"))
+    other = flight(2, "BUF", "JFK", 1000, 60, actual=Outcome(False, False, "", 1010, 1070, "JFK", "N2"))
+    task = sim.with_cutoff(day([out, back, other], [tail("N1", "JFK"), tail("N2", "BUF", end="JFK")]), 1620)
+    replay = references.airline(task)
+    assert [replay.run.flights[i].status for i in range(3)] == ["auto_cancelled", "auto_cancelled", "flown"]
+    assert references.counted(task) == [2] and (replay.flew, replay.auto) == (1, 0)
+
+
 def test_no_reference_costs_less_than_the_anchor(fixture_day):
     task = fixture_day
     sol, run = references.anchor(task)

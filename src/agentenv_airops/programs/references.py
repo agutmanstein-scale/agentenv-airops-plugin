@@ -13,7 +13,8 @@
 - naive: the empty plan;
 - airline replay: JetBlue's cancellations decided at sched - NOTICE, its recorded departures as holds and its realised
   arrival order as slot claims (each claims the slot of its recorded departure plus its scheduled block); auto-cancels
-  are counted over the flights it flew by their deadline, which covers dmax and the hub cutoff;
+  are counted over the flights it flew by their deadline, which covers dmax and the hub cutoff, less those whose
+  aircraft a leg it flew past its deadline brought (`counted`);
 - recorded day: JetBlue's real outcome priced directly, cancellations decided at sched - NOTICE, plus end-of-day
   ferries from its recorded end positions to tomorrow's needs. A diverted flight that never reached its destination
   counts as cancelled when it left, the moment the desk knew;
@@ -138,8 +139,21 @@ def airline_plan(task: Task) -> dict[int, dict]:
 
 def airline(task: Task) -> Replay:
     run = sim.execute(task, airline_plan(task))
-    flew = [f.id for f in task.flights if f.actual.dep is not None and f.actual.dep <= f.deadline]
+    flew = counted(task)
     return Replay(run, len(flew), sum(run.flights[i].status == AUTO_CANCELLED for i in flew))
+
+
+def counted(task: Task) -> list[int]:
+    """The flights JetBlue flew by their deadline, less every later leg of a tail once it flew one past it."""
+    out, late = [], set()
+    for f in sorted((f for f in task.flights if f.actual.dep is not None), key=lambda f: (f.actual.dep, f.id)):
+        if f.actual.tail in late:
+            continue
+        if f.actual.dep > f.deadline:
+            late.add(f.actual.tail)
+        else:
+            out.append(f.id)
+    return sorted(out)
 
 
 def recorded(task: Task) -> tuple[Cost, int]:
