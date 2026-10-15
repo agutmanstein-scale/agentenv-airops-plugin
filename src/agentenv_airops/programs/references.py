@@ -1,4 +1,5 @@
-"""The v2 references: plans played on the truth through sim.execute and priced by notice (cost.py).
+"""The v2 references: plans played on the truth through sim.execute and priced by cost.py (passengers by notice, the
+airline's aircraft-minutes at the FAA's rates).
 
 - anchor: the hindsight MIP on the truth, every cancellation priced at the first watch, proven and canonical;
 - follower: at every watch (M13) the MIP on the day as known (M12; unknown delays 0, W6; the programs as issued, a
