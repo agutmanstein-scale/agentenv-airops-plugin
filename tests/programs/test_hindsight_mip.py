@@ -88,6 +88,20 @@ def test_every_day_the_sim_runs_is_a_solution_of_the_model_at_its_cost(name):
         assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
 
 
+@pytest.mark.parametrize("name", ["slots", "stop", "moves"])
+def test_a_day_with_its_history_pinned_is_a_solution_of_the_model_with_those_pins(name):
+    task = days()[name]
+    first = sim.execute(task, {})
+    plan = {i: {"left": r.dep - 5} for i, r in first.flights.items() if r.status == "flown" and i % 2 == 0}
+    run = sim.execute(task, plan)
+    decided = {f.id: run.flights[f.id].decided for f in task.flights}
+    net = mip.Network(task, price={f.id: cancel_price(f, decided[f.id] or 0) for f in task.flights},
+                      fixed={i: run.flights[i].dep for i in plan})
+    x = net.vector(run)
+    assert x is not None and feasible(net, x)
+    assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
+
+
 def test_pins_and_the_earliest_minute_are_kept(fixture_day):
     task = fixture_day
     a, b = task.flights[3], task.flights[10]

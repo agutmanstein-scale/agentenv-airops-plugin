@@ -27,6 +27,14 @@ def test_claims_bind_first_and_a_claim_the_flight_cannot_make_is_lost_and_its_sl
     assert run.wasted == (("g", 180),) and run.flights[2].arr == 401
 
 
+def test_a_flight_that_has_left_leaves_then_on_its_slot_if_it_is_one_and_on_nothing_if_not():
+    task = three_into_a_program()
+    run = sim.execute(task, {2: {"left": 110}, 0: {"left": 180}})
+    assert slots(run) == {0: (180, 240), 1: (120, 180), 2: (110, None)}
+    held = day([flight(0, "BUF", "JFK", 120, 60)], [tail("N1", "BUF")], stops=(stop(100, 200),))
+    assert sim.execute(held, {0: {"left": 150}}).flights[0].dep == 150
+
+
 def test_a_ground_stop_holds_departures_to_its_hub_only():
     flights = [flight(0, "BUF", "JFK", 120, 60), flight(1, "DCA", "BOS", 120, 60), flight(2, "MCO", "JFK", 90, 150)]
     task = day(flights, [tail("N1", "BUF"), tail("N2", "DCA"), tail("N3", "MCO")], stops=(stop(100, 200),))

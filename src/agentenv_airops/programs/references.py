@@ -8,7 +8,8 @@
   each flight to the minute its last solve gave it, and that plan runs on the truth; every watch solve is canonical
   (the earliest optimal departures, v1's), and starts from the plan's own projection, so no truth reaches the search;
 - program-blind follower: the follower with every program removed from its model (the nominal caps stay);
-- rule: at every watch, cancel what the plan run on the day as known auto-cancels while it is still open;
+- rule: at every watch, cancel what the plan run on the day as known auto-cancels while it is still open and not
+  committed (a flight an earlier watch had leaving before its freeze line commits to fly, as in the follower);
 - naive: the empty plan;
 - airline replay: JetBlue's cancellations decided at sched - NOTICE, its recorded departures as holds and its realised
   arrival order as slot claims (each claims the slot of its recorded departure plus its scheduled block); auto-cancels
@@ -17,8 +18,11 @@
   ferries from its recorded end positions to tomorrow's needs. A diverted flight that never reached its destination
   counts as cancelled when it left, the moment the desk knew;
 - calm day: no delay, scheduled blocks, no programs: the hindsight optimum's forced cancellations and ferries.
-The departures the forecast's RBS treats as gone at a watch are those the current plan made on the truth before it,
-which the env knows. No reference may cost less than the anchor (`below_anchor`).
+Like for like, nothing is decided before the first watch: a JetBlue cancellation due earlier than the start counts as
+decided there, as the anchor's and every desk's do. At a watch the day so far is history, as the env shows it: a
+flight that has left on the truth leaves when it did in the follower's and the rule's projection and is pinned there in
+the follower's MIP, and every other flight leaves no earlier than the watch. No reference may cost less than the
+anchor (`below_anchor`).
 """
 
 from collections.abc import Mapping
@@ -81,8 +85,8 @@ def follow(task: Task, programs: bool = True, time_limit: float = 600.0, canonic
     pinned: set[int] = set()
     log = []
     for t in watch_times(task):
-        world = sim.known(task, t, departed(task, plan, t), programs)
-        run = sim.execute(task, plan, world)
+        world = sim.known(task, t, programs)
+        run = sim.execute(task, so_far(task, plan, t), world)
         if t > task.start:
             pinned |= frozen(task, run, t)
         fixed = {i: run.flights[i].dep if run.flights[i].status == FLOWN else None for i in pinned}
@@ -109,13 +113,16 @@ def follow(task: Task, programs: bool = True, time_limit: float = 600.0, canonic
 
 def rule(task: Task) -> Followed:
     plan: dict[int, dict] = {}
+    committed: set[int] = set()
     log = []
     for t in watch_times(task):
-        run = sim.execute(task, plan, sim.known(task, t, departed(task, plan, t)))
+        run = sim.execute(task, so_far(task, plan, t), sim.known(task, t))
         doomed = [i for i, r in run.flights.items()
-                  if r.status == AUTO_CANCELLED and task.flight(i).deadline >= t + FREEZE]
+                  if r.status == AUTO_CANCELLED and i not in committed and task.flight(i).deadline >= t + FREEZE]
         for i in doomed:
             plan[i] = {"cancel": True, "decided": t}
+        if t > task.start:
+            committed |= {i for i, r in run.flights.items() if r.status == FLOWN and r.dep < t + FREEZE}
         log.append({"t": t, "cancelled": doomed})
     return Followed(plan, sim.execute(task, plan), tuple(log))
 
@@ -125,7 +132,7 @@ def naive(task: Task) -> sim.Execution:
 
 
 def airline_plan(task: Task) -> dict[int, dict]:
-    return {f.id: {"cancel": True, "decided": f.sched_dep - NOTICE} if f.actual.dep is None
+    return {f.id: {"cancel": True, "decided": max(f.sched_dep - NOTICE, task.start)} if f.actual.dep is None
             else {"not_before": f.actual.dep, "claim": f.actual.dep + f.sched_block} for f in task.flights}
 
 
@@ -142,7 +149,7 @@ def recorded(task: Task) -> tuple[Cost, int]:
         a = f.actual
         arr[f.id] = a.arr if a.dep is not None and a.arr is not None else None
         if arr[f.id] is None:
-            decided[f.id] = f.sched_dep - NOTICE if a.dep is None else a.dep
+            decided[f.id] = max(f.sched_dep - NOTICE, task.start) if a.dep is None else a.dep
     out = sim.ferries(task, {t.tail: t.actual_end for t in task.tails}, {t.tail: t.family for t in task.tails})
     return priced(task, arr, decided, [(x.orig, x.dest) for x in out]), len(out)
 
@@ -172,10 +179,20 @@ def frozen(task: Task, run: sim.Execution, t: int) -> set[int]:
             or (r.status == AUTO_CANCELLED and task.flight(i).deadline < t + FREEZE)}
 
 
-def departed(task: Task, plan: Mapping[int, Mapping], t: int) -> dict[int, int | None]:
-    """The task flights `plan` has made leave on the truth before t."""
+def so_far(task: Task, plan: Mapping[int, Mapping], t: int) -> dict[int, dict]:
+    """`plan` as the env runs it at watch t: a flight that has left on the truth leaves when it did, every other open
+    one no earlier than t."""
     run = sim.execute(task, plan)
-    return {i: r.dep if r.dep is not None and r.dep < t else None for i, r in run.flights.items()}
+    out = {}
+    for f in task.flights:
+        entry, dep = plan.get(f.id, {}), run.flights[f.id].dep
+        if dep is not None and dep < t:
+            out[f.id] = {"left": dep}
+        elif entry.get("cancel"):
+            out[f.id] = dict(entry)
+        else:
+            out[f.id] = {**entry, "not_before": max(entry.get("not_before") or 0, t)}
+    return out
 
 
 def below_anchor(costs: Mapping[str, int], anchor_cost: int) -> dict[str, int]:

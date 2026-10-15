@@ -25,6 +25,13 @@ def delay_revealed_late():
     return day([flight(0, "DCA", "JFK", 400, 60, lb=300, deadline=640)], [tail("N1", "DCA")])
 
 
+def committed_then_stopped():
+    """A flight the desk commits at 01:00 that a ground stop signed at 01:30 then holds past its deadline."""
+    flights = [flight(0, "DCA", "JFK", 100, 60, deadline=220), flight(1, "JFK", "BUF", 400, 60)]
+    return day(flights, [tail("N1", "DCA"), tail("N2", "JFK", end="BUF")], stops=(stop(90, 300),),
+               advisories=(adv("s1", "gs", 90, 90, 300),))
+
+
 def test_watches_run_hourly_until_every_delay_is_known():
     task = stopped_then_released()
     assert references.watch_times(task) == [0, 60, 120, 180, 240, 300, 360, 420]
@@ -40,6 +47,23 @@ def test_a_confirmed_cancellation_is_final_even_when_the_day_turns_out_better():
     assert references.naive(task).flights[0].dep == 200
     sol, run = references.anchor(task)
     assert run.flights[0].dep == 200 and sol.objective < followed.cost
+
+
+def test_at_a_watch_the_day_so_far_is_history_and_every_other_flight_waits_for_the_watch():
+    task = stopped_then_released()
+    plan = {0: {"not_before": 150}, 1: {"not_before": 520}}
+    assert references.so_far(task, plan, 300) == {0: {"left": 200}, 1: {"not_before": 520}}
+    assert references.so_far(task, plan, 180) == {0: {"not_before": 180}, 1: {"not_before": 520}}
+    cancelled = {0: {"cancel": True, "decided": 0}}
+    assert references.so_far(task, cancelled, 300) == {0: {"cancel": True, "decided": 0}, 1: {"not_before": 300}}
+
+
+def test_neither_the_rule_nor_the_follower_cancels_a_flight_once_it_is_committed():
+    task = committed_then_stopped()
+    rule, followed = references.rule(task), references.follow(task)
+    assert [w["cancelled"] for w in rule.watches] == [[]] * len(rule.watches)
+    assert not followed.plan[0].get("cancel") and followed.run.flights[0].status == "auto_cancelled"
+    assert rule.run.flights[0].decided == followed.run.flights[0].decided == 220
 
 
 def test_each_cancellation_is_priced_at_the_watch_that_confirms_it():
@@ -59,6 +83,8 @@ def test_the_recorded_day_prices_jetblues_outcome_like_for_like():
     tails = [tail("N1", "BUF", end="JFK"), replace(tail("N2", "JFK", end="MCO"), actual_end="PWM")]
     got, ferries = references.recorded(day([flown, cancelled, diverted], tails))
     assert (got.delay, got.cancel, got.notice, ferries) == (100 * 30, 523 * 60, 10 * (200 - 60), 1)
+    later, _ = references.recorded(day([flown, cancelled, diverted], tails, start=250))
+    assert later.notice == 50 * (250 - 180) + 10 * (200 - 60)
 
 
 def test_the_airline_replay_holds_jetblues_departures_and_claims_its_arrival_order(fixture_day):
@@ -66,7 +92,7 @@ def test_the_airline_replay_holds_jetblues_departures_and_claims_its_arrival_ord
     plan = references.airline_plan(task)
     for f in task.flights:
         if f.actual.dep is None:
-            assert plan[f.id] == {"cancel": True, "decided": f.sched_dep - 120}
+            assert plan[f.id] == {"cancel": True, "decided": max(f.sched_dep - 120, task.start)}
         else:
             assert plan[f.id] == {"not_before": f.actual.dep, "claim": f.actual.dep + f.sched_block}
     replay = references.airline(task)

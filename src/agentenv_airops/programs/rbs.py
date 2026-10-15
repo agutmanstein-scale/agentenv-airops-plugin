@@ -12,7 +12,10 @@ flight outside the task leaves the list at its scheduled departure less NOTICE (
 rule serves the truth, the fit of e and the forecast); in the truth the queue then moves up (one-way compression,
 applied for every cancellation before the segment is superseded), and JetBlue's task flights always stay, cancelling
 them being the desk's call. JetBlue's pool is the slots RBS gives its task flights that are in scope and not exempt.
-"Left" reads the recorded departure in the build; the forecast at runtime may pass the env's own departures.
+"Left" means airborne, as FSM exempts active flights: the recorded departure (the scheduled one when cancelled), held
+to the end of any ground stop at the hub covering its origin, because BTS dates the pushback and a stop holds the
+takeoff. The truth and the forecast read the same rule, so the pool the desk sees is the one it gets, less the
+compression still to come.
 
 Each GDP advisory is one segment, governing departures from its signature until the next GDP advisory, a cancellation
 or its period's end (advisories.as_ran). The build's tests read the schedule and the recorded day, never lb: a flight is
@@ -36,7 +39,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from ..build import bts, fetch
-from .advisories import Run, Scope, Stop, as_ran, issued_by
+from .advisories import Run, Scope, Stop, as_ran, held_until, issued_by
 from .model import Arrival, Programs, Segment, Task
 
 NOTICE = 120
@@ -49,35 +52,34 @@ Covers = Callable[[Scope, str, str], bool]
 """covers(scope, hub, origin): whether a program at `hub` with `scope` covers departures from `origin` (Task.covers)."""
 
 
-def segments(programs: Programs, covers: Covers, known: int | None = None,
-             departed: Mapping[int, int | None] | None = None) -> tuple[Segment, ...]:
-    """The hub's GDP segments as they ran (`known` None) or as issued by watch `known`, each with JetBlue's pool.
-    `departed` replaces the recorded departure of task flights (None: not yet left), for the forecast at runtime."""
+def segments(programs: Programs, covers: Covers, known: int | None = None) -> tuple[Segment, ...]:
+    """The hub's GDP segments as they ran (`known` None) or as issued by watch `known`, each with JetBlue's pool."""
     runs = as_ran(programs.advisories)[0] if known is None else issued_by(programs.advisories, known)[0]
-    return tuple(segment(r, programs.demand, covers, programs.e(r.adv.id), known, departed)[0] for r in runs)
+    return tuple(segment(r, programs.demand, covers, programs.e(r.adv.id), programs.stops, known)[0] for r in runs)
 
 
-def segment(run: Run, demand: Sequence[Arrival], covers: Covers, e: float, known: int | None = None,
-            departed: Mapping[int, int | None] | None = None) -> tuple[Segment, dict[int, int]]:
-    """The segment of `run` and the slot of each demand row in its list, by index (after `end`: spilled)."""
-    got = assign(run, demand, covers, e, known, departed)
+def segment(run: Run, demand: Sequence[Arrival], covers: Covers, e: float, stops: Sequence[Stop],
+            known: int | None = None) -> tuple[Segment, dict[int, int]]:
+    """The segment of `run` and the slot of each demand row in its list, by index (after `end`: spilled); `stops` are
+    the hub's ground-stop pieces as they ran."""
+    got = assign(run, demand, covers, e, stops, known)
     pool = sorted((s, demand[i].flight) for i, s in got.items()
-                  if s <= run.adv.end and demand[i].flight is not None and not exempt(demand[i], run, covers, departed))
+                  if s <= run.adv.end and demand[i].flight is not None and not exempt(demand[i], run, covers, stops))
     a = run.adv
     seg = Segment(a.id, a.hub, run.since, run.until, a.start, a.end, round(e, 4), tuple(s for s, _ in pool),
                   tuple(f for _, f in pool))
     return seg, got
 
 
-def assign(run: Run, demand: Sequence[Arrival], covers: Covers, e: float, known: int | None = None,
-           departed: Mapping[int, int | None] | None = None) -> dict[int, int]:
+def assign(run: Run, demand: Sequence[Arrival], covers: Covers, e: float, stops: Sequence[Stop],
+           known: int | None = None) -> dict[int, int]:
     """RBS for one run: the demand rows in its period still listed at min(until - 1, known), exempt ones and the unseen
     stream first by scheduled arrival, then the rest in RBS order; past the period's slots the list spills on at the
     last hour's rate."""
     a = run.adv
     t = run.until - 1 if known is None else min(run.until - 1, known)
     rows = [i for i, r in enumerate(demand) if a.start <= r.sched_arr <= a.end and not gone(r, t)]
-    out = {i for i in rows if exempt(demand[i], run, covers, departed)}
+    out = {i for i in rows if exempt(demand[i], run, covers, stops)}
     first = sorted([(demand[i].sched_arr, 0, demand[i].key, i) for i in out]
                    + [(m, 1, (k,), -1 - k) for k, m in enumerate(unseen(a.start, a.end, e))])
     ranked = sorted((i for i in rows if i not in out), key=lambda i: demand[i].key)
@@ -87,13 +89,11 @@ def assign(run: Run, demand: Sequence[Arrival], covers: Covers, e: float, known:
     return {i: s for i, s in got.items() if i >= 0}
 
 
-def exempt(r: Arrival, run: Run, covers: Covers, departed: Mapping[int, int | None] | None) -> bool:
+def exempt(r: Arrival, run: Run, covers: Covers, stops: Sequence[Stop]) -> bool:
+    """Out of the program's scope, or airborne when it was signed."""
     if not covers(run.adv.scope, run.adv.hub, r.orig):
         return True
-    if departed is not None and r.flight is not None:
-        left = departed.get(r.flight)
-        return left is not None and left < run.since
-    return r.departs < run.since
+    return held_until(stops, covers, r.orig, r.departs) < run.since
 
 
 def gone(r: Arrival, t: int) -> bool:
@@ -152,12 +152,11 @@ def nominal(task: Task, hub: str) -> dict[int, int]:
     return {h: max(mine[h], math.floor(p.aar - others[h] - p.e_bar)) for h in range(task.start // 60, last + 1)}
 
 
-def forecast(task: Task, hub: str, t: int,
-             departed: Mapping[int, int | None] | None = None) -> tuple[tuple[Segment, ...], tuple[Stop, ...]]:
+def forecast(task: Task, hub: str, t: int) -> tuple[tuple[Segment, ...], tuple[Stop, ...]]:
     """The hub's programs on the day as known at watch t: segments with JetBlue's forecast pool, and the stop
     pieces, each to its as-issued end."""
     p = task.programs[hub]
-    return segments(p, task.covers, t, departed), issued_by(p.advisories, t)[1]
+    return segments(p, task.covers, t), issued_by(p.advisories, t)[1]
 
 
 def rescale(task: Task, scale: Mapping[str, float]) -> Task:

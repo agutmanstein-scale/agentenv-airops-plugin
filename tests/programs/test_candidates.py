@@ -38,6 +38,15 @@ def test_the_eval_draw_takes_twelve_per_hub_from_distinct_events_and_train_drops
     assert {k for k in qualifying if event[k[0]] not in taken} <= set(split)
 
 
+def test_settling_keeps_the_drawn_eval_and_drops_rather_than_replaces_a_day_that_now_fails():
+    event = {"2024-07-01": 0, "2024-07-02": 0, "2024-07-10": 1, "2024-07-20": 2, "2024-07-21": 2}
+    drawn = {("2024-07-01", "JFK"): "eval", ("2024-07-20", "BOS"): "eval", ("2024-07-10", "JFK"): "train"}
+    now = [("2024-07-02", "BOS"), ("2024-07-10", "JFK"), ("2024-07-10", "BOS"), ("2024-07-20", "BOS"),
+           ("2024-07-21", "JFK")]
+    assert candidates.settle(drawn, now, event) == {("2024-07-10", "BOS"): "train", ("2024-07-10", "JFK"): "train",
+                                                   ("2024-07-20", "BOS"): "eval"}
+
+
 def test_the_first_program_hour_reads_gdps_from_their_period_and_stops_over_their_window():
     run = Run(adv("g", "gdp", 500, 780, 1199, (30,) * 7), 500, 1000)
     stop = Stop("s", "JFK", 640, 700, None)

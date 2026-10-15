@@ -61,6 +61,8 @@ def test_the_truth_block_is_clipped_and_a_diverted_flight_takes_its_routes_media
     assert repairs.truth_block(flown, day) == 250
     diverted = SimpleNamespace(**{**vars(flown), "Diverted": 1, "aa": 2058})
     assert repairs.truth_block(diverted, day) == 140
+    reached = SimpleNamespace(**{**vars(flown), "Diverted": 1, "DivReachedDest": 1, "aa": 900})
+    assert repairs.truth_block(reached, day) == 140
     assert repairs.truth_block(SimpleNamespace(**{**vars(flown), "Cancelled": 1, "Origin": "SAV"}), day) == 130
 
 

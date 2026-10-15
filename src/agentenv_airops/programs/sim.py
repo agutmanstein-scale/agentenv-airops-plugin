@@ -1,10 +1,13 @@
 """The v2 day: v1's dispatch inside the FAA's programs at JFK and BOS, with JetBlue's slots and EDCTs in place of
 hourly caps.
 
-A plan maps flight ids to {"cancel", "not_before", "claim", "decided"}, every key optional; a flight left out flies as
-early as it can. A cancelled flight is cancelled for good, decided at "decided" (the first watch when absent). The
-others are dispatched as in v1: in order of their next try, each takes the first-ready aircraft of its family at its
-origin. What else holds a flight ready at minute t, in this order:
+A plan maps flight ids to {"cancel", "not_before", "claim", "decided", "left"}, every key optional; a flight left out
+flies as early as it can. A cancelled flight is cancelled for good, decided at "decided" (the first watch when absent).
+A flight with "left" (the day so far, at a watch) leaves at that minute whatever would hold it, counting where the MIP
+counts a pinned departure: on its slot if the minute plus its scheduled block is a free one of the segment governing
+it, on nothing if that is off the pool, else under the nominal cap. The others are dispatched as in v1: in order of
+their next try, each takes the first-ready aircraft of its family at its origin. What else holds a flight ready at
+minute t, in this order:
 - a ground stop at its destination hub covering its origin holds it to the stop's end; airborne flights fly on;
 - a flight governed at t by a GDP segment (the one in force when it departs, the departure-time lock; its origin in
   scope and its scheduled arrival in the period) needs one of JetBlue's slots in that segment's pool: its claimed slot
@@ -64,15 +67,14 @@ def truth(task: Task) -> World:
                  tuple(s for p in task.programs.values() for s in p.stops), nominal_caps(task))
 
 
-def known(task: Task, t: int, departed: Mapping[int, int | None] | None = None, programs: bool = True) -> World:
-    """The day as known at watch t; `departed` gives the task flights gone by t (rbs.forecast), `programs` False
-    drops every program from the model."""
+def known(task: Task, t: int, programs: bool = True) -> World:
+    """The day as known at watch t; `programs` False drops every program from the model."""
     seen = {f.id: f.sched_dep <= t + LOOK for f in task.flights}
     lb = {f.id: f.lb if seen[f.id] else 0 for f in task.flights}
     block = {f.id: f.block if seen[f.id] else f.sched_block for f in task.flights}
     segments, stops = {h: () for h in task.programs}, ()
     if programs:
-        issued = {h: rbs.forecast(task, h, t, departed) for h in task.programs}
+        issued = {h: rbs.forecast(task, h, t) for h in task.programs}
         segments = {h: s for h, (s, _) in issued.items()}
         stops = tuple(p for _, ps in issued.values() for p in ps)
     return World(lb, block, segments, stops, nominal_caps(task))
@@ -183,7 +185,7 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
             decided = d.get("decided")
             runs[f.id] = FlightRun(f.id, CANCELLED, decided=task.start if decided is None else decided)
             continue
-        c = max(task.earliest(f, world.lb[f.id]), d.get("not_before") or 0)
+        c = d["left"] if d.get("left") is not None else max(task.earliest(f, world.lb[f.id]), d.get("not_before") or 0)
         when[f.id] = first[f.id] = c
         heap.append((c, 1, c, f.id))
     ready = {t.tail: t.ready for t in task.tails}
@@ -236,7 +238,10 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
             _wait(waiting[(f.family, f.orig)], i, here, ready, when, heap, kind, c)
             continue
         waiting[(f.family, f.orig)].discard(i)
-        s, slot, hour = _leave(f, t, rules, claimed.get(i), bound, taken, used)
+        if want.get(i, {}).get("left") is not None:
+            s, slot, hour = t, *_history(f, t, rules, taken)
+        else:
+            s, slot, hour = _leave(f, t, rules, claimed.get(i), bound, taken, used)
         if s != t:
             when[i] = s
             heapq.heappush(heap, (s, kind, c, i))
@@ -324,6 +329,16 @@ def _leave(f: Flight, t: int, rules: Rules, claim: SlotKey | None, bound: Mappin
             t = 60 * (cap[0][1] + 1) - rules.world.block[f.id]
             continue
         return t, None, cap[0] if cap else None
+
+
+def _history(f: Flight, t: int, rules: Rules, taken: set[SlotKey]) -> tuple[SlotKey | None, HourKey | None]:
+    """The slot or nominal hour a flight that left at t counts in (mip._place for a pinned copy)."""
+    seg = rules.governs(f, t)
+    if seg is not None and t + f.sched_block <= seg.end:
+        key = (seg.id, t + f.sched_block)
+        return (key if t + f.sched_block in seg.slots and key not in taken else None), None
+    cap = rules.hour(f, t)
+    return None, cap[0] if cap else None
 
 
 def ferries(task: Task, ends: Mapping[str, str], family: Mapping[str, str],

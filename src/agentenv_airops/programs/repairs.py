@@ -14,8 +14,9 @@
   must not move its departure before the one it made. A cancelled flight takes the LIFT_PCT percentile of that lb over
   operated flights of any carrier to its destination within LIFT_WINDOW of its scheduled departure, else from its
   origin, else over the day.
-- The truth block is the realized one, clipped at scheduled + BLOCK_SLACK; a diverted or cancelled flight takes the
-  median realized block of the day's other flights on its route within an hour of it, else the scheduled block.
+- The truth block is the realized one, clipped at scheduled + BLOCK_SLACK; a diverted flight (even one that reached
+  its destination in the end, its realized block holding the diversion) or a cancelled one takes the median realized
+  block of the day's other flights on its route within an hour of it, else the scheduled block.
 - The deadline is sched_dep + dmax, or the start + 60 for a flight already that late (pack.py's rule), capped at the
   hub cutoff for a departure from either hub.
 """
@@ -188,7 +189,7 @@ def imputed_lb(pool: pd.DataFrame, orig: str, dest: str, sd: float) -> int:
 
 def truth_block(r, x: pd.DataFrame) -> int:
     sched = int(r.CRSElapsedTime)
-    if r.Cancelled == 0 and (r.Diverted == 0 or r.DivReachedDest == 1):
+    if r.Cancelled == 0 and r.Diverted == 0:
         return min(int(r.aa - r.ad), sched + BLOCK_SLACK)
     same = x[(x.Origin == r.Origin) & (x.Dest == r.Dest) & ((x.sd - r.sd).abs() <= 60) & (x.Cancelled == 0)
              & (x.Diverted == 0)]

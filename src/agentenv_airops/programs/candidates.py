@@ -11,7 +11,8 @@ clauses that need a solver (airline replay, recorded day, fidelity, leverage, pr
 
 Storm events chain program dates within 2 days, both hubs pooled. The seeded eval draw takes 12 day-hubs per hub,
 8 summer (Jun-Aug) and 4 winter (Dec-Feb), 9 and 3 if winter is short, at most one per hub per event; train is every
-qualifying candidate of an event with no eval day-hub. Four controls are chosen by rule: per hub, the summer and
+qualifying candidate of an event with no eval day-hub. When clauses rerun after the draw, the drawn eval stays and only
+loses the days that fail (`settle`). Four controls are chosen by rule: per hub, the summer and
 the winter date with no program listed at JFK, BOS, EWR or LGA (a GDP or ground stop on the date's or the next UTC
 day's ATCSCC list), no weather or NAS cancellation in scope and the lowest mean all-carrier arrival delay at the hub,
 windowed on the hub's busiest 4 h of JetBlue movements.
@@ -366,6 +367,16 @@ def split(qualifying: Sequence[tuple[str, str]], event: Mapping[str, int], seed:
             if k in chosen or event[k[0]] not in taken}
 
 
+def settle(drawn: Mapping[tuple[str, str], str], qualifying: Iterable[tuple[str, str]],
+           event: Mapping[str, int]) -> dict[tuple[str, str], str]:
+    """The split once later clauses have run: the drawn eval day-hubs that still qualify (one that no longer does is
+    dropped, not replaced, so no day the draw's train fitted anything on can become eval), and train every qualifying
+    day-hub of an event without a drawn eval day-hub."""
+    taken = {event[d] for (d, _), v in drawn.items() if v == "eval"}
+    return {k: "eval" if drawn.get(k) == "eval" else "train" for k in sorted(qualifying)
+            if drawn.get(k) == "eval" or event[k[0]] not in taken}
+
+
 def controls(inputs: Path, derived: Path, months: Sequence[str] = MONTHS) -> list[tuple[str, str, tuple[int, int]]]:
     """The four rule-chosen controls as (date, hub, window)."""
     loaded = {d for m in months for d in pack.month_days(m)}
@@ -406,7 +417,8 @@ def fits_of(job: tuple) -> list[unseen.Fit]:
     """The in-sample e of every fittable GDP or proposed advisory signed on local date d at hub."""
     d, hub, inputs, derived = job
     base = midnight(d)
-    advs = [a for a in advisories.load(inputs, hub, base, 1439) if a.issued >= 0 and unseen.fittable(a)]
+    signed = advisories.load(inputs, hub, base, 1439)
+    advs = [a for a in signed if a.issued >= 0 and unseen.fittable(a)]
     if not advs:
         return []
     x = pack.local(frame(inputs, derived, d), base)
@@ -414,7 +426,8 @@ def fits_of(job: tuple) -> list[unseen.Fit]:
     covers = coverage(airports_of(codes), {c: a for c in codes if (a := advisories.artcc(inputs, c))})
     lo, hi = min(a.start for a in advs), max(a.end for a in advs)
     demand = arrivals(x, hub, lo, hi, {}, (), covers)
-    return [unseen.in_sample(a, demand, covers) for a in advs]
+    stops = advisories.as_ran(signed)[1]
+    return [unseen.in_sample(a, demand, covers, stops) for a in advs]
 
 
 def build_all(keys: Sequence[tuple[str, str]], inputs: Path, derived: Path, e_fit: Mapping[str, float],

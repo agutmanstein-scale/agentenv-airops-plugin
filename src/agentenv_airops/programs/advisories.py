@@ -7,7 +7,8 @@ ESTIMATED FOR, the revision's own period), stated average and maximum delay, pro
 departure scope: an ARTCC list, a distance in NM, listed airports and exemptions. Origins map to their ARTCC through the
 FAA's NASR APT_BASE (one pinned 28-day cycle). A stop limited to one carrier (DAL, AAL, JetBlue's own requests), to
 general aviation or to CAT I/II approaches never binds JetBlue and stays news; JetBlue's jets fly CAT III, so an
-approach-category stop is read as not holding them. A bare "1ST TIER" or "2ND TIER" takes the ARTCCs the hub's
+approach-category stop is read as not holding them. A GDP is limited only by its FLT INCL ("CARRIER DAL ONLY"): its
+comments may report another carrier's stop. A bare "1ST TIER" or "2ND TIER" takes the ARTCCs the hub's
 tier-labelled advisories list.
 
 As they ran: each GDP advisory governs the departures from its signature until the next GDP advisory for its airport, a
@@ -176,7 +177,8 @@ def parse(record: Mapping, hub: str, base: int) -> Advisory:
     title = v1.title_of(record["header"])
     kind = v1.kind(title)
     f = fields(record["message"])
-    head = f"{title} {f.get('FLT INCL', '')} {f.get('REMARKS', '')} {f.get('COMMENTS', '')} {f.get('REASON', '')}"
+    said = ("FLT INCL",) if kind in (GDP, PROPOSED) else ("FLT INCL", "REMARKS", "COMMENTS", "REASON")
+    head = " ".join([title, *(f.get(k, "") for k in said)])
     if title.endswith("EXPIRATION"):
         kind = "other"
     labels = (("ARRIVALS ESTIMATED FOR", "CUMULATIVE PROGRAM PERIOD", "ANTICIPATED CUMULATIVE PROGRAM PERIOD")

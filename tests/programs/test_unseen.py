@@ -18,11 +18,11 @@ def covers(scope, hub, origin):
 
 def test_the_in_sample_rate_reproduces_the_stated_average_delay():
     run = Run(PROGRAM, 400, 780)
-    delays = [unseen.average_delay(run, DEMAND, covers, e) for e in range(12)]
+    delays = [unseen.average_delay(run, DEMAND, covers, e, ()) for e in range(12)]
     assert delays == sorted(delays) and delays[0] < delays[-1]
-    fit = unseen.in_sample(replace(PROGRAM, avg_delay=round(delays[4])), DEMAND, covers)
+    fit = unseen.in_sample(replace(PROGRAM, avg_delay=round(delays[4])), DEMAND, covers, ())
     assert (fit.e, fit.matched) == (4.0, True)
-    miss = unseen.in_sample(replace(PROGRAM, avg_delay=10_000), DEMAND, covers)
+    miss = unseen.in_sample(replace(PROGRAM, avg_delay=10_000), DEMAND, covers, ())
     assert not miss.matched
 
 

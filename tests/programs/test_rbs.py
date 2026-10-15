@@ -44,13 +44,16 @@ def test_the_unseen_stream_is_even_and_may_be_fractional():
 
 
 def test_a_ration_by_schedule_day_with_exemptions_compression_and_the_departure_lock():
-    seg, got = rbs.segment(RUN, DAY, covers, 2.0)
+    seg, got = rbs.segment(RUN, DAY, covers, 2.0, ())
     assert got == {0: 600, 6: 624, 3: 648, 2: 675, 1: 705, 5: 720}
     assert (seg.slots, seg.holders) == ((705,), (0,))
-    forecast, early = rbs.segment(RUN, DAY, covers, 2.0, known=420)
+    forecast, early = rbs.segment(RUN, DAY, covers, 2.0, (), known=420)
     assert early[4] == 675 and early[1] == 720 and forecast.slots == ()
-    held, late = rbs.segment(RUN, DAY, covers, 2.0, departed={0: 560, 1: None, 2: None})
-    assert (held.slots, held.holders) == ((675, 705), (0, 2)) and late[3] == 648
+
+
+def test_a_pushback_inside_a_ground_stop_is_not_airborne_when_the_program_is_signed():
+    held, got = rbs.segment(RUN, DAY, covers, 2.0, (Stop("s", "JFK", 370, 450, SCOPE),))
+    assert (held.slots, held.holders) == ((675, 705), (0, 2)) and got[0] == 612 and got[3] == 648
 
 
 def test_controlled_reads_the_schedule_and_the_departure_never_lb():

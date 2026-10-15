@@ -117,6 +117,16 @@ def test_carrier_ga_and_approach_limited_stops_never_bind(title, body, who):
     assert a.only == who and a.binds == (who is None)
 
 
+def test_a_gdp_is_limited_only_by_its_flt_incl_whatever_its_comments_report():
+    head = "ARRIVALS ESTIMATED FOR: 16/1820Z - 16/2059Z\nPROGRAM RATE: 28/28/28\n"
+    revised = parse("CDM GROUND DELAY PROGRAM", head + "FLT INCL: CONTIGUOUS US JET DEP ONLY\nDEP SCOPE: ZBW ZNY\n"
+                    "COMMENTS: REVISED RATES. DAL MAINLINE + SUBS GROUND STOP CANCELLED.", "23/07/16 18:30",
+                    element="BOS/ZBW")
+    delta = parse("CDM GROUND DELAY PROGRAM", head + "FLT INCL: CONTIGUOUS US DEP CARRIER DAL ONLY\nDEP SCOPE: 1200\n"
+                  "COMMENTS: DELTA AND DELTA SUBS ONLY AIRLINE REQUEST", "24/07/19 15:39")
+    assert (revised.kind, revised.only, delta.only) == ("gdp", None, "DAL")
+
+
 def test_a_gdp_cancellation_ends_the_stops_only_when_its_comment_says_so():
     ends = parse("CDM GROUND DELAY PROGRAM CNX", "GDP CNX PERIOD: 19/0356Z - 19/1801Z\nCOMMENTS: GDP AND GS CANCELED",
                  "24/08/19 03:59", advn=37)
@@ -172,11 +182,12 @@ def test_every_cached_program_reads_hourly_rates_and_a_scope():
                     assert len(a.rates) == a.end // 60 - a.start // 60 + 1, a.id
                     assert a.scope.artccs or a.scope.nm, a.id
                     single += bool(re.search(r"PROGRAM RATE:\s*\d+\s*$", r["message"], re.M))
-                if a.kind == "gs" and a.only:
+                if a.kind in ("gs", "gdp", "gdp_proposed") and a.only:
                     limited.append((a.id, a.only))
     assert (kinds["gdp"], kinds["gdp_proposed"], kinds["gs"]) == (216, 181, 514)
     assert single == 81
     assert [i for i, who in limited if who == "JBU"] == ["adv-20250216-061", "adv-20250216-072"]
+    assert [i for i, _ in limited if i in {"adv-20240719-096", "adv-20230716-144"}] == ["adv-20240719-096"]
 
 
 @needs_cache

@@ -21,7 +21,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
-from .advisories import GDP, PROPOSED, Advisory, Run, as_ran
+from .advisories import GDP, PROPOSED, Advisory, Run, Stop, as_ran
 from .model import Arrival, Task
 from .rbs import Covers, assign, exempt, segment
 
@@ -63,21 +63,21 @@ class Fit:
     matched: bool
 
 
-def in_sample(adv: Advisory, demand: Sequence[Arrival], covers: Covers) -> Fit:
+def in_sample(adv: Advisory, demand: Sequence[Arrival], covers: Covers, stops: Sequence[Stop]) -> Fit:
     """The e in 0..E_MAX whose RBS average delay at issuance is nearest the stated AVERAGE DELAY (ties to the lower)."""
     run = Run(adv, adv.issued, adv.end + 1)
     best = None
     for e in range(E_MAX + 1):
-        avg = average_delay(run, demand, covers, e)
+        avg = average_delay(run, demand, covers, e, stops)
         if best is None or abs(avg - adv.avg_delay) < abs(best[1] - adv.avg_delay):
             best = (e, avg)
     e, avg = best
     return Fit(adv.id, adv.hub, float(e), round(avg, 1), adv.avg_delay, abs(avg - adv.avg_delay) <= FIT_TOLERANCE)
 
 
-def average_delay(run: Run, demand: Sequence[Arrival], covers: Covers, e: float) -> float:
-    got = assign(run, demand, covers, e, known=run.adv.issued)
-    delays = [s - demand[i].sched_arr for i, s in got.items() if not exempt(demand[i], run, covers, None)]
+def average_delay(run: Run, demand: Sequence[Arrival], covers: Covers, e: float, stops: Sequence[Stop]) -> float:
+    got = assign(run, demand, covers, e, stops, known=run.adv.issued)
+    delays = [s - demand[i].sched_arr for i, s in got.items() if not exempt(demand[i], run, covers, stops)]
     return statistics.mean(delays) if delays else 0.0
 
 
@@ -126,7 +126,7 @@ def program_delay(task: Task, scale: float | None = None) -> tuple[float, float,
     modelled = observed = 0.0
     for adv, idx in rows.items():
         run = runs[adv]
-        _, got = segment(run, p.demand, task.covers, p.e_fit.get(adv, p.e_median) * s)
+        _, got = segment(run, p.demand, task.covers, p.e_fit.get(adv, p.e_median) * s, p.stops)
         for i in idx:
             modelled += got[i] - p.demand[i].sched_arr
             observed += p.demand[i].nas

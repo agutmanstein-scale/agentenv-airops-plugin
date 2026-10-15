@@ -9,16 +9,19 @@ The order keeps the unseen-traffic scale out of sample (spec, "Order in build_pa
    tasks.jsonl, plus the four rule-chosen controls;
 2. the provisional scale per airport, fitted on every candidate's other carriers;
 3. pass 1 of the clauses on every task: data and program in window (the build's), airline replay (auto-cancels, and
-   its cost within the provisional tolerance of the recorded day's), recorded day >= anchor, leverage on flat cost,
-   proof, fidelity at the provisional scale;
-4. storm events over the candidates' dates and the seeded split;
-5. on the train days: the shipped scale, the cutoff hour (by which CUTOFF_SHARE of JetBlue's after-midnight hub
+   its cost within the provisional tolerance of the recorded day's), recorded day >= anchor, leverage on flat cost and
+   proof. Fidelity waits for step 7: it is out of sample by definition, and a filter on the provisional scale (fitted
+   on every candidate) would hand G2 days already chosen for agreeing with the model;
+4. storm events over the candidates' dates and the seeded draw;
+5. on the draw's train days: the shipped scale, the cutoff hour (by which CUTOFF_SHARE of JetBlue's after-midnight hub
    departures had left, read from BTS) and the replay tolerance (the TOLERANCE_PCT percentile of |ln(replay /
    recorded)| over the day-hubs of train events that pass every other clause, so the tolerance is not fitted to days it
    already censored);
 6. if the scale or the cutoff moved, pass 2 of the solver clauses with them; the clauses again with the fixed
-   tolerance, the provisional fidelity kept so the draw sees what it saw, and the split again with the same seed;
-7. fidelity at the shipped scale: a failing eval day is dropped, not replaced, and so is a failing train day;
+   tolerance, and the draw settled: a drawn eval day that now fails is dropped, not replaced, so no day the scale,
+   cutoff or tolerance was fitted on can become eval;
+7. fidelity at the shipped scale on every eval and train day (G2 reads them all), then a failing day is dropped, not
+   replaced;
 8. every reference on every task with the fixed parameters, one JSON per task under refs/ as it finishes; --resume
    keeps every pass result whose task, cutoff and signature are unchanged;
 9. gates.json (G1-G5 with values, thresholds and pass/fail, the fixed parameters, the diagnostics), candidates.jsonl
@@ -98,32 +101,32 @@ def main() -> None:
     clock.lap("build", f"{len(tasks)} of {len(keys)} candidates built, {len(held)} controls")
 
     provisional = filled(unseen.fit_scale(tasks.values()), ones)
-    fid_prov = {i: unseen.fidelity(t, provisional[t.hub]) for i, t in tasks.items()}
     every = {**tasks, **held}
     pass1 = run_pass(out / "pass1", at(every, provisional), CUTOFF, clause_job, args.workers, args.resume, clock,
                      limits)
     clock.lap("pass1")
     tol_prov = tolerance([pass1[i] for i in tasks])
-    q1 = qualifying(tasks, pass1, tol_prov, fid_prov)
+    q1 = qualifying(tasks, pass1, tol_prov)
     event = candidates.events(d for d, _ in keys)
-    split1 = candidates.split([key(tasks[i]) for i in q1], event, args.seed)
-    train1 = [i for i in q1 if split1.get(key(tasks[i])) == "train"]
+    drawn = candidates.split([key(tasks[i]) for i in q1], event, args.seed)
+    train1 = [i for i in q1 if drawn.get(key(tasks[i])) == "train"]
 
     scale = filled(unseen.fit_scale(tasks[i] for i in train1), provisional)
     late = late_departures([key(tasks[i]) for i in train1])
     cutoff = cutoff_hour(late) or CUTOFF
-    taken = {event[d] for (d, _), v in split1.items() if v == "eval"}
+    taken = {event[d] for (d, _), v in drawn.items() if v == "eval"}
     basis = [pass1[i] for i in tasks if event[tasks[i].date] not in taken
-             and all(clauses_of(tasks[i], pass1[i], math.inf, fid_prov[i]).values())]
+             and all(clauses_of(tasks[i], pass1[i], math.inf).values())]
     tol = tolerance(basis) if basis else tol_prov
     rerun = scale != provisional or cutoff != CUTOFF
     pass2 = run_pass(out / "pass2", at(every, scale), cutoff, clause_job, args.workers, args.resume, clock,
                      limits) if rerun else pass1
     clock.lap("pass2" if rerun else "pass2 (skipped: scale and cutoff unchanged)")
-    q2 = qualifying(tasks, pass2, tol, fid_prov)
-    split2 = candidates.split([key(tasks[i]) for i in q2], event, args.seed)
+    q2 = qualifying(tasks, pass2, tol)
+    settled = candidates.settle(drawn, [key(tasks[i]) for i in q2], event)
+    split = {i: settled[key(tasks[i])] for i in q2 if key(tasks[i]) in settled}
+    lost = sorted(i for i in q1 if drawn.get(key(tasks[i])) == "eval" and i not in split)
     fid_ship = {i: unseen.fidelity(t, scale[t.hub]) for i, t in tasks.items()}
-    split = {i: split2[key(tasks[i])] for i in q2 if key(tasks[i]) in split2}
     dropped = {i: v for i, v in split.items() if not in_band(fid_ship[i])}
     final = {i: v for i, v in split.items() if i not in dropped}
 
@@ -138,10 +141,9 @@ def main() -> None:
               "provisional": {"scale": provisional, "cutoff": CUTOFF, "tolerance": round(tol_prov, 4)},
               "fixed": {"scale": scale, "cutoff": cutoff, "tolerance": round(tol, 4)},
               "late_departures": {"n": len(late), "train_day_hubs": len(train1)}, "tolerance_basis": len(basis),
-              "split_changed": split2 != split1, "pass2": rerun, "dmax": DMAX, "time_limits_s": limits,
+              "eval_lost_in_pass2": lost, "pass2": rerun, "dmax": DMAX, "time_limits_s": limits,
               "e_median": e_median, "advisories_fitted": len(fits)}
-    rows = candidate_rows(built, controls, tasks, pass1, pass2, refs, tol_prov, tol, fid_prov, fid_ship, split1, split,
-                          dropped)
+    rows = candidate_rows(built, controls, tasks, pass1, pass2, tol_prov, tol, fid_ship, drawn, split, dropped)
     (out / "candidates.jsonl").write_text("".join(json.dumps(r, default=str) + "\n" for r in rows))
     report = summary(tasks, held, shipped, refs, split, final, dropped, fid_ship, built, counts, params, clock, keys)
     (out / "gates.json").write_text(json.dumps(report, indent=1, default=str) + "\n")
@@ -242,6 +244,11 @@ def clause_job(job: tuple) -> dict:
         naive = references.naive(task)
         air = references.airline(task)
         rec, rec_ferries = references.recorded(task)
+        out |= {"naive": {**naive.cost.to_dict(), **naive.counts},
+                "airline": {**air.run.cost.to_dict(), **air.run.counts, "auto": air.auto, "flew": air.flew},
+                "recorded": {**rec.to_dict(), "ferries": rec_ferries},
+                "jetblue": {"flown": sum(f.actual.dep is not None for f in task.flights),
+                            "past_midnight": references.past_midnight(task)}}
         t1 = time.monotonic()
         sol, run = references.anchor(task, prove)
         t2 = time.monotonic()
@@ -250,15 +257,10 @@ def clause_job(job: tuple) -> dict:
         exact = run.cost.total == sol.objective and all(
             (run.flights[i].dep if run.flights[i].status == FLOWN else None) == d for i, d in sol.deps.items())
         out |= {
-            "naive": {**naive.cost.to_dict(), **naive.counts},
-            "airline": {**air.run.cost.to_dict(), **air.run.counts, "auto": air.auto, "flew": air.flew},
-            "recorded": {**rec.to_dict(), "ferries": rec_ferries},
             "anchor": {**sol.to_dict(), **run.cost.to_dict(), **run.counts, "exact": exact,
                        "past_midnight": references.past_midnight(task, run),
                        "seats_ok": references.seats_ok(task, run)},
             "flat": sol_flat(flat),
-            "jetblue": {"flown": sum(f.actual.dep is not None for f in task.flights),
-                        "past_midnight": references.past_midnight(task)},
             "proof": {"proven": sol.proven, "exact": exact,
                       "block": all(f.block <= f.sched_block + BLOCK_SLACK for f in task.flights),
                       "pax": all(f.pax <= min(t.seats for t in task.tails if t.family == f.family)
@@ -327,9 +329,10 @@ def percentile(values: list[float], pct: float) -> float:
     return v[min(len(v) - 1, math.ceil(pct / 100 * len(v)) - 1)]
 
 
-def clauses_of(task: Task, r: dict, tol: float, fid: float | None) -> dict[str, bool]:
-    """The clauses of a built task (the data clauses held at its window, else it would not have been built)."""
-    base = {"program_in_window": bool(task.clauses["program_in_window"]), "fidelity": in_band(fid)}
+def clauses_of(task: Task, r: dict, tol: float) -> dict[str, bool]:
+    """The clauses of a built task but fidelity, which waits for the train-fitted scale (the data clauses held at its
+    window, else it would not have been built)."""
+    base = {"program_in_window": bool(task.clauses["program_in_window"])}
     if r.get("error"):
         return {**base, **dict.fromkeys(SOLVER_CLAUSES, False)}
     a, rec = r["airline"], r["recorded"]
@@ -345,9 +348,8 @@ def in_band(fid: float | None) -> bool:
     return fid is None or unseen.FIDELITY[0] <= fid <= unseen.FIDELITY[1]
 
 
-def qualifying(tasks: Mapping[str, Task], results: Mapping[str, dict], tol: float,
-               fid: Mapping[str, float | None]) -> list[str]:
-    return [i for i, t in tasks.items() if all(clauses_of(t, results[i], tol, fid[i]).values())]
+def qualifying(tasks: Mapping[str, Task], results: Mapping[str, dict], tol: float) -> list[str]:
+    return [i for i, t in tasks.items() if all(clauses_of(t, results[i], tol).values())]
 
 
 def late_departures(keys: Iterable[tuple[str, str]]) -> list[int]:
@@ -370,9 +372,8 @@ def cutoff_hour(departures: list[int]) -> int | None:
 
 
 def candidate_rows(built: list, controls: list, tasks: Mapping[str, Task], pass1: Mapping[str, dict],
-                   pass2: Mapping[str, dict], refs: Mapping[str, dict], tol_prov: float, tol: float,
-                   fid_prov: Mapping[str, float | None], fid_ship: Mapping[str, float | None],
-                   split1: Mapping[tuple, str], split: Mapping[str, str], dropped: Mapping[str, str]) -> list[dict]:
+                   pass2: Mapping[str, dict], tol_prov: float, tol: float, fid: Mapping[str, float | None],
+                   drawn: Mapping[tuple, str], split: Mapping[str, str], dropped: Mapping[str, str]) -> list[dict]:
     rows = []
     for b in [*built, *controls]:
         row = {k: v for k, v in b.row.items() if k != "tried"}
@@ -384,16 +385,14 @@ def candidate_rows(built: list, controls: list, tasks: Mapping[str, Task], pass1
         t = b.task
         row |= {"built": True, "slide": t.slide, "build_clauses": t.clauses}
         if t.split == "control":
-            r = refs.get(i, {})
-            rows.append({**row, "split": "control", "controls": control_checks(r)})
+            rows.append({**row, "split": "control"})
             continue
-        c1 = clauses_of(t, pass1[i], tol_prov, fid_prov[i])
-        c2 = clauses_of(t, pass2[i], tol, fid_prov[i])
+        c1 = clauses_of(t, pass1[i], tol_prov)
+        c2 = {**clauses_of(t, pass2[i], tol), "fidelity": in_band(fid[i])}
         r = pass2[i]
         rows.append({**row, "clauses_pass1": c1, "clauses": c2,
                      "failed": [k for k, v in c2.items() if not v], "qualifies": all(c2.values()),
-                     "fidelity_provisional": fid_prov[i], "fidelity": fid_ship[i],
-                     "split_pass1": split1.get(key(t)), "split": split.get(i), "dropped": i in dropped,
+                     "fidelity": fid[i], "drawn": drawn.get(key(t)), "split": split.get(i), "dropped": i in dropped,
                      "replay_ratio": ratio(r), "airline_auto": (r.get("airline") or {}).get("auto"),
                      "airline_flew": (r.get("airline") or {}).get("flew"), "leverage_flat": leverage(r),
                      "error": r.get("error")})
@@ -432,15 +431,15 @@ def summary(tasks: Mapping[str, Task], held: Mapping[str, Task], shipped: Mappin
             refs: Mapping[str, dict], split: Mapping[str, str], final: Mapping[str, str], dropped: Mapping[str, str],
             fid: Mapping[str, float | None], built: list, counts: dict, params: dict, clock: Clock,
             keys: list) -> dict:
-    ok = {i: r for i, r in refs.items() if i in tasks and not r.get("error")}
-    autos = [(r["airline"]["auto"], r["airline"]["flew"]) for r in ok.values()]
+    mine = {i: r for i, r in refs.items() if i in tasks}
+    autos = [(r["airline"]["auto"], r["airline"]["flew"]) for r in mine.values() if "airline" in r]
     replay = [a <= AUTO_SHARE * n and a <= AUTO_MAX for a, n in autos]
     rounded = [a <= min(AUTO_MAX, math.ceil(AUTO_SHARE * n)) for a, n in autos]
     loose = [a <= max(AUTO_SHARE * n, AUTO_MAX) for a, n in autos]
     fid_eval = [in_band(fid[i]) for i, v in split.items() if v == "eval" and fid[i] is not None]
     fid_train = [in_band(fid[i]) for i, v in split.items() if v == "train" and fid[i] is not None]
-    calm = [r["calm"].get("cancelled", 99) <= CALM_CANCELS and r["calm"].get("ferries", 99) <= CALM_FERRIES
-            for r in ok.values() if "calm" in r]
+    calm = [r.get("calm", {}).get("cancelled", 99) <= CALM_CANCELS and r.get("calm", {}).get("ferries", 99)
+            <= CALM_FERRIES for r in mine.values()]
     per_hub = Counter(tasks[i].hub for i, v in final.items() if v == "eval")
     n_train = sum(v == "train" for v in final.values())
     ctl = {i: control_checks(refs.get(i, {})) for i in held}
@@ -449,7 +448,8 @@ def summary(tasks: Mapping[str, Task], held: Mapping[str, Task], shipped: Mappin
                                   f"auto-cancels <= {AUTO_SHARE:.0%} and <= {AUTO_MAX} per day of the flights JetBlue "
                                   "flew by their deadline",
                                   alt={"rounded_up_share": share(rounded), "either_reading_share": share(loose),
-                                       "auto_cancels": sum(a for a, _ in autos), "flew": sum(n for _, n in autos)}),
+                                       "auto_cancels": sum(a for a, _ in autos), "flew": sum(n for _, n in autos),
+                                       "missing": len(mine) - len(autos)}),
         "G2_fidelity": {"eval": share(fid_eval), "train": share(fid_train), "threshold": GATE_SHARE,
                         "n_eval": len(fid_eval), "n_train": len(fid_train),
                         "pass": bool(fid_eval) and bool(fid_train) and share(fid_eval) >= GATE_SHARE
@@ -524,7 +524,9 @@ def diagnostics(tasks: Mapping[str, Task], held: Mapping[str, Task], refs: Mappi
                 rewards[final.get(i, "other")][k].append(reward(r[k]["total"], a, n))
     seats = [all(r[k].get("seats_ok", True) for k in ("anchor", "follower", "blind", "rule") if k in r)
              for r in ok.values()]
-    below = {i: r["below_anchor"] for i, r in ok.items() if r.get("below_anchor")}
+    proven = {i for i, r in ok.items() if r["proof"]["proven"]}
+    below = {i: r["below_anchor"] for i, r in ok.items() if r.get("below_anchor") and i in proven}
+    unproven = {i: r.get("below_anchor") or {} for i, r in ok.items() if i not in proven}
     errors = {i: {k: v["error"] for k, v in r.items() if isinstance(v, dict) and v.get("error")} | (
         {"pass": r["error"]} if r.get("error") else {}) for i, r in refs.items()}
     lev = [r["naive"]["flat"] / r["flat"]["objective"] - 1 for i, r in ok.items() if i in tasks]
@@ -534,8 +536,8 @@ def diagnostics(tasks: Mapping[str, Task], held: Mapping[str, Task], refs: Mappi
                   for r in ok.values() if "total" in r.get("rule", {}) and "total" in r.get("follower", {})
                   and r["rule"]["total"] > r["anchor"]["objective"]]
     return {
-        "anchor_assertion": {"violations": below, "n_tasks": len(ok),
-                             "pass": not below},
+        "anchor_assertion": {"violations": below, "n_tasks": len(proven), "pass": not below,
+                             "unproven_anchor": unproven},
         "errors": {i: e for i, e in errors.items() if e},
         "pax_le_seats": {"tasks_ok": sum(seats), "n": len(seats)},
         "proof": {"proven": sum(r["anchor"]["status"] == "Optimal" for r in ok.values()),
