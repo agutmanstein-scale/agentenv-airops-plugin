@@ -17,9 +17,9 @@
   arrival order as slot claims (each claims the slot of its recorded departure plus its scheduled block); auto-cancels
   are counted over the flights it flew by their deadline, which covers dmax and the hub cutoff, less those whose
   aircraft a leg it flew past its deadline brought (`counted`);
-- recorded day: JetBlue's real outcome priced directly, cancellations decided at sched - NOTICE, plus end-of-day
-  ferries from its recorded end positions to tomorrow's needs. A diverted flight that never reached its destination
-  counts as cancelled when it left, the moment the desk knew;
+- recorded day: JetBlue's real outcome priced directly, its aircraft's minutes on its recorded departures and blocks,
+  cancellations decided at sched - NOTICE, plus end-of-day ferries from its recorded end positions to tomorrow's needs.
+  A diverted flight that never reached its destination counts as cancelled when it left, the moment the desk knew;
 - calm day: no delay, scheduled blocks, no programs: the hindsight optimum's forced cancellations and ferries.
 Like for like, nothing is decided before the first watch: a JetBlue cancellation due earlier than the start counts as
 decided there, as the anchor's and every desk's do. At a watch the day so far is history, as the env shows it: a
@@ -163,14 +163,14 @@ def counted(task: Task) -> list[int]:
 
 def recorded(task: Task) -> tuple[Cost, int]:
     """JetBlue's recorded day like for like, and its end-of-day ferries."""
-    arr, decided = {}, {}
+    dep, arr, decided = {}, {}, {}
     for f in task.flights:
         a = f.actual
-        arr[f.id] = a.arr if a.dep is not None and a.arr is not None else None
+        dep[f.id], arr[f.id] = a.dep, a.arr if a.dep is not None and a.arr is not None else None
         if arr[f.id] is None:
             decided[f.id] = max(f.sched_dep - NOTICE, task.start) if a.dep is None else a.dep
     out = sim.ferries(task, {t.tail: t.actual_end for t in task.tails}, {t.tail: t.family for t in task.tails})
-    return priced(task, arr, decided, [(x.orig, x.dest) for x in out]), len(out)
+    return priced(task, dep, arr, decided, [(x.family, x.orig, x.dest) for x in out]), len(out)
 
 
 def calm(task: Task, time_limit: float = 600.0) -> Calm:

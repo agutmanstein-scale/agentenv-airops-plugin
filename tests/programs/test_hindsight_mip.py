@@ -1,4 +1,5 @@
 import random
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -26,7 +27,20 @@ def days() -> dict[str, Task]:
             "nominal": day([flight(0, "BUF", "JFK", 100, 60, lb=30), flight(1, "DCA", "JFK", 130, 60),
                             flight(2, "MCO", "JFK", 140, 60), flight(3, "JFK", "MCO", 200, 150, pax=180)],
                            [tail("N1", "BUF"), tail("N2", "DCA"), tail("N3", "MCO")], aar=1),
-            "moves": day(moved, tails, segments=(GDP,)), "two_moves": day(waiting, two), "busy": busy_day()}
+            "moves": day(moved, tails, segments=(GDP,)), "two_moves": day(waiting, two), "busy": busy_day(),
+            "families": families()}
+
+
+def families() -> Task:
+    """A320s and E190s whose blocks overrun, behind a ground stop, each family with a ferry to end the day."""
+    def e190(f):
+        return replace(f, family="E190")
+
+    flights = [flight(0, "BUF", "JFK", 100, 80, lb=20, sched_block=60), e190(flight(1, "DCA", "JFK", 110, 90, pax=90,
+                                                                                     sched_block=70)),
+               flight(2, "JFK", "MCO", 250, 160, sched_block=150), e190(flight(3, "JFK", "PWM", 260, 70, pax=60))]
+    tails = [tail("N1", "BUF", end="BOS"), replace(tail("N2", "DCA", end="BOS"), family="E190", seats=100)]
+    return replace(day(flights, tails, stops=(stop(100, 160),)), turn={"A320": 30, "E190": 25})
 
 
 @pytest.fixture(scope="module")
@@ -44,7 +58,7 @@ def replays(task: Task, sol: mip.Solution) -> bool:
         (run.flights[i].dep if run.flights[i].status == "flown" else None) == d for i, d in sol.deps.items())
 
 
-@pytest.mark.parametrize("name", ["slots", "stop", "nominal", "moves", "two_moves", "busy"])
+@pytest.mark.parametrize("name", ["slots", "stop", "nominal", "moves", "two_moves", "busy", "families"])
 def test_every_optimum_replays_exactly_in_the_sim(name):
     task = days()[name]
     sol = mip.solve(task)
@@ -73,7 +87,7 @@ def test_the_fixture_optimum_replays_and_no_plan_beats_it(fixture_day):
         assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
 
 
-@pytest.mark.parametrize("name", ["slots", "stop", "nominal", "moves", "two_moves", "busy"])
+@pytest.mark.parametrize("name", ["slots", "stop", "nominal", "moves", "two_moves", "busy", "families"])
 def test_every_day_the_sim_runs_is_a_solution_of_the_model_at_its_cost(name):
     task = days()[name]
     rng = random.Random(11)

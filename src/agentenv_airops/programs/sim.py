@@ -41,11 +41,10 @@ from collections import Counter, defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
-from ..core.cost import ferry_cost
 from ..core.known import LOOK
 from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN, Ferry, _assign
 from . import rbs, repairs
-from .cost import Cost, priced
+from .cost import Cost, ferry_cost, priced
 from .model import Flight, Segment, Task
 
 Plan = Mapping[int | str, Mapping]
@@ -269,8 +268,9 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
     out = ferries(task, ends, family, spare)
     wasted = tuple(sorted(k for k, i in bound.items() if runs[i].status != FLOWN or (runs[i].program, runs[i].slot)
                           != k))
-    cost = priced(task, {i: r.arr for i, r in runs.items()},
-                  {i: r.decided for i, r in runs.items() if r.status != FLOWN}, [(x.orig, x.dest) for x in out])
+    cost = priced(task, {i: r.dep for i, r in runs.items()}, {i: r.arr for i, r in runs.items()},
+                  {i: r.decided for i, r in runs.items() if r.status != FLOWN},
+                  [(x.family, x.orig, x.dest) for x in out])
     return Execution({i: runs[i] for i in sorted(runs)}, {p: tuple(v) for p, v in legs.items()},
                      dict(sorted(ends.items())), out, wasted, dict(sorted(spare.items())), fired, cost)
 
@@ -359,7 +359,7 @@ def ferries(task: Task, ends: Mapping[str, str], family: Mapping[str, str],
         if not extra:
             continue
         free = (spare or {}).get(fam, 0)
-        matrix = [[ferry_cost(task, ends[p], b) for b in holes] + [0] * free for p in extra]
+        matrix = [[ferry_cost(task, fam, ends[p], b) for b in holes] + [0] * free for p in extra]
         for k, j in enumerate(_assign(matrix)):
             if j < len(holes):
                 out.append(Ferry(extra[k], fam, ends[extra[k]], holes[j], matrix[k][j]))

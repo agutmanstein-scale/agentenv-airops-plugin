@@ -5,9 +5,11 @@ the slot less its scheduled block) from its earliest to its deadline, the hub cu
 world forbids: those a ground stop holds it, and those at which a segment governs it
 with its slot time (the minute plus the scheduled block) inside the period but on none of JetBlue's slots. A copy on a
 slot counts in that slot's row, at most one flight per slot; any other copy into a hub counts in the nominal row of its
-arrival hour (the minute plus the block). A copy costs its pax x minutes late at arrival, a cancellation `price`: the
-notice price at the solve time, which keeps the model linear, or the flat 523 per passenger. Pinned flights keep their
-minute or their cancellation, and use up the slots and nominal room they take.
+arrival hour (the minute plus the block). A copy costs its pax x minutes late at arrival and its aircraft's minutes
+(cost.flown_price: the minute's gate delay, and the world's block overrun, the same for every copy of a flight); a
+cancellation costs `price`, the notice price at the solve time, which keeps the model linear, or the flat price, either
+less the cancellation's saving. Pinned flights keep their minute or their cancellation, and use up the slots and
+nominal room they take.
 
 Aircraft flow as in v1, over nodes per (family, station) at every event time, with the Moves on top; a copy of a leg
 with a busy block reaches its destination's node at the block's ready time when that is later than its turn. A Move
@@ -34,11 +36,10 @@ from dataclasses import dataclass
 import highspy
 import numpy as np
 
-from ..core.cost import ferry_cost
 from ..core.sim import FLOWN
 from ..refs.mip import GAP, _Model
 from . import sim
-from .cost import cancel_price
+from .cost import cancel_price, ferry_cost, flown_price
 from .model import Flight, Task
 
 INF = highspy.kHighsInf
@@ -140,7 +141,7 @@ class Network:
             r = {}
             for d, (kind, key) in copies[f.id]:
                 arr = d + world.block[f.id]
-                c = m.col(f.pax * max(0, arr - f.sched_arr), 1, True, (d - f.sched_dep + 1) * w)
+                c = m.col(flown_price(f, d, arr), 1, True, (d - f.sched_dep + 1) * w)
                 self.xs[(f.id, d)] = c
                 v = node[((f.family, f.dest), task.back(f, arr))]
                 arc(node[((f.family, f.orig), d)], v, c)
@@ -216,7 +217,7 @@ class Network:
         for fam, a in self.times:
             for fam2, b in need:
                 if fam2 == fam:
-                    self.ferry[(fam, a, b)] = c = m.col(ferry_cost(task, a, b), tokens[fam], True)
+                    self.ferry[(fam, a, b)] = c = m.col(ferry_cost(task, fam, a, b), tokens[fam], True)
                     arc(over[(fam, a)], None, c)
                     into[(fam, b)][c] = 1
         for key, n in need.items():

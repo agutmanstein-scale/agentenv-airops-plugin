@@ -91,7 +91,7 @@ def test_each_cancellation_is_priced_at_the_watch_that_confirms_it():
     assert followed.run.cost.notice == rule.run.cost.notice == 100 * (300 - 280)
     assert references.naive(task).cost.notice == 100 * (640 - 400 + 120)
     sol, run = references.anchor(task)
-    assert sol.objective == run.cost.total == 52_300 and run.cost.notice == 0
+    assert sol.objective == run.cost.total == 52_300 - 61 * 60 and run.cost.notice == 0
 
 
 def test_the_recorded_day_prices_jetblues_outcome_like_for_like():
@@ -101,6 +101,7 @@ def test_the_recorded_day_prices_jetblues_outcome_like_for_like():
     tails = [tail("N1", "BUF", end="JFK"), replace(tail("N2", "JFK", end="MCO"), actual_end="PWM")]
     got, ferries = references.recorded(day([flown, cancelled, diverted], tails))
     assert (got.delay, got.cancel, got.notice, ferries) == (100 * 30, 523 * 60, 10 * (200 - 60), 1)
+    assert (got.gate, got.overrun, got.saved) == (34 * (200 - 180), 95 * (190 - 100 - 60), 61 * 60)
     later, _ = references.recorded(day([flown, cancelled, diverted], tails, start=250))
     assert later.notice == 50 * (250 - 180) + 10 * (200 - 60)
 
