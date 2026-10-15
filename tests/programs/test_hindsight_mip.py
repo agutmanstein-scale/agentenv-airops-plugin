@@ -1,5 +1,6 @@
 import random
 
+import numpy as np
 import pytest
 from day_helpers import GDP, busy_day, day, flight, segment, shortened, stop, tail, three_into_a_program
 
@@ -100,6 +101,30 @@ def test_a_day_with_its_history_pinned_is_a_solution_of_the_model_with_those_pin
     x = net.vector(run)
     assert x is not None and feasible(net, x)
     assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
+
+
+def test_a_canonical_pass_out_of_time_keeps_the_proven_plan_flagged_as_not_canonical(monkeypatch):
+    task = days()["slots"]
+    proven = mip.solve(task, canonical=False)
+    assert mip.solve(task).canonical and not proven.canonical
+    run, calls = mip._Started.run, []
+
+    def out_of_time(self, *args):
+        calls.append(args)
+        got = run(self, *args)
+        return ("Time limit reached", *got[1:5], np.zeros_like(got[5])) if len(calls) == 2 else got
+
+    monkeypatch.setattr(mip._Started, "run", out_of_time)
+    sol = mip.solve(task)
+    assert len(calls) == 2 and sol.proven and not sol.canonical
+    assert (sol.status, sol.objective, sol.deps) == ("Optimal", proven.objective, proven.deps)
+
+
+def test_a_coarse_step_keeps_every_slots_edct():
+    task = three_into_a_program()
+    sol = mip.solve(task, step=7)
+    assert sol.objective == mip.solve(task).objective and replays(task, sol)
+    assert {d for d in sol.deps.values()} == {120, 180, 240}
 
 
 def test_pins_and_the_earliest_minute_are_kept(fixture_day):

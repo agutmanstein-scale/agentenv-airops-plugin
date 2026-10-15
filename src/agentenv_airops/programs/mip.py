@@ -1,7 +1,8 @@
 """The v2 hindsight MIP (HiGHS): v1's time-line network (refs.mip) by split family, inside the programs.
 
-Each flight gets a copy per departure minute (every `step` minutes) from its earliest to its deadline, the hub cutoff
-included, less the minutes the world forbids: those a ground stop holds it, and those at which a segment governs it
+Each flight gets a copy per departure minute (every `step` minutes, and at the EDCT of every slot into its destination:
+the slot less its scheduled block) from its earliest to its deadline, the hub cutoff included, less the minutes the
+world forbids: those a ground stop holds it, and those at which a segment governs it
 with its slot time (the minute plus the scheduled block) inside the period but on none of JetBlue's slots. A copy on a
 slot counts in that slot's row, at most one flight per slot; any other copy into a hub counts in the nominal row of its
 arrival hour (the minute plus the block). A copy costs its pax x minutes late at arrival, a cancellation `price`: the
@@ -21,7 +22,8 @@ sim.execute reproduces from its departure minutes as holds, at the same cost, an
 solution (`Network.vector`), which also starts the search.
 
 Proven to GAP (0.01%); `canonical` then re-solves among the optimal plans for the one with the earliest weighted
-departures (v1's second pass, started from the first), so the plan, not only its cost, is the same on every run.
+departures (v1's second pass, started from the first), so the plan, not only its cost, is the same on every run. A
+second pass that runs out of time leaves the proven cost solve's status and plan, flagged as not canonical.
 """
 
 import time
@@ -54,6 +56,7 @@ class Solution:
     rows: int
     copies: int
     started: bool
+    canonical: bool
 
     @property
     def proven(self) -> bool:
@@ -67,7 +70,7 @@ class Solution:
     def to_dict(self) -> dict:
         return {"status": self.status, "objective": self.objective, "bound": round(self.bound, 1),
                 "gap_pct": self.gap_pct, "wall_s": self.wall_s, "cols": self.cols, "rows": self.rows,
-                "copies": self.copies, "started": self.started}
+                "copies": self.copies, "started": self.started, "canonical": self.canonical}
 
 
 def solve(task: Task, world: sim.World | None = None, price: Mapping[int, int] | None = None,
@@ -101,7 +104,9 @@ class Network:
                 copies[f.id] = [] if d is None else [(d, _place(f, d, rules, pools) or ("free", None))]
             else:
                 lo = max(task.earliest(f, world.lb[f.id]), earliest or 0)
-                copies[f.id] = [(d, at) for d in range(lo, f.deadline + 1, step)
+                edct = {s - f.sched_block for seg in world.segments.get(f.dest, ()) for s in seg.slots}
+                minutes = set(range(lo, f.deadline + 1, step)) | {d for d in edct if lo <= d <= f.deadline}
+                copies[f.id] = [(d, at) for d in sorted(minutes)
                                 if rules.held(f, d) == d and (at := _place(f, d, rules, pools))]
             for d, _ in copies[f.id]:
                 events[(f.family, f.orig)].add(d)
@@ -232,18 +237,21 @@ class Network:
               start: np.ndarray | None = None) -> Solution:
         m = self.m
         status, objective, bound, mip_gap, wall, x = m.run(time_limit, gap, threads, start)
+        settled = False
         if canonical and status == "Optimal":
             m.row({c: v for c, v in enumerate(m.cost) if v}, -INF, round(objective) + 0.5)
             m.cost, main = m.second, m.cost
-            status, _, _, _, second_wall, x = m.run(time_limit, 0.0, threads, x)
+            tied, _, _, _, second_wall, y = m.run(time_limit, 0.0, threads, x)
             m.cost, wall = main, wall + second_wall
             m.rows.pop()
+            if tied == "Optimal":
+                x, settled = y, True
         deps = {}
         for f in self.task.flights:
             flown = [d for d, _ in self.copies[f.id] if x[self.xs[(f.id, d)]] > 0.5]
             deps[f.id] = flown[0] if flown else None
         return Solution(status, round(objective), bound, round(100 * mip_gap, 4), round(wall, 2), deps, len(m.cost),
-                        len(m.rows), sum(len(v) for v in self.copies.values()), start is not None)
+                        len(m.rows), sum(len(v) for v in self.copies.values()), start is not None, settled)
 
     def vector(self, run: sim.Execution) -> np.ndarray | None:
         """`run` (a day sim.execute ran in this world, holding every pin) as a solution of the model, or None if a

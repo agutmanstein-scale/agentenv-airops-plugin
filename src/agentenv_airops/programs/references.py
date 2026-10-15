@@ -104,8 +104,8 @@ def follow(task: Task, programs: bool = True, time_limit: float = 600.0, canonic
         held = deliberate(task, plan, {i: d for i, d in sol.deps.items() if i not in pinned}, world, t)
         plan |= {i: {"not_before": d} for i, d in held.items()}
         log.append({"t": t, "frozen": len(pinned), "cancelled": cancelled, "held": len(held),
-                    "planned": sol.objective, "status": sol.status, "gap_pct": sol.gap_pct, "wall_s": sol.wall_s,
-                    "cols": sol.cols, "rows": sol.rows})
+                    "planned": sol.objective, "status": sol.status, "gap_pct": sol.gap_pct,
+                    "canonical": sol.canonical, "wall_s": sol.wall_s, "cols": sol.cols, "rows": sol.rows})
     return Followed(plan, sim.execute(task, plan), tuple(log))
 
 
