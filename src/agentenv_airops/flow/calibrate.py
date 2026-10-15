@@ -218,6 +218,21 @@ def guard_airborne(rows: Sequence[dict]) -> dict:
             "mean_modelled": float(m.mean()) if len(m) else None, "mean_observed": float(o.mean()) if len(o) else None}
 
 
+def train_capacity(worlds: Sequence[World]) -> dict[str, dict]:
+    """Per hub, the median landings an hour over the given (calibrated train) worlds: by local hour of day and over
+    07:00-23:00, for forecasts that fall back on a typical day."""
+    out = {}
+    for hub in sorted({w.hub for w in worlds}):
+        by = defaultdict(list)
+        for w in worlds:
+            if w.hub == hub:
+                for h in range(24):
+                    by[h].append(sum(w.caps[4 * h:4 * h + 4]))
+        out[hub] = {"by_hour": [statistics.median(by[h]) for h in range(24)],
+                    "day": statistics.median(v for h in range(FIRST_HOUR, LAST_HOUR) for v in by[h])}
+    return out
+
+
 def with_reductions(world: World, r: Reductions) -> World:
     return replace(world, reductions=r, caps=tuple(capacity.bins(world.hub, world.timeline, world.departures, r)))
 

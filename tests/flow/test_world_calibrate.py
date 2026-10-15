@@ -99,3 +99,9 @@ def test_a_train_day_builds_and_prices_its_naive_day():
     assert sum(a.unseen for a in w.arrivals) > 200 and sum(not a.unseen for a in w.arrivals) > 300
     out = flow_world.evaluate(w)
     assert out.totals["flights"] == sum(not a.cancelled for a in w.arrivals) and out.totals["ground"] == 0
+
+
+def test_train_capacity_is_the_median_hourly_landings_per_hub():
+    a, b = world([arrival(0, 100, 0)], [10] * 192), world([arrival(0, 100, 0)], [12] * 192)
+    got = calibrate.train_capacity([a, b, world([arrival(0, 100, 0)], [11] * 192, hub="BOS")])
+    assert got["JFK"] == {"by_hour": [44] * 24, "day": 44} and got["BOS"]["day"] == 44

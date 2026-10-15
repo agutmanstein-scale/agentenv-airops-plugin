@@ -104,7 +104,9 @@ def fit(out: Path, workers: int) -> None:
     clock["calibrate_and_guards_s"] = round(time.time() - t, 1)
     info = {k: v for k, v in found.items() if k != "reductions"}
     calibrate.save(out / "calibration.json", med, r, {"fit": info, "train_day_hubs": len(train),
-                                                       "sample": calibrate.summary(rows), "timings": clock})
+                                                       "sample": calibrate.summary(rows),
+                                                       "train_capacity": calibrate.train_capacity(fitted),
+                                                       "timings": clock})
     guards = {"capacity": cap, "airborne": air, "reductions": asdict(r), "fit": info,
               "pass": cap["pass"] and air["pass"], "timings": clock}
     (out / "guards.json").write_text(json.dumps(guards, indent=1) + "\n")
