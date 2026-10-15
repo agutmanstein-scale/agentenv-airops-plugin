@@ -1,7 +1,7 @@
 from dataclasses import replace
 
 import pytest
-from day_helpers import day, flight, shortened, stop, tail
+from day_helpers import GDP, day, flight, shortened, stop, tail
 from program_helpers import adv
 
 from agentenv_airops.programs import references, sim
@@ -37,6 +37,12 @@ def released_early():
     flights = [flight(0, "BUF", "JFK", 100, 60, deadline=900), flight(1, "JFK", "MCO", 500, 150)]
     return day(flights, [tail("N1", "BUF", end="JFK"), tail("N2", "JFK", end="MCO")], stops=(stop(0, 150),),
                advisories=(adv("s1", "gs", -30, 0, 300), adv("c1", "gs_cnx", 150, 150, None)))
+
+
+def gdp_announced_long():
+    """A GDP signed at 00:00 for 02:30-06:40 whose forecast gives JetBlue no slot, and a flight into it that, held
+    past the period, misses its deadline; on the truth it gets a slot."""
+    return day([flight(0, "BUF", "JFK", 100, 60, deadline=300)], [tail("N1", "BUF", end="JFK")], segments=(GDP,))
 
 
 def test_watches_run_hourly_until_every_delay_is_known():
@@ -82,6 +88,18 @@ def test_the_follower_holds_only_what_it_decides_to_and_a_flight_it_did_not_hold
     assert references.deliberate(task, {}, {0: 300, 1: 500}, world, 0) == {}
     assert references.deliberate(task, {}, {0: 330, 1: 500}, world, 0) == {0: 330}
     assert references.deliberate(task, {0: {"cancel": True, "decided": 0}}, {1: 520}, world, 0) == {1: 520}
+
+
+def test_a_base_rate_follower_expects_each_gdp_to_end_early_but_never_before_the_watch():
+    task = gdp_announced_long()
+    issued = sim.known(task, 0).segments["JFK"]
+    assert [s.until for s in issued] == [401]
+    assert [s.until for s in sim.known(task, 0, early=250).segments["JFK"]] == [151]
+    assert [s.until for s in sim.known(task, 200, early=250).segments["JFK"]] == [200]
+    assert sim.known(task, 0, early=250).segments["JFK"][0].slots == issued[0].slots
+    assert references.follow(task).plan == {0: {"cancel": True, "decided": 0}}
+    followed = references.follow(task, early=250)
+    assert followed.plan == {0: {"not_before": 151}} and followed.run.flights[0].status == "flown"
 
 
 def test_each_cancellation_is_priced_at_the_watch_that_confirms_it():

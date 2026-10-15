@@ -11,6 +11,8 @@ airline's aircraft-minutes at the FAA's rates).
   leaves as soon as its aircraft, the stops and its slot allow (M11). Every watch solve is canonical (the earliest
   optimal departures, v1's) and starts from the plan's own projection, so no truth reaches the search;
 - program-blind follower: the follower with every program removed from its model (the nominal caps stay);
+- base-rate follower (`early`, off by default): the follower expecting every GDP to end `early` minutes before its
+  as-issued end, never before the watch, as GDPs on other days did by the median; its stops run as issued;
 - rule: at every watch, cancel what the plan run on the day as known auto-cancels while it is still open and not
   committed (a flight an earlier watch had leaving before its freeze line commits to fly, as in the follower);
 - naive: the empty plan;
@@ -84,12 +86,13 @@ def flat_anchor(task: Task, time_limit: float = 600.0, start: sim.Execution | No
                      start=naive(task) if start is None else start)
 
 
-def follow(task: Task, programs: bool = True, time_limit: float = 600.0, canonical: bool = True) -> Followed:
+def follow(task: Task, programs: bool = True, time_limit: float = 600.0, canonical: bool = True,
+           early: int = 0) -> Followed:
     plan: dict[int, dict] = {}
     pinned: set[int] = set()
     log = []
     for t in watch_times(task):
-        world = sim.known(task, t, programs)
+        world = sim.known(task, t, programs, early)
         run = sim.execute(task, so_far(task, plan, t), world)
         if t > task.start:
             pinned |= frozen(task, run, t)

@@ -31,8 +31,9 @@ leg has none. At the end of the day v1's ferries put the aircraft on tomorrow's 
 
 A World is what a day runs on: the truth (the task's lb, truth blocks and programs as they ran), the day as known at
 a watch (M12: lb and the truth block once the scheduled departure is within LOOK, else 0 and the scheduled block, the
-programs as issued by then, proposed GDPs included, every stop to its as-issued end), or the calm day (no delay,
-scheduled blocks, no programs). Nominal caps, deadlines and the hub cutoff are the same in all of them.
+programs as issued by then, proposed GDPs included, every stop to its as-issued end, every GDP too unless a base rate
+ends it earlier), or the calm day (no delay, scheduled blocks, no programs). Nominal caps, deadlines and the hub
+cutoff are the same in all of them.
 """
 
 import bisect
@@ -67,14 +68,15 @@ def truth(task: Task) -> World:
                  tuple(s for p in task.programs.values() for s in p.stops), nominal_caps(task))
 
 
-def known(task: Task, t: int, programs: bool = True) -> World:
-    """The day as known at watch t; `programs` False drops every program from the model."""
+def known(task: Task, t: int, programs: bool = True, early: int = 0) -> World:
+    """The day as known at watch t; `programs` False drops every program from the model, `early` ends every GDP
+    that many minutes before its as-issued end, never before t (rbs.forecast)."""
     seen = {f.id: f.sched_dep <= t + LOOK for f in task.flights}
     lb = {f.id: f.lb if seen[f.id] else 0 for f in task.flights}
     block = {f.id: f.block if seen[f.id] else f.sched_block for f in task.flights}
     segments, stops = {h: () for h in task.programs}, ()
     if programs:
-        issued = {h: rbs.forecast(task, h, t) for h in task.programs}
+        issued = {h: rbs.forecast(task, h, t, early) for h in task.programs}
         segments = {h: s for h, (s, _) in issued.items()}
         stops = tuple(p for _, ps in issued.values() for p in ps)
     return World(lb, block, segments, stops, nominal_caps(task))

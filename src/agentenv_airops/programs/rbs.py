@@ -152,11 +152,15 @@ def nominal(task: Task, hub: str) -> dict[int, int]:
     return {h: max(mine[h], math.floor(p.aar - others[h] - p.e_bar)) for h in range(task.start // 60, last + 1)}
 
 
-def forecast(task: Task, hub: str, t: int) -> tuple[tuple[Segment, ...], tuple[Stop, ...]]:
+def forecast(task: Task, hub: str, t: int, early: int = 0) -> tuple[tuple[Segment, ...], tuple[Stop, ...]]:
     """The hub's programs on the day as known at watch t: segments with JetBlue's forecast pool, and the stop
-    pieces, each to its as-issued end."""
+    pieces, each to its as-issued end. With `early` (a base rate) every GDP segment stops governing `early` minutes
+    before its period's end, never before t, its pool unchanged."""
     p = task.programs[hub]
-    return segments(p, task.covers, t), issued_by(p.advisories, t)[1]
+    segs = segments(p, task.covers, t)
+    if early:
+        segs = tuple(replace(s, until=min(s.until, max(t, s.end + 1 - early))) for s in segs)
+    return segs, issued_by(p.advisories, t)[1]
 
 
 def rescale(task: Task, scale: Mapping[str, float], e_fit: Mapping[str, float],
