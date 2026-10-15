@@ -247,7 +247,7 @@ def run_pass(folder: Path, tasks: Mapping[str, Task], cutoff: int, job: Callable
 
 
 def weight(task: Task) -> int:
-    return len(task.flights) * (1 + sum(len(t.repositions) + len(t.busy) for t in task.tails))
+    return len(task.flights) * (1 + sum(len(t.repositions) for t in task.tails))
 
 
 def brief(r: dict) -> str:
@@ -311,7 +311,7 @@ def refs_job(job: tuple) -> dict:
     task = sim.with_cutoff(Task.from_dict(json.loads(line)), cutoff)
     out = {**(base or {}), "task_id": tid, "signature": sig, "split": task.split, "hub": task.hub, "date": task.date,
            "slide": task.slide, "watches": len(references.watch_times(task)), "flights": len(task.flights),
-           "tails": len(task.tails), "moves": sum(len(t.repositions) + len(t.busy) for t in task.tails)}
+           "tails": len(task.tails), "moves": sum(len(t.repositions) for t in task.tails)}
     out["seconds"] = dict(out.get("seconds", {}))
     runs = (("follower", lambda: references.follow(task, True, watch)),
             ("blind", lambda: references.follow(task, False, watch)), ("rule", lambda: references.rule(task)))
