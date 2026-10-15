@@ -130,6 +130,7 @@ def main() -> None:
     dropped = {i: v for i, v in split.items() if not in_band(fid_ship[i])}
     final = {i: v for i, v in split.items() if i not in dropped}
 
+    unfiltered = fidelity_before_clauses(tasks, event, args.seed, provisional)
     shipped = {i: t if t.split == "control" else replace(t, split=final.get(i, "dropped" if i in dropped else ""))
                for i, t in at(every, scale).items()}
     shipped = {i: sim.with_cutoff(t, cutoff) for i, t in shipped.items()}
@@ -146,6 +147,7 @@ def main() -> None:
     rows = candidate_rows(built, controls, tasks, pass1, pass2, tol_prov, tol, fid_ship, drawn, split, dropped)
     (out / "candidates.jsonl").write_text("".join(json.dumps(r, default=str) + "\n" for r in rows))
     report = summary(tasks, held, shipped, refs, split, final, dropped, fid_ship, built, counts, params, clock, keys)
+    report["diagnostics"]["fidelity_before_clauses"] = unfiltered
     (out / "gates.json").write_text(json.dumps(report, indent=1, default=str) + "\n")
     (out / "step0-report.md").write_text(markdown(report))
     print(json.dumps(report["gates"], indent=1), flush=True)
@@ -350,6 +352,24 @@ def in_band(fid: float | None) -> bool:
 
 def qualifying(tasks: Mapping[str, Task], results: Mapping[str, dict], tol: float) -> list[str]:
     return [i for i, t in tasks.items() if all(clauses_of(t, results[i], tol).values())]
+
+
+def fidelity_before_clauses(tasks: Mapping[str, Task], event: Mapping[str, int], seed: int,
+                            fallback: Mapping[str, float]) -> dict:
+    """G2's measurement on the seeded draw over every built candidate, before any solver clause: the scale fitted on
+    that draw's train days, the share in band on its eval and train days. It answers the fidelity question even when
+    the clauses leave no day to split."""
+    by = {key(t): t for t in tasks.values()}
+    drawn = candidates.split(list(by), event, seed)
+    scale = filled(unseen.fit_scale(by[k] for k, v in drawn.items() if v == "train"), fallback)
+    fid = {k: unseen.fidelity(by[k], scale[by[k].hub]) for k in drawn}
+    out = {"scale": scale}
+    for v in ("eval", "train"):
+        flags = [in_band(f) for k, f in fid.items() if drawn[k] == v and f is not None]
+        out[v] = {"share": share(flags), "n": len(flags),
+                  "by_hub": {h: share([in_band(f) for k, f in fid.items() if drawn[k] == v and k[1] == h
+                                       and f is not None]) for h in HUBS}}
+    return out
 
 
 def late_departures(keys: Iterable[tuple[str, str]]) -> list[int]:
