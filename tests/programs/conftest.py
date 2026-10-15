@@ -2,18 +2,25 @@ import shutil
 import zipfile
 from pathlib import Path
 
+import pandas as pd
 import pytest
-from program_helpers import APT_BASE, DATE, HUB, SLICE, WINDOW
+from program_helpers import APT_BASE, DATE, HUB, SLICE, TAXI_OUT, WINDOW
 
-from agentenv_airops.build import pack
+from agentenv_airops.build import bts, pack
 from agentenv_airops.programs import advisories, candidates, rbs, unseen
 
 
 @pytest.fixture(scope="session")
 def slice_inputs(tmp_path_factory) -> Path:
-    """v1's fixture slice of the inputs with the NASR slice and placeholder capacity profiles added."""
+    """v1's fixture slice of the inputs with its rows' TaxiOut, the NASR slice and placeholder capacity profiles
+    added."""
     root = tmp_path_factory.mktemp("inputs") / "inputs"
     shutil.copytree(SLICE, root)
+    with zipfile.ZipFile(bts.ontime_path(root, "2023-06")) as z:
+        name = z.namelist()[0]
+        rows = pd.read_csv(z.open(name), dtype=str)
+    with zipfile.ZipFile(bts.ontime_path(root, "2023-06"), "w") as z:
+        z.writestr(name, rows.assign(TaxiOut=pd.read_csv(TAXI_OUT, dtype=str).TaxiOut).to_csv(index=False))
     path = advisories.nasr_path(root)
     path.parent.mkdir(parents=True)
     with zipfile.ZipFile(path, "w") as z:

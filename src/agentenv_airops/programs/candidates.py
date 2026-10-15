@@ -23,7 +23,9 @@ through per-process caches, so the ~240 candidates build in parallel.
 
 import functools
 import math
+import os
 import random
+import zipfile
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
@@ -33,10 +35,11 @@ from datetime import date as Date
 from pathlib import Path
 
 import airportsdata
+import numpy as np
 import pandas as pd
 
 from ..build import advisories as v1
-from ..build import bts, fleet, pack, windows
+from ..build import bts, fetch, fleet, pack, windows
 from ..core.model import Airport
 from . import advisories, rbs, repairs, unseen
 from .advisories import HUBS, Run, Stop
@@ -123,16 +126,44 @@ def first_hour(runs: Iterable[Run], stops: Iterable[Stop]) -> int | None:
 
 @functools.lru_cache(maxsize=3)
 def month_frame(inputs: Path, derived: Path, m: str) -> pd.DataFrame:
-    return bts.read_ontime(bts.ontime_path(inputs, m), derived)
+    """v1's rows of the month with each one's TaxiOut beside it."""
+    x = bts.read_ontime(bts.ontime_path(inputs, m), derived)
+    return x.assign(TaxiOut=month_taxi(inputs, derived, m))
+
+
+def month_taxi(inputs: Path, derived: Path, m: str) -> np.ndarray:
+    """The month's TaxiOut in the zip's row order, which is read_ontime's, cached beside it under the zip's sha256."""
+    path = bts.ontime_path(inputs, m)
+    cached = derived / f"taxi_{fetch.sha256(path)[:16]}.parquet"
+    if not cached.exists():
+        with zipfile.ZipFile(path) as z, z.open(next(n for n in z.namelist() if n.endswith(".csv"))) as f:
+            taxi = pd.read_csv(f, usecols=["TaxiOut"])
+        derived.mkdir(parents=True, exist_ok=True)
+        part = cached.with_name(f"{cached.name}.{os.getpid()}.part")
+        taxi.to_parquet(part, index=False)
+        part.replace(cached)
+    return pd.read_parquet(cached).TaxiOut.to_numpy()
+
+
+def months_of(d: str) -> list[str]:
+    """The cached months that FlightDate d - 1 to d + 1 fall in."""
+    return sorted({pack.shift(d, k)[:7] for k in (-1, 0, 1)} & set(MONTHS))
 
 
 @functools.lru_cache(maxsize=6)
 def frame(inputs: Path, derived: Path, d: str) -> pd.DataFrame:
     """Every carrier's flights of FlightDate d - 1 to d + 1 that the cache holds."""
     days = [pack.shift(d, k) for k in (-1, 0, 1)]
-    parts = [month_frame(inputs, derived, m) for m in sorted({x[:7] for x in days} & set(MONTHS))]
-    x = pd.concat([p[p.FlightDate.isin(days)] for p in parts], ignore_index=True)
+    x = pd.concat([p[p.FlightDate.isin(days)] for p in (month_frame(inputs, derived, m) for m in months_of(d))],
+                  ignore_index=True)
     return x[x.sched_dep.notna()]
+
+
+@functools.lru_cache(maxsize=6)
+def taxi_median(inputs: Path, derived: Path, d: str) -> dict[str, float]:
+    """Each origin's median taxi-out, every carrier, over the months d's frame falls in."""
+    x = pd.concat([month_frame(inputs, derived, m) for m in months_of(d)], ignore_index=True)
+    return x.groupby("Origin").TaxiOut.median().to_dict()
 
 
 @functools.lru_cache(maxsize=13)
@@ -175,31 +206,38 @@ class Context:
 
 def context(inputs: Path, derived: Path, d: str, hub: str) -> Context:
     """The date's JetBlue day (v1's Day, schedule turns by split family), every carrier's flights around it with local
-    times and the repaired lb, and both hubs' programs as they ran."""
+    times, the repaired lb and the taxi-out a hub ground stop held (`held_taxi`, repairs.held), and both hubs'
+    programs as they ran."""
     base = midnight(d)
     raw = frame(inputs, derived, d)
-    ours = raw[raw.Reporting_Airline == CARRIER]
-    near = raw[raw.Origin.isin(pack.CONSTRAINED) | raw.Dest.isin(pack.CONSTRAINED)]
-    m = d[:7]
-    aircraft = month_fleet(inputs, derived, m)
-    day = pack.context(d, hub, dict(tuple(ours.groupby("FlightDate"))), dict(tuple(near.groupby("FlightDate"))),
-                       aircraft, month_loads(inputs, m))
-    turn = month_turns(inputs, derived, m)
-    families = {t: repairs.family(a) for t, a in aircraft.items()}
-    day = replace(day, turn=turn)
     advs = {h: advisories.load(inputs, h, base, 2 * 1440) for h in HUBS}
     truth = {h: advisories.as_ran(advs[h]) for h in HUBS}
     x = pack.local(raw, base)
     codes = sorted(set(x.Origin) | set(x.Dest))
     artcc = {c: a for c in codes if (a := advisories.artcc(inputs, c))}
     covers = coverage(airports_of(codes), artcc)
+    median = taxi_median(inputs, derived, d)
     removed = pd.Series(False, index=x.index)
+    held = pd.Series(0, index=x.index)
     for r in x[x.Dest.isin(HUBS)].itertuples():
         runs, stops = truth[r.Dest]
         departs = int(r.ad) if r.Cancelled == 0 else int(r.sd)
         removed[r.Index] = (rbs.governing(runs, covers, r.Origin, int(r.sa), departs) is not None
                             or rbs.gs_held(stops, covers, r.Origin, int(r.sd)) is not None)
-    return Context(inputs, day, x.assign(lb=repairs.new_lb(x, removed)), families, advs, truth, artcc, covers)
+        if r.Cancelled == 0:
+            held[r.Index] = repairs.held(departs, advisories.held_until(stops, covers, r.Origin, departs), r.TaxiOut,
+                                         median[r.Origin])
+    raw = raw.assign(held_taxi=held)
+    x = x.assign(held_taxi=held, lb=repairs.new_lb(x, removed))
+    ours = raw[raw.Reporting_Airline == CARRIER]
+    near = raw[raw.Origin.isin(pack.CONSTRAINED) | raw.Dest.isin(pack.CONSTRAINED)]
+    m = d[:7]
+    aircraft = month_fleet(inputs, derived, m)
+    day = pack.context(d, hub, dict(tuple(ours.groupby("FlightDate"))), dict(tuple(near.groupby("FlightDate"))),
+                       aircraft, month_loads(inputs, m))
+    families = {t: repairs.family(a) for t, a in aircraft.items()}
+    day = replace(day, turn=month_turns(inputs, derived, m))
+    return Context(inputs, day, x, families, advs, truth, artcc, covers)
 
 
 def airports_of(codes: Iterable[str]) -> dict[str, Airport]:

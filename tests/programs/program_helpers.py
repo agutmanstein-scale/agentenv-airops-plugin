@@ -12,6 +12,7 @@ CACHE = ROOT / "cache" / "inputs"
 DERIVED = ROOT / "cache" / "derived"
 SLICE = ROOT / "tests" / "pack" / "fixtures" / "inputs"
 APT_BASE = Path(__file__).resolve().parent / "fixtures" / "apt_base.csv"
+TAXI_OUT = Path(__file__).resolve().parent / "fixtures" / "taxi_out.csv"
 needs_cache = pytest.mark.skipif(not (CACHE / "atcscc").is_dir() or not advisories.nasr_path(CACHE).exists(),
                                  reason="needs the local input cache")
 DATE, HUB, WINDOW = "2023-06-26", "JFK", (1020, 1320)

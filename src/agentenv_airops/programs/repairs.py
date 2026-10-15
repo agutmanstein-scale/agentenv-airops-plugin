@@ -18,7 +18,12 @@
   origin, else over the day.
 - The truth block is the realized one, clipped at scheduled + BLOCK_SLACK; a diverted flight (even one that reached
   its destination in the end, its realized block holding the diversion) or a cancelled one takes the median realized
-  block of the day's other flights on its route within an hour of it, else the scheduled block.
+  block of the day's other flights on its route within an hour of it, else the scheduled block. A flight that pushed
+  back while a ground stop at its hub covered its origin waited out the stop on the taxiway, so its realized block
+  already holds the wait the model gives it at the gate (BTS dates the pushback; the stop held the takeoff): the block
+  loses its taxi-out beyond the origin's median taxi-out, at most the time from its pushback to the stop's end. The
+  model keeps the stop at the gate rather than holding wheels-off: that leaves its departure rules as they are, and the
+  flight still lands when it did, which is what the costs read.
 - The deadline is sched_dep + dmax, or the start + 60 for a flight already that late (pack.py's rule), capped at the
   hub cutoff for a departure from either hub.
 """
@@ -190,12 +195,19 @@ def imputed_lb(pool: pd.DataFrame, orig: str, dest: str, sd: float) -> int:
 
 
 def truth_block(r, x: pd.DataFrame) -> int:
+    """The truth block of a row of `x` or of a scope (both with `held_taxi`)."""
     sched = int(r.CRSElapsedTime)
     if r.Cancelled == 0 and r.Diverted == 0:
-        return min(int(r.aa - r.ad), sched + BLOCK_SLACK)
+        return min(int(r.aa - r.ad) - r.held_taxi, sched + BLOCK_SLACK)
     same = x[(x.Origin == r.Origin) & (x.Dest == r.Dest) & ((x.sd - r.sd).abs() <= 60) & (x.Cancelled == 0)
              & (x.Diverted == 0)]
-    return min(int(round((same.aa - same.ad).median())), sched + BLOCK_SLACK) if len(same) else sched
+    return min(int(round((same.aa - same.ad - same.held_taxi).median())), sched + BLOCK_SLACK) if len(same) else sched
+
+
+def held(pushback: int, released: int, taxi_out: float, median: float) -> int:
+    """The part of the taxi-out of a flight that pushed back at `pushback` that a ground stop holding its takeoff
+    until `released` already put in its realized block: beyond the origin's `median`, and no longer than the stop."""
+    return int(max(0, min(released - pushback, taxi_out - median)))
 
 
 def deadline(sched_dep: int, orig: str, start: int, dmax: int = DMAX, cutoff: int = CUTOFF) -> int:

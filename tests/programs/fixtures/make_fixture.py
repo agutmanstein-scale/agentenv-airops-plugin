@@ -1,6 +1,7 @@
 """Cut the committed NASR slice (tests/programs/fixtures/apt_base.csv) from the pinned APT_BASE: the airport id, ICAO id
 and responsible ARTCC of every airport in v1's fixture slice of BTS (tests/pack/fixtures/inputs), so a test can build a
-v2 task offline from that slice.
+v2 task offline from that slice; and the TaxiOut of each of the slice's rows, in its order, from the pinned month
+(tests/programs/fixtures/taxi_out.csv), which v1's slice left out.
 
     python tests/programs/fixtures/make_fixture.py [cache/inputs]
 """
@@ -19,7 +20,9 @@ from agentenv_airops.programs import advisories
 ROOT = Path(__file__).resolve().parents[3]
 SLICE = ROOT / "tests" / "pack" / "fixtures" / "inputs"
 OUT = Path(__file__).resolve().parent / "apt_base.csv"
+TAXI = Path(__file__).resolve().parent / "taxi_out.csv"
 COLUMNS = ["SITE_TYPE_CODE", "ARPT_ID", "ICAO_ID", "RESP_ARTCC_ID"]
+KEY = ["FlightDate", "Reporting_Airline", "Flight_Number_Reporting_Airline", "Origin", "Dest", "CRSDepTime"]
 
 
 def main(inputs: Path) -> None:
@@ -35,6 +38,10 @@ def main(inputs: Path) -> None:
     w.writeheader()
     w.writerows(sorted(rows, key=lambda r: r["ARPT_ID"]))
     OUT.write_text(buf.getvalue())
+    with zipfile.ZipFile(bts.ontime_path(inputs, "2023-06")) as z:
+        month = pd.read_csv(z.open(next(n for n in z.namelist() if n.endswith(".csv"))), usecols=[*KEY, "TaxiOut"],
+                            dtype=str)
+    df[KEY].merge(month, on=KEY, how="left", validate="1:1")[["TaxiOut"]].to_csv(TAXI, index=False)
 
 
 if __name__ == "__main__":

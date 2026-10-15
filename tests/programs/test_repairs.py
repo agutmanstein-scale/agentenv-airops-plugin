@@ -4,9 +4,10 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import pytest
+from program_helpers import CACHE, DERIVED, needs_cache
 
 from agentenv_airops.build.fleet import Aircraft
-from agentenv_airops.programs import repairs
+from agentenv_airops.programs import candidates, repairs
 
 
 @pytest.mark.parametrize(("model", "seats", "family"), [
@@ -55,15 +56,35 @@ def test_a_cancelled_flight_takes_the_upper_quartile_by_destination_then_origin_
 
 def test_the_truth_block_is_clipped_and_a_diverted_flight_takes_its_routes_median():
     day = pd.DataFrame([{"Origin": "MKE", "Dest": "JFK", "sd": sd, "ad": sd + 5, "aa": sd + 5 + b, "Cancelled": 0,
-                         "Diverted": 0} for sd, b in ((600, 130), (630, 150), (650, 140), (900, 100))])
+                         "Diverted": 0, "held_taxi": 0} for sd, b in ((600, 130), (630, 150), (650, 140), (900, 100))])
     flown = SimpleNamespace(Origin="MKE", Dest="JFK", sd=600, ad=610, aa=1000, CRSElapsedTime=130, Cancelled=0,
-                            Diverted=0, DivReachedDest=np.nan)
+                            Diverted=0, DivReachedDest=np.nan, held_taxi=0)
     assert repairs.truth_block(flown, day) == 250
     diverted = SimpleNamespace(**{**vars(flown), "Diverted": 1, "aa": 2058})
     assert repairs.truth_block(diverted, day) == 140
     reached = SimpleNamespace(**{**vars(flown), "Diverted": 1, "DivReachedDest": 1, "aa": 900})
     assert repairs.truth_block(reached, day) == 140
     assert repairs.truth_block(SimpleNamespace(**{**vars(flown), "Cancelled": 1, "Origin": "SAV"}), day) == 130
+
+
+def test_a_flight_that_pushed_back_during_a_stop_loses_the_taxi_out_the_stop_held_from_its_block():
+    assert repairs.held(1187, 1261, 95.0, 15.0) == 74
+    assert repairs.held(1187, 1261, 40.0, 15.0) == 25
+    assert repairs.held(1187, 1187, 95.0, 15.0) == repairs.held(1187, 1261, 10.0, 15.0) == 0
+    rdu = SimpleNamespace(Origin="RDU", Dest="JFK", sd=1065, ad=1187, aa=1393, CRSElapsedTime=105, Cancelled=0,
+                          Diverted=0, DivReachedDest=np.nan, held_taxi=74)
+    assert 1261 + repairs.truth_block(rdu, pd.DataFrame()) == rdu.aa
+    route = pd.DataFrame([{"Origin": "RDU", "Dest": "JFK", "sd": 1070, "ad": 1190, "aa": 1390, "Cancelled": 0,
+                           "Diverted": 0, "held_taxi": 70}])
+    assert repairs.truth_block(SimpleNamespace(**{**vars(rdu), "Diverted": 1}), route) == 130
+
+
+@needs_cache
+def test_the_stop_held_taxi_out_reads_the_bts_month():
+    x = candidates.context(CACHE, DERIVED, "2025-07-27", "JFK").x
+    b6 = x[(x.Reporting_Airline == "B6") & (x.Flight_Number_Reporting_Airline == "86") & (x.FlightDate == "2025-07-27")]
+    assert b6[["Origin", "ad", "aa", "TaxiOut", "held_taxi"]].values.tolist() == [["RDU", 1187, 1393, 95, 74]]
+    assert candidates.taxi_median(CACHE, DERIVED, "2025-07-27")["RDU"] == 15
 
 
 def test_deadlines_run_dmax_past_the_schedule_capped_at_the_hub_cutoff():
