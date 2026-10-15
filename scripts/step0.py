@@ -466,8 +466,9 @@ def summary(tasks: Mapping[str, Task], held: Mapping[str, Task], shipped: Mappin
     return {"gates": gates, "parameters": params, "counts": {**counts, "built": len(tasks), "keys": len(keys),
                                                               "rejected": Counter(b.row.get("reason") for b in built
                                                                                   if b.task is None)},
-            "split": {"eval": dict(Counter((tasks[i].hub, candidates.season(tasks[i].date)) for i, v in final.items()
-                                           if v == "eval").items()), "train": n_train, "dropped": sorted(dropped),
+            "split": {"eval": dict(Counter(f"{tasks[i].hub} {candidates.season(tasks[i].date)}"
+                                           for i, v in final.items() if v == "eval")), "train": n_train,
+                      "dropped": sorted(dropped),
                       "qualifying": len(split)},
             "diagnostics": diagnostics(tasks, held, refs, final),
             "movements": movements([t for i, t in shipped.items() if final.get(i) == "train"]),
