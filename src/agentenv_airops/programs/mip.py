@@ -10,11 +10,12 @@ minute or their cancellation, and use up the slots and nominal room they take.
 
 Aircraft flow as in v1, over nodes per (family, station) at every event time, with the Moves on top. A Move adds an
 aircraft at its destination at `ready`; at its origin it takes the first aircraft free from `leave` on, before any
-departure at that minute. While it waits its station is empty, so it fires at `leave` if an aircraft idles there, else
-at the first arrival: per Move a monotone 0/1 fired-by variable F runs over `leave` and the later nodes an aircraft
-can reach, each increment drawn from that node's flow, and at each of them the aircraft reaching it (the idle ones too
-at `leave`) are at most M x F, M the most that can reach it. One that never fires leaves an aircraft spare at the end
-of the day, absorbed at no cost. Overnight nodes feed v1's ferries onto tomorrow's needs. Every solution is a day
+departure at that minute. While it waits its station has no aircraft free, so it fires at `leave` if an aircraft
+idles there, else at the first arrival that no other waiting Move takes: per Move a monotone 0/1 fired-by variable F
+runs over `leave` and the later nodes an aircraft can reach, each increment drawn from that node's flow, and at each
+of them the aircraft reaching it (the idle ones too at `leave`), less those the station's other Moves take there, are
+at most M x F, M the most that can reach it. One that never fires leaves an aircraft spare at the end of the day,
+absorbed at no cost. Overnight nodes feed v1's ferries onto tomorrow's needs. Every solution is a day
 sim.execute reproduces from its departure minutes as holds, at the same cost, and every day sim.execute runs is a
 solution (`Network.vector`), which also starts the search.
 
@@ -150,7 +151,7 @@ class Network:
             self.cancel[f.id] = c = m.col(price[f.id], 0 if flies else 1, True, (f.deadline - f.sched_dep + 2) * w)
             r[c] = 1
             cover.append(r)
-        self.tokens = tokens = Counter(t.family for t in task.tails) + Counter(fam for _, fam, _ in moves)
+        tokens = Counter(t.family for t in task.tails) + Counter(fam for _, fam, _ in moves)
         self.ground: dict[tuple, list[int]] = {}
         idle = {}
         for key, ts in self.times.items():
@@ -162,13 +163,14 @@ class Network:
             cs.append(m.col(0, tokens[key[0]], False))
             arc(node[(key, ts[-1])], over[key], cs[-1])
             self.ground[key] = cs
-        self.supply = supply = Counter()
+        supply: Counter = Counter()
         for t in task.tails:
             supply[node[((t.family, t.pos), t.ready)]] += 1
         for _, fam, mv in moves:
             supply[node[((fam, mv.dest), mv.ready)]] += 1
         self.fired: dict[str, list[tuple[int, int]]] = {}
         spare: dict[str, dict[int, int]] = defaultdict(dict)
+        fires: dict[int, dict[str, dict[int, int]]] = defaultdict(dict)
         for name, fam, mv in moves:
             key = (fam, mv.orig)
             later = [x for x in self.times[key] if x > mv.leave]
@@ -181,14 +183,22 @@ class Network:
                 arc(u, node[(key, ts[j + 1])] if j + 1 < len(ts) else None, c)
                 if last is not None:
                     m.row({c: 1, last: -1}, 0, INF)
-                reach = dict.fromkeys(arriving[u], 1)
-                if j == 0 and u in idle:
-                    reach[idle[u]] = 1
-                most = tokens[fam] if j == 0 else min(tokens[fam], len(arriving[u]) + supply[u])
-                m.row({**reach, c: -most}, -INF, -supply[u])
+                fires[u][name] = {c: 1} if last is None else {c: 1, last: -1}
                 self.fired[name].append((x, c))
                 last = c
             spare[fam][last] = 1
+        for name, fam, mv in moves:
+            for j, (x, c) in enumerate(self.fired[name]):
+                u = node[((fam, mv.orig), x)]
+                reach: Counter = Counter(dict.fromkeys(arriving[u], 1))
+                if j == 0 and u in idle:
+                    reach[idle[u]] += 1
+                for other, fire in fires[u].items():
+                    if other != name:
+                        reach.update({col: -v for col, v in fire.items()})
+                most = tokens[fam] if j == 0 else min(tokens[fam], len(arriving[u]) + supply[u])
+                reach[c] -= most
+                m.row(dict(reach), -INF, -supply[u])
         self.wild: dict[tuple[str, str], int] = {}
         for fam in spare:
             for key in self.times:
@@ -217,7 +227,6 @@ class Network:
         for (kind, key), r in rows.items():
             room = 1 if kind == "slot" else world.nominal[key[0]][key[1]]
             m.row(r, -INF, max(0, room - pinned[(kind, key)]))
-        self.node = node
         self.copies = copies
 
     def solve(self, time_limit: float = 600.0, gap: float = GAP, threads: int = 1, canonical: bool = True,

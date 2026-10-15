@@ -89,3 +89,10 @@ def test_the_day_as_known_hides_delays_and_true_blocks_until_look():
     assert (world.lb, world.block) == ({0: 20, 1: 0}, {0: 80, 1: 60})
     assert sim.known(task, 0, programs=False).segments == {"JFK": (), "BOS": ()}
     assert sim.calm(task).lb == {0: 0, 1: 0} and sim.truth(task).segments["JFK"] == (GDP,)
+
+
+def test_two_waiting_moves_take_the_arriving_aircraft_one_at_a_time_in_the_order_they_began():
+    flights = [flight(0, "BUF", "JFK", 100, 60), flight(1, "PWM", "JFK", 120, 70)]
+    tails = [tail("N1", "BUF", repositions=(Move("JFK", "MCO", 100, 50),)),
+             tail("N2", "PWM", repositions=(Move("JFK", "DCA", 110, 60),))]
+    assert sim.execute(day(flights, tails), {}).moves == {"N1~0": 190, "N2~0": 220}

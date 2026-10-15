@@ -15,13 +15,17 @@ def days() -> dict[str, Task]:
              tail("N2", "JFK", busy=(Move("JFK", "JFK", 150, 420),), end="BOS")]
     stopped = [flight(0, "BUF", "JFK", 120, 60, pax=150), flight(1, "DCA", "JFK", 110, 60, pax=40),
                flight(2, "JFK", "DCA", 250, 60), flight(3, "JFK", "BUF", 260, 60, pax=20)]
+    waiting = [flight(0, "BUF", "JFK", 100, 60), flight(1, "DCA", "JFK", 150, 60), flight(2, "MCO", "JFK", 100, 150),
+               flight(3, "PWM", "JFK", 120, 70), flight(4, "JFK", "BOS", 300, 60, deadline=900)]
+    two = [tail("N1", "BUF", repositions=(Move("JFK", "MCO", 100, 50),)),
+           tail("N2", "DCA", repositions=(Move("JFK", "PWM", 110, 60),))]
     return {"slots": three_into_a_program(lb=100),
             "stop": day(stopped, [tail("N1", "BUF", end="DCA"), tail("N2", "DCA", end="BUF")],
                         segments=(segment("g", 150, 1000, 150, 400, (190, 200, 260)),), stops=(stop(100, 160),)),
             "nominal": day([flight(0, "BUF", "JFK", 100, 60, lb=30), flight(1, "DCA", "JFK", 130, 60),
                             flight(2, "MCO", "JFK", 140, 60), flight(3, "JFK", "MCO", 200, 150, pax=180)],
                            [tail("N1", "BUF"), tail("N2", "DCA"), tail("N3", "MCO")], aar=1),
-            "moves": day(moved, tails, segments=(GDP,))}
+            "moves": day(moved, tails, segments=(GDP,)), "two_moves": day(waiting, two)}
 
 
 @pytest.fixture(scope="module")
@@ -39,7 +43,7 @@ def replays(task: Task, sol: mip.Solution) -> bool:
         (run.flights[i].dep if run.flights[i].status == "flown" else None) == d for i, d in sol.deps.items())
 
 
-@pytest.mark.parametrize("name", ["slots", "stop", "nominal", "moves"])
+@pytest.mark.parametrize("name", ["slots", "stop", "nominal", "moves", "two_moves"])
 def test_every_optimum_replays_exactly_in_the_sim(name):
     task = days()[name]
     sol = mip.solve(task)
@@ -68,7 +72,7 @@ def test_the_fixture_optimum_replays_and_no_plan_beats_it(fixture_day):
         assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
 
 
-@pytest.mark.parametrize("name", ["slots", "stop", "nominal", "moves"])
+@pytest.mark.parametrize("name", ["slots", "stop", "nominal", "moves", "two_moves"])
 def test_every_day_the_sim_runs_is_a_solution_of_the_model_at_its_cost(name):
     task = days()[name]
     rng = random.Random(11)
