@@ -16,7 +16,9 @@ The order keeps the unseen-traffic scale out of sample (spec, "Order in build_pa
 5. on the draw's train days: the shipped scale, the cutoff hour (by which CUTOFF_SHARE of JetBlue's after-midnight hub
    departures had left, read from BTS) and the replay tolerance (the TOLERANCE_PCT percentile of |ln(replay /
    recorded)| over the day-hubs of train events that pass every other clause, so the tolerance is not fitted to days it
-   already censored);
+   already censored). A parameter the train days can't fix keeps its provisional value (the default cutoff), and the
+   run says so on stderr and in gates.json: that parameter is not out of sample, and neither is G2 if it is the scale,
+   which then fails;
 6. if the scale or the cutoff moved, pass 2 of the solver clauses with them; the clauses again with the fixed
    tolerance, and the draw settled: a drawn eval day that now fails is dropped, not replaced, so no day the scale,
    cutoff or tolerance was fitted on can become eval;
@@ -111,13 +113,11 @@ def main() -> None:
     drawn = candidates.split([key(tasks[i]) for i in q1], event, args.seed)
     train1 = [i for i in q1 if drawn.get(key(tasks[i])) == "train"]
 
-    scale = filled(unseen.fit_scale((tasks[i] for i in train1), fits), provisional)
-    late = late_departures([key(tasks[i]) for i in train1])
-    cutoff = cutoff_hour(late) or CUTOFF
     taken = {event[d] for (d, _), v in drawn.items() if v == "eval"}
     basis = [pass1[i] for i in tasks if event[tasks[i].date] not in taken
              and all(clauses_of(tasks[i], pass1[i], math.inf).values())]
-    tol = tolerance(basis) if basis else tol_prov
+    fix = fixed([tasks[i] for i in train1], basis, fits, provisional, tol_prov)
+    scale, cutoff, tol = fix["scale"], fix["cutoff"], fix["tolerance"]
     rerun = scale != provisional or cutoff != CUTOFF
     pass2 = run_pass(out / "pass2", at(every, scale, fits), cutoff, clause_job, args.workers, args.resume, clock,
                      limits) if rerun else pass1
@@ -141,8 +141,10 @@ def main() -> None:
 
     params = {"seed": args.seed,
               "provisional": {"scale": provisional, "cutoff": CUTOFF, "tolerance": round(tol_prov, 4)},
-              "fixed": {"scale": scale, "cutoff": cutoff, "tolerance": round(tol, 4)},
-              "late_departures": {"n": len(late), "train_day_hubs": len(train1)}, "tolerance_basis": len(basis),
+              "fixed": {"scale": scale, "cutoff": cutoff, "tolerance": round(tol, 4),
+                        "out_of_sample": fix["out_of_sample"]},
+              "late_departures": {"n": fix["late_departures"], "train_day_hubs": len(train1)},
+              "tolerance_basis": len(basis),
               "eval_lost_in_pass2": lost, "pass2": rerun, "dmax": DMAX, "time_limits_s": limits,
               "e_median": {"scale_1": e_median, "shipped": shipped_e[1]}, "advisories_fitted": len(fits)}
     rows = candidate_rows(built, controls, tasks, pass1, pass2, tol_prov, tol, fid_ship, drawn, split, dropped)
@@ -186,6 +188,26 @@ def key(task: Task) -> tuple[str, str]:
 
 def filled(scale: Mapping[str, float], fallback: Mapping[str, float]) -> dict[str, float]:
     return {h: scale.get(h, fallback[h]) for h in HUBS}
+
+
+def fixed(train: list[Task], basis: list[dict], fits: list[unseen.Fit], provisional: Mapping[str, float],
+          tol_prov: float) -> dict:
+    """The parameters fixed on the train day-hubs, and whether each was: the scale per airport (on its own train
+    day-hubs, else the provisional fit over every candidate, eval days included), the cutoff (on their late
+    departures, else the default) and the replay tolerance (on `basis`, else the provisional one, over every
+    candidate). A parameter that wasn't is a warning on stderr."""
+    fitted = unseen.fit_scale(train, fits)
+    late = late_departures([key(t) for t in train])
+    hour = cutoff_hour(late)
+    oos = {"scale": {h: h in fitted for h in HUBS}, "cutoff": hour is not None, "tolerance": bool(basis)}
+    missed = [f"scale at {h}" for h, ok in oos["scale"].items() if not ok] + [
+        k for k in ("cutoff", "tolerance") if not oos[k]]
+    if missed:
+        print(f"WARNING: not out of sample, too few train day-hubs ({len(train)}): {', '.join(missed)} kept the "
+              "provisional value" + ("; G2 is not out of sample and fails" if not all(oos["scale"].values()) else ""),
+              file=sys.stderr, flush=True)
+    return {"scale": filled(fitted, provisional), "cutoff": hour or CUTOFF,
+            "tolerance": tolerance(basis) if basis else tol_prov, "late_departures": len(late), "out_of_sample": oos}
 
 
 def at(tasks: Mapping[str, Task], scale: Mapping[str, float], fits: list[unseen.Fit]) -> dict[str, Task]:
@@ -363,10 +385,11 @@ def fidelity_before_clauses(tasks: Mapping[str, Task], event: Mapping[str, int],
     the clauses leave no day to split."""
     by = {key(t): t for t in tasks.values()}
     drawn = candidates.split(list(by), event, seed)
-    scale = filled(unseen.fit_scale((by[k] for k, v in drawn.items() if v == "train"), fits), fallback)
+    fitted = unseen.fit_scale((by[k] for k, v in drawn.items() if v == "train"), fits)
+    scale = filled(fitted, fallback)
     shipped = unseen.table(fits, scale)
     fid = {k: unseen.fidelity(by[k], shipped) for k in drawn}
-    out = {"scale": scale}
+    out = {"scale": scale, "out_of_sample": {h: h in fitted for h in HUBS}}
     for v in ("eval", "train"):
         flags = [in_band(f) for k, f in fid.items() if drawn[k] == v and f is not None]
         out[v] = {"share": share(flags), "n": len(flags),
@@ -459,8 +482,6 @@ def summary(tasks: Mapping[str, Task], held: Mapping[str, Task], shipped: Mappin
     replay = [a <= AUTO_SHARE * n and a <= AUTO_MAX for a, n in autos]
     rounded = [a <= min(AUTO_MAX, math.ceil(AUTO_SHARE * n)) for a, n in autos]
     loose = [a <= max(AUTO_SHARE * n, AUTO_MAX) for a, n in autos]
-    fid_eval = [in_band(fid[i]) for i, v in split.items() if v == "eval" and fid[i] is not None]
-    fid_train = [in_band(fid[i]) for i, v in split.items() if v == "train" and fid[i] is not None]
     calm = [r.get("calm", {}).get("cancelled", 99) <= CALM_CANCELS and r.get("calm", {}).get("ferries", 99)
             <= CALM_FERRIES for r in mine.values()]
     per_hub = Counter(tasks[i].hub for i, v in final.items() if v == "eval")
@@ -473,10 +494,7 @@ def summary(tasks: Mapping[str, Task], held: Mapping[str, Task], shipped: Mappin
                                   alt={"rounded_up_share": share(rounded), "either_reading_share": share(loose),
                                        "auto_cancels": sum(a for a, _ in autos), "flew": sum(n for _, n in autos),
                                        "missing": len(mine) - len(autos)}),
-        "G2_fidelity": {"eval": share(fid_eval), "train": share(fid_train), "threshold": GATE_SHARE,
-                        "n_eval": len(fid_eval), "n_train": len(fid_train),
-                        "pass": bool(fid_eval) and bool(fid_train) and share(fid_eval) >= GATE_SHARE
-                        and share(fid_train) >= GATE_SHARE},
+        "G2_fidelity": fidelity_gate(fid, split, all(params["fixed"]["out_of_sample"]["scale"].values())),
         "G3_calm_day": gate(share(calm), GATE_SHARE, len(calm),
                             f"<= {CALM_CANCELS} forced cancellation and <= {CALM_FERRIES} ferries"),
         "G4_enough_days": {"eval_per_hub": {h: per_hub[h] for h in HUBS}, "train": n_train,
@@ -494,16 +512,27 @@ def summary(tasks: Mapping[str, Task], held: Mapping[str, Task], shipped: Mappin
                       "dropped": sorted(dropped),
                       "qualifying": len(split)},
             "diagnostics": diagnostics(tasks, held, refs, final),
-            "movements": movements([t for i, t in shipped.items() if final.get(i) == "train"]),
+            "movements": movements([t for i, t in shipped.items() if final.get(i) == "train"],
+                                   [t for i, t in shipped.items() if i in tasks]),
             "tasks": [row_of(i, r) for i, r in sorted(refs.items())], "seconds": clock.laps, "timing": timing(refs)}
 
 
-def movements(train: list[Task]) -> dict:
-    """W3's check: the unseen stream's share of program-hour demand on the train days, beside the share of each
-    airport's own counted arrivals that BTS misses (BTS: arrivals that operated, over the cached months)."""
-    share = unseen.unseen_share(train)
+def fidelity_gate(fid: Mapping[str, float | None], split: Mapping[str, str], out_of_sample: bool) -> dict:
+    """G2: the share of eval and of train day-hubs in band, which passes only out of sample (the scale fitted on
+    train day-hubs at both airports)."""
+    flags = {v: [in_band(fid[i]) for i, s in split.items() if s == v and fid[i] is not None] for v in ("eval", "train")}
+    return {"eval": share(flags["eval"]), "train": share(flags["train"]), "threshold": GATE_SHARE,
+            "n_eval": len(flags["eval"]), "n_train": len(flags["train"]), "out_of_sample": out_of_sample,
+            "pass": out_of_sample and all(f and share(f) >= GATE_SHARE for f in flags.values())}
+
+
+def movements(train: list[Task], every: list[Task]) -> dict:
+    """W3's check: the unseen stream's share of program-hour demand on the train days (on `every` candidate, marked
+    not out of sample, when there are none), beside the share of each airport's own counted arrivals that BTS misses
+    (BTS: arrivals that operated, over the cached months)."""
+    share = unseen.unseen_share(train or every)
     days = {m: len(pack.month_days(m)) for m in pack.MONTHS}
-    out = {}
+    out = {"out_of_sample": bool(train)}
     for hub in HUBS:
         n = 0
         for m in pack.MONTHS:
