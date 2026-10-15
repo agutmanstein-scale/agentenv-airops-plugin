@@ -2,7 +2,10 @@
 against? No LLM is called; only the reference solvers run (HiGHS).
 
     python scripts/step0.py --out cache/step0/<run> [--workers 12] [--only ID,...] [--resume] [--seed 0]
-                            [--prove-s 3600] [--watch-s 1800]
+                            [--prove-s 3600] [--watch-s 1800] [--crew [BASES]]
+
+--crew builds every task with the crew model (repairs.crews), its crew bases JetBlue's (repairs.BASES) unless given as
+a comma-separated list.
 
 The order keeps the unseen-traffic scale out of sample (spec, "Order in build_pack"):
 1. every candidate (programs.candidates) built in parallel at scale 1 and the provisional 03:00 cutoff, written to
@@ -53,7 +56,7 @@ from agentenv_airops.core.sim import FLOWN
 from agentenv_airops.programs import candidates, rbs, references, sim, unseen
 from agentenv_airops.programs.advisories import HUBS
 from agentenv_airops.programs.model import Task, write_tasks
-from agentenv_airops.programs.repairs import CUTOFF, DMAX
+from agentenv_airops.programs.repairs import BASES, CUTOFF, DMAX
 
 ROOT = Path(__file__).resolve().parents[1]
 INPUTS, DERIVED = ROOT / "cache" / "inputs", ROOT / "cache" / "derived"
@@ -82,7 +85,9 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--prove-s", type=float, default=PROVE_S, help="time limit of each anchor, flat or calm solve")
     ap.add_argument("--watch-s", type=float, default=WATCH_S, help="time limit of each follower watch solve")
+    ap.add_argument("--crew", nargs="?", const=",".join(BASES), default="", help="crew bases of the crew model")
     args = ap.parse_args()
+    bases = tuple(b.strip().upper() for b in args.crew.split(",") if b.strip())
     limits = (args.prove_s, args.watch_s)
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
@@ -94,8 +99,9 @@ def main() -> None:
     e_fit, e_median = unseen.table(fits)
     keys, counts = candidates.candidates(INPUTS)
     keys = [k for k in keys if only(k)]
-    built = candidates.build_all(keys, INPUTS, DERIVED, e_fit, e_median, ones, workers=args.workers)
-    controls = [candidates.build_candidate(d, h, INPUTS, DERIVED, e_fit, e_median, ones, window=w, split="control")
+    built = candidates.build_all(keys, INPUTS, DERIVED, e_fit, e_median, ones, workers=args.workers, bases=bases)
+    controls = [candidates.build_candidate(d, h, INPUTS, DERIVED, e_fit, e_median, ones, window=w, split="control",
+                                           bases=bases)
                 for d, h, w in candidates.controls(INPUTS, DERIVED) if only((d, h))]
     tasks = {b.task.task_id: b.task for b in built if b.task}
     held = {b.task.task_id: b.task for b in controls if b.task}
@@ -139,7 +145,7 @@ def main() -> None:
     refs = run_pass(out / "refs", shipped, cutoff, refs_job, args.workers, args.resume, clock, limits, pass2)
     clock.lap("references")
 
-    params = {"seed": args.seed,
+    params = {"seed": args.seed, "crew_bases": list(bases),
               "provisional": {"scale": provisional, "cutoff": CUTOFF, "tolerance": round(tol_prov, 4)},
               "fixed": {"scale": scale, "cutoff": cutoff, "tolerance": round(tol, 4),
                         "out_of_sample": fix["out_of_sample"]},

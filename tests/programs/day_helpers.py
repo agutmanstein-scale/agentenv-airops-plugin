@@ -7,7 +7,7 @@ from program_helpers import EVERY, adv
 
 from agentenv_airops.core.model import Airport
 from agentenv_airops.programs.advisories import HUBS, Advisory, Stop
-from agentenv_airops.programs.model import Busy, Flight, Move, Outcome, Programs, Segment, Tail, Task
+from agentenv_airops.programs.model import Busy, Crew, Flight, Move, Outcome, Programs, Segment, Tail, Task
 
 PLACES = {"JFK": (40.64, -73.78), "BOS": (42.36, -71.01), "BUF": (42.94, -78.73), "DCA": (38.85, -77.04),
           "MCO": (28.43, -81.31), "PWM": (43.65, -70.31)}
@@ -22,6 +22,12 @@ def flight(i: int, orig: str, dest: str, dep: int, block: int, pax: int = 100, l
                   controlled=None, gs_held=None, exempt=False, pair=None,
                   deadline=dep + 240 if deadline is None else deadline,
                   actual=actual or Outcome(False, False, "", dep, dep + block, dest, "N1"))
+
+
+def crewed(f: Flight, deadline: int | None) -> Flight:
+    """f with a crew whose deadline is `deadline`, resting 10 h after it (None: a departure from a base)."""
+    return replace(f, crew=Crew(f"{f.actual.tail}/0", f.sched_dep - 45, f.orig, 2, 720, deadline,
+                                None if deadline is None else deadline + 600))
 
 
 def tail(name: str, pos: str, ready: int = 0, end: str | None = None, repositions: tuple[Move, ...] = (),

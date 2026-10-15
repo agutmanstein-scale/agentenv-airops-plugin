@@ -26,17 +26,32 @@
   flight still lands when it did, which is what the costs read.
 - The deadline is sched_dep + dmax, or the start + 60 for a flight already that late (pack.py's rule), capped at the
   hub cutoff for a departure from either hub.
+- The crew model, an option the build turns on with crew `bases` (JetBlue's BASES), stands in for crew duty limits
+  from the schedule and the regulation alone, since no crew data is public. Pairings are a proxy: each tail's scheduled
+  legs of the day, cancelled ones and those before the window included, in order, chained from its first leg, from
+  every departure at a base and from the first leg after an arrival at one (a break in its schedule), each chain up to
+  and including the next arrival at a base. A chain reports REPORT minutes before its first scheduled departure; its
+  maximum flight duty period is 14 CFR 117 Table B (Flight Duty Period: Unaugmented Operations; TABLE_B, as eCFR
+  prints it, ECFR) for the report's local hour at its first origin, taken as the crew's acclimated time, and its
+  number of segments (TABLE_B holds the hours for 1 to 7 or more segments, keyed by the first hour of each band of
+  start times), plus the EXTENSION a certificate holder may add for unforeseen operational circumstances before
+  takeoff (117.19(a)(1)). A departure from a base has no crew deadline: reserves crew it. A departure from an
+  outstation must block in by the report + the limit + EXTENSION, so its crew deadline is that less its scheduled
+  block, static as the schedule is; after it the crew may fly again only after REST, the 10 consecutive hours of rest
+  117.25(e) requires (`rest`).
 """
 
 import math
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Hashable, Iterable, Mapping, Sequence
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from ..build import fleet, pack
 from .advisories import HUBS
-from .model import Busy, Flight, Move, Outcome, Tail
+from .model import Busy, Crew, Flight, Move, Outcome, Tail
 
 FAMILIES = ("A320", "A321", "A321P", "A220", "E190")
 MIN_TURN = 25
@@ -50,6 +65,15 @@ LIFT_WINDOW = 90
 LIFT_MIN = 3
 DMAX = 900
 CUTOFF = 1440 + 180
+BASES = ("JFK", "BOS", "FLL", "MCO")
+REPORT = 45
+EXTENSION = 120
+REST = 600
+ECFR = "https://www.ecfr.gov/current/title-14/chapter-I/subchapter-G/part-117"
+TABLE_B = {0: (9, 9, 9, 9, 9, 9, 9), 4: (10, 10, 10, 10, 9, 9, 9), 5: (12, 12, 12, 12, 11.5, 11, 10.5),
+           6: (13, 13, 12, 12, 11.5, 11, 10.5), 7: (14, 14, 13, 13, 12.5, 12, 11.5),
+           12: (13, 13, 13, 13, 12.5, 12, 11.5), 13: (12, 12, 12, 12, 11.5, 11, 10.5), 17: (12, 12, 11, 11, 10, 9, 9),
+           22: (11, 11, 10, 10, 9, 9, 9), 23: (10, 10, 10, 9, 9, 9, 9)}
 
 
 def family(a: fleet.Aircraft) -> str:
@@ -81,10 +105,14 @@ def p5(values: Iterable[float]) -> int:
 
 def flights(day: pack.Day, sc: pack.Scope, x: pd.DataFrame, families: Mapping[str, str],
             tests: Callable[[str, str, int, int, int], tuple[str | None, str | None, bool]], dmax: int = DMAX,
-            cutoff: int = CUTOFF) -> list[Flight]:
+            cutoff: int = CUTOFF, bases: Collection[str] = ()) -> list[Flight]:
     """The scope's flights, ids in (scheduled departure, flight number, origin) order. `x` holds every carrier's rows
     around the date with local sd/sa/ad/aa and the repaired `lb`; `tests(orig, dest, sched_arr, departs, sched_dep)`
-    gives (controlled, gs_held, exempt)."""
+    gives (controlled, gs_held, exempt); with crew `bases` each flight has its crew."""
+    crew = {}
+    if bases:
+        legs = day.cur[day.cur.Tail_Number.isin(sc.tails)]
+        crew = crews(legs, day.base, bases, {c: a["tz"] for c, a in pack.airports(set(legs.Origin)).items()})
     dec = sc.dec.assign(num=sc.dec.Flight_Number_Reporting_Airline.astype(int)).sort_values(["sd", "num", "Origin"])
     seats = defaultdict(list)
     for t in sc.tails:
@@ -117,7 +145,8 @@ def flights(day: pack.Day, sc: pack.Scope, x: pd.DataFrame, families: Mapping[st
                           sched_arr=int(r.sa), sched_block=int(r.CRSElapsedTime), block=truth_block(r, x),
                           pax=min(raw, min(seats[fam])), pax_raw=raw, family=fam, lb=lb, nas_removed=kept - lb,
                           controlled=controlled, gs_held=held, exempt=exempt, pair=paired.get(i),
-                          deadline=deadline(int(r.sd), r.Origin, sc.start, dmax, cutoff), actual=actual))
+                          deadline=deadline(int(r.sd), r.Origin, sc.start, dmax, cutoff), actual=actual,
+                          crew=crew.get(r.Index)))
     return out
 
 
@@ -227,3 +256,37 @@ def pairs(legs: list) -> dict[int, int]:
         else:
             k += 1
     return out
+
+
+def crews(legs: pd.DataFrame, base: int, bases: Collection[str], zones: Mapping[str, str]) -> dict[Hashable, Crew]:
+    """The crew of each of `legs` by row label: a day's scheduled legs with Tail_Number, Origin, Dest, local sd and
+    CRSElapsedTime (cancelled ones included), `base` the UTC epoch minute of their midnight, `zones` each origin's
+    time zone."""
+    out = {}
+    for tail, x in legs.sort_values(["Tail_Number", "sd"]).groupby("Tail_Number"):
+        for k, chain in enumerate(pairings(list(x.itertuples()), bases)):
+            first = chain[0]
+            report = int(first.sd) - REPORT
+            limit = fdp(datetime.fromtimestamp(60 * (base + report), ZoneInfo(zones[first.Origin])).hour, len(chain))
+            for r in chain:
+                d = None if r.Origin in bases else report + limit + EXTENSION - int(r.CRSElapsedTime)
+                out[r.Index] = Crew(f"{tail}/{k}", report, first.Origin, len(chain), limit, d,
+                                    None if d is None else d + REST)
+    return out
+
+
+def pairings(legs: Sequence, bases: Collection[str]) -> list[list]:
+    """A tail's legs (rows with Origin and Dest) in scheduled order as chains: one starts at the first leg, at every
+    departure from a base and after every arrival at one."""
+    out: list[list] = []
+    for r in legs:
+        if not out or r.Origin in bases or out[-1][-1].Dest in bases:
+            out.append([r])
+        else:
+            out[-1].append(r)
+    return out
+
+
+def fdp(hour: int, segments: int) -> int:
+    """Table B's maximum flight duty period in minutes for a report in local `hour` and `segments` flight segments."""
+    return round(60 * TABLE_B[max(h for h in TABLE_B if h <= hour)][min(segments, 7) - 1])

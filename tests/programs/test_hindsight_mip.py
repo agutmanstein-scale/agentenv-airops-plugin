@@ -3,7 +3,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from day_helpers import GDP, busy_day, day, flight, segment, shortened, stop, tail, three_into_a_program
+from day_helpers import GDP, busy_day, crewed, day, flight, segment, shortened, stop, tail, three_into_a_program
 
 from agentenv_airops.programs import mip, references, sim
 from agentenv_airops.programs.cost import cancel_price
@@ -28,7 +28,17 @@ def days() -> dict[str, Task]:
                             flight(2, "MCO", "JFK", 140, 60), flight(3, "JFK", "MCO", 200, 150, pax=180)],
                            [tail("N1", "BUF"), tail("N2", "DCA"), tail("N3", "MCO")], aar=1),
             "moves": day(moved, tails, segments=(GDP,)), "two_moves": day(waiting, two), "busy": busy_day(),
-            "families": families()}
+            "families": families(), "crew": crew()}
+
+
+def crew() -> Task:
+    """Behind a ground stop, N1's crew at BUF times out and rests to 730; N2 lands from DCA in time for JFK's reserves
+    to take it to PWM, whose crew must leave by 480 or cancel, its rest ending past its deadline."""
+    flights = [crewed(flight(0, "BUF", "JFK", 100, 60, lb=50, deadline=900), 130),
+               crewed(flight(1, "JFK", "PWM", 250, 70, deadline=700), None),
+               crewed(flight(2, "PWM", "JFK", 400, 70, deadline=640), 480),
+               crewed(flight(3, "DCA", "JFK", 120, 60, deadline=820), 200)]
+    return day(flights, [tail("N1", "BUF", end="JFK"), tail("N2", "DCA", end="JFK")], stops=(stop(100, 160),))
 
 
 def families() -> Task:
@@ -43,9 +53,10 @@ def families() -> Task:
     return replace(day(flights, tails, stops=(stop(100, 160),)), turn={"A320": 30, "E190": 25})
 
 
-@pytest.fixture(scope="module")
-def fixture_day(task) -> Task:
-    return shortened(task)
+@pytest.fixture(scope="module", params=["task", "crewed"])
+def fixture_day(request) -> Task:
+    """The fixture day, and the same day with the crew model."""
+    return shortened(request.getfixturevalue(request.param))
 
 
 def feasible(net: mip.Network, x) -> bool:
@@ -58,7 +69,7 @@ def replays(task: Task, sol: mip.Solution) -> bool:
         (run.flights[i].dep if run.flights[i].status == "flown" else None) == d for i, d in sol.deps.items())
 
 
-@pytest.mark.parametrize("name", ["slots", "stop", "nominal", "moves", "two_moves", "busy", "families"])
+@pytest.mark.parametrize("name", ["slots", "stop", "nominal", "moves", "two_moves", "busy", "families", "crew"])
 def test_every_optimum_replays_exactly_in_the_sim(name):
     task = days()[name]
     sol = mip.solve(task)
@@ -87,7 +98,7 @@ def test_the_fixture_optimum_replays_and_no_plan_beats_it(fixture_day):
         assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
 
 
-@pytest.mark.parametrize("name", ["slots", "stop", "nominal", "moves", "two_moves", "busy", "families"])
+@pytest.mark.parametrize("name", ["slots", "stop", "nominal", "moves", "two_moves", "busy", "families", "crew"])
 def test_every_day_the_sim_runs_is_a_solution_of_the_model_at_its_cost(name):
     task = days()[name]
     rng = random.Random(11)
@@ -103,7 +114,7 @@ def test_every_day_the_sim_runs_is_a_solution_of_the_model_at_its_cost(name):
         assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
 
 
-@pytest.mark.parametrize("name", ["slots", "stop", "moves", "busy"])
+@pytest.mark.parametrize("name", ["slots", "stop", "moves", "busy", "crew"])
 def test_a_day_with_its_history_pinned_is_a_solution_of_the_model_with_those_pins(name):
     task = days()[name]
     first = sim.execute(task, {})

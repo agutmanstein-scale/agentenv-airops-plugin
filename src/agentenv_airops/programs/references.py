@@ -4,22 +4,26 @@ airline's aircraft-minutes at the FAA's rates).
 - anchor: the hindsight MIP on the truth, every cancellation priced at the first watch, proven and canonical;
 - follower: at every watch (M13) the MIP on the day as known (M12; unknown delays 0, W6; the programs as issued, a
   proposed GDP included), its plan frozen as the env freezes (M11): a flight the plan, run on that day, has leaving
-  before t + FREEZE commits to fly; a projected auto-cancel stays open until its deadline - FREEZE; a cancellation is
-  final from the watch that confirms it, priced there and fixed in every later solve (W21). Its plan holds a flight
-  only where its last solve has it leaving later than it would with no hold on the day as known (`deliberate`): an
-  EDCT or a stop the forecast expects is the FAA's, not the desk's, so on the truth a flight the desk did not hold
-  leaves as soon as its aircraft, the stops and its slot allow (M11). Every watch solve is canonical (the earliest
-  optimal departures, v1's) and starts from the plan's own projection, so no truth reaches the search;
+  before t + FREEZE commits to fly; a projected auto-cancel stays open until FREEZE before the minute it is decided
+  (its deadline, or its crew deadline when its crew's rest would end past that, Task.auto_at), and is priced there; a
+  cancellation is final from the watch that confirms it, priced there and fixed in every later solve (W21). Its plan
+  holds a flight only where its last solve has it leaving later than it would with no hold on the day as known
+  (`deliberate`): an EDCT or a stop the forecast expects is the FAA's, not the desk's, so on the truth a flight the
+  desk did not hold leaves as soon as its aircraft, its crew, the stops and its slot allow (M11). Every watch solve is
+  canonical (the earliest optimal departures, v1's) and starts from the plan's own projection, so no truth reaches
+  the search;
 - program-blind follower: the follower with every program removed from its model (the nominal caps stay);
 - base-rate follower (`early`, off by default): the follower expecting every GDP to end `early` minutes before its
   as-issued end, never before the watch, as GDPs on other days did by the median; its stops run as issued;
-- rule: at every watch, cancel what the plan run on the day as known auto-cancels while it is still open and not
-  committed (a flight an earlier watch had leaving before its freeze line commits to fly, as in the follower);
+- rule: at every watch, cancel what the plan run on the day as known auto-cancels while it is still open (FREEZE or
+  more before its auto-cancel is decided) and not committed (a flight an earlier watch had leaving before its freeze
+  line commits to fly, as in the follower);
 - naive: the empty plan;
 - airline replay: JetBlue's cancellations decided at sched - NOTICE, its recorded departures as holds and its realised
   arrival order as slot claims (each claims the slot of its recorded departure plus its scheduled block); auto-cancels
   are counted over the flights it flew by their deadline, which covers dmax and the hub cutoff, less those whose
-  aircraft a leg it flew past its deadline brought (`counted`);
+  aircraft a leg it flew past its deadline brought (`counted`); a flight it flew past its crew deadline still counts,
+  which is what tells a crew model too strict for JetBlue's day;
 - recorded day: JetBlue's real outcome priced directly, its aircraft's minutes on its recorded departures and blocks,
   cancellations decided at sched - NOTICE, plus end-of-day ferries from its recorded end positions to tomorrow's needs.
   A diverted flight that never reached its destination counts as cancelled when it left, the moment the desk knew;
@@ -95,9 +99,9 @@ def follow(task: Task, programs: bool = True, time_limit: float = 600.0, canonic
         world = sim.known(task, t, programs, early)
         run = sim.execute(task, so_far(task, plan, t), world)
         if t > task.start:
-            pinned |= frozen(task, run, t)
+            pinned |= frozen(run, t)
         fixed = {i: run.flights[i].dep if run.flights[i].status == FLOWN else None for i in pinned}
-        price = {f.id: _price(f, plan.get(f.id, {}), f.deadline if f.id in pinned else t) for f in task.flights}
+        price = {f.id: _price(f, plan.get(f.id, {}), task.auto_at(f) if f.id in pinned else t) for f in task.flights}
         sol = mip.solve(task, world, price, fixed, t + FREEZE if t > task.start else None, time_limit=time_limit,
                         canonical=canonical, start=run)
         if not sol.proven:
@@ -128,7 +132,7 @@ def rule(task: Task) -> Followed:
     for t in watch_times(task):
         run = sim.execute(task, so_far(task, plan, t), sim.known(task, t))
         doomed = [i for i, r in run.flights.items()
-                  if r.status == AUTO_CANCELLED and i not in committed and task.flight(i).deadline >= t + FREEZE]
+                  if r.status == AUTO_CANCELLED and i not in committed and r.decided >= t + FREEZE]
         for i in doomed:
             plan[i] = {"cancel": True, "decided": t}
         if t > task.start:
@@ -194,12 +198,12 @@ def watch_times(task: Task) -> list[int]:
     return ts
 
 
-def frozen(task: Task, run: sim.Execution, t: int) -> set[int]:
+def frozen(run: sim.Execution, t: int) -> set[int]:
     """What `run` (the plan on the day as known at watch t) commits: flights leaving before t + FREEZE, every
-    cancellation, and projected auto-cancels whose deadline is within FREEZE."""
+    cancellation, and projected auto-cancels decided within FREEZE."""
     return {i for i, r in run.flights.items()
             if (r.status == FLOWN and r.dep < t + FREEZE) or r.status == CANCELLED
-            or (r.status == AUTO_CANCELLED and task.flight(i).deadline < t + FREEZE)}
+            or (r.status == AUTO_CANCELLED and r.decided < t + FREEZE)}
 
 
 def so_far(task: Task, plan: Mapping[int, Mapping], t: int) -> dict[int, dict]:

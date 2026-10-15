@@ -1,15 +1,16 @@
 """The v2 hindsight MIP (HiGHS): v1's time-line network (refs.mip) by split family, inside the programs.
 
-Each flight gets a copy per departure minute (every `step` minutes, and at the EDCT of every slot into its destination:
-the slot less its scheduled block) from its earliest to its deadline, the hub cutoff included, less the minutes the
-world forbids: those a ground stop holds it, and those at which a segment governs it
-with its slot time (the minute plus the scheduled block) inside the period but on none of JetBlue's slots. A copy on a
-slot counts in that slot's row, at most one flight per slot; any other copy into a hub counts in the nominal row of its
-arrival hour (the minute plus the block). A copy costs its pax x minutes late at arrival and its aircraft's minutes
-(cost.flown_price: the minute's gate delay, and the world's block overrun, the same for every copy of a flight); a
-cancellation costs `price`, the notice price at the solve time, which keeps the model linear, or the flat price, either
-less the cancellation's saving. Pinned flights keep their minute or their cancellation, and use up the slots and
-nominal room they take.
+Each flight gets a copy per departure minute (every `step` minutes, at the EDCT of every slot into its destination, the
+slot less its scheduled block, and at the end of its crew's rest) from its earliest to its deadline, the hub cutoff
+included, less the minutes the world forbids: those a ground stop holds it, those at which a segment governs it with
+its slot time (the minute plus the scheduled block) inside the period but on none of JetBlue's slots, and those after
+its crew deadline before its crew's rest ends. A copy on a slot counts in that slot's row, at most one flight per slot;
+any other copy into a hub counts in the nominal row of its arrival hour (the minute plus the block). A copy costs its
+pax x minutes late at arrival and its aircraft's minutes (cost.flown_price: the minute's gate delay, and the world's
+block overrun, the same for every copy of a flight); a cancellation costs `price`, the notice price at the solve time,
+which keeps the model linear, or the flat price, either less the cancellation's saving, and a caller pins a
+cancellation the sim decides (an auto-cancel) at the price the sim gives it (Task.auto_at). Pinned flights keep their
+minute or their cancellation, and use up the slots and nominal room they take.
 
 Aircraft flow as in v1, over nodes per (family, station) at every event time, with the Moves on top; a copy of a leg
 with a busy block reaches its destination's node at the block's ready time when that is later than its turn. A Move
@@ -105,10 +106,12 @@ class Network:
                 copies[f.id] = [] if d is None else [(d, _place(f, d, rules, pools) or ("free", None))]
             else:
                 lo = max(task.earliest(f, world.lb[f.id]), earliest or 0)
-                edct = {s - f.sched_block for seg in world.segments.get(f.dest, ()) for s in seg.slots}
-                minutes = set(range(lo, f.deadline + 1, step)) | {d for d in edct if lo <= d <= f.deadline}
+                jumps = {s - f.sched_block for seg in world.segments.get(f.dest, ()) for s in seg.slots}
+                if f.crew and f.crew.rest is not None:
+                    jumps.add(f.crew.rest)
+                minutes = set(range(lo, f.deadline + 1, step)) | {d for d in jumps if lo <= d <= f.deadline}
                 copies[f.id] = [(d, at) for d in sorted(minutes)
-                                if rules.held(f, d) == d and (at := _place(f, d, rules, pools))]
+                                if rules.held(f, d) == d and f.legal(d) == d and (at := _place(f, d, rules, pools))]
             for d, _ in copies[f.id]:
                 events[(f.family, f.orig)].add(d)
                 events[(f.family, f.dest)].add(task.back(f, d + world.block[f.id]))

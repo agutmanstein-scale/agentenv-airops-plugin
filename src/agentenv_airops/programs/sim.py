@@ -21,7 +21,9 @@ segment that would govern the flight leaving at its claim less its scheduled blo
 claimed slot loses it and the slot is wasted, as a missed EDCT is. Any other slot is taken when its flight leaves, so
 of two flights after one slot the one whose EDCT comes first flies it (FSM-style compression, read as first come at
 the EDCT), and a cancelled or late flight leaves its slot to the flights behind. A flight not gone by its deadline
-auto-cancels there, decided there.
+auto-cancels there, decided there. With the crew model (model.Crew, repairs.crews) a flight not gone by its crew
+deadline may leave only from the end of its crew's rest on, still by its deadline; one that can't, its rest ending
+past its deadline, auto-cancels at its crew deadline, decided there, never before the first watch (Task.auto_at).
 
 Moves are fixed and uncosted, and decoupled: an aircraft of the tail's family appears at the Move's destination,
 ready at its `ready`, and the first aircraft of that family ready at its origin from `leave` on leaves, before any
@@ -32,8 +34,8 @@ leg has none. At the end of the day v1's ferries put the aircraft on tomorrow's 
 A World is what a day runs on: the truth (the task's lb, truth blocks and programs as they ran), the day as known at
 a watch (M12: lb and the truth block once the scheduled departure is within LOOK, else 0 and the scheduled block, the
 programs as issued by then, proposed GDPs included, every stop to its as-issued end, every GDP too unless a base rate
-ends it earlier), or the calm day (no delay, scheduled blocks, no programs). Nominal caps, deadlines and the hub
-cutoff are the same in all of them.
+ends it earlier), or the calm day (no delay, scheduled blocks, no programs). Nominal caps, deadlines, the hub cutoff
+and the crew deadlines, which the schedule fixes and the desk knows from the start, are the same in all of them.
 """
 
 import bisect
@@ -231,8 +233,15 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
             fired[name] = t
             continue
         f = task.flight(i)
-        if t > f.deadline:
-            runs[i] = FlightRun(i, AUTO_CANCELLED, decided=f.deadline)
+        left = want.get(i, {}).get("left") is not None
+        s = t if left else f.legal(t)
+        if s > f.deadline:
+            runs[i] = FlightRun(i, AUTO_CANCELLED, decided=task.auto_at(f))
+            continue
+        if s != t:
+            when[i] = s
+            waiting[(f.family, f.orig)].discard(i)
+            heapq.heappush(heap, (s, kind, c, i))
             continue
         here = at[(f.family, f.orig)]
         free = [p for p in here if ready[p] <= t]
@@ -240,7 +249,7 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
             _wait(waiting[(f.family, f.orig)], i, here, ready, when, heap, kind, c)
             continue
         waiting[(f.family, f.orig)].discard(i)
-        if want.get(i, {}).get("left") is not None:
+        if left:
             s, slot, hour = t, *_history(f, t, rules, taken)
         else:
             s, slot, hour = _leave(f, t, rules, claimed.get(i), bound, taken, used)
@@ -264,7 +273,7 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
                 when[j] = ready[p]
                 heapq.heappush(heap, (ready[p], 0 if j < 0 else 1, first[j], j))
     for f in task.flights:
-        runs.setdefault(f.id, FlightRun(f.id, AUTO_CANCELLED, decided=f.deadline))
+        runs.setdefault(f.id, FlightRun(f.id, AUTO_CANCELLED, decided=task.auto_at(f)))
     ends = {p: station for (_, station), ps in at.items() for p in ps}
     spare = Counter(family[name] for name, n in fired.items() if n is None)
     out = ferries(task, ends, family, spare)

@@ -1,6 +1,6 @@
 from dataclasses import replace
 
-from day_helpers import GDP, busy_day, day, flight, stop, tail, three_into_a_program
+from day_helpers import GDP, busy_day, crewed, day, flight, stop, tail, three_into_a_program
 
 from agentenv_airops.programs import sim
 from agentenv_airops.programs.model import Move
@@ -117,3 +117,20 @@ def test_two_waiting_moves_take_the_arriving_aircraft_one_at_a_time_in_the_order
     tails = [tail("N1", "BUF", repositions=(Move("JFK", "MCO", 100, 50),)),
              tail("N2", "PWM", repositions=(Move("JFK", "DCA", 110, 60),))]
     assert sim.execute(day(flights, tails), {}).moves == {"N1~0": 190, "N2~0": 220}
+
+
+def test_a_crew_past_its_deadline_rests_ten_hours_or_its_flight_auto_cancels_there_and_a_base_has_reserves():
+    rests = crewed(flight(0, "BUF", "JFK", 100, 60, lb=60, deadline=900), 130)
+    times_out = crewed(flight(1, "DCA", "JFK", 100, 60, lb=60, pax=50, deadline=600), 130)
+    reserves = crewed(flight(2, "JFK", "BOS", 100, 60, lb=60), None)
+    task = day([rests, times_out, reserves], [tail("N1", "BUF"), tail("N2", "DCA"), tail("N3", "JFK")])
+    run = sim.execute(task, {})
+    assert [(r.status, r.dep, r.decided) for r in run.flights.values()] == [
+        ("flown", 730, None), ("auto_cancelled", None, 130), ("flown", 160, None)]
+    assert run.cost.notice == 50 * (130 - 100 + 120) and (task.auto_at(times_out), task.auto_at(rests)) == (130, 900)
+    held = [sim.execute(task, {0: {"not_before": d}}).flights[0].dep for d in (0, 729, 731, 900)]
+    assert held == [730, 730, 731, 900]
+    on_time = sim.execute(replace(task, flights=(replace(rests, lb=0), replace(times_out, lb=30), reserves)), {})
+    assert (on_time.flights[0].dep, on_time.flights[1].dep) == (100, 130)
+    assert sim.execute(task, {0: {"left": 300}, 1: {"left": 300}}).flights[1].dep == 300
+    assert sim.execute(replace(task, start=200), {}).flights[1].decided == 200

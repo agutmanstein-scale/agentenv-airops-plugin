@@ -246,9 +246,9 @@ def airports_of(codes: Iterable[str]) -> dict[str, Airport]:
 
 def build_candidate(d: str, hub: str, inputs: Path, derived: Path, e_fit: Mapping[str, float],
                     e_median: Mapping[str, float], scale: Mapping[str, float], cutoff: int = repairs.CUTOFF,
-                    window: tuple[int, int] | None = None, split: str = "") -> Built:
+                    window: tuple[int, int] | None = None, split: str = "", bases: Sequence[str] = ()) -> Built:
     """The task of (d, hub) at its rule window (or at `window`, as for a control), or None and the reasons; `e_fit`
-    and `e_median` are unseen.table's at `scale`."""
+    and `e_median` are unseen.table's at `scale`; crew `bases` turn the crew model on (repairs.crews)."""
     ctx = context(inputs, derived, d, hub)
     row = {"date": d, "hub": hub, "p0": None, "window": None, "slide": None, "task_id": None, "reason": "",
            "tried": []}
@@ -268,7 +268,7 @@ def build_candidate(d: str, hub: str, inputs: Path, derived: Path, e_fit: Mappin
         if not sc.ok:
             row["tried"].append({"slide": slide, "window": list(w), "clauses": sc.clauses})
             continue
-        task = assemble(ctx, sc, d, hub, e_fit, e_median, scale, cutoff, slide, split)
+        task = assemble(ctx, sc, d, hub, e_fit, e_median, scale, cutoff, slide, split, bases)
         if window or task.clauses["program_in_window"]:
             return Built(task, {**row, "window": list(w), "slide": slide, "task_id": task.task_id,
                                 "clauses": task.clauses})
@@ -285,7 +285,8 @@ def span(day: pack.Day, h: int) -> tuple[int, int] | None:
 
 
 def assemble(ctx: Context, sc: pack.Scope, d: str, hub: str, e_fit: Mapping[str, float],
-             e_median: Mapping[str, float], scale: Mapping[str, float], cutoff: int, slide: int, split: str) -> Task:
+             e_median: Mapping[str, float], scale: Mapping[str, float], cutoff: int, slide: int, split: str,
+             bases: Sequence[str] = ()) -> Task:
     day, covers = ctx.day, ctx.covers
 
     def tests(orig: str, dest: str, sa: int, departs: int, sd: int) -> tuple[str | None, str | None, bool]:
@@ -297,7 +298,7 @@ def assemble(ctx: Context, sc: pack.Scope, d: str, hub: str, e_fit: Mapping[str,
             covers(p.scope, dest, orig) for p in stops)
         return run.adv.id if run else None, rbs.gs_held(stops, covers, orig, sd), exempt
 
-    flights = repairs.flights(day, sc, ctx.x, ctx.families, tests, cutoff=cutoff)
+    flights = repairs.flights(day, sc, ctx.x, ctx.families, tests, cutoff=cutoff, bases=bases)
     tails, closure = repairs.tails(day, sc, flights, ctx.families, day.turn)
     horizon = max((f.deadline + f.block for f in flights), default=sc.start)
     ids = {(f.number, f.orig, f.sched_dep): f.id for f in flights}
@@ -322,7 +323,7 @@ def assemble(ctx: Context, sc: pack.Scope, d: str, hub: str, e_fit: Mapping[str,
                 start=sc.start, slide=slide, dmax=repairs.DMAX, cutoff=cutoff,
                 turn={f: day.turn[f] for f in sorted({t.family for t in tails})}, airports=airports_of(codes),
                 artcc={c: ctx.artcc[c] for c in sorted(codes) if c in ctx.artcc}, tails=tuple(tails),
-                flights=tuple(flights), programs=programs, clauses=clauses, sources=pins(ctx, sc))
+                flights=tuple(flights), programs=programs, clauses=clauses, sources=pins(ctx, sc), bases=tuple(bases))
     return rbs.rescale(task, scale, e_fit, e_median)
 
 
@@ -471,9 +472,10 @@ def fits_of(job: tuple) -> list[unseen.Fit]:
 
 def build_all(keys: Sequence[tuple[str, str]], inputs: Path, derived: Path, e_fit: Mapping[str, float],
               e_median: Mapping[str, float], scale: Mapping[str, float], cutoff: int = repairs.CUTOFF,
-              workers: int = 1) -> list[Built]:
+              workers: int = 1, bases: Sequence[str] = ()) -> list[Built]:
     """build_candidate for every key, in a pool of `workers` processes, dates kept together for the frame caches."""
-    jobs = [(d, hub, inputs, derived, dict(e_fit), dict(e_median), dict(scale), cutoff) for d, hub in sorted(keys)]
+    jobs = [(d, hub, inputs, derived, dict(e_fit), dict(e_median), dict(scale), cutoff, tuple(bases))
+            for d, hub in sorted(keys)]
     with ProcessPoolExecutor(workers) if workers > 1 else nullcontext() as pool:
         if not pool:
             return [build_one(j) for j in jobs]
@@ -481,5 +483,5 @@ def build_all(keys: Sequence[tuple[str, str]], inputs: Path, derived: Path, e_fi
 
 
 def build_one(job: tuple) -> Built:
-    d, hub, inputs, derived, e_fit, e_median, scale, cutoff = job
-    return build_candidate(d, hub, inputs, derived, e_fit, e_median, scale, cutoff)
+    d, hub, inputs, derived, e_fit, e_median, scale, cutoff, bases = job
+    return build_candidate(d, hub, inputs, derived, e_fit, e_median, scale, cutoff, bases=bases)

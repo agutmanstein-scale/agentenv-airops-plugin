@@ -4,8 +4,9 @@ Times are minutes from 00:00 hub-local on `date` (`base` is that midnight's UTC 
 everything the truth, the forecast and the references read, and nothing they would have to fetch:
 - flights: the scope's legs from `start`, with the scheduled and the truth block, pax capped at the smallest
   seats of the family's tails in the task (`pax_raw` kept), the exogenous delay `lb` with NAS delay removed for a
-  flight controlled or GS-held on its recorded departure, the out-and-back `pair`, the `deadline` and
-  JetBlue's recorded outcome;
+  flight controlled or GS-held on its recorded departure, the out-and-back `pair`, the `deadline`,
+  JetBlue's recorded outcome and, when the task was built with the crew model (`bases`, the crew bases; empty when
+  off), its crew: the pairing, its FAR 117 limit, the crew deadline and the end of the legal rest (repairs.crews);
 - tails: split family, the schedule's position and ready time, their legs in scheduled order, same-station gaps as
   busy blocks on the leg before them and chain breaks as fixed repositionings (scope closure), and tomorrow's need;
 - programs per hub (both hubs in every task): the advisories as parsed, the in-sample unseen arrivals per hour of
@@ -55,10 +56,34 @@ class Outcome:
 
 
 @dataclass(frozen=True)
+class Crew:
+    """A flight's crew (repairs.crews): its `pairing` reports at `report` at `station` for `segments` legs under a
+    FAR 117 Table B limit of `fdp` minutes; `deadline` is the last minute the flight may leave for its crew to block in
+    within that limit and the 117.19 extension (None from a base, whose reserves take over), `rest` the first minute
+    it may leave after their legal rest."""
+
+    pairing: str
+    report: int
+    station: str
+    segments: int
+    fdp: int
+    deadline: int | None
+    rest: int | None
+
+    @classmethod
+    def from_dict(cls, d: Mapping) -> "Crew":
+        return cls(d["pairing"], d["report"], d["station"], d["segments"], d["fdp"], d["deadline"], d["rest"])
+
+    def to_dict(self) -> dict:
+        return {"pairing": self.pairing, "report": self.report, "station": self.station, "segments": self.segments,
+                "fdp": self.fdp, "deadline": self.deadline, "rest": self.rest}
+
+
+@dataclass(frozen=True)
 class Flight:
     """`controlled` is the GDP advisory whose segment governed the flight on its recorded departure (the scheduled one
     when cancelled), `gs_held` the ground-stop chain that held it; `exempt` marks a flight into a hub whose origin no
-    program of that hub covers."""
+    program of that hub covers; `crew` is None without the crew model."""
 
     id: int
     flight: str
@@ -79,23 +104,32 @@ class Flight:
     pair: int | None
     deadline: int
     actual: Outcome
+    crew: Crew | None = None
 
     @classmethod
     def from_dict(cls, d: Mapping) -> "Flight":
         return cls(d["id"], d["flight"], d["orig"], d["dest"], d["sched_dep"], d["sched_arr"], d["sched_block"],
                    d["block"], d["pax"], d["pax_raw"], d["family"], d["lb"], d["nas_removed"], d["controlled"],
-                   d["gs_held"], d["exempt"], d["pair"], d["deadline"], Outcome.from_dict(d["actual"]))
+                   d["gs_held"], d["exempt"], d["pair"], d["deadline"], Outcome.from_dict(d["actual"]),
+                   Crew.from_dict(d["crew"]) if d.get("crew") else None)
 
     def to_dict(self) -> dict:
         return {"id": self.id, "flight": self.flight, "orig": self.orig, "dest": self.dest,
                 "sched_dep": self.sched_dep, "sched_arr": self.sched_arr, "sched_block": self.sched_block,
                 "block": self.block, "pax": self.pax, "pax_raw": self.pax_raw, "family": self.family, "lb": self.lb,
                 "nas_removed": self.nas_removed, "controlled": self.controlled, "gs_held": self.gs_held,
-                "exempt": self.exempt, "pair": self.pair, "deadline": self.deadline, "actual": self.actual.to_dict()}
+                "exempt": self.exempt, "pair": self.pair, "deadline": self.deadline, "actual": self.actual.to_dict(),
+                "crew": self.crew.to_dict() if self.crew else None}
 
     @property
     def number(self) -> int:
         return int(self.flight.split()[-1])
+
+    def legal(self, t: int) -> int:
+        """The first minute from t its crew may take it: t, or the end of their rest when t falls after the crew
+        deadline and before it."""
+        c = self.crew
+        return c.rest if c and c.deadline is not None and c.deadline < t < c.rest else t
 
 
 @dataclass(frozen=True)
@@ -290,6 +324,7 @@ class Task:
     clauses: dict
     sources: dict
     version: int = VERSION
+    bases: tuple[str, ...] = ()
 
     @classmethod
     def from_dict(cls, d: Mapping) -> "Task":
@@ -298,7 +333,7 @@ class Task:
                    {c: Airport.from_dict(c, a) for c, a in d["airports"].items()}, dict(d["artcc"]),
                    tuple(Tail.from_dict(t) for t in d["tails"]), tuple(Flight.from_dict(f) for f in d["flights"]),
                    {h: Programs.from_dict(p) for h, p in d["programs"].items()}, dict(d["clauses"]),
-                   dict(d["sources"]), d["version"])
+                   dict(d["sources"]), d["version"], tuple(d.get("bases", ())))
 
     def to_dict(self) -> dict:
         return {"version": self.version, "task_id": self.task_id, "split": self.split, "carrier": self.carrier,
@@ -308,7 +343,7 @@ class Task:
                 "artcc": dict(self.artcc), "tails": [t.to_dict() for t in self.tails],
                 "flights": [f.to_dict() for f in self.flights],
                 "programs": {h: p.to_dict() for h, p in self.programs.items()}, "clauses": self.clauses,
-                "sources": self.sources}
+                "sources": self.sources, "bases": list(self.bases)}
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), separators=(",", ":"))
@@ -334,6 +369,14 @@ class Task:
     def earliest(self, f: Flight, lb: int) -> int:
         """Nothing in scope leaves before the first watch; an early departure (lb < 0) leaves before its schedule."""
         return max(f.sched_dep + lb, self.start)
+
+    def auto_at(self, f: Flight) -> int:
+        """When f auto-cancels if it can't leave: at its crew deadline, never before the first watch, if its crew's
+        rest would end past its deadline, else at its deadline."""
+        c = f.crew
+        if c and c.deadline is not None and c.deadline < f.deadline < c.rest:
+            return max(c.deadline, self.start)
+        return f.deadline
 
     @property
     def lb(self) -> dict[int, int]:

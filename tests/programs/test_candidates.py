@@ -56,10 +56,12 @@ def test_the_first_program_hour_reads_gdps_from_their_period_and_stops_over_thei
     assert candidates.any_in_force([], [Stop("s", "JFK", 1230, 1300, None)], 300, 1440)
 
 
-def test_a_built_task_round_trips_through_json(task, built):
-    line = task.to_json()
-    again = Task.from_dict(json.loads(line))
-    assert again == task and again.to_json() == line
+def test_a_built_task_round_trips_through_json_with_its_crew_too(task, built, crewed):
+    for t in (task, crewed):
+        line = t.to_json()
+        again = Task.from_dict(json.loads(line))
+        assert again == t and again.to_json() == line
+    assert crewed.bases and all(f.crew for f in crewed.flights) and not any(f.crew for f in task.flights)
     assert (task.task_id, task.split, task.window, task.start, task.version) == (
         "b6-jfk-20230626-1700", "train", (1020, 1320), 960, 2)
     assert set(task.programs) == {"JFK", "BOS"} and built.row["task_id"] == task.task_id

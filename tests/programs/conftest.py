@@ -7,7 +7,7 @@ import pytest
 from program_helpers import APT_BASE, DATE, HUB, SLICE, TAXI_OUT, WINDOW
 
 from agentenv_airops.build import bts, pack
-from agentenv_airops.programs import advisories, candidates, rbs, unseen
+from agentenv_airops.programs import advisories, candidates, rbs, repairs, unseen
 
 
 @pytest.fixture(scope="session")
@@ -39,14 +39,23 @@ def fits(slice_inputs, tmp_path_factory):
 @pytest.fixture(scope="session")
 def built(slice_inputs, fits, tmp_path_factory):
     """The slice's JFK evening of 26 June 2023 as a v2 task (eight tails, so the size floor comes down)."""
-    derived = tmp_path_factory.mktemp("derived")
-    e_fit, e_median = unseen.table(fits, {"JFK": 1.0, "BOS": 1.0})
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(pack, "MIN_TAILS", 5)
-        return candidates.build_candidate(DATE, HUB, slice_inputs, derived, e_fit, e_median,
-                                          {"JFK": 1.0, "BOS": 1.0}, window=WINDOW, split="train")
+    return build(slice_inputs, fits, tmp_path_factory.mktemp("derived"))
 
 
 @pytest.fixture(scope="session")
 def task(built):
     return built.task
+
+
+@pytest.fixture(scope="session")
+def crewed(slice_inputs, fits, tmp_path_factory):
+    """The same evening with the crew model at JetBlue's bases."""
+    return build(slice_inputs, fits, tmp_path_factory.mktemp("derived"), repairs.BASES).task
+
+
+def build(slice_inputs, fits, derived, bases=()):
+    e_fit, e_median = unseen.table(fits, {"JFK": 1.0, "BOS": 1.0})
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(pack, "MIN_TAILS", 5)
+        return candidates.build_candidate(DATE, HUB, slice_inputs, derived, e_fit, e_median,
+                                          {"JFK": 1.0, "BOS": 1.0}, window=WINDOW, split="train", bases=bases)

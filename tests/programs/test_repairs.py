@@ -1,5 +1,8 @@
 from collections import defaultdict
+from dataclasses import replace
+from datetime import datetime
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -8,6 +11,23 @@ from program_helpers import CACHE, DERIVED, needs_cache
 
 from agentenv_airops.build.fleet import Aircraft
 from agentenv_airops.programs import candidates, repairs
+from agentenv_airops.programs.model import Crew
+
+ECFR_TABLE_B = """
+0000-0359 | 9 | 9 | 9 | 9 | 9 | 9 | 9
+0400-0459 | 10 | 10 | 10 | 10 | 9 | 9 | 9
+0500-0559 | 12 | 12 | 12 | 12 | 11.5 | 11 | 10.5
+0600-0659 | 13 | 13 | 12 | 12 | 11.5 | 11 | 10.5
+0700-1159 | 14 | 14 | 13 | 13 | 12.5 | 12 | 11.5
+1200-1259 | 13 | 13 | 13 | 13 | 12.5 | 12 | 11.5
+1300-1659 | 12 | 12 | 12 | 12 | 11.5 | 11 | 10.5
+1700-2159 | 12 | 12 | 11 | 11 | 10 | 9 | 9
+2200-2259 | 11 | 11 | 10 | 10 | 9 | 9 | 9
+2300-2359 | 10 | 10 | 10 | 9 | 9 | 9 | 9
+"""
+ZONES = {"BUF": "America/New_York", "JFK": "America/New_York", "RDU": "America/New_York", "PWM": "America/New_York",
+         "BOS": "America/New_York", "LAX": "America/Los_Angeles", "SJU": "America/Puerto_Rico",
+         "ORD": "America/Chicago"}
 
 
 @pytest.mark.parametrize(("model", "seats", "family"), [
@@ -112,3 +132,53 @@ def test_every_chain_connects_or_repositions_and_pax_fit_the_smallest_tail(task)
         assert all(b.leg in t.legs[:-1] and b.ready > task.flight(b.leg).sched_arr for b in t.busy)
     assert all(f.pax == min(f.pax_raw, *seats[f.family]) for f in task.flights)
     assert {f.family for f in task.flights} <= set(task.turn)
+
+
+def test_table_b_is_the_ecfrs_unaugmented_flight_duty_period_by_local_start_hour_and_segments():
+    for line in ECFR_TABLE_B.strip().splitlines():
+        band, *hours = line.split(" | ")
+        for hour in range(int(band[:2]), int(band[5:7]) + 1):
+            assert [repairs.fdp(hour, n) for n in range(1, 10)] == [round(60 * float(h))
+                                                                    for h in hours + hours[-1:] * 2]
+    assert (repairs.fdp(6, 3), repairs.fdp(12, 5), repairs.fdp(21, 7), repairs.fdp(23, 4)) == (720, 750, 540, 540)
+    assert repairs.ECFR == "https://www.ecfr.gov/current/title-14/chapter-I/subchapter-G/part-117"
+    assert all(c in repairs.__doc__ for c in ("14 CFR 117 Table B", "Unaugmented Operations", "117.19(a)(1)",
+                                               "117.25(e)"))
+    assert (repairs.BASES, repairs.REPORT, repairs.EXTENSION, repairs.REST) == (("JFK", "BOS", "FLL", "MCO"), 45, 120,
+                                                                               600)
+
+
+def test_a_pairing_runs_from_a_base_departure_to_the_next_base_arrival_and_only_outstations_have_a_crew_deadline():
+    legs = pd.DataFrame([(11, "N1", "RDU", "PWM", 660, 110), (10, "N1", "JFK", "RDU", 500, 100),
+                         (12, "N1", "PWM", "BOS", 830, 60), (13, "N1", "BOS", "JFK", 1000, 70),
+                         (14, "N1", "BUF", "JFK", 360, 80), (20, "N2", "LAX", "JFK", 30, 330),
+                         (21, "N2", "JFK", "SJU", 300, 225), (22, "N2", "SJU", "JFK", 600, 240),
+                         (23, "N2", "ORD", "BOS", 800, 150)],
+                        columns=["label", "Tail_Number", "Origin", "Dest", "sd", "CRSElapsedTime"]).set_index("label")
+    base = int(datetime(2024, 7, 1, tzinfo=ZoneInfo("America/New_York")).timestamp() // 60)
+
+    def crew(pairing, report, station, segments, hours, deadline):
+        return Crew(pairing, report, station, segments, 60 * hours, deadline,
+                    None if deadline is None else deadline + 600)
+
+    assert repairs.crews(legs, base, repairs.BASES, ZONES) == {
+        14: crew("N1/0", 315, "BUF", 1, 12, 315 + 720 + 120 - 80),
+        10: crew("N1/1", 455, "JFK", 3, 13, None), 11: crew("N1/1", 455, "JFK", 3, 13, 455 + 780 + 120 - 110),
+        12: crew("N1/1", 455, "JFK", 3, 13, 455 + 780 + 120 - 60), 13: crew("N1/2", 955, "BOS", 1, 12, None),
+        20: crew("N2/0", -15, "LAX", 1, 12, -15 + 720 + 120 - 330),
+        21: crew("N2/1", 255, "JFK", 2, 10, None), 22: crew("N2/1", 255, "JFK", 2, 10, 255 + 600 + 120 - 240),
+        23: crew("N2/2", 755, "ORD", 1, 14, 755 + 840 + 120 - 150)}
+    wider = repairs.crews(legs, base, (*repairs.BASES, "LAX", "SJU"), ZONES)
+    assert [wider[k].deadline for k in (20, 21, 22)] == [None, None, None]
+    assert (wider[21].segments, wider[22].pairing, wider[23]) == (1, "N2/2", crew("N2/3", 755, "ORD", 1, 14, 1565))
+
+
+def test_a_crewed_build_gives_every_flight_its_pairings_crew_and_changes_nothing_else(task, crewed):
+    assert crewed.bases == repairs.BASES and not task.bases
+    assert replace(crewed, bases=(), flights=tuple(replace(f, crew=None) for f in crewed.flights)) == task
+    outstation = [f for f in crewed.flights if f.orig not in repairs.BASES]
+    assert outstation and all(f.crew.deadline is None for f in crewed.flights if f.orig in repairs.BASES)
+    for f in outstation:
+        c = f.crew
+        assert (c.deadline, c.rest) == (c.report + c.fdp + 120 - f.sched_block, c.report + c.fdp + 720 - f.sched_block)
+    assert all(f.crew.report <= f.sched_dep - 45 for f in crewed.flights)

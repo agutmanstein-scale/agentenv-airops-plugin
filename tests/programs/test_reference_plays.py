@@ -1,16 +1,17 @@
 from dataclasses import replace
 
 import pytest
-from day_helpers import GDP, day, flight, shortened, stop, tail
+from day_helpers import GDP, crewed, day, flight, shortened, stop, tail
 from program_helpers import adv
 
 from agentenv_airops.programs import references, sim
-from agentenv_airops.programs.model import Outcome
+from agentenv_airops.programs.model import Outcome, Task
 
 
-@pytest.fixture(scope="module")
-def fixture_day(task):
-    return shortened(task)
+@pytest.fixture(scope="module", params=["task", "crewed"])
+def fixture_day(request) -> Task:
+    """The fixture day, and the same day with the crew model."""
+    return shortened(request.getfixturevalue(request.param))
 
 
 def stopped_then_released():
@@ -110,6 +111,34 @@ def test_each_cancellation_is_priced_at_the_watch_that_confirms_it():
     assert references.naive(task).cost.notice == 100 * (640 - 400 + 120)
     sol, run = references.anchor(task)
     assert sol.objective == run.cost.total == 52_300 - 61 * 60 and run.cost.notice == 0
+
+
+def crew_timing_out():
+    """A 5-h delay known two hours before the 06:40 departure puts a flight past its crew's deadline at 07:30, their
+    rest ending past its own."""
+    return day([crewed(flight(0, "DCA", "JFK", 400, 60, lb=300, deadline=900), 450)], [tail("N1", "DCA")])
+
+
+def stopped_past_the_crew():
+    """A ground stop signed at 01:00 holds a 01:40 departure past its crew's 01:50 deadline, their rest ending past its
+    own: from that watch its auto-cancel is within the freeze. A later flight keeps the watches going."""
+    flights = [crewed(flight(0, "DCA", "JFK", 100, 60, deadline=600), 110), flight(1, "JFK", "BOS", 400, 60)]
+    return day(flights, [tail("N1", "DCA"), tail("N2", "JFK")], stops=(stop(60, 300),),
+               advisories=(adv("s1", "gs", 60, 60, 300),))
+
+
+def test_a_crew_deadline_is_known_from_the_start_and_an_auto_cancel_it_forces_is_priced_there():
+    task = crew_timing_out()
+    followed, rule = references.follow(task), references.rule(task)
+    assert followed.plan[0] == rule.plan[0] == {"cancel": True, "decided": 300}
+    assert followed.run.cost.notice == rule.run.cost.notice == 100 * (300 - 280)
+    assert references.naive(task).flights[0].decided == 450 and references.naive(task).cost.notice == 100 * 170
+    assert references.follow(replace(task, flights=(replace(task.flights[0], crew=None),))).run.flights[0].dep == 700
+    task = stopped_past_the_crew()
+    followed, rule = references.follow(task), references.rule(task)
+    assert 0 not in followed.plan and 0 not in rule.plan and [w["frozen"] for w in followed.watches[:2]] == [0, 1]
+    assert followed.run.flights[0].decided == rule.run.flights[0].decided == 110
+    assert followed.run.cost.notice == rule.run.cost.notice == 100 * (110 - 100 + 120)
 
 
 def test_the_recorded_day_prices_jetblues_outcome_like_for_like():
