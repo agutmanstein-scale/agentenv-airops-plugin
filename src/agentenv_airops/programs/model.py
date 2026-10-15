@@ -153,7 +153,8 @@ class Tail:
 class Arrival:
     """One BTS-scheduled arrival at a hub, any carrier: `dep` is its recorded departure (None when cancelled), `nas`
     its BTS NASDelay, `flight` the task flight it is (None outside the task), `controlled` the GDP advisory whose
-    segment governed it by the schedule-based test on its recorded departure."""
+    segment governed it by the schedule-based test on its recorded departure, `diverted` whether it flew but landed
+    elsewhere (BTS gives such a flight no NAS delay)."""
 
     carrier: str
     number: int
@@ -165,14 +166,15 @@ class Arrival:
     nas: int
     flight: int | None
     controlled: str | None
+    diverted: bool = False
 
     @classmethod
     def from_list(cls, v: list) -> "Arrival":
-        return cls(v[0], v[1], v[2], v[3], v[4], v[5], bool(v[6]), v[7], v[8], v[9])
+        return cls(v[0], v[1], v[2], v[3], v[4], v[5], bool(v[6]), v[7], v[8], v[9], bool(v[10]))
 
     def to_list(self) -> list:
         return [self.carrier, self.number, self.orig, self.sched_dep, self.sched_arr, self.dep, int(self.cancelled),
-                self.nas, self.flight, self.controlled]
+                self.nas, self.flight, self.controlled, int(self.diverted)]
 
     @property
     def departs(self) -> int:
@@ -213,8 +215,9 @@ class Segment:
 
 @dataclass(frozen=True)
 class Programs:
-    """A hub's programs: `e_fit` is each GDP or proposed advisory's in-sample unseen arrivals per hour (the airport's
-    median `e_median` where the form can't match), `scale` the airport's train-fitted scale on it."""
+    """A hub's programs: `e_fit` is each GDP or proposed advisory's unseen arrivals per hour at the airport's
+    train-fitted `scale` on its stated AVERAGE DELAY (unseen.table), the airport's median `e_median` where the form
+    can't match."""
 
     hub: str
     aar: int
@@ -240,12 +243,12 @@ class Programs:
                 "demand": [a.to_list() for a in self.demand]}
 
     def e(self, advisory: str) -> float:
-        return self.e_fit.get(advisory, self.e_median) * self.scale
+        return self.e_fit.get(advisory, self.e_median)
 
     @property
     def e_bar(self) -> float:
-        """The airport's median unseen arrivals per hour, scaled: the nominal cap's e."""
-        return self.e_median * self.scale
+        """The airport's median unseen arrivals per hour at its scale: the nominal cap's e."""
+        return self.e_median
 
 
 @dataclass(frozen=True)

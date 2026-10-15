@@ -25,12 +25,15 @@ def slice_inputs(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="session")
-def built(slice_inputs, tmp_path_factory):
+def fits(slice_inputs, tmp_path_factory):
+    return candidates.fits_of((DATE, HUB, slice_inputs, tmp_path_factory.mktemp("derived")))
+
+
+@pytest.fixture(scope="session")
+def built(slice_inputs, fits, tmp_path_factory):
     """The slice's JFK evening of 26 June 2023 as a v2 task (eight tails, so the size floor comes down)."""
     derived = tmp_path_factory.mktemp("derived")
-    fits = candidates.fits_of((DATE, HUB, slice_inputs, derived))
-    e_fit, e_median = unseen.table(fits)
-    e_median = {"JFK": e_median.get("JFK", 0.0), "BOS": 0.0}
+    e_fit, e_median = unseen.table(fits, {"JFK": 1.0, "BOS": 1.0})
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(pack, "MIN_TAILS", 5)
         return candidates.build_candidate(DATE, HUB, slice_inputs, derived, e_fit, e_median,

@@ -209,7 +209,8 @@ def airports_of(codes: Iterable[str]) -> dict[str, Airport]:
 def build_candidate(d: str, hub: str, inputs: Path, derived: Path, e_fit: Mapping[str, float],
                     e_median: Mapping[str, float], scale: Mapping[str, float], cutoff: int = repairs.CUTOFF,
                     window: tuple[int, int] | None = None, split: str = "") -> Built:
-    """The task of (d, hub) at its rule window (or at `window`, as for a control), or None and the reasons."""
+    """The task of (d, hub) at its rule window (or at `window`, as for a control), or None and the reasons; `e_fit`
+    and `e_median` are unseen.table's at `scale`."""
     ctx = context(inputs, derived, d, hub)
     row = {"date": d, "hub": hub, "p0": None, "window": None, "slide": None, "task_id": None, "reason": "",
            "tried": []}
@@ -284,7 +285,7 @@ def assemble(ctx: Context, sc: pack.Scope, d: str, hub: str, e_fit: Mapping[str,
                 turn={f: day.turn[f] for f in sorted({t.family for t in tails})}, airports=airports_of(codes),
                 artcc={c: ctx.artcc[c] for c in sorted(codes) if c in ctx.artcc}, tails=tuple(tails),
                 flights=tuple(flights), programs=programs, clauses=clauses, sources=pins(ctx, sc))
-    return rbs.rescale(task, scale)
+    return rbs.rescale(task, scale, e_fit, e_median)
 
 
 def pins(ctx: Context, sc: pack.Scope) -> dict:
@@ -320,7 +321,7 @@ def arrivals(x: pd.DataFrame, hub: str, lo: int, hi: int, ids: Mapping[tuple, in
         out.append(Arrival(r.Reporting_Airline, num, r.Origin, int(r.sd), int(r.sa), int(r.ad) if departed else None,
                            not departed, 0 if pd.isna(r.NASDelay) else int(r.NASDelay),
                            ids.get((num, r.Origin, int(r.sd))) if r.Reporting_Airline == CARRIER else None,
-                           run.adv.id if run else None))
+                           run.adv.id if run else None, bool(r.Diverted == 1)))
     return tuple(sorted(out, key=lambda a: a.key))
 
 

@@ -159,11 +159,13 @@ def forecast(task: Task, hub: str, t: int) -> tuple[tuple[Segment, ...], tuple[S
     return segments(p, task.covers, t), issued_by(p.advisories, t)[1]
 
 
-def rescale(task: Task, scale: Mapping[str, float]) -> Task:
-    """The task with each hub's unseen arrivals on a new scale and its truth pools recomputed."""
+def rescale(task: Task, scale: Mapping[str, float], e_fit: Mapping[str, float],
+            e_median: Mapping[str, float]) -> Task:
+    """The task with each hub's unseen arrivals at a new scale (each advisory's e and the airport's median at it, as
+    unseen.table gives them) and its truth pools recomputed."""
     programs = {}
     for hub, p in task.programs.items():
-        q = replace(p, scale=scale[hub])
+        q = replace(p, scale=scale[hub], e_median=e_median[hub], e_fit={a: e_fit[a] for a in p.e_fit})
         programs[hub] = replace(q, segments=segments(q, task.covers))
     return replace(task, programs=programs)
 

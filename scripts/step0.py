@@ -100,9 +100,9 @@ def main() -> None:
     write_tasks([*tasks.values(), *held.values()], out / "tasks.jsonl")
     clock.lap("build", f"{len(tasks)} of {len(keys)} candidates built, {len(held)} controls")
 
-    provisional = filled(unseen.fit_scale(tasks.values()), ones)
+    provisional = filled(unseen.fit_scale(tasks.values(), fits), ones)
     every = {**tasks, **held}
-    pass1 = run_pass(out / "pass1", at(every, provisional), CUTOFF, clause_job, args.workers, args.resume, clock,
+    pass1 = run_pass(out / "pass1", at(every, provisional, fits), CUTOFF, clause_job, args.workers, args.resume, clock,
                      limits)
     clock.lap("pass1")
     tol_prov = tolerance([pass1[i] for i in tasks])
@@ -111,7 +111,7 @@ def main() -> None:
     drawn = candidates.split([key(tasks[i]) for i in q1], event, args.seed)
     train1 = [i for i in q1 if drawn.get(key(tasks[i])) == "train"]
 
-    scale = filled(unseen.fit_scale(tasks[i] for i in train1), provisional)
+    scale = filled(unseen.fit_scale((tasks[i] for i in train1), fits), provisional)
     late = late_departures([key(tasks[i]) for i in train1])
     cutoff = cutoff_hour(late) or CUTOFF
     taken = {event[d] for (d, _), v in drawn.items() if v == "eval"}
@@ -119,20 +119,21 @@ def main() -> None:
              and all(clauses_of(tasks[i], pass1[i], math.inf).values())]
     tol = tolerance(basis) if basis else tol_prov
     rerun = scale != provisional or cutoff != CUTOFF
-    pass2 = run_pass(out / "pass2", at(every, scale), cutoff, clause_job, args.workers, args.resume, clock,
+    pass2 = run_pass(out / "pass2", at(every, scale, fits), cutoff, clause_job, args.workers, args.resume, clock,
                      limits) if rerun else pass1
     clock.lap("pass2" if rerun else "pass2 (skipped: scale and cutoff unchanged)")
     q2 = qualifying(tasks, pass2, tol)
     settled = candidates.settle(drawn, [key(tasks[i]) for i in q2], event)
     split = {i: settled[key(tasks[i])] for i in q2 if key(tasks[i]) in settled}
     lost = sorted(i for i in q1 if drawn.get(key(tasks[i])) == "eval" and i not in split)
-    fid_ship = {i: unseen.fidelity(t, scale[t.hub]) for i, t in tasks.items()}
+    shipped_e = unseen.table(fits, scale)
+    fid_ship = {i: unseen.fidelity(t, shipped_e) for i, t in tasks.items()}
     dropped = {i: v for i, v in split.items() if not in_band(fid_ship[i])}
     final = {i: v for i, v in split.items() if i not in dropped}
 
-    unfiltered = fidelity_before_clauses(tasks, event, args.seed, provisional)
+    unfiltered = fidelity_before_clauses(tasks, event, args.seed, provisional, fits)
     shipped = {i: t if t.split == "control" else replace(t, split=final.get(i, "dropped" if i in dropped else ""))
-               for i, t in at(every, scale).items()}
+               for i, t in at(every, scale, fits).items()}
     shipped = {i: sim.with_cutoff(t, cutoff) for i, t in shipped.items()}
     write_tasks(list(shipped.values()), out / "tasks.jsonl")
     refs = run_pass(out / "refs", shipped, cutoff, refs_job, args.workers, args.resume, clock, limits, pass2)
@@ -143,7 +144,7 @@ def main() -> None:
               "fixed": {"scale": scale, "cutoff": cutoff, "tolerance": round(tol, 4)},
               "late_departures": {"n": len(late), "train_day_hubs": len(train1)}, "tolerance_basis": len(basis),
               "eval_lost_in_pass2": lost, "pass2": rerun, "dmax": DMAX, "time_limits_s": limits,
-              "e_median": e_median, "advisories_fitted": len(fits)}
+              "e_median": {"scale_1": e_median, "shipped": shipped_e[1]}, "advisories_fitted": len(fits)}
     rows = candidate_rows(built, controls, tasks, pass1, pass2, tol_prov, tol, fid_ship, drawn, split, dropped)
     (out / "candidates.jsonl").write_text("".join(json.dumps(r, default=str) + "\n" for r in rows))
     report = summary(tasks, held, shipped, refs, split, final, dropped, fid_ship, built, counts, params, clock, keys)
@@ -187,8 +188,9 @@ def filled(scale: Mapping[str, float], fallback: Mapping[str, float]) -> dict[st
     return {h: scale.get(h, fallback[h]) for h in HUBS}
 
 
-def at(tasks: Mapping[str, Task], scale: Mapping[str, float]) -> dict[str, Task]:
-    return {i: rbs.rescale(t, scale) for i, t in tasks.items()}
+def at(tasks: Mapping[str, Task], scale: Mapping[str, float], fits: list[unseen.Fit]) -> dict[str, Task]:
+    e_fit, e_median = unseen.table(fits, scale)
+    return {i: rbs.rescale(t, scale, e_fit, e_median) for i, t in tasks.items()}
 
 
 def signature(task: Task, cutoff: int) -> str:
@@ -355,14 +357,15 @@ def qualifying(tasks: Mapping[str, Task], results: Mapping[str, dict], tol: floa
 
 
 def fidelity_before_clauses(tasks: Mapping[str, Task], event: Mapping[str, int], seed: int,
-                            fallback: Mapping[str, float]) -> dict:
+                            fallback: Mapping[str, float], fits: list[unseen.Fit]) -> dict:
     """G2's measurement on the seeded draw over every built candidate, before any solver clause: the scale fitted on
     that draw's train days, the share in band on its eval and train days. It answers the fidelity question even when
     the clauses leave no day to split."""
     by = {key(t): t for t in tasks.values()}
     drawn = candidates.split(list(by), event, seed)
-    scale = filled(unseen.fit_scale(by[k] for k, v in drawn.items() if v == "train"), fallback)
-    fid = {k: unseen.fidelity(by[k], scale[by[k].hub]) for k in drawn}
+    scale = filled(unseen.fit_scale((by[k] for k, v in drawn.items() if v == "train"), fits), fallback)
+    shipped = unseen.table(fits, scale)
+    fid = {k: unseen.fidelity(by[k], shipped) for k in drawn}
     out = {"scale": scale}
     for v in ("eval", "train"):
         flags = [in_band(f) for k, f in fid.items() if drawn[k] == v and f is not None]

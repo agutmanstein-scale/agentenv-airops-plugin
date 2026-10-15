@@ -3,7 +3,7 @@ from dataclasses import replace
 
 from program_helpers import adv
 
-from agentenv_airops.programs import advisories, rbs
+from agentenv_airops.programs import advisories, rbs, unseen
 from agentenv_airops.programs.advisories import Run, Scope, Stop
 from agentenv_airops.programs.model import Arrival
 
@@ -90,12 +90,15 @@ def test_the_nominal_cap_leaves_what_others_and_the_unseen_stream_do_not_take(ta
     assert caps[h] == max(mine, math.floor(p.aar - others - p.e_bar)) and min(caps) == task.start // 60
 
 
-def test_more_unseen_traffic_never_gives_jetblue_more_slots(task):
-    pools = [[len(s.slots) for s in rbs.rescale(task, {"JFK": k, "BOS": k}).programs["JFK"].segments]
-             for k in (0.0, 1.0, 2.0)]
+def test_more_unseen_traffic_never_gives_jetblue_more_slots(task, fits):
+    def at(k):
+        scale = {"JFK": k, "BOS": k}
+        return rbs.rescale(task, scale, *unseen.table(fits, scale))
+
+    pools = [[len(s.slots) for s in at(k).programs["JFK"].segments] for k in (0.0, 1.0, 2.0)]
     assert all(a >= b for a, b in zip(pools[0], pools[1], strict=True))
     assert all(a >= b for a, b in zip(pools[1], pools[2], strict=True))
-    assert rbs.rescale(task, {"JFK": 1.0, "BOS": 1.0}) == task
+    assert at(1.0) == task
 
 
 def test_the_forecast_sees_only_what_was_signed(task):

@@ -2,13 +2,16 @@
 pop-up reserve, as exempt arrivals per hour in every GDP's ration-by-schedule list.
 
 Per advisory, e is the in-sample rate that makes RBS over the demand as listed when the advisory was signed (cancelled
-flights gone NOTICE before their scheduled departure, every carrier alike) reproduce its stated AVERAGE DELAY, averaged
-over the flights it controls (past the period the list spills on at the last hour's rate). An advisory the form can't
-match within FIT_TOLERANCE takes its airport's median. The stated delay is known at issuance, so the truth and the
-forecast share the same e. The shipped rate is that times one scale per airport, fitted on train days only to the
-other carriers' observed program delay: the BTS NASDelay of their controlled arrivals that day. JetBlue's flights never
-enter the fit, and nothing is fitted to JetBlue's day or its replay. Fidelity is the modelled over the observed other
-carrier program delay of one day-hub, the clause asking 0.67 to 1.5.
+flights gone NOTICE before their scheduled departure, every carrier alike) reproduce its stated AVERAGE DELAY times one
+scale per airport, averaged over the flights it controls (past the period the list spills on at the last hour's rate).
+The scale sits on the stated delay, not on e: near the rate the delay is steep in e, so a scale on e moves a busy
+program's delay far more than a light one's. An advisory the form can't match within FIT_TOLERANCE takes its
+airport's median. The stated delay is known at issuance, so the truth and the forecast share the same e. The scale is
+fitted on train days only to the other carriers' observed program delay: the BTS NASDelay of their controlled arrivals
+that day. JetBlue's flights never enter the fit, and nothing is fitted to JetBlue's day or its replay. Fidelity is the
+modelled over the observed other carrier program delay of one day-hub, the clause asking 0.67 to 1.5. Both sides are
+measured alike: a diverted arrival, which BTS gives no NAS delay, is left out, and a flight's modelled arrival is held,
+as the truth holds JetBlue's, by any ground stop at the hub covering its modelled departure.
 
 The movement-count check sets the fitted stream against what the airports count: the unseen share of program-hour
 arrivals (e against e plus BTS demand) beside the share of each airport's own arrivals BTS misses (JFK: the Port
@@ -21,13 +24,13 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
-from .advisories import GDP, PROPOSED, Advisory, Run, Stop, as_ran
+from .advisories import GDP, PROPOSED, Advisory, Run, Stop, as_ran, held_until
 from .model import Arrival, Task
 from .rbs import Covers, assign, exempt, segment
 
 E_MAX = 60
 FIT_TOLERANCE = 15
-GRID = tuple(round(0.05 * k, 2) for k in range(61))
+GRID = tuple(round(0.025 * k, 3) for k in range(81))
 FIDELITY = (0.67, 1.5)
 FLOOR = 0.01
 JFK_MOVEMENTS_2024 = 468_570
@@ -55,24 +58,29 @@ through fetch.save and fetch.record)."""
 
 @dataclass(frozen=True)
 class Fit:
+    """`curve` is the RBS average delay at issuance for e = 0..E_MAX; `e`, `modelled` and `matched` read it at the
+    stated delay itself (scale 1)."""
+
     advisory: str
     hub: str
     e: float
     modelled: float
     stated: int
     matched: bool
+    curve: tuple[float, ...]
 
 
 def in_sample(adv: Advisory, demand: Sequence[Arrival], covers: Covers, stops: Sequence[Stop]) -> Fit:
     """The e in 0..E_MAX whose RBS average delay at issuance is nearest the stated AVERAGE DELAY (ties to the lower)."""
     run = Run(adv, adv.issued, adv.end + 1)
-    best = None
-    for e in range(E_MAX + 1):
-        avg = average_delay(run, demand, covers, e, stops)
-        if best is None or abs(avg - adv.avg_delay) < abs(best[1] - adv.avg_delay):
-            best = (e, avg)
-    e, avg = best
-    return Fit(adv.id, adv.hub, float(e), round(avg, 1), adv.avg_delay, abs(avg - adv.avg_delay) <= FIT_TOLERANCE)
+    curve = tuple(average_delay(run, demand, covers, e, stops) for e in range(E_MAX + 1))
+    e = nearest(curve, adv.avg_delay)
+    return Fit(adv.id, adv.hub, float(e), round(curve[e], 1), adv.avg_delay,
+               abs(curve[e] - adv.avg_delay) <= FIT_TOLERANCE, curve)
+
+
+def nearest(curve: Sequence[float], target: float) -> int:
+    return min(range(len(curve)), key=lambda e: (abs(curve[e] - target), e))
 
 
 def average_delay(run: Run, demand: Sequence[Arrival], covers: Covers, e: float, stops: Sequence[Stop]) -> float:
@@ -86,50 +94,69 @@ def fittable(adv: Advisory) -> bool:
             and adv.start is not None and adv.end is not None)
 
 
-def table(fits: Iterable[Fit]) -> tuple[dict[str, float], dict[str, float]]:
-    """Each advisory's e (its airport's median of the matched ones where the form can't match) and that median."""
-    fits = list(fits)
-    median = {hub: statistics.median([f.e for f in fits if f.hub == hub and f.matched] or [0.0])
-              for hub in sorted({f.hub for f in fits})}
-    return {f.advisory: f.e if f.matched else median[f.hub] for f in fits}, median
+Table = tuple[dict[str, float], dict[str, float]]
+"""Each advisory's e and each airport's median e at one scale per airport, as `table` gives them."""
 
 
-def fit_scale(tasks: Iterable[Task], grid: Sequence[float] = GRID) -> dict[str, float]:
+def table(fits: Iterable[Fit], scale: Mapping[str, float] | None = None) -> Table:
+    """Each advisory's e at its airport's scale (1 without one): the e whose average delay at issuance is nearest the
+    scale times the stated AVERAGE DELAY, its airport's median of the matched ones where none is within
+    FIT_TOLERANCE; and that median for every airport fitted or scaled."""
+    at = {}
+    for f in fits:
+        target = f.stated * (1.0 if scale is None else scale[f.hub])
+        e = nearest(f.curve, target)
+        at[f.advisory] = (f.hub, float(e), abs(f.curve[e] - target) <= FIT_TOLERANCE)
+    hubs = {h for h, _, _ in at.values()} | set(scale or ())
+    median = {hub: statistics.median([e for h, e, ok in at.values() if h == hub and ok] or [0.0])
+              for hub in sorted(hubs)}
+    return {a: e if ok else median[h] for a, (h, e, ok) in at.items()}, median
+
+
+def fit_scale(tasks: Iterable[Task], fits: Iterable[Fit], grid: Sequence[float] = GRID) -> dict[str, float]:
     """One scale per airport, on the given (train) day-hubs of that airport: the grid value whose fidelity is nearest
     1 in the least-squares log sense across days (ties to the smaller scale)."""
+    fits = list(fits)
+    hubs = {f.hub for f in fits}
     by_hub = defaultdict(list)
     for t in tasks:
         by_hub[t.hub].append(t)
+    tables = {s: table(fits, dict.fromkeys(hubs | set(by_hub), s)) for s in grid}
     out = {}
     for hub, ts in sorted(by_hub.items()):
-        table_ = {s: [program_delay(t, s) for t in ts] for s in grid}
-        loss = {s: sum(math.log(max(m / o, FLOOR)) ** 2 for m, o, _ in rows if o > 0) for s, rows in table_.items()}
+        rows = {s: [program_delay(t, tables[s]) for t in ts] for s in grid}
+        loss = {s: sum(math.log(max(m / o, FLOOR)) ** 2 for m, o, _ in r if o > 0) for s, r in rows.items()}
         out[hub] = min(grid, key=lambda s: (round(loss[s], 9), s))
     return out
 
 
-def fidelity(task: Task, scale: float | None = None) -> float | None:
-    modelled, observed, _ = program_delay(task, scale)
+def fidelity(task: Task, at: Table | None = None) -> float | None:
+    modelled, observed, _ = program_delay(task, at)
     return modelled / observed if observed > 0 else None
 
 
-def program_delay(task: Task, scale: float | None = None) -> tuple[float, float, int]:
-    """(modelled, observed, flights): the other carriers' arrivals at the task's hub scheduled on its date and
-    controlled by a GDP segment, their RBS delay against their BTS NASDelay; `scale` overrides the hub's."""
+def program_delay(task: Task, at: Table | None = None) -> tuple[float, float, int]:
+    """(modelled, observed, flights): the other carriers' arrivals at the task's hub scheduled on its date, flown to
+    it and controlled by a GDP segment, their modelled arrival delay against their BTS NASDelay; `at` overrides the
+    hub's e. The modelled arrival is the RBS slot, held like the truth's flights: a flight leaves at the slot less its
+    scheduled block, not before its scheduled departure, and waits out any stop at the hub covering its origin."""
     p = task.programs[task.hub]
-    s = p.scale if scale is None else scale
+    e_fit, e_median = (p.e_fit, p.e_median) if at is None else (at[0], at[1][task.hub])
     runs = {r.adv.id: r for r in as_ran(p.advisories)[0]}
     rows = defaultdict(list)
     for i, a in enumerate(p.demand):
-        if a.controlled in runs and a.carrier != task.carrier and not a.cancelled and 0 <= a.sched_arr < 1440:
+        if (a.controlled in runs and a.carrier != task.carrier and not a.cancelled and not a.diverted
+                and 0 <= a.sched_arr < 1440):
             rows[a.controlled].append(i)
     modelled = observed = 0.0
     for adv, idx in rows.items():
-        run = runs[adv]
-        _, got = segment(run, p.demand, task.covers, p.e_fit.get(adv, p.e_median) * s, p.stops)
+        _, got = segment(runs[adv], p.demand, task.covers, e_fit.get(adv, e_median), p.stops)
         for i in idx:
-            modelled += got[i] - p.demand[i].sched_arr
-            observed += p.demand[i].nas
+            a = p.demand[i]
+            block = a.sched_arr - a.sched_dep
+            leaves = held_until(p.stops, task.covers, a.orig, max(a.sched_dep, got[i] - block))
+            modelled += max(got[i], leaves + block) - a.sched_arr
+            observed += a.nas
     return modelled, observed, sum(len(v) for v in rows.values())
 
 
