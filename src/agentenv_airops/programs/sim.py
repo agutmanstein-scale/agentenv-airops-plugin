@@ -25,11 +25,16 @@ auto-cancels there, decided there. With the crew model (model.Crew, repairs.crew
 deadline may leave only from the end of its crew's rest on, still by its deadline; one that can't, its rest ending
 past its deadline, auto-cancels at its crew deadline, decided there, never before the first watch (Task.auto_at).
 
-Moves are fixed and uncosted, and decoupled: an aircraft of the tail's family appears at the Move's destination,
-ready at its `ready`, and the first aircraft of that family ready at its origin from `leave` on leaves, before any
-flight at the same minute. If none ever comes, the family ends the day one aircraft spare, which needs no ferry. A busy
-block keeps the aircraft that flew its leg until the block's ready time, if that is later than its turn; a cancelled
-leg has none. At the end of the day v1's ferries put the aircraft on tomorrow's needs.
+Moves are fixed and uncosted, and bound to an aircraft (model.Move, `routes`): the one that flies the leg before the
+Move's break, landed and turned, is ready at the Move's destination at the Move's `ready` or then, whichever is later,
+never at that leg's destination. Legs the plan cancels next to a break were never flown, so they join its
+repositioning: the Move binds the aircraft of the tail's last leg before the break the plan doesn't cancel (the tail's
+own aircraft when there is none), which goes on through any later break only cancelled legs separate it from and is
+ready at the origin of the tail's next leg the plan doesn't cancel (the last Move's destination when there is none). A
+bound leg that auto-cancels took no aircraft, and its Moves move none: the sim learns of an auto-cancel only once the
+aircraft it would have bound is free for others. So no Move takes an aircraft it isn't bound to, or delivers one it
+didn't take. A busy block keeps the aircraft that flew its leg until the block's ready time, if that is later than
+its turn; a cancelled leg has none. At the end of the day v1's ferries put the aircraft on tomorrow's needs.
 
 A World is what a day runs on: the truth (the task's lb, truth blocks and programs as they ran), the day as known at
 a watch (M12: lb and the truth block once the scheduled departure is within LOOK, else 0 and the scheduled block, the
@@ -41,18 +46,19 @@ and the crew deadlines, which the schedule fixes and the desk knows from the sta
 import bisect
 import heapq
 from collections import Counter, defaultdict
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, replace
 
 from ..core.known import LOOK
 from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN, Ferry, _assign
 from . import rbs, repairs
 from .cost import Cost, ferry_cost, priced
-from .model import Flight, Segment, Task
+from .model import Flight, Move, Segment, Task
 
 Plan = Mapping[int | str, Mapping]
 SlotKey = tuple[str, int]
 HourKey = tuple[str, int]
+Route = tuple[str, tuple[Move, ...]]
 
 
 @dataclass(frozen=True)
@@ -159,8 +165,7 @@ class Execution:
     ends: dict[str, str]
     ferries: tuple[Ferry, ...]
     wasted: tuple[SlotKey, ...]
-    spare: dict[str, int]
-    moves: dict[str, int | None]
+    moves: dict[int, int | None]
     cost: Cost
 
     @property
@@ -179,58 +184,39 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
     world = truth(task) if world is None else world
     rules = Rules(task, world)
     want = {int(k): v for k, v in plan.items()}
+    cancelled = {i for i, d in want.items() if d.get("cancel")}
     runs: dict[int, FlightRun] = {}
     when: dict[int, float] = {}
     first: dict[int, int] = {}
     heap = []
     for f in task.flights:
         d = want.get(f.id, {})
-        if d.get("cancel"):
+        if f.id in cancelled:
             decided = d.get("decided")
             runs[f.id] = FlightRun(f.id, CANCELLED, decided=task.start if decided is None else decided)
             continue
         c = d["left"] if d.get("left") is not None else max(task.earliest(f, world.lb[f.id]), d.get("not_before") or 0)
         when[f.id] = first[f.id] = c
         heap.append((c, 1, c, f.id))
+    heapq.heapify(heap)
+    carried, own = routes(task, cancelled)
+    moves: dict[int, int | None] = dict.fromkeys(task.moved)
     ready = {t.tail: t.ready for t in task.tails}
     family = {t.tail: t.family for t in task.tails}
     at: dict[tuple[str, str], set[str]] = defaultdict(set)
     for t in task.tails:
-        at[(t.family, t.pos)].add(t.tail)
-    sinks = []
-    for t in task.tails:
-        for k, m in enumerate(t.repositions):
-            name = f"{t.tail}~{k}"
-            ready[name], family[name] = m.ready, t.family
-            at[(t.family, m.dest)].add(name)
-            key = -1 - len(sinks)
-            sinks.append((name, t.family, m.orig))
-            when[key] = first[key] = m.leave
-            heap.append((m.leave, 0, m.leave, key))
-    heapq.heapify(heap)
+        station = t.pos
+        if t.tail in own:
+            station, ready[t.tail] = through(own[t.tail], t.ready, moves)
+        at[(t.family, station)].add(t.tail)
     bound, claimed = _claims(task, want, runs, rules)
     taken: set[SlotKey] = set()
     used: Counter = Counter()
     legs: dict[str, list[int]] = {p: [] for p in ready}
     waiting: dict[tuple[str, str], set[int]] = defaultdict(set)
-    fired: dict[str, int | None] = {name: None for name, _, _ in sinks}
     while heap:
         t, kind, c, i = heapq.heappop(heap)
         if i in runs or when[i] != t:
-            continue
-        if i < 0:
-            name, fam, orig = sinks[-1 - i]
-            if fired[name] is not None:
-                continue
-            here = at[(fam, orig)]
-            free = [p for p in here if ready[p] <= t]
-            if not free:
-                _wait(waiting[(fam, orig)], i, here, ready, when, heap, kind, c)
-                continue
-            waiting[(fam, orig)].discard(i)
-            p = min(free, key=lambda p: (ready[p], p))
-            here.remove(p)
-            fired[name] = t
             continue
         f = task.flight(i)
         left = want.get(i, {}).get("left") is not None
@@ -260,30 +246,66 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
         p = min(free, key=lambda p: (ready[p], p))
         here.remove(p)
         arr = t + world.block[i]
-        ready[p] = task.back(f, arr)
-        at[(f.family, f.dest)].add(p)
+        back = task.back(f, arr)
+        station, ready[p] = through(carried[i], back, moves) if i in carried else (f.dest, back)
+        at[(f.family, station)].add(p)
         if slot is not None:
             taken.add(slot)
         if hour is not None:
             used[hour] += 1
         legs[p].append(i)
         runs[i] = FlightRun(i, FLOWN, p, t, arr, slot[1] if slot else None, slot[0] if slot else None)
-        for j in waiting[(f.family, f.dest)]:
+        for j in waiting[(f.family, station)]:
             if ready[p] < when[j]:
                 when[j] = ready[p]
-                heapq.heappush(heap, (ready[p], 0 if j < 0 else 1, first[j], j))
+                heapq.heappush(heap, (ready[p], 1, first[j], j))
     for f in task.flights:
         runs.setdefault(f.id, FlightRun(f.id, AUTO_CANCELLED, decided=task.auto_at(f)))
     ends = {p: station for (_, station), ps in at.items() for p in ps}
-    spare = Counter(family[name] for name, n in fired.items() if n is None)
-    out = ferries(task, ends, family, spare)
+    out = ferries(task, ends, family)
     wasted = tuple(sorted(k for k, i in bound.items() if runs[i].status != FLOWN or (runs[i].program, runs[i].slot)
                           != k))
     cost = priced(task, {i: r.dep for i, r in runs.items()}, {i: r.arr for i, r in runs.items()},
                   {i: r.decided for i, r in runs.items() if r.status != FLOWN},
                   [(x.family, x.orig, x.dest) for x in out])
     return Execution({i: runs[i] for i in sorted(runs)}, {p: tuple(v) for p, v in legs.items()},
-                     dict(sorted(ends.items())), out, wasted, dict(sorted(spare.items())), fired, cost)
+                     dict(sorted(ends.items())), out, wasted, moves, cost)
+
+
+def routes(task: Task, cancelled: Collection[int]) -> tuple[dict[int, Route], dict[str, Route]]:
+    """Where each Move's aircraft goes, given the cancelled legs: walking a tail's legs, the aircraft of the last one
+    not cancelled (its carrier; the tail's own before any) goes through every Move it passes and is ready at the
+    origin of the next leg not cancelled, or at the last Move's destination if none. So: each carrier, and each tail
+    whose own aircraft passes a Move, to its station and the Moves it passes."""
+    carried: dict[int, Route] = {}
+    own: dict[str, Route] = {}
+    for t in task.tails:
+        carrier, passed = None, []
+        for i in t.legs:
+            if i not in cancelled:
+                if passed:
+                    _route(carried, own, t.tail, carrier, (task.flight(i).orig, tuple(passed)))
+                carrier, passed = i, []
+            if i in task.moved:
+                passed.append(task.moved[i])
+        if passed:
+            _route(carried, own, t.tail, carrier, (passed[-1].dest, tuple(passed)))
+    return carried, own
+
+
+def _route(carried: dict[int, Route], own: dict[str, Route], tail: str, carrier: int | None, route: Route) -> None:
+    if carrier is None:
+        own[tail] = route
+    else:
+        carried[carrier] = route
+
+
+def through(route: Route, t: int, record: dict[int, int | None]) -> tuple[str, int]:
+    """Where and when an aircraft ready at t is ready after `route`, each Move's time recorded under its leg."""
+    station, moves = route
+    for m in moves:
+        t = record[m.leg] = max(t, m.ready)
+    return station, t
 
 
 def _wait(waiting: set[int], i: int, here: set[str], ready: Mapping[str, int], when: dict, heap: list, kind: int,
@@ -353,10 +375,8 @@ def _history(f: Flight, t: int, rules: Rules, taken: set[SlotKey]) -> tuple[Slot
     return None, cap[0] if cap else None
 
 
-def ferries(task: Task, ends: Mapping[str, str], family: Mapping[str, str],
-            spare: Mapping[str, int] | None = None) -> tuple[Ferry, ...]:
-    """v1's cheapest end-of-day ferries onto tomorrow's needs, per family, where `spare` aircraft of a family may stay
-    wherever they are."""
+def ferries(task: Task, ends: Mapping[str, str], family: Mapping[str, str]) -> tuple[Ferry, ...]:
+    """v1's cheapest end-of-day ferries onto tomorrow's needs, per family."""
     out = []
     for fam in sorted({t.family for t in task.tails}):
         need = Counter(t.end_req for t in task.tails if t.family == fam)
@@ -369,9 +389,7 @@ def ferries(task: Task, ends: Mapping[str, str], family: Mapping[str, str],
         holes = sorted(left.elements())
         if not extra:
             continue
-        free = (spare or {}).get(fam, 0)
-        matrix = [[ferry_cost(task, fam, ends[p], b) for b in holes] + [0] * free for p in extra]
+        matrix = [[ferry_cost(task, fam, ends[p], b) for b in holes] for p in extra]
         for k, j in enumerate(_assign(matrix)):
-            if j < len(holes):
-                out.append(Ferry(extra[k], fam, ends[extra[k]], holes[j], matrix[k][j]))
+            out.append(Ferry(extra[k], fam, ends[extra[k]], holes[j], matrix[k][j]))
     return tuple(out)

@@ -227,9 +227,9 @@ def below_anchor(costs: Mapping[str, int], anchor_cost: int) -> dict[str, int]:
 
 
 def seats_ok(task: Task, run: sim.Execution) -> bool:
-    """pax <= seats of the aircraft that flew it, for every flown flight (a Move's aircraft is its tail's family)."""
+    """pax <= seats of the aircraft that flew it, for every flown flight."""
     seats = {t.tail: t.seats for t in task.tails}
-    return all(task.flight(i).pax <= seats[r.tail.split("~")[0]] for i, r in run.flights.items() if r.status == FLOWN)
+    return all(task.flight(i).pax <= seats[r.tail] for i, r in run.flights.items() if r.status == FLOWN)
 
 
 def past_midnight(task: Task, run: sim.Execution | None = None) -> int:

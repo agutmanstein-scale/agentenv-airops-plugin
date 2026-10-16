@@ -3,11 +3,11 @@
 - Families split A320, A321 (190 seats and more), A321P (Mint and LR), A220 and E190; a flight's pax is capped at the
   smallest seat count of its family's tails in the task (`pax_raw` kept; spill is not modelled).
 - Chains and positions come from each tail's scheduled legs, cancelled ones included. A break in a task tail's chain is
-  closed by a fixed, uncosted repositioning: the tail reappears at the next origin, ready at its scheduled departure
-  less the turn (before the first leg this sets `pos` and `ready`). A same-station gap of BUSY_GAP or more that starts
-  in BUSY_HOURS is a busy block on the leg before it, standing for an international leg BTS lacks: the aircraft that
-  flies that leg is busy until the next leg's scheduled departure less the turn (before the first leg it delays
-  `ready`).
+  closed by a fixed, uncosted repositioning of the aircraft that flies the leg before it (model.Move): it reappears at
+  the next origin, ready at its scheduled departure less the turn (before the first leg the tail itself does, which
+  sets `pos` and `ready`). A same-station gap of BUSY_GAP or more that starts in BUSY_HOURS is a busy block on the leg
+  before it, standing for an international leg BTS lacks: the aircraft that flies that leg is busy until the next
+  leg's scheduled departure less the turn (before the first leg it delays `ready`).
 - Turns are the 5th percentile of scheduled ground times per family on the month's calm days (no GDP or ground stop
   listed for JFK or BOS), floored at MIN_TURN. Tomorrow's need is the origin of the tail's first scheduled departure
   the next day, else its last scheduled destination today.
@@ -185,7 +185,7 @@ def tails(day: pack.Day, sc: pack.Scope, flights: list[Flight], families: Mappin
         busy, moves = [], []
         for f, g in zip(legs, legs[1:], strict=False):
             if f.dest != g.orig:
-                moves.append(Move(f.dest, g.orig, f.sched_arr, g.sched_dep - tt))
+                moves.append(Move(f.id, f.dest, g.orig, f.sched_arr, g.sched_dep - tt))
             elif g.sched_dep - f.sched_arr >= BUSY_GAP and BUSY_HOURS[0] <= f.sched_arr < BUSY_HOURS[1]:
                 busy.append(Busy(f.id, g.sched_dep - tt))
         counts["repositions"] += len(moves)

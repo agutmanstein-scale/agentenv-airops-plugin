@@ -8,7 +8,8 @@ everything the truth, the forecast and the references read, and nothing they wou
   JetBlue's recorded outcome and, when the task was built with the crew model (`bases`, the crew bases; empty when
   off), its crew: the pairing, its FAR 117 limit, the crew deadline and the end of the legal rest (repairs.crews);
 - tails: split family, the schedule's position and ready time, their legs in scheduled order, same-station gaps as
-  busy blocks on the leg before them and chain breaks as fixed repositionings (scope closure), and tomorrow's need;
+  busy blocks and chain breaks as fixed repositionings (scope closure), both on the leg before them, and tomorrow's
+  need;
 - programs per hub (both hubs in every task): the advisories as parsed, the in-sample unseen arrivals per hour of
   each GDP or proposed advisory and the airport's scale, the truth segments with JetBlue's slot pool, the ground-stop
   pieces, the VMC called arrival rate, and the demand: every BTS-scheduled arrival at the hub over the task, so the
@@ -134,11 +135,13 @@ class Flight:
 
 @dataclass(frozen=True)
 class Move:
-    """A tail away from the schedule's flying, fixed and uncosted. Decoupled: an aircraft of its family is ready at
-    `dest` at `ready`, and one leaves `orig` at the first moment from `leave` that one is there. A repositioning
-    closes a chain break (`ready` before `leave` where BTS shows a swap: the cancelled legs keep the tail they were
-    assigned, the flown ones the tail that flew them)."""
+    """A chain break's fixed, uncosted repositioning, bound to the aircraft that flies `leg`, the tail's leg before
+    the break (its destination `orig`, its scheduled arrival `leave`): landed and turned, that aircraft is ready at
+    `dest` at `ready` or then, whichever is later. Legs the plan cancels next to a break were never flown, so they join
+    its repositioning (sim.routes). `ready` comes before `leave` where BTS shows a swap: the cancelled legs keep the
+    tail they were assigned, the flown ones the tail that flew them."""
 
+    leg: int
     orig: str
     dest: str
     leave: int
@@ -146,10 +149,10 @@ class Move:
 
     @classmethod
     def from_dict(cls, d: Mapping) -> "Move":
-        return cls(d["orig"], d["dest"], d["leave"], d["ready"])
+        return cls(d["leg"], d["orig"], d["dest"], d["leave"], d["ready"])
 
     def to_dict(self) -> dict:
-        return {"orig": self.orig, "dest": self.dest, "leave": self.leave, "ready": self.ready}
+        return {"leg": self.leg, "orig": self.orig, "dest": self.dest, "leave": self.leave, "ready": self.ready}
 
 
 @dataclass(frozen=True)
@@ -365,6 +368,11 @@ class Task:
     @cached_property
     def _busy(self) -> dict[int, int]:
         return {b.leg: b.ready for t in self.tails for b in t.busy}
+
+    @cached_property
+    def moved(self) -> dict[int, Move]:
+        """Each leg a Move is bound to, to its Move."""
+        return {m.leg: m for t in self.tails for m in t.repositions}
 
     def earliest(self, f: Flight, lb: int) -> int:
         """Nothing in scope leaves before the first watch; an early departure (lb < 0) leaves before its schedule."""

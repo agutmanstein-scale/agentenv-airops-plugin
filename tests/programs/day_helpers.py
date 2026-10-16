@@ -1,6 +1,7 @@
 """Small hand-made v2 days for the sim, MIP and reference tests: a few flights and tails at JFK with the programs
 given, every program covering every origin."""
 
+import random
 from dataclasses import replace
 
 from program_helpers import EVERY, adv
@@ -31,8 +32,8 @@ def crewed(f: Flight, deadline: int | None) -> Flight:
 
 
 def tail(name: str, pos: str, ready: int = 0, end: str | None = None, repositions: tuple[Move, ...] = (),
-         busy: tuple[Busy, ...] = (), seats: int = 150) -> Tail:
-    return Tail(name, "A320", "A320-232", seats, pos, ready, (), busy, repositions, end or pos, end or pos)
+         busy: tuple[Busy, ...] = (), seats: int = 150, legs: tuple[int, ...] = ()) -> Tail:
+    return Tail(name, "A320", "A320-232", seats, pos, ready, legs, busy, repositions, end or pos, end or pos)
 
 
 def segment(id: str, since: int, until: int, start: int, end: int, slots: tuple[int, ...]) -> Segment:
@@ -81,3 +82,53 @@ def busy_day() -> Task:
     flights = [flight(0, "BUF", "JFK", 100, 60, lb=60), flight(1, "JFK", "DCA", 170, 60),
                flight(2, "JFK", "MCO", 430, 150)]
     return day(flights, [tail("N1", "JFK", end="DCA"), tail("N2", "BUF", busy=(Busy(0, 400),), end="MCO")])
+
+
+def moved_day(lb: int = 0) -> Task:
+    """N1 flies BUF-JFK and JFK-BUF, then a Move takes it from BUF to MCO for MCO-JFK at 330; N2 idles at BUF, N3,
+    ready at JFK from 140, flies JFK-DCA at 150."""
+    flights = [flight(0, "BUF", "JFK", 20, 60), flight(1, "JFK", "BUF", 120, 60, lb=lb),
+               flight(2, "MCO", "JFK", 330, 150), flight(3, "JFK", "DCA", 150, 60)]
+    move = Move(1, "BUF", "MCO", 180, 300)
+    return day(flights, [tail("N1", "BUF", end="JFK", repositions=(move,), legs=(0, 1, 2)), tail("N2", "BUF"),
+                         tail("N3", "JFK", 140, end="DCA", legs=(3,))])
+
+
+def broken_day() -> Task:
+    """N1's chain breaks twice: BUF-JFK, a Move JFK-PWM for PWM-BOS, a Move BOS-DCA for DCA-MCO and MCO-JFK."""
+    flights = [flight(0, "BUF", "JFK", 20, 60), flight(1, "PWM", "BOS", 200, 50), flight(2, "DCA", "MCO", 400, 150),
+               flight(3, "MCO", "JFK", 640, 150)]
+    moves = (Move(0, "JFK", "PWM", 80, 170), Move(1, "BOS", "DCA", 250, 370))
+    return day(flights, [tail("N1", "BUF", end="JFK", repositions=moves, legs=(0, 1, 2, 3))])
+
+
+def random_day(rng: random.Random, n_tails: int = 3) -> Task:
+    """A small random day at JFK: chains of two to four legs whose breaks are Moves, delays, a GDP and a stop."""
+    stations = [c for c in PLACES if c != "JFK"]
+    flights, tails = [], []
+    for k in range(n_tails):
+        here, t, legs, moves = rng.choice(list(PLACES)), rng.randrange(0, 120), [], []
+        start = here
+        for _ in range(rng.randrange(2, 5)):
+            if legs and rng.random() < 0.4:
+                there = rng.choice([c for c in PLACES if c != here])
+                t += rng.randrange(-40, 60)
+                moves.append(Move(legs[-1], here, there, flights[-1].sched_arr, t - TURN))
+                here = there
+            dest = "JFK" if here != "JFK" and rng.random() < 0.6 else rng.choice([c for c in stations if c != here])
+            block = rng.randrange(50, 150)
+            i = len(flights)
+            flights.append(flight(i, here, dest, t, block + rng.choice([0, 0, 20]), pax=rng.randrange(50, 151),
+                                  lb=rng.choice([0, 0, 30, 90, 200]), deadline=t + rng.randrange(150, 300),
+                                  sched_block=block))
+            legs.append(i)
+            here, t = dest, t + block + TURN + rng.randrange(0, 90)
+        tails.append(tail(f"N{k}", start, ready=0, end=rng.choice([here, start]), repositions=tuple(moves),
+                          legs=tuple(legs)))
+    flights.sort(key=lambda f: (f.sched_dep, f.id))
+    ids = {f.id: n for n, f in enumerate(flights)}
+    flights = [replace(f, id=ids[f.id]) for f in flights]
+    tails = [replace(t, legs=tuple(ids[i] for i in t.legs),
+                     repositions=tuple(replace(m, leg=ids[m.leg]) for m in t.repositions)) for t in tails]
+    return day(flights, tails, segments=(segment("g", 0, 1000, 150, 400, (180, 200, 240, 300, 330)),),
+               stops=(stop(250, 290),) if rng.random() < 0.5 else ())

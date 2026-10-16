@@ -1,9 +1,8 @@
 from dataclasses import replace
 
-from day_helpers import GDP, busy_day, crewed, day, flight, stop, tail, three_into_a_program
+from day_helpers import GDP, broken_day, busy_day, crewed, day, flight, moved_day, stop, tail, three_into_a_program
 
 from agentenv_airops.programs import sim
-from agentenv_airops.programs.model import Move
 
 
 def slots(run):
@@ -68,35 +67,48 @@ def test_every_confirmed_cancellation_stands_whatever_the_day_does():
     assert run.cost.notice == 100 * (130 - 100 + 120)
 
 
-def test_a_move_adds_an_aircraft_at_its_destination_and_takes_the_first_one_at_its_origin_from_leave():
-    move = Move("BUF", "MCO", 300, 100)
-    flights = [flight(0, "MCO", "JFK", 120, 150), flight(1, "JFK", "BUF", 100, 60), flight(2, "BUF", "JFK", 320, 60)]
-    task = day(flights, [tail("N1", "JFK", repositions=(move,))])
+def test_a_move_takes_the_aircraft_that_flew_its_leg_once_turned_and_leaves_the_others_where_they_are():
+    run = sim.execute(moved_day(), {})
+    assert [(r.tail, r.dep) for r in run.flights.values()] == [("N1", 20), ("N1", 120), ("N1", 330), ("N3", 150)]
+    assert run.moves == {1: 300} and run.ends["N2"] == "BUF" and not run.ferries
+    late = sim.execute(moved_day(lb=200), {})
+    assert (late.flights[1].dep, late.moves, late.flights[2].dep) == (320, {1: 410}, 410)
+    assert late.flights[2].tail == late.flights[1].tail and late.ends["N2"] == "BUF"
+
+
+def test_a_moves_leg_cancelled_leaves_its_aircraft_to_reposition_from_its_origin_and_takes_no_other():
+    task = moved_day()
+    run = sim.execute(task, {1: {"cancel": True}})
+    assert [(r.status, r.tail, r.dep) for r in run.flights.values()] == [
+        ("flown", "N1", 20), ("cancelled", None, None), ("flown", "N1", 330), ("flown", "N3", 150)]
+    assert run.moves == {1: 300} and run.ends["N2"] == "BUF"
+    run = sim.execute(task, {0: {"cancel": True}, 1: {"cancel": True}})
+    assert (run.flights[2].tail, run.flights[3].tail, run.moves, run.ends["N2"]) == ("N1", "N3", {1: 300}, "BUF")
+
+
+def test_cancelled_legs_on_either_side_of_breaks_join_their_repositioning():
+    task = broken_day()
     run = sim.execute(task, {})
-    assert run.flights[0].tail == "N1~0" and run.moves == {"N1~0": 300}
-    assert run.flights[2].status == "auto_cancelled" and not run.spare and not run.ferries
-    early = sim.execute(replace(task, flights=(*flights[:2], flight(2, "BUF", "JFK", 290, 60))), {})
-    assert early.flights[2].dep == 290 and early.moves == {"N1~0": None} and early.spare == {"A320": 1}
-    assert not early.ferries
+    assert [r.dep for r in run.flights.values()] == [20, 200, 400, 640] and run.moves == {0: 170, 1: 370}
+    run = sim.execute(task, {1: {"cancel": True}, 2: {"cancel": True}})
+    assert (run.flights[3].tail, run.flights[3].dep, run.moves) == ("N1", 640, {0: 170, 1: 370})
+    run = sim.execute(task, {0: {"cancel": True}})
+    assert (run.flights[1].tail, run.flights[1].dep, run.moves) == ("N1", 200, {0: 170, 1: 370})
+    run = sim.execute(task, {3: {"cancel": True}})
+    assert run.ends == {"N1": "MCO"}
 
 
-def test_a_waiting_move_takes_the_aircraft_before_a_flight_at_the_same_minute():
-    flights = [flight(0, "JFK", "BUF", 100, 60, deadline=600)]
-
-    def moved(leave):
-        return day(flights, [tail("N1", "JFK", repositions=(Move("JFK", "DCA", leave, 50),)), tail("N2", "JFK", 400)])
-
-    run = sim.execute(moved(100), {})
-    assert (run.flights[0].dep, run.moves) == (400, {"N1~0": 100})
-    run = sim.execute(moved(101), {})
-    assert (run.flights[0].dep, run.moves) == (100, {"N1~0": 400})
+def test_a_bound_leg_that_auto_cancels_moves_no_aircraft():
+    run = sim.execute(moved_day(lb=300), {})
+    assert [r.status for r in run.flights.values()] == ["flown", "auto_cancelled", "auto_cancelled", "flown"]
+    assert run.moves == {1: None} and sorted(run.ends.values()) == ["BUF", "DCA", "JFK"]
 
 
 def test_a_busy_block_keeps_the_aircraft_that_flew_its_leg_and_a_cancelled_leg_has_none():
     task = busy_day()
     run = sim.execute(task, {})
     assert [(r.tail, r.dep) for r in run.flights.values()] == [("N2", 160), ("N1", 170), ("N2", 430)]
-    assert not run.moves and not run.spare
+    assert not run.moves
     run = sim.execute(task, {0: {"cancel": True}})
     assert [(r.status, r.tail, r.dep) for r in run.flights.values()] == [
         ("cancelled", None, None), ("flown", "N1", 170), ("auto_cancelled", None, None)]
@@ -110,13 +122,6 @@ def test_the_day_as_known_hides_delays_and_true_blocks_until_look():
     assert (world.lb, world.block) == ({0: 20, 1: 0}, {0: 80, 1: 60})
     assert sim.known(task, 0, programs=False).segments == {"JFK": (), "BOS": ()}
     assert sim.calm(task).lb == {0: 0, 1: 0} and sim.truth(task).segments["JFK"] == (GDP,)
-
-
-def test_two_waiting_moves_take_the_arriving_aircraft_one_at_a_time_in_the_order_they_began():
-    flights = [flight(0, "BUF", "JFK", 100, 60), flight(1, "PWM", "JFK", 120, 70)]
-    tails = [tail("N1", "BUF", repositions=(Move("JFK", "MCO", 100, 50),)),
-             tail("N2", "PWM", repositions=(Move("JFK", "DCA", 110, 60),))]
-    assert sim.execute(day(flights, tails), {}).moves == {"N1~0": 190, "N2~0": 220}
 
 
 def test_a_crew_past_its_deadline_rests_ten_hours_or_its_flight_auto_cancels_there_and_a_base_has_reserves():

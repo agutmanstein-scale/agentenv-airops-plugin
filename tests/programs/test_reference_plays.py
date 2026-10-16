@@ -1,7 +1,8 @@
+import random
 from dataclasses import replace
 
 import pytest
-from day_helpers import GDP, crewed, day, flight, shortened, stop, tail
+from day_helpers import GDP, crewed, day, flight, random_day, shortened, stop, tail
 from program_helpers import adv
 
 from agentenv_airops.programs import references, sim
@@ -177,7 +178,15 @@ def test_the_airline_replay_counts_no_leg_whose_aircraft_came_on_a_leg_flown_pas
 
 
 def test_no_reference_costs_less_than_the_anchor(fixture_day):
-    task = fixture_day
+    none_below_the_anchor(fixture_day)
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_no_reference_costs_less_than_the_anchor_on_days_with_moves(seed):
+    none_below_the_anchor(random_day(random.Random(seed)))
+
+
+def none_below_the_anchor(task: Task) -> None:
     sol, run = references.anchor(task)
     assert sol.proven and run.cost.total == sol.objective
     played = {"naive": references.naive(task), "airline": references.airline(task).run,
