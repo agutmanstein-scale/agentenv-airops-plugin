@@ -24,8 +24,9 @@ from day_helpers import (
     turned_through_day,
 )
 
-from agentenv_airops.programs import mip, references, sim
+from agentenv_airops.programs import candidates, mip, references, sim
 from agentenv_airops.programs.cost import cancel_price
+from agentenv_airops.programs.layers import depcaps
 from agentenv_airops.programs.model import Task
 
 RANDOM = range(8)
@@ -75,9 +76,16 @@ def families() -> Task:
     return replace(day(flights, tails, stops=(stop(100, 160),)), turn={"A320": 30, "E190": 25})
 
 
-@pytest.fixture(scope="module", params=["task", "crewed"])
+@pytest.fixture(scope="module")
+def capped_task(task, slice_inputs, tmp_path_factory) -> Task:
+    """The fixture day under the departure caps the slice's BTS pushbacks give it."""
+    return capped(task, depcaps.build(task, candidates.frame(slice_inputs, tmp_path_factory.mktemp("derived"),
+                                                             task.date)))
+
+
+@pytest.fixture(scope="module", params=["task", "crewed", "capped_task"])
 def fixture_day(request) -> Task:
-    """The fixture day, and the same day with the crew model."""
+    """The fixture day, the same day with the crew model, and under departure caps."""
     return shortened(request.getfixturevalue(request.param))
 
 
