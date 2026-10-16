@@ -26,8 +26,10 @@ reproduces from its departure minutes as holds, at the same cost, and every day 
 (`Network.vector`), which also starts the search.
 
 Proven to GAP (0.01%); `canonical` then re-solves among the optimal plans for the one with the earliest weighted
-departures (v1's second pass, started from the first), so the plan, not only its cost, is the same on every run. A
-second pass that runs out of time leaves the proven cost solve's status and plan, flagged as not canonical.
+departures (v1's second pass, started from the first), so the plan, not only its cost, is the same on every run. Within
+the gap the first plan need not be the cheapest, so the second may cost less: the objective is the cost of the plan
+returned. A second pass that runs out of time leaves the proven cost solve's status and plan, flagged as not
+canonical.
 """
 
 import time
@@ -298,7 +300,7 @@ class Network:
             m.cost, wall = main, wall + second_wall
             m.rows.pop()
             if tied == "Optimal":
-                x, settled = y, True
+                x, settled, objective = y, True, float(np.dot(main, y))
         deps = {}
         for f in self.task.flights:
             flown = [d for d, _ in self.copies[f.id] if x[self.xs[(f.id, d)]] > 0.5]

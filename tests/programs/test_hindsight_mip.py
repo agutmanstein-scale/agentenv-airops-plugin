@@ -152,6 +152,22 @@ def test_a_canonical_pass_out_of_time_keeps_the_proven_plan_flagged_as_not_canon
     assert (sol.status, sol.objective, sol.deps) == ("Optimal", proven.objective, proven.deps)
 
 
+def test_the_objective_is_the_cost_of_the_canonical_plan_when_it_beats_the_first_within_the_gap(monkeypatch):
+    task = days()["moved"]
+    best = mip.solve(task)
+    run, calls = mip._Started.run, []
+
+    def loose(self, *args):
+        calls.append(args)
+        got = run(self, *args)
+        return (got[0], got[1] + 50, *got[2:]) if len(calls) == 1 else got
+
+    monkeypatch.setattr(mip._Started, "run", loose)
+    sol = mip.solve(task)
+    assert len(calls) == 2 and sol.canonical and best.objective <= sol.objective < best.objective + 50
+    assert sim.execute(task, sol.plan(task.start)).cost.total == sol.objective
+
+
 def test_a_coarse_step_keeps_every_slots_edct():
     task = three_into_a_program()
     sol = mip.solve(task, step=7)
