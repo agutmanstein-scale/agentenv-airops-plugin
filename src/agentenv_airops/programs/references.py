@@ -45,6 +45,8 @@ from .advisories import HUBS
 from .cost import NOTICE, Cost, cancel_price, flat_price, priced
 from .model import Flight, Task
 
+TIME_LIMIT = 2400.0
+
 
 @dataclass(frozen=True)
 class Followed:
@@ -78,19 +80,19 @@ class Calm:
         return len(self.run.ferries)
 
 
-def anchor(task: Task, time_limit: float = 600.0) -> tuple[mip.Solution, sim.Execution]:
+def anchor(task: Task, time_limit: float = TIME_LIMIT) -> tuple[mip.Solution, sim.Execution]:
     sol = mip.solve(task, time_limit=time_limit, start=naive(task))
     return sol, sim.execute(task, sol.plan(task.start))
 
 
-def flat_anchor(task: Task, time_limit: float = 600.0, start: sim.Execution | None = None) -> mip.Solution:
+def flat_anchor(task: Task, time_limit: float = TIME_LIMIT, start: sim.Execution | None = None) -> mip.Solution:
     """The hindsight optimum with every cancellation at the flat 523 per passenger, started from `start` (a day on
     the truth, naive by default)."""
     return mip.solve(task, price={f.id: flat_price(f) for f in task.flights}, time_limit=time_limit, canonical=False,
                      start=naive(task) if start is None else start)
 
 
-def follow(task: Task, programs: bool = True, time_limit: float = 600.0, canonical: bool = True,
+def follow(task: Task, programs: bool = True, time_limit: float = TIME_LIMIT, canonical: bool = True,
            early: int = 0) -> Followed:
     plan: dict[int, dict] = {}
     pinned: set[int] = set()
@@ -181,7 +183,7 @@ def recorded(task: Task) -> tuple[Cost, int]:
     return priced(task, dep, arr, decided, [(x.family, x.orig, x.dest) for x in out]), len(out)
 
 
-def calm(task: Task, time_limit: float = 600.0) -> Calm:
+def calm(task: Task, time_limit: float = TIME_LIMIT) -> Calm:
     world = sim.calm(task)
     sol = mip.solve(task, world, time_limit=time_limit, canonical=False, start=sim.execute(task, {}, world))
     return Calm(sol, sim.execute(task, sol.plan(task.start), world))

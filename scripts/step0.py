@@ -2,7 +2,7 @@
 against? No LLM is called; only the reference solvers run (HiGHS).
 
     python scripts/step0.py --out cache/step0/<run> [--workers 12] [--only ID,...] [--resume] [--seed 0]
-                            [--prove-s 3600] [--watch-s 1800] [--crew [BASES]]
+                            [--prove-s 3600] [--watch-s 2400] [--crew [BASES]]
 
 --crew builds every task with the crew model (repairs.crews), its crew bases JetBlue's (repairs.BASES) unless given as
 a comma-separated list.
@@ -69,7 +69,7 @@ CALM_CANCELS, CALM_FERRIES = 1, 2
 GATE_SHARE = 0.9
 EVAL_MIN, TRAIN_MIN = 12, 60
 BLOCK_SLACK = 120
-PROVE_S, WATCH_S = 3600.0, 1800.0
+PROVE_S, WATCH_S = 3600.0, 2400.0
 TEMPERATURE, FLOOR_SHARE = 0.5, 0.1
 SOLVER_CLAUSES = ("airline_auto", "airline_cost", "recorded_day", "leverage", "proof")
 COLUMNS = ("task_id", "split", "flights", "moves", "watches", "anchor", "naive", "follower", "blind", "rule", "airline",
