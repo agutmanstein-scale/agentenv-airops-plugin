@@ -4,8 +4,11 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from day_helpers import (
+    PLACES,
     broken_day,
     busy_day,
+    capped,
+    capped_day,
     crewed,
     day,
     flight,
@@ -27,6 +30,8 @@ from agentenv_airops.programs.model import Task
 
 RANDOM = range(8)
 NETWORK = range(8)
+CAPPED = range(4)
+TIGHT = {c: {h: h % 3 for h in range(24)} for c in PLACES}
 
 
 def days() -> dict[str, Task]:
@@ -42,7 +47,10 @@ def days() -> dict[str, Task]:
             "lone_quick": replace(quick_day(), tails=quick_day().tails[:1]), "families": families(),
             "crew": crew(), "turned_through": turned_through_day(),
             **{f"random{seed}": random_day(random.Random(seed)) for seed in RANDOM},
-            **{f"network{seed}": network_day(random.Random(seed)) for seed in NETWORK}}
+            **{f"network{seed}": network_day(random.Random(seed)) for seed in NETWORK},
+            "capped": capped_day(),
+            **{f"capped_random{seed}": capped(random_day(random.Random(seed)), TIGHT) for seed in CAPPED},
+            **{f"capped_network{seed}": capped(network_day(random.Random(seed)), TIGHT) for seed in CAPPED}}
 
 
 def crew() -> Task:
@@ -141,7 +149,8 @@ def test_a_day_with_legs_cancelled_on_either_side_of_its_breaks_is_a_solution_at
     assert sol.deps[3] is None and replays(task, sol)
 
 
-@pytest.mark.parametrize("name", ["slots", "stop", "moved", "broken", "busy", "quick", "crew", "random3", "network2"])
+@pytest.mark.parametrize("name", ["slots", "stop", "moved", "broken", "busy", "quick", "crew", "random3", "network2",
+                                  "capped", "capped_random1", "capped_network2"])
 def test_a_day_with_its_history_pinned_is_a_solution_of_the_model_with_those_pins(name):
     task = days()[name]
     first = sim.execute(task, {})

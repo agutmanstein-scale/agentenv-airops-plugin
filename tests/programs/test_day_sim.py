@@ -4,6 +4,8 @@ from day_helpers import (
     GDP,
     broken_day,
     busy_day,
+    capped,
+    capped_day,
     crewed,
     day,
     flight,
@@ -16,6 +18,10 @@ from day_helpers import (
 )
 
 from agentenv_airops.programs import sim
+
+
+def deps(run):
+    return {i: r.dep for i, r in run.flights.items()}
 
 
 def slots(run):
@@ -182,3 +188,26 @@ def test_a_turn_jetblue_flew_faster_than_the_rule_is_allowed_for_that_connection
     assert sim.execute(alone, {1: {"cancel": True}}).flights[2].dep == 190
     assert sim.execute(alone, {}).flights[1].dep == 170
     assert sim.execute(quick_day(40), {}).flights[1].dep == sim.execute(quick_day(None), {}).flights[1].dep
+
+
+def test_a_full_departure_hour_pushes_a_departure_to_the_next_hour():
+    flights = [flight(0, "JFK", "BUF", 60, 60), flight(1, "JFK", "DCA", 70, 60), flight(2, "JFK", "MCO", 80, 150)]
+    tails = [tail("N1", "JFK", end="BUF"), tail("N2", "JFK", end="DCA"), tail("N3", "JFK", end="MCO")]
+    task = capped(day(flights, tails), {"JFK": {1: 1, 2: 1}})
+    assert deps(sim.execute(task, {})) == {0: 60, 1: 120, 2: 180}
+    assert deps(sim.execute(task, {0: {"cancel": True}})) == {0: None, 1: 70, 2: 120}
+
+
+def test_a_capped_hub_spreads_its_departures_over_the_hours_and_leaves_its_arrivals_alone():
+    run = sim.execute(capped_day(), {})
+    assert {i: (r.dep, r.slot) for i, r in run.flights.items()} == {
+        0: (120, 180), 1: (140, 200), 2: (125, None), 3: (180, None), 4: (180, None), 5: (240, None), 6: (240, None)}
+    assert deps(sim.execute(replace(capped_day(), layers=None), {})) == {
+        0: 120, 1: 140, 2: 125, 3: 130, 4: 150, 5: 210, 6: 230}
+
+
+def test_a_pinned_departure_uses_up_its_hour_before_the_others_leave():
+    task = capped(day([flight(0, "JFK", "BUF", 60, 60), flight(1, "JFK", "DCA", 65, 60)],
+                      [tail("N1", "JFK", end="BUF"), tail("N2", "JFK", end="DCA")]), {"JFK": {1: 1}})
+    run = sim.execute(task, {1: {"left": 100}})
+    assert (run.flights[0].dep, run.flights[1].dep) == (120, 100)

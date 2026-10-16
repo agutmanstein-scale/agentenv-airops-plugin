@@ -11,6 +11,9 @@ first: that aircraft may take it after JetBlue's ground time where that was shor
 (Task.quick), through any Moves it passes on the way, and any other flight only after the turn. What else holds a
 flight ready at minute t, in this order:
 - a ground stop at its destination hub covering its origin holds it to the stop's end; airborne flights fly on;
+- a departure in an hour its origin caps (Layers.dep_caps, docs/v3/DESIGN.md §3.1) needs room under the cap, else
+  it tries again at the next hour's start; every flight that left in the hour counts, a pinned one ("left") from the
+  start of the day, so the others share the cap less the pinned ones;
 - a flight governed at t by a GDP segment (the one in force when it departs, the departure-time lock; its origin in
   scope and its scheduled arrival in the period) needs one of JetBlue's slots in that segment's pool: its claimed slot
   if it can still make it, else the earliest free slot at or after its earliest arrival t + scheduled block. It leaves
@@ -43,14 +46,15 @@ A World is what a day runs on: the truth (the task's lb, truth blocks and progra
 a watch (M12: lb and the truth block once the scheduled departure is within LOOK, else 0 and the scheduled block, the
 programs as issued by then, proposed GDPs included, every stop to its as-issued end, every GDP too unless a base rate
 ends it earlier), or the calm day (no delay, scheduled blocks, no programs). Nominal caps, deadlines, the hub cutoff
-and the crew deadlines, which the schedule fixes and the desk knows from the start, are the same in all of them.
+and the crew deadlines, which the schedule fixes and the desk knows from the start, are the same in all of them. The
+departure caps are the truth's alone: the day as known and the calm day carry none.
 """
 
 import bisect
 import heapq
 from collections import Counter, defaultdict
 from collections.abc import Collection, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from ..core.known import LOOK
 from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN, Ferry, _assign
@@ -71,12 +75,14 @@ class World:
     segments: Mapping[str, tuple[Segment, ...]]
     stops: tuple
     nominal: Mapping[str, Mapping[int, int]]
+    dep_caps: Mapping[str, Mapping[int, int]] = field(default_factory=dict)
 
 
 def truth(task: Task) -> World:
     return World(task.lb, {f.id: f.block for f in task.flights},
                  {h: p.segments for h, p in task.programs.items()},
-                 tuple(s for p in task.programs.values() for s in p.stops), nominal_caps(task))
+                 tuple(s for p in task.programs.values() for s in p.stops), nominal_caps(task),
+                 task.layers.dep_caps if task.layers else {})
 
 
 def known(task: Task, t: int, programs: bool = True, early: int = 0) -> World:
@@ -111,7 +117,8 @@ def with_cutoff(task: Task, cutoff: int) -> Task:
 
 class Rules:
     """What holds each flight at a minute in a world: the stops at its destination covering its origin, the segment
-    governing it (None when out of scope or outside the period), and the nominal cap of its arrival hour."""
+    governing it (None when out of scope or outside the period), the nominal cap of its arrival hour and the
+    departure cap of its hour of leaving."""
 
     def __init__(self, task: Task, world: World):
         self.world = world
@@ -143,6 +150,12 @@ class Rules:
         caps = self.world.nominal.get(f.dest)
         h = (t + self.world.block[f.id]) // 60
         return ((f.dest, h), caps[h]) if caps is not None and h in caps else None
+
+    def dep_hour(self, f: Flight, t: int) -> tuple[HourKey, int] | None:
+        """The departure cap that f, leaving at t, counts in at its origin."""
+        caps = self.world.dep_caps.get(f.orig)
+        h = t // 60
+        return ((f.orig, h), caps[h]) if caps is not None and h in caps else None
 
 
 @dataclass(frozen=True)
@@ -215,6 +228,9 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
     bound, claimed = _claims(task, want, runs, rules)
     taken: set[SlotKey] = set()
     used: Counter = Counter()
+    for i, d in want.items():
+        if d.get("left") is not None and i not in cancelled and (cap := rules.dep_hour(task.flight(i), d["left"])):
+            used[("dep", cap[0])] += 1
     legs: dict[str, list[int]] = {p: [] for p in ready}
     waiting: dict[tuple[str, str], set[int]] = defaultdict(set)
     quick: dict[str, tuple[int, int]] = {}
@@ -245,9 +261,9 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
             continue
         waiting[(f.family, f.orig)].discard(i)
         if left:
-            s, slot, hour = t, *_history(f, t, rules, taken)
+            s, slot, counts = t, *_history(f, t, rules, taken)
         else:
-            s, slot, hour = _leave(f, t, rules, claimed.get(i), bound, taken, used)
+            s, slot, counts = _leave(f, t, rules, claimed.get(i), bound, taken, used)
         if s != t:
             when[i] = s
             heapq.heappush(heap, (s, kind, c, i))
@@ -264,8 +280,7 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
             quick[p] = (task.quick[i][0], max([turned, *(m.ready for m in carried[i][1])]) if i in carried else turned)
         if slot is not None:
             taken.add(slot)
-        if hour is not None:
-            used[hour] += 1
+        used.update(counts)
         legs[p].append(i)
         runs[i] = FlightRun(i, FLOWN, p, t, arr, slot[1] if slot else None, slot[0] if slot else None)
         for j in waiting[(f.family, station)]:
@@ -347,13 +362,19 @@ def _claims(task: Task, want: Mapping[int, Mapping], runs: Mapping[int, FlightRu
 
 
 def _leave(f: Flight, t: int, rules: Rules, claim: SlotKey | None, bound: Mapping[SlotKey, int], taken: set[SlotKey],
-           used: Counter) -> tuple[int, SlotKey | None, HourKey | None]:
-    """The first minute from t at which f may leave, with the slot it takes there or the nominal hour it counts in."""
+           used: Counter) -> tuple[int, SlotKey | None, tuple]:
+    """The first minute from t at which f may leave, with the slot it takes there and the caps it counts in: the
+    nominal hour it lands in without a slot, and ("dep", its departure hour) when that is capped."""
     while True:
         held = rules.held(f, t)
         if held != t:
             t = held
             continue
+        dep = rules.dep_hour(f, t)
+        if dep is not None and used[("dep", dep[0])] >= dep[1]:
+            t = 60 * (dep[0][1] + 1)
+            continue
+        out = (("dep", dep[0]),) if dep else ()
         seg = rules.governs(f, t)
         if seg is not None:
             eta = t + f.sched_block
@@ -366,7 +387,7 @@ def _leave(f: Flight, t: int, rules: Rules, claim: SlotKey | None, bound: Mappin
                 if s - f.sched_block != t:
                     t = s - f.sched_block
                     continue
-                return t, (seg.id, s), None
+                return t, (seg.id, s), out
             if eta <= seg.end:
                 t = seg.end + 1 - f.sched_block
                 continue
@@ -374,17 +395,18 @@ def _leave(f: Flight, t: int, rules: Rules, claim: SlotKey | None, bound: Mappin
         if cap is not None and used[cap[0]] >= cap[1]:
             t = 60 * (cap[0][1] + 1) - rules.world.block[f.id]
             continue
-        return t, None, cap[0] if cap else None
+        return t, None, out + ((cap[0],) if cap else ())
 
 
-def _history(f: Flight, t: int, rules: Rules, taken: set[SlotKey]) -> tuple[SlotKey | None, HourKey | None]:
-    """The slot or nominal hour a flight that left at t counts in (mip._place for a pinned copy)."""
+def _history(f: Flight, t: int, rules: Rules, taken: set[SlotKey]) -> tuple[SlotKey | None, tuple]:
+    """The slot or nominal hour a flight that left at t counts in (mip._place for a pinned copy); its departure hour
+    was counted before the day ran."""
     seg = rules.governs(f, t)
     if seg is not None and t + f.sched_block <= seg.end:
         key = (seg.id, t + f.sched_block)
-        return (key if t + f.sched_block in seg.slots and key not in taken else None), None
+        return (key if t + f.sched_block in seg.slots and key not in taken else None), ()
     cap = rules.hour(f, t)
-    return None, cap[0] if cap else None
+    return None, (cap[0],) if cap else ()
 
 
 def ferries(task: Task, ends: Mapping[str, str], family: Mapping[str, str]) -> tuple[Ferry, ...]:
