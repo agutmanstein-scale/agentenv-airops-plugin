@@ -74,26 +74,25 @@ def test_the_months_are_the_cached_thirteen_and_six_more_in_order():
     assert candidates.MONTHS == tuple(sorted(pack.MONTHS + added)) and len(candidates.MONTHS) == 19
 
 
-def test_dates_reading_advisories_in_the_archive_outage_are_dropped():
+def test_dates_reading_advisories_in_an_archive_outage_are_dropped():
     assert [d for d in dates("2025-08-19", 11, 1) if candidates.gap(d)] == dates("2025-08-22", 5, 1)
+    assert [d for d in dates("2025-02-12", 8, 1) if candidates.gap(d)] == ["2025-02-15", "2025-02-16"]
 
 
-def test_the_fleet_takes_the_two_published_inventories_nearest_the_month(tmp_path):
-    (tmp_path / "bts").mkdir()
-    for y in range(2021, 2026):
-        (tmp_path / "bts" / f"b43_{y}.csv").write_text("")
+def test_the_fleet_takes_the_two_published_inventories_nearest_the_month():
+    assert candidates.B43_PUBLISHED == tuple(range(2021, 2026))
     for m in pack.MONTHS:
-        assert candidates.b43_years(tmp_path, m) == fleet.b43_years(m)
-    assert candidates.b43_years(tmp_path, "2025-08") == [2025, 2024]
-    assert all(candidates.b43_years(tmp_path, m) == [2025, 2024] for m in ("2026-01", "2026-02", "2026-06", "2026-07"))
+        assert candidates.b43_years(m) == fleet.b43_years(m)
+    assert candidates.b43_years("2025-08") == [2025, 2024]
+    assert all(candidates.b43_years(m) == [2025, 2024] for m in ("2026-01", "2026-02", "2026-06", "2026-07"))
 
 
 @needs_cache
 def test_candidates_are_counted_per_local_date_without_carrier_limited_stops():
     keys, counts = candidates.candidates(CACHE)
     assert {k: v for k, v in counts.items() if isinstance(v, int)} == {
-        "utc_day_hubs": 342, "local_day_hubs": 307, "limited_only": 9, "candidates": 298}
-    assert counts["archive_gap_dates"] == dates("2025-08-22", 5, 1)
+        "utc_day_hubs": 342, "local_day_hubs": 303, "limited_only": 9, "candidates": 294}
+    assert counts["archive_gap_dates"] == ["2025-02-15", "2025-02-16", *dates("2025-08-22", 5, 1)]
     assert ("2024-08-19", "JFK") in keys and ("2026-07-04", "JFK") in keys and len(keys) == len(set(keys))
 
 

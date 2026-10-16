@@ -19,8 +19,8 @@ the winter date with no program listed at JFK, BOS, EWR or LGA (a GDP or ground 
 day's ATCSCC list), no weather or NAS cancellation in scope and the lowest mean all-carrier arrival delay at the hub,
 windowed on the hub's busiest 4 h of JetBlue movements.
 
-The fleet of a month is typed by the two published Form 41 B-43 inventories nearest it (`b43_years`): 2026's is not
-published, so the 2026 months take 2025's and 2024's.
+The fleet of a month is typed by the two published Form 41 B-43 inventories nearest it (`b43_years`, over the years
+B43_PUBLISHED pins, whatever the cache holds): 2026's is not published, so the 2026 months take 2025's and 2024's.
 
 Every function a process pool maps takes picklable arguments (dates, paths, small dicts) and reads the pinned inputs
 through per-process caches, so the ~300 candidates build in parallel.
@@ -57,9 +57,11 @@ from .rbs import Covers
 
 CARRIER = pack.CARRIER
 MONTHS = tuple(sorted((*pack.MONTHS, "2025-08", "2025-12", "2026-01", "2026-02", "2026-06", "2026-07")))
-GAPS = (("2025-08-23T09:50", "2025-08-26T03:41"),)
-"""UTC spans the FAA's advisory archive has nothing for: its lists of 2025-08-24 and 08-25 are empty, 08-23's stops at
-advisory 34 (09:50Z) and 08-26's starts at advisory 22 (03:41Z), and refetching gives the same pages."""
+GAPS = (("2025-02-16T05:15", "2025-02-16T13:00"), ("2025-08-23T09:50", "2025-08-26T03:41"))
+"""UTC spans the FAA's advisory archive has nothing for: 2025-02-16's list skips advisories 23 to 46, from 22 (05:15Z)
+to 47 (13:00Z); its lists of 2025-08-24 and 08-25 are empty, 08-23's stops at advisory 34 (09:50Z) and 08-26's starts
+at advisory 22 (03:41Z); refetching gives the same pages."""
+B43_PUBLISHED = (2021, 2022, 2023, 2024, 2025)
 SUMMER, WINTER = ("06", "07", "08"), ("12", "01", "02")
 FIRST, LAST_START, DAY_END = 5, 20, 24
 LENGTHS = (6, 5, 4, 3)
@@ -199,7 +201,7 @@ def taxi_median(inputs: Path, derived: Path, d: str) -> dict[str, float]:
 @functools.lru_cache(maxsize=len(MONTHS))
 def month_fleet(inputs: Path, derived: Path, m: str) -> dict[str, fleet.Aircraft]:
     x = month_frame(inputs, derived, m)
-    return typed(set(x[x.Reporting_Airline == CARRIER].Tail_Number.dropna()), b43_years(inputs, m), inputs)
+    return typed(set(x[x.Reporting_Airline == CARRIER].Tail_Number.dropna()), b43_years(m), inputs)
 
 
 def typed(tails: set[str], years: Sequence[int], inputs: Path) -> dict[str, fleet.Aircraft]:
@@ -226,12 +228,11 @@ def typed(tails: set[str], years: Sequence[int], inputs: Path) -> dict[str, flee
     return out
 
 
-def b43_years(inputs: Path, m: str) -> list[int]:
-    """fleet.b43_years over the inventories published (cached): the two nearest the month, nearest first."""
+def b43_years(m: str) -> list[int]:
+    """fleet.b43_years over the published inventories: the two nearest the month, nearest first."""
     year, month = (int(v) for v in m.split("-"))
     at = year + (month - 0.5) / 12
-    published = [int(p.stem.split("_")[1]) for p in (inputs / "bts").glob("b43_*.csv")]
-    return sorted(published, key=lambda y: (abs(y + 1 - at), y))[:2]
+    return sorted(B43_PUBLISHED, key=lambda y: (abs(y + 1 - at), y))[:2]
 
 
 @functools.lru_cache(maxsize=len(MONTHS))
