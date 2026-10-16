@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import date, timedelta
 
 import pandas as pd
-from day_helpers import TURN, day, flight
+from day_helpers import TURN, day, flight, tail
 from program_helpers import CACHE, DATE, DERIVED, WINDOW, needs_cache
 
 from agentenv_airops.build import pack
@@ -118,6 +118,7 @@ def test_a_tail_whose_last_flown_leg_lands_at_a_gateway_by_day_is_busy_past_ever
     assert run.legs["N1"] == (0,) and run.flights[5].dep == 1080 + TURN
     sol = mip.solve(task)
     assert sol.deps[5] in (None, 1080 + TURN) and sim.execute(task, sol.plan(0)).cost.total == sol.objective
+    assert next(t for t in network.scheduled(task).tails if t.tail == "N5") == tails["N5"]
 
 
 def test_a_tail_that_flew_nothing_that_day_nor_the_day_before_is_out_of_service_and_others_fly_its_legs():
@@ -127,6 +128,29 @@ def test_a_tail_that_flew_nothing_that_day_nor_the_day_before_is_out_of_service_
     assert set(tails) == {"N1", "N2"} and tails["N2"].pos == "PWM" and counts["out of service"] == 1
     run = sim.execute(day(flights, list(tails.values())), {})
     assert (run.flights[1].status, run.flights[1].tail) == ("flown", "N1") and run.flights[3].tail == "N2"
+
+
+def test_the_calm_day_starts_where_the_schedule_needs_its_aircraft_and_flies_it_all_on_time():
+    flights = [flight(0, "JFK", "BOS", 100, 60), flight(1, "BOS", "JFK", 200, 60), flight(2, "BOS", "DCA", 150, 60),
+               flight(3, "DCA", "JFK", 300, 60), flight(4, "JFK", "MCO", 400, 150)]
+    tails = [tail("N1", "JFK"), tail("N2", "JFK", 50), tail("N3", "JFK", 500)]
+    task = replace(day(flights, tails), needs=network.needs(tails, flights)[0])
+    assert network.assumed(task) == {("A320", "JFK"): 1, ("A320", "BOS"): 1}
+    calm = network.scheduled(task)
+    assert {t.tail: (t.pos, t.ready) for t in calm.tails} == {"N1": ("JFK", 0), "N2": ("JFK", 0), "N3": ("BOS", 0)}
+    assert calm.needs == network.needs(calm.tails, flights)[0] == {"A320": {"JFK": 2, "MCO": 1}}
+    run = sim.execute(calm, {}, sim.calm(calm))
+    assert all(r.dep == task.flight(i).sched_dep for i, r in run.flights.items())
+    c = references.calm(task)
+    assert (c.cancelled, c.ferries) == (0, 0) and c.task == calm
+    assert references.calm(task, record=True).cancelled >= 1
+    elsewhere = network.scheduled(replace(task, tails=tuple(replace(t, pos="DCA", ready=300) for t in tails)))
+    assert Counter(t.pos for t in elsewhere.tails) == Counter(t.pos for t in calm.tails)
+    assert elsewhere.needs == calm.needs
+    assert network.shortfall(task) == {"aircraft": 1, "departures": 1, "fleet": 0, "short": {"A320 BOS": 1}}
+    one = replace(task, tails=tuple(tails[:1]))
+    assert [(t.pos, t.ready) for t in network.scheduled(one).tails] == [("BOS", 0)]
+    assert network.shortfall(one)["fleet"] == 1
 
 
 def test_tomorrows_needs_fly_the_whole_schedule_and_its_moves_from_the_start_and_a_short_station_counts_zero():

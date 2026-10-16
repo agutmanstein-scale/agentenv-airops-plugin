@@ -6,9 +6,10 @@ No LLM is called; only the reference solvers run (HiGHS).
                                   [--scale JFK=0.5,BOS=0.5]
 
 1. every storm date over the 19 cached months (programs.network: a date whose per-hub candidate rule holds at JFK or
-   BOS, those being its storm hubs) built as a whole-network task at scale 1 and the 03:00 cutoff, plus the control
-   dates (the control rule's, each with its hubs' windows); the day-hubs that can't be candidates (a neighbour day not
-   loaded) are counted with their reason, and so are the dates an advisory-archive outage drops;
+   BOS, those being its storm hubs, and whose programs control or hold at least 5 of the task's JetBlue flights) built
+   as a whole-network task at scale 1 and the 03:00 cutoff, plus the control dates (the control rule's, each with its
+   hubs' windows); the day-hubs that can't be candidates (a neighbour day not loaded) are counted with their reason,
+   and so are the dates an advisory-archive outage drops and those too few flights qualify;
 2. the seeded whole-event split over the built storm dates, stratified by storm hub (network.split: per hub 12 eval
    dates, 8 summer and 4 winter, one per storm event, a date drawn for one hub at most; train every built date of an
    event without one). Being built is the only clause;
@@ -17,8 +18,9 @@ No LLM is called; only the reference solvers run (HiGHS).
    is given;
 4. the references `--refs` names on every task at that scale, one JSON per task under refs/ as it finishes (`--resume`
    keeps each whose signature is unchanged). By default: naive, the airline replay, the recorded day, the anchor
-   (notice-priced, proven and canonical), the flat anchor and the calm day; the follower, the program-blind follower
-   and the rule run when named;
+   (notice-priced, proven and canonical), the flat anchor and the calm day (from the positions the schedule assumes,
+   network.scheduled); the follower, the program-blind follower, the rule and the calm day from the record's morning
+   positions (`morning`, a finding beside the per-task shortfall, network.shortfall) run when named;
 5. a task is kept when every MIP it ran proved to GAP and no reference failed; any other is left out of every gate's
    pool and counted, and a drawn eval date so left out is dropped, not replaced;
 6. gates.json (the gates with values, thresholds and pass/fail, the parameters and the diagnostics), candidates.jsonl
@@ -36,6 +38,8 @@ The gates, as registered, a task being a storm date:
 - references: every kept task's anchor proven and replayed exactly, no reference below a proven anchor, pax <= seats
   on every flight a reference flies, the tasks left out and the references compared with the anchors counted;
 - days, reported only: the built storm dates by storm hub(s) and season, and the split.
+Reported beside them: per date the record's morning against the schedule's positions (the aircraft out of position,
+the departures they leave without an aircraft on time) and the tails away from a gateway or out of service.
 
 --only takes dates (2024-08-19) or task ids (b6-20240819-0600), storm and control dates alike.
 """
@@ -75,12 +79,13 @@ LEVERAGE = 0.10
 CUTOFF_SHARE = 0.9
 PROVE_S, WATCH_S = 3600.0, 2400.0
 RSS_UNIT = 1 << 20 if sys.platform == "darwin" else 1 << 10
-REFERENCES = ("naive", "airline", "recorded", "anchor", "flat", "follower", "blind", "rule", "calm")
+REFERENCES = ("naive", "airline", "recorded", "anchor", "flat", "follower", "blind", "rule", "calm", "morning")
 DEFAULT_REFS = ("naive", "airline", "recorded", "anchor", "flat", "calm")
 SOLVED = ("anchor", "flat", "calm")
 PLAYED = ("naive", "airline", "anchor", "follower", "blind", "rule")
-COLUMNS = ("task_id", "split", "hubs", "start", "kept", "flights", "tails", "moves", "anchor", "naive", "follower",
-           "blind", "rule", "airline", "recorded", "flat_anchor", "naive_flat", "calm", "replay_auto", "fidelity")
+COLUMNS = ("task_id", "split", "hubs", "start", "kept", "flights", "tails", "moves", "gateway", "out_of_service",
+           "anchor", "naive", "follower", "blind", "rule", "airline", "recorded", "flat_anchor", "naive_flat", "calm",
+           "replay_auto", "fidelity", "shortfall", "morning")
 
 
 def main() -> None:
@@ -254,7 +259,9 @@ def job(j: tuple) -> dict:
            "date": task.date, "start": task.start, "flights": len(task.flights), "tails": len(task.tails),
            "moves": sum(len(t.repositions) for t in task.tails), "watches": len(references.watch_times(task)),
            "connections": {"flown": sum(len(t.connections) for t in task.tails), "faster": len(task.quick)},
-           "seconds": {}}
+           "gateway": task.clauses.get("network", {}).get("gateway busy", 0),
+           "out_of_service": task.clauses.get("network", {}).get("out of service", 0),
+           "shortfall": network.shortfall(task), "seconds": {}}
     anchor = {}
     plays: dict[str, Callable[[], dict]] = {
         "naive": lambda: played(task, references.naive(task)),
@@ -265,7 +272,8 @@ def job(j: tuple) -> dict:
         "follower": lambda: followed(task, references.follow(task, True, watch)),
         "blind": lambda: followed(task, references.follow(task, False, watch)),
         "rule": lambda: followed(task, references.rule(task)),
-        "calm": lambda: calmed(task, references.calm(task, prove)),
+        "calm": lambda: calmed(references.calm(task, prove)),
+        "morning": lambda: calmed(references.calm(task, prove, record=True)),
     }
     for name in refs:
         attempt(out, name, plays[name])
@@ -353,10 +361,11 @@ def followed(task: Task, f: references.Followed) -> dict:
             "decided": dict(Counter(v["decided"] for v in cancels))}
 
 
-def calmed(task: Task, c: references.Calm) -> dict:
-    """The calm day's forced cancellations, each with why (`short`: on the calm schedule from the start positions its
+def calmed(c: references.Calm) -> dict:
+    """The calm day's forced cancellations, each with why (`short`: on the calm schedule from its start positions its
     origin has fewer aircraft of its family ready than departures by its scheduled departure; `knock-on` otherwise)
     and the wait the calm naive day gives it; how many a Move binds or follow one (`moved`); and its ferries."""
+    task = c.task
     ids = sorted(i for i, d in c.solution.deps.items() if d is None)
     near = {m.leg for t in task.tails for m in t.repositions} | {
         j for t in task.tails for k, j in enumerate(t.legs) if k and t.legs[k - 1] in task.moved}
@@ -364,7 +373,7 @@ def calmed(task: Task, c: references.Calm) -> dict:
     out = []
     for i in ids:
         f, n = task.flight(i), naive.flights[i]
-        b = balance(task, f.family, f.orig, f.sched_dep)
+        b = balance(task, f.family, f.orig, task.earliest(f, 0))
         out.append({"id": i, "flight": f.flight, "route": f"{f.orig}-{f.dest}", "family": f.family,
                     "sched_dep": f.sched_dep, "jetblue": "cancelled" if f.actual.dep is None else "flew",
                     "balance": b, "cause": "short" if b < 0 else "knock-on", "moved": i in near,
@@ -374,18 +383,15 @@ def calmed(task: Task, c: references.Calm) -> dict:
 
 
 def balance(task: Task, family: str, station: str, t: int) -> int:
-    """On the calm schedule from the start positions, the aircraft of `family` ready at `station` by minute t less its
-    departures from there by t."""
+    """On the calm schedule from the start positions (every flight leaving at its scheduled departure, no earlier
+    than the start), the aircraft of `family` ready at `station` by minute t less its departures from there by t."""
     n = sum(x.family == family and x.pos == station and x.ready <= t for x in task.tails)
     for f in task.flights:
         if f.family == family:
-            n += f.dest == station and task.back(f, f.sched_arr) <= t
-            n -= f.orig == station and f.sched_dep <= t
-    for x in task.tails:
-        for m in x.repositions if x.family == family else ():
-            f = task.flight(m.leg)
-            n -= m.orig == station and task.back(f, f.sched_arr) <= t
-            n += m.dest == station and max(task.back(f, f.sched_arr), m.ready) <= t
+            dep = task.earliest(f, 0)
+            back, m = task.back(f, dep + f.sched_block), task.moved.get(f.id)
+            n += (m.dest if m else f.dest) == station and (max(back, m.ready) if m else back) <= t
+            n -= f.orig == station and dep <= t
     return n
 
 
@@ -426,7 +432,8 @@ def summary(tasks: Mapping[str, Task], held: Mapping[str, Task], shipped: Mappin
         "days": days_report(tasks, drawn, split, kept, counts, built, jobs),
     }
     gates["go"] = all(g["pass"] for k, g in gates.items() if k != "days")
-    return {"gates": gates, "parameters": params, "diagnostics": diagnostics(tasks, results, pool, split, shipped),
+    return {"gates": gates, "parameters": params,
+            "diagnostics": {**diagnostics(tasks, results, pool, split, shipped), **findings(tasks, results)},
             "tasks": [row_of(i, r, i in kept, {h: v for (j, h), v in fid.items() if j == i})
                       for i, r in sorted(results.items())],
             "seconds": clock.laps, "timing": timing(results)}
@@ -563,6 +570,33 @@ def diagnostics(tasks: Mapping[str, Task], results: Mapping[str, dict], pool: Ma
     }
 
 
+def findings(tasks: Mapping[str, Task], results: Mapping[str, dict]) -> dict:
+    """Over the storm dates: the record's morning against the schedule's positions (network.shortfall) and, when it
+    ran, the calm day from the record's morning; the tails away from a gateway and out of service per date."""
+    storm = {i: r for i, r in results.items() if i in tasks and "shortfall" in r}
+    short = [r["shortfall"] for r in storm.values()]
+    by: dict[str, Counter] = {"family": Counter(), "station": Counter()}
+    for v in short:
+        for k, n in v["short"].items():
+            fam, station = k.split()
+            by["family"][fam] += n
+            by["station"][station] += n
+    ran = [r["morning"] for r in storm.values() if "cancelled" in r.get("morning", {})]
+    return {"morning": {"dates": len(short), "dates_short": sum(v["aircraft"] > 0 for v in short),
+                        "aircraft": dist1([v["aircraft"] for v in short]),
+                        "departures": dist1([v["departures"] for v in short]),
+                        "fleet": dist1([v["fleet"] for v in short]),
+                        "by_family": dict(by["family"].most_common()),
+                        "by_station": dict(by["station"].most_common(15)),
+                        "calm_day_from_it": {"dates": len(ran), "cancelled": sum(c["cancelled"] for c in ran),
+                                             "ferries": sum(c["ferries"] for c in ran),
+                                             "within_calm_caps": share([c["cancelled"] <= CALM_CANCELS
+                                                                        and c["ferries"] <= CALM_FERRIES for c in ran]),
+                                             "by_cause": dict(Counter(x["cause"] for c in ran for x in c["causes"]))}},
+            "tails": {k: {**dist1([r[k] for r in storm.values()]), "total": sum(r[k] for r in storm.values())}
+                      for k in ("gateway", "out_of_service")}}
+
+
 def calm_by_start(tasks: Mapping[str, Task], pool: Mapping[str, dict]) -> dict:
     """The calm-day gate's passes by the hour the task starts."""
     out = defaultdict(lambda: [0, 0])
@@ -605,12 +639,15 @@ def movements(train: list[Task]) -> dict:
 def row_of(i: str, r: dict, kept: bool, fid: Mapping[str, tuple]) -> dict:
     costs = {k: r[k]["total"] for k in ("anchor", "naive", "follower", "blind", "rule", "airline", "recorded")
              if "total" in r.get(k, {})}
-    calm = r.get("calm", {})
+    calm, morning, short = r.get("calm", {}), r.get("morning", {}), r.get("shortfall", {})
     return {"task_id": i, "split": r.get("split"), "hubs": "+".join(r.get("hubs", ())), "start": r.get("start"),
             "kept": kept, "left_out": unproven(r), "flights": r.get("flights"), "tails": r.get("tails"),
-            "moves": r.get("moves"), "connections": list((r.get("connections") or {}).values()), **costs,
+            "moves": r.get("moves"), "gateway": r.get("gateway"), "out_of_service": r.get("out_of_service"),
+            "connections": list((r.get("connections") or {}).values()), **costs,
             "flat_anchor": (r.get("flat") or {}).get("objective"), "naive_flat": (r.get("naive") or {}).get("flat"),
             "calm": [calm.get("cancelled"), calm.get("ferries")],
+            "shortfall": [short.get("aircraft"), short.get("departures"), short.get("fleet")],
+            "morning": [morning.get("cancelled"), morning.get("ferries")],
             "replay_auto": [(r.get("airline") or {}).get("auto"), (r.get("airline") or {}).get("flew")],
             "fidelity": {h: round(m / o, 3) if o > 0 else None for h, (m, o, _) in sorted(fid.items())},
             "anchor_gap_pct": (r.get("anchor") or {}).get("gap_pct"), "anchor_exact": (r.get("anchor") or {}).get(

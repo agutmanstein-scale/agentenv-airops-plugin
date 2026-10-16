@@ -27,6 +27,9 @@ flew between flown legs may be as fast (repairs.connections). Swaps and the stal
 make no Move. Tomorrow's needs are pooled: per family and station, where flying the whole schedule and its Moves from
 the start positions leaves the aircraft; a count the schedule would leave below zero is zero, and the stations with the
 most aircraft of the family give up the difference, one at a time.
+
+The calm day starts from the positions the schedule assumes (`scheduled`), the storm day from the record's; the record's
+morning against the schedule's is a finding (`shortfall`).
 """
 
 import functools
@@ -36,6 +39,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import nullcontext
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -278,6 +282,83 @@ def needs(tails: Sequence[Tail], flights: Sequence[Flight]) -> tuple[dict[str, d
             have[max(sorted(have), key=lambda s: have[s])] -= 1
         out[fam] = {s: n for s, n in sorted(have.items()) if n}
     return out, {f"{fam} {s}": -n for (fam, s), n in sorted(raw.items()) if n < 0}
+
+
+def scheduled(task: Task) -> Task:
+    """The task from the positions its schedule assumes, every aircraft ready at the start and tomorrow's needs
+    following them (`needs`). Per family, each station gets the aircraft `assumed` puts there. While the family has
+    more aircraft than that, the station the schedule leaves with the most of them at the end of the day takes one;
+    while it has fewer, that station among those given one gives one up, its departures waiting for an arrival (ties
+    to the first code). A tail stays where it is while its station has room, the others fill the stations left in code
+    order, in tail order. A tail away past every deadline (from a gateway) stays as it is, and so does a family without
+    departures."""
+    want = assumed(task)
+    last = max((f.deadline for f in task.flights), default=0)
+    net: Counter = Counter()
+    for f in task.flights:
+        m = task.moved.get(f.id)
+        net[(f.family, m.dest if m else f.dest)] += 1
+        net[(f.family, f.orig)] -= 1
+    at = {t.tail: t.pos for t in task.tails}
+    for fam in sorted({t.family for t in task.tails}):
+        mine = sorted((t for t in task.tails if t.family == fam and t.ready <= last), key=lambda t: t.tail)
+        room = Counter({s: n for (g, s), n in want.items() if g == fam})
+        if not room:
+            continue
+        stations = sorted({s for g, s in net if g == fam})
+        while sum(room.values()) < len(mine):
+            room[max(stations, key=lambda s: room[s] + net[(fam, s)])] += 1
+        while sum(room.values()) > len(mine):
+            room[max((s for s in stations if room[s] > 0), key=lambda s: room[s] + net[(fam, s)])] -= 1
+        moved = []
+        for t in mine:
+            if room[t.pos] > 0:
+                room[t.pos] -= 1
+            else:
+                moved.append(t.tail)
+        at |= dict(zip(moved, sorted(room.elements()), strict=True))
+    tails = [t if t.ready > last else replace(t, pos=at[t.tail], ready=task.start) for t in task.tails]
+    return replace(task, tails=tuple(tails), needs=needs(tails, task.flights)[0])
+
+
+def assumed(task: Task) -> Counter:
+    """Per (family, station), the aircraft the schedule needs there at the start so that every flight leaves on
+    schedule (no earlier than the start), each aircraft back after its turn or busy block, at its Move's destination
+    from the Move's ready: the most the station's departures run ahead of its aircraft back by then."""
+    return Counter({k: -n for k, n in lowest(task, ()).items() if n < 0})
+
+
+def lowest(task: Task, tails: Iterable[Tail]) -> dict[tuple[str, str], int]:
+    """Per (family, station), the fewest aircraft on the ground when every flight leaves on schedule from `tails`'
+    positions, below zero by the departures that find none."""
+    events = defaultdict(list)
+    for t in tails:
+        events[(t.family, t.pos)].append((t.ready, 1))
+    for f in task.flights:
+        dep = task.earliest(f, 0)
+        back, m = task.back(f, dep + f.sched_block), task.moved.get(f.id)
+        events[(f.family, f.orig)].append((dep, -1))
+        events[(f.family, m.dest if m else f.dest)].append((max(back, m.ready) if m else back, 1))
+    out = {}
+    for k, xs in events.items():
+        n = low = 0
+        for _, d in sorted(xs, key=lambda e: (e[0], -e[1])):
+            n += d
+            low = min(low, n)
+        out[k] = low
+    return out
+
+
+def shortfall(task: Task) -> dict:
+    """The record's morning against the schedule's (`scheduled`): per family and station the aircraft it has fewer
+    than the schedule's positions, and the departures that, flying the schedule from the record's positions, find no
+    aircraft of their family on time (`departures`), beside those the schedule's own positions leave so (`fleet`)."""
+    plan = scheduled(task)
+    want = Counter((t.family, t.pos) for t in plan.tails)
+    have = Counter((t.family, t.pos) for t in task.tails)
+    short = {f"{fam} {s}": n - have[(fam, s)] for (fam, s), n in sorted(want.items()) if n > have[(fam, s)]}
+    return {"aircraft": sum(short.values()), "departures": -sum(min(0, n) for n in lowest(task, task.tails).values()),
+            "fleet": -sum(min(0, n) for n in lowest(plan, plan.tails).values()), "short": short}
 
 
 def build_all(jobs: Sequence[tuple[str, tuple[str, ...], Windows | None, str]], inputs: Path, derived: Path,

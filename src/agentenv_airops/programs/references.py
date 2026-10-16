@@ -28,7 +28,9 @@ airline's aircraft-minutes at the FAA's rates).
 - recorded day: JetBlue's real outcome priced directly, its aircraft's minutes on its recorded departures and blocks,
   cancellations decided at sched - NOTICE, plus end-of-day ferries from its recorded end positions to tomorrow's needs.
   A diverted flight that never reached its destination counts as cancelled when it left, the moment the desk knew;
-- calm day: no delay, scheduled blocks, no programs: the hindsight optimum's forced cancellations and ferries.
+- calm day: from the positions the schedule assumes, every aircraft ready at the start and tomorrow's needs following
+  them (network.scheduled), no delay, scheduled blocks, no programs: the hindsight optimum's forced cancellations and
+  ferries; with `record`, from the record's positions and the task's needs, as the storm day starts.
 Like for like, nothing is decided before the first watch: a JetBlue cancellation due earlier than the start counts as
 decided there, as the anchor's and every desk's do. At a watch the day so far is history, as the env shows it: a
 flight that has left on the truth leaves when it did in the follower's and the rule's projection and is pinned there in
@@ -41,7 +43,7 @@ from dataclasses import dataclass
 
 from ..core.known import FREEZE, LOOK, STEP
 from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN
-from . import mip, sim
+from . import mip, network, sim
 from .advisories import HUBS
 from .cost import NOTICE, Cost, cancel_price, priced
 from .model import Flight, Task
@@ -71,6 +73,7 @@ class Replay:
 class Calm:
     solution: mip.Solution
     run: sim.Execution
+    task: Task
 
     @property
     def cancelled(self) -> int:
@@ -186,10 +189,11 @@ def recorded(task: Task) -> tuple[Cost, int]:
     return priced(task, dep, arr, decided, [(x.family, x.orig, x.dest) for x in out]), len(out)
 
 
-def calm(task: Task, time_limit: float = TIME_LIMIT) -> Calm:
+def calm(task: Task, time_limit: float = TIME_LIMIT, record: bool = False) -> Calm:
+    task = task if record else network.scheduled(task)
     world = sim.calm(task)
     sol = mip.solve(task, world, time_limit=time_limit, canonical=False, start=sim.execute(task, {}, world))
-    return Calm(sol, sim.execute(task, sol.plan(task.start), world))
+    return Calm(sol, sim.execute(task, sol.plan(task.start), world), task)
 
 
 def watch_times(task: Task) -> list[int]:
