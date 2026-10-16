@@ -154,10 +154,8 @@ def test_a_crew_past_its_deadline_rests_ten_hours_or_its_flight_auto_cancels_the
 
 
 def test_a_turn_jetblue_flew_faster_than_the_rule_is_allowed_for_that_connection_only():
-    deps = {i: r.dep for i, r in sim.execute(quick_day(), {}).flights.items()}
-    assert deps == {0: 100, 1: 170, 2: 170}
     run = sim.execute(quick_day(), {})
-    assert (run.flights[1].tail, run.flights[2].tail) == ("N1", "N2")
+    assert {i: (r.dep, r.tail) for i, r in run.flights.items()} == {0: (100, "N1"), 1: (170, "N1"), 2: (170, "N2")}
     assert sorted(r.dep for r in sim.execute(quick_day(None), {}).flights.values()) == [100, 170, 190]
     alone = replace(quick_day(), tails=quick_day().tails[:1])
     assert sim.execute(alone, {1: {"cancel": True}}).flights[2].dep == 190
