@@ -50,3 +50,11 @@ def test_the_references_run_are_the_default_set_unless_named_and_only_takes_date
     only = world_check.wanted("2024-08-19,b6-20250209-0600")
     assert [only(d) for d in ("2024-08-19", "2025-02-09", "2025-02-10")] == [True, True, False]
     assert world_check.wanted("")("2023-07-16")
+
+
+def test_the_references_gate_counts_the_references_it_compared_with_each_anchor():
+    run = {"anchor": {"exact": True, "gap_pct": 0.0, "seats_ok": True}, "naive": {"total": 9, "seats_ok": True},
+           "airline": {"total": 8, "seats_ok": True}, "calm": {"cancelled": 0}}
+    gate = world_check.references_gate({"a": run, "b": {**run, "below_anchor": {"airline": 7}}}, {})
+    assert gate["compared_with_anchor"] == {"naive": 2, "airline": 2} and gate["below_anchor"] == {"b": {"airline": 7}}
+    assert not gate["pass"] and world_check.references_gate({"a": run}, {})["pass"]

@@ -2,18 +2,17 @@
 airline's aircraft-minutes at the FAA's rates).
 
 - anchor: the hindsight MIP on the truth, every cancellation priced at the first watch, proven and canonical;
-- follower: at every watch (M13) the MIP on the day as known (M12; unknown delays 0, W6; the programs as issued, a
-  proposed GDP included), its plan frozen as the env freezes (M11): a flight the plan, run on that day, has leaving
-  before t + FREEZE commits to fly; a projected auto-cancel stays open until FREEZE before the minute it is decided
-  (its deadline, or its crew deadline when its crew's rest would end past that, Task.auto_at), and is priced and
-  pinned there as an auto-cancel, which moves no aircraft through a break; a cancellation is final from the watch that
-  confirms it, priced there and fixed in every later solve (W21). A flight the solve lets auto-cancel is held past its
-  deadline, not cancelled, so the sim decides it as the solve did. Its plan
-  holds a flight only where its last solve has it leaving later than it would with no hold on the day as known
-  (`deliberate`): an EDCT or a stop the forecast expects is the FAA's, not the desk's, so on the truth a flight the
-  desk did not hold leaves as soon as its aircraft, its crew, the stops and its slot allow (M11). Every watch solve is
-  canonical (the earliest optimal departures, v1's) and starts from the plan's own projection, so no truth reaches
-  the search;
+- follower: at every watch the MIP on the day as known (unknown delays 0; the programs as issued, a proposed GDP
+  included), its plan frozen as the env freezes: a flight the plan, run on that day, has leaving before t + FREEZE
+  commits to fly; a projected auto-cancel stays open until FREEZE before the minute it is decided (its deadline, or its
+  crew deadline when its crew's rest would end past that, Task.auto_at), and is priced and pinned there as an
+  auto-cancel, which moves no aircraft through a break; a cancellation is final from the watch that confirms it, priced
+  there and fixed in every later solve. A flight the solve lets auto-cancel is held past its deadline, not cancelled,
+  so the sim decides it as the solve did. Its plan holds a flight only where its last solve has it leaving later than it
+  would with no hold on the day as known (`deliberate`): an EDCT or a stop the forecast expects is the FAA's, not the
+  desk's, so on the truth a flight the desk did not hold leaves as soon as its aircraft, its crew, the stops and its
+  slot allow. Every watch solve is canonical (the earliest optimal departures, v1's) and starts from the plan's own
+  projection, so no truth reaches the search;
 - program-blind follower: the follower with every program removed from its model (the nominal caps stay);
 - base-rate follower (`early`, off by default): the follower expecting every GDP to end `early` minutes before its
   as-issued end, never before the watch, as GDPs on other days did by the median; its stops run as issued;

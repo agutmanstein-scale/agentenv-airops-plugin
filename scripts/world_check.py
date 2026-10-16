@@ -34,7 +34,7 @@ The gates, as registered, a task being a storm date:
 - controls: on both control dates, JetBlue's recorded day costs at least the anchor, and naive is within 2% of the
   flat anchor;
 - references: every kept task's anchor proven and replayed exactly, no reference below a proven anchor, pax <= seats
-  on every flight a reference flies, the tasks left out counted;
+  on every flight a reference flies, the tasks left out and the references compared with the anchors counted;
 - days, reported only: the built storm dates by storm hub(s) and season, and the split.
 
 --only takes dates (2024-08-19) or task ids (b6-20240819-0600), storm and control dates alike.
@@ -484,8 +484,10 @@ def pooled(days: list[tuple[float, float, int]]) -> dict:
 
 
 def references_gate(kept: Mapping[str, dict], left: Mapping[str, list[str]]) -> dict:
-    """Over the kept tasks: anchors proven and exact, no reference below a proven anchor, pax <= seats."""
+    """Over the kept tasks: anchors proven and exact, no reference below a proven anchor, pax <= seats; the gate
+    covers only the references that ran, counted per reference."""
     with_anchor = {i: r for i, r in kept.items() if "anchor" in r}
+    compared = Counter(k for r in with_anchor.values() for k in PLAYED if k != "anchor" and "total" in r.get(k, {}))
     not_exact = sorted(i for i, r in with_anchor.items() if not r["anchor"]["exact"])
     below = {i: r["below_anchor"] for i, r in kept.items() if r.get("below_anchor")}
     seats = sorted(i for i, r in kept.items() if not all(r[k]["seats_ok"] for k in PLAYED if k in r))
@@ -493,7 +495,8 @@ def references_gate(kept: Mapping[str, dict], left: Mapping[str, list[str]]) -> 
     return {"kept": len(kept), "anchored": len(with_anchor), "left_out": len(left),
             "left_out_by": dict(Counter(k for v in left.values() for k in v)),
             "left_out_tasks": dict(sorted(left.items())), "anchor_not_exact": not_exact, "below_anchor": below,
-            "pax_over_seats": seats, "max_anchor_gap_pct": max(gaps, default=None),
+            "compared_with_anchor": {k: compared[k] for k in PLAYED if compared[k]}, "pax_over_seats": seats,
+            "max_anchor_gap_pct": max(gaps, default=None),
             "pass": bool(with_anchor) and len(with_anchor) == len(kept) and not not_exact and not below and not seats}
 
 
