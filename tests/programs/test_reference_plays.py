@@ -5,8 +5,9 @@ import pytest
 from day_helpers import GDP, crewed, day, flight, random_day, shortened, stop, tail
 from program_helpers import adv
 
-from agentenv_airops.programs import references, sim
-from agentenv_airops.programs.model import Outcome, Task
+from agentenv_airops.programs import mip, references, sim
+from agentenv_airops.programs.cost import cancel_price
+from agentenv_airops.programs.model import Move, Outcome, Task
 
 
 @pytest.fixture(scope="module", params=["task", "crewed"])
@@ -184,6 +185,66 @@ def test_no_reference_costs_less_than_the_anchor(fixture_day):
 @pytest.mark.parametrize("seed", range(4))
 def test_no_reference_costs_less_than_the_anchor_on_days_with_moves(seed):
     none_below_the_anchor(random_day(random.Random(seed)))
+
+
+def stopped_bound_leg():
+    """A ground stop signed at 01:00 holds DCA-JFK past its 01:50 deadline, so from that watch its auto-cancel is
+    pinned; the Move after it would have taken its aircraft to MCO for MCO-JFK. A later flight keeps the watches
+    going."""
+    flights = [flight(0, "DCA", "JFK", 100, 60, deadline=110), flight(1, "MCO", "JFK", 250, 150, deadline=600),
+               flight(2, "JFK", "BOS", 400, 60)]
+    move = Move(0, "JFK", "MCO", 160, 220)
+    return day(flights, [tail("N1", "DCA", end="JFK", repositions=(move,), legs=(0, 1)), tail("N2", "JFK", end="BOS")],
+               stops=(stop(60, 300),), advisories=(adv("s1", "gs", 60, 60, 300),))
+
+
+def lapse_over_cancel():
+    """JFK-PWM can't leave by its deadline; cancelling it would send the aircraft that lands from BUF through its Move
+    to MCO, so the desk lets it auto-cancel and the aircraft flies JFK-DCA's 200 passengers."""
+    flights = [flight(0, "BUF", "JFK", 20, 60), flight(1, "JFK", "PWM", 100, 60, pax=10, lb=400, deadline=300),
+               flight(2, "JFK", "DCA", 200, 60, pax=200), flight(3, "MCO", "JFK", 400, 150, pax=10)]
+    move = Move(1, "PWM", "MCO", 160, 370)
+    return day(flights, [tail("N1", "BUF", end="DCA", repositions=(move,), legs=(0, 1, 3))])
+
+
+def test_every_follower_watch_solve_replays_with_its_pins_and_a_pinned_auto_cancel_moves_no_aircraft(monkeypatch):
+    task, solves = stopped_bound_leg(), []
+    solve = mip.solve
+
+    def kept(task, world, price, fixed, earliest, **kw):
+        sol = solve(task, world, price, fixed, earliest, **kw)
+        solves.append((world, price, fixed, kw["lapsed"], sol))
+        return sol
+
+    monkeypatch.setattr(mip, "solve", kept)
+    followed = references.follow(task)
+    assert any(0 in lapsed for *_, lapsed, _ in solves)
+    for world, price, fixed, lapsed, sol in solves:
+        plan = {}
+        for f in task.flights:
+            d = sol.deps[f.id]
+            if f.id in fixed and d is not None:
+                plan[f.id] = {"left": d}
+            elif f.id in sol.lapsed:
+                plan[f.id] = {"not_before": f.deadline + 1}
+            elif d is None:
+                decided = next(t for t in range(task.start, f.deadline + 1) if cancel_price(f, t) == price[f.id])
+                plan[f.id] = {"cancel": True, "decided": decided}
+            else:
+                plan[f.id] = {"not_before": d}
+        run = sim.execute(task, plan, world)
+        assert run.cost.total == sol.objective
+        assert all((r.dep if r.status == "flown" else None) == sol.deps[i] for i, r in run.flights.items())
+        assert {i for i in fixed if fixed[i] is None} & set(sol.lapsed) == set(lapsed) & set(task.moved)
+    assert followed.run.flights[0].status == "auto_cancelled" and followed.run.flights[1].status != "flown"
+
+
+def test_a_flight_the_follower_lets_auto_cancel_is_held_past_its_deadline_not_cancelled():
+    task = lapse_over_cancel()
+    followed = references.follow(task)
+    assert followed.plan[1] == {"not_before": task.flight(1).deadline + 1}
+    assert [r.status for r in followed.run.flights.values()] == ["flown", "auto_cancelled", "flown", "cancelled"]
+    assert followed.run.flights[2].tail == "N1"
 
 
 def none_below_the_anchor(task: Task) -> None:

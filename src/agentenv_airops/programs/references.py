@@ -1,12 +1,14 @@
-"""The v2 references: plans played on the truth through sim.execute and priced by cost.py (passengers by notice, the
+"""The references: plans played on the truth through sim.execute and priced by cost.py (passengers by notice, the
 airline's aircraft-minutes at the FAA's rates).
 
 - anchor: the hindsight MIP on the truth, every cancellation priced at the first watch, proven and canonical;
 - follower: at every watch (M13) the MIP on the day as known (M12; unknown delays 0, W6; the programs as issued, a
   proposed GDP included), its plan frozen as the env freezes (M11): a flight the plan, run on that day, has leaving
   before t + FREEZE commits to fly; a projected auto-cancel stays open until FREEZE before the minute it is decided
-  (its deadline, or its crew deadline when its crew's rest would end past that, Task.auto_at), and is priced there; a
-  cancellation is final from the watch that confirms it, priced there and fixed in every later solve (W21). Its plan
+  (its deadline, or its crew deadline when its crew's rest would end past that, Task.auto_at), and is priced and
+  pinned there as an auto-cancel, which moves no aircraft through a break; a cancellation is final from the watch that
+  confirms it, priced there and fixed in every later solve (W21). A flight the solve lets auto-cancel is held past its
+  deadline, not cancelled, so the sim decides it as the solve did. Its plan
   holds a flight only where its last solve has it leaving later than it would with no hold on the day as known
   (`deliberate`): an EDCT or a stop the forecast expects is the FAA's, not the desk's, so on the truth a flight the
   desk did not hold leaves as soon as its aircraft, its crew, the stops and its slot allow (M11). Every watch solve is
@@ -103,15 +105,17 @@ def follow(task: Task, programs: bool = True, time_limit: float = TIME_LIMIT, ca
         if t > task.start:
             pinned |= frozen(run, t)
         fixed = {i: run.flights[i].dep if run.flights[i].status == FLOWN else None for i in pinned}
+        lapsed = {i for i in pinned if run.flights[i].status == AUTO_CANCELLED}
         price = {f.id: _price(f, plan.get(f.id, {}), task.auto_at(f) if f.id in pinned else t) for f in task.flights}
         sol = mip.solve(task, world, price, fixed, t + FREEZE if t > task.start else None, time_limit=time_limit,
-                        canonical=canonical, start=run)
+                        canonical=canonical, start=run, lapsed=lapsed)
         if not sol.proven:
             raise RuntimeError(f"{task.task_id}: watch {t} solve {sol.status} at gap {sol.gap_pct}%")
-        cancelled = sorted(i for i, d in sol.deps.items() if i not in pinned and d is None)
+        cancelled = sorted(i for i, d in sol.deps.items() if i not in pinned and d is None and i not in sol.lapsed)
         plan = {i: v for i, v in plan.items() if i in pinned} | {i: {"cancel": True, "decided": t} for i in cancelled}
         pinned |= set(cancelled)
-        held = deliberate(task, plan, {i: d for i, d in sol.deps.items() if i not in pinned}, world, t)
+        deps = {i: sol.lapsed.get(i, d) for i, d in sol.deps.items() if i not in pinned}
+        held = deliberate(task, plan, deps, world, t)
         plan |= {i: {"not_before": d} for i, d in held.items()}
         log.append({"t": t, "frozen": len(pinned), "cancelled": cancelled, "held": len(held),
                     "planned": sol.objective, "status": sol.status, "gap_pct": sol.gap_pct,

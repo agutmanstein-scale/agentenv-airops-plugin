@@ -17,6 +17,7 @@ from day_helpers import (
     stop,
     tail,
     three_into_a_program,
+    turned_through_day,
 )
 
 from agentenv_airops.programs import mip, references, sim
@@ -37,7 +38,8 @@ def days() -> dict[str, Task]:
                            [tail("N1", "BUF"), tail("N2", "DCA"), tail("N3", "MCO")], aar=1),
             "moved": moved_day(lb=60), "broken": broken_day(), "busy": busy_day(), "quick": quick_day(),
             "lone_quick": replace(quick_day(), tails=quick_day().tails[:1]), "families": families(),
-            "crew": crew(), **{f"random{seed}": random_day(random.Random(seed)) for seed in RANDOM}}
+            "crew": crew(), "turned_through": turned_through_day(),
+            **{f"random{seed}": random_day(random.Random(seed)) for seed in RANDOM}}
 
 
 def crew() -> Task:
@@ -123,6 +125,19 @@ def test_every_day_the_sim_runs_is_a_solution_of_the_model_at_its_cost(name):
         assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
 
 
+def test_a_day_with_legs_cancelled_on_either_side_of_its_breaks_is_a_solution_at_its_cost():
+    task = broken_day()
+    for plan in ({2: {"cancel": True}}, {1: {"cancel": True}, 2: {"cancel": True}}, {0: {"cancel": True}},
+                 {0: {"cancel": True}, 1: {"cancel": True}}, {1: {"cancel": True}, 3: {"cancel": True}}):
+        run = sim.execute(task, plan)
+        net = mip.Network(task)
+        x = net.vector(run)
+        assert x is not None and feasible(net, x)
+        assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
+    sol = mip.solve(task, fixed={2: None})
+    assert sol.deps[3] is None and replays(task, sol)
+
+
 @pytest.mark.parametrize("name", ["slots", "stop", "moved", "broken", "busy", "quick", "crew", "random3"])
 def test_a_day_with_its_history_pinned_is_a_solution_of_the_model_with_those_pins(name):
     task = days()[name]
@@ -194,3 +209,24 @@ def test_a_faster_turn_jetblue_flew_lowers_the_optimum_and_the_optimum_uses_it()
     net = mip.Network(alone)
     x = net.vector(sim.execute(alone, sol.plan(alone.start)))
     assert sum(x[c] for c in net.turn.values()) == 1
+
+
+def test_the_turn_jetblue_flew_through_a_move_lowers_the_optimum_and_the_optimum_uses_it():
+    task = turned_through_day()
+    plain = turned_through_day(None)
+    sol = mip.solve(task, fixed={1: None})
+    assert sol.deps[2] == 100 and replays(task, sol)
+    assert sol.objective < mip.solve(plain, fixed={1: None}).objective
+    net = mip.Network(task)
+    x = net.vector(sim.execute(task, {1: {"cancel": True}}))
+    assert x is not None and feasible(net, x) and sum(x[c] for c in net.through.values()) == 1
+
+
+def test_a_pinned_auto_cancel_carries_no_aircraft_through_its_break_and_a_pinned_cancellation_does():
+    task = broken_day()
+    lapsed = mip.solve(task, fixed={1: None}, lapsed={1})
+    assert lapsed.lapsed == {1: task.flight(1).deadline + 1} and (lapsed.deps[2], lapsed.deps[3]) == (None, None)
+    assert replays(task, lapsed)
+    cancelled = mip.solve(task, fixed={1: None})
+    assert not cancelled.lapsed and (cancelled.deps[2], cancelled.deps[3]) == (400, 640) and replays(task, cancelled)
+    assert lapsed.objective > cancelled.objective

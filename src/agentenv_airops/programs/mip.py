@@ -1,4 +1,4 @@
-"""The v2 hindsight MIP (HiGHS): v1's time-line network (refs.mip) by split family, inside the programs.
+"""The hindsight MIP (HiGHS): v1's time-line network (refs.mip) by split family, inside the programs.
 
 Each flight gets a copy per departure minute (every `step` minutes, at the EDCT of every slot into its destination, the
 slot less its scheduled block, and at the end of its crew's rest) from its earliest to its deadline, the hub cutoff
@@ -9,8 +9,8 @@ any other copy into a hub counts in the nominal row of its arrival hour (the min
 pax x minutes late at arrival and its aircraft's minutes (cost.flown_price: the minute's gate delay, and the world's
 block overrun, the same for every copy of a flight); a cancellation costs `price`, the notice price at the solve time,
 which keeps the model linear, or the flat price, either less the cancellation's saving, and a caller pins a
-cancellation the sim decides (an auto-cancel) at the price the sim gives it (Task.auto_at). Pinned flights keep their
-minute or their cancellation, and use up the slots and nominal room they take.
+cancellation the sim decides (an auto-cancel, `lapsed`) at the price the sim gives it (Task.auto_at). Pinned flights
+keep their minute, their cancellation or their auto-cancel, and use up the slots and nominal room they take.
 
 Aircraft flow as in v1, over nodes per (family, station) at every event time; a copy of a leg with a busy block
 reaches its destination's node at the block's ready time when that is later than its turn. A leg JetBlue turned into
@@ -20,13 +20,14 @@ draw from; the station's node feeds the gate at each of them. Moves are arcs on 
 tail (sim.routes), no aircraft created or taken: each tail with a break has a track, a node per break and time. The
 aircraft a break binds enters its track by a redirect out of the node its carrier lands at, allowed and then forced
 when every leg between the carrier and the break is cancelled, or by the tail's own aircraft leaving its start when
-every leg before the first break is. From a break it goes to the origin of the first leg after it that isn't
-cancelled, on to the next break when all of them are, or at the tail's end to the last Move's destination, each
-choice a row on those legs' cancel columns. On such a tail a leg the sim lets auto-cancel has its own column, at its
-auto price: it leaves a leg not cancelled that carries no aircraft, and a plan holds the flight past its deadline for
-the sim to decide it. Overnight nodes feed v1's ferries onto tomorrow's needs. Every solution is a day sim.execute
-reproduces from its departure minutes as holds, at the same cost, and every day sim.execute runs is a solution
-(`Network.vector`), which also starts the search.
+every leg before the first break is. From a break it goes to the Move's destination and stays there, or on to the
+next break when every leg between the two is cancelled, a row on those legs' cancel columns. A carrier JetBlue turned
+fast into the leg its Moves deliver it to may also go from its lane straight to that leg's gate, at its turned time
+through the Moves, under the same rows. On such a tail a leg the sim lets auto-cancel has its own column, at its auto
+price: it leaves a leg not cancelled that carries no aircraft, and a plan holds the flight past its deadline for the
+sim to decide it. Overnight nodes feed v1's ferries onto tomorrow's needs. Every solution is a day
+sim.execute reproduces from its departure minutes as holds, at the same cost, and every day sim.execute runs is a
+solution (`Network.vector`), which also starts the search.
 
 Proven to GAP (0.01%); `canonical` then re-solves among the optimal plans for the one with the earliest weighted
 departures (v1's second pass, started from the first), so the plan, not only its cost, is the same on every run. Within
@@ -37,7 +38,7 @@ canonical.
 
 import time
 from collections import Counter, defaultdict
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 
 import highspy
@@ -86,11 +87,12 @@ class Solution:
 def solve(task: Task, world: sim.World | None = None, price: Mapping[int, int] | None = None,
           fixed: Mapping[int, int | None] | None = None, earliest: int | None = None, step: int = 1,
           time_limit: float = 600.0, gap: float = GAP, threads: int = 1, canonical: bool = True,
-          start: sim.Execution | None = None) -> Solution:
+          start: sim.Execution | None = None, lapsed: Collection[int] = ()) -> Solution:
     """The optimum in `world` (the truth by default) with each cancel arc at `price` (default: notice-priced at the
-    first watch). `fixed` pins flights to a departure minute (None: cancelled); the others leave at or after
-    `earliest`. `start` is a day sim.execute ran in `world` that the model holds, to start the search from."""
-    net = Network(task, world, price, fixed, earliest, step)
+    first watch). `fixed` pins flights to a departure minute (None: cancelled, or auto-cancelled for those in
+    `lapsed`); the others leave at or after `earliest`. `start` is a day sim.execute ran in `world` that the model
+    holds, to start the search from."""
+    net = Network(task, world, price, fixed, earliest, step, lapsed)
     return net.solve(time_limit, gap, threads, canonical, None if start is None else net.vector(start))
 
 
@@ -115,7 +117,8 @@ class Network:
     """The MIP of a task in a world, its columns kept so that any day the sim runs can be written as a solution."""
 
     def __init__(self, task: Task, world: sim.World | None = None, price: Mapping[int, int] | None = None,
-                 fixed: Mapping[int, int | None] | None = None, earliest: int | None = None, step: int = 1):
+                 fixed: Mapping[int, int | None] | None = None, earliest: int | None = None, step: int = 1,
+                 lapsed: Collection[int] = ()):
         self.task = task
         self.world = world = sim.truth(task) if world is None else world
         price = {f.id: cancel_price(f, task.start) for f in task.flights} if price is None else price
@@ -158,10 +161,7 @@ class Network:
                                                   for t in lands[ln.legs[p]]}
                 if not e:
                     ts.add(max(ln.tail.ready, r))
-                for j in ln.after(e):
-                    events[(fam, task.flight(j).orig)] |= ts
-                if e + 1 == len(ln.breaks):
-                    events[(fam, task.moved[ln.legs[k]].dest)] |= ts
+                events[(fam, task.moved[ln.legs[k]].dest)] |= ts
                 transit[(name, e)] = sorted(ts)
                 last = ts
         self.times = {key: sorted(ts) for key, ts in events.items()}
@@ -178,8 +178,22 @@ class Network:
                 t = task.turned(f, d + world.block[i])
                 if t < task.back(f, d + world.block[i]) and t <= last[j]:
                     quick[(i, d)] = t
+        place = {i: (ln, p) for ln in lines for p, i in enumerate(ln.legs)}
+        swift: dict[tuple[int, int, int], int] = {}
+        for (i, d), t in quick.items():
+            ln, p = place.get(i, (None, 0))
+            e = ln.first(p) if ln else None
+            if e is None:
+                continue
+            f, g = task.flight(i), task.flight(task.quick[i][0])
+            back, r = task.back(f, d + world.block[i]), None
+            for k in ln.breaks[e:]:
+                move = task.moved[ln.legs[k]]
+                r = move.ready if r is None else max(r, move.ready)
+                if move.dest == g.orig and max(t, r) < max(back, r) and max(t, r) <= last[g.id]:
+                    swift[(i, d, move.leg)] = max(t, r)
         gates: dict[int, set[int]] = defaultdict(set)
-        for (i, _), t in quick.items():
+        for (i, _), t in [*quick.items(), *((k[:2], t) for k, t in swift.items())]:
             gates[task.quick[i][0]].add(t)
         self.gates = {j: sorted(ts | {d for d, _ in copies[j] if d >= min(ts)}) for j, ts in gates.items()}
         base = len(node) + len(over) + len(track)
@@ -216,10 +230,12 @@ class Network:
                     else:
                         rows[(kind, key)][c] = 1
             ub = 0 if f.id in fixed and fixed[f.id] is not None else 1
-            self.cancel[f.id] = c = m.col(price[f.id], ub, True, (f.deadline - f.sched_dep + 2) * w)
+            lapses = f.id in on_line and (f.id not in fixed or f.id in lapsed)
+            self.cancel[f.id] = c = m.col(price[f.id], 0 if lapses and f.id in fixed else ub, True,
+                                          (f.deadline - f.sched_dep + 2) * w)
             r[c] = 1
             if f.id in on_line:
-                self.lapsed[f.id] = c = m.col(cancel_price(f, task.auto_at(f)), ub, True,
+                self.lapsed[f.id] = c = m.col(cancel_price(f, task.auto_at(f)), ub if lapses else 0, True,
                                               (f.deadline - f.sched_dep + 3) * w)
                 r[c] = 1
             cover.append(r)
@@ -230,6 +246,10 @@ class Network:
             self.landed[(i, d)] = c = m.col(0, 1, False)
             arc(lane[(i, d)], node[((f.family, f.dest), task.back(f, d + world.block[i]))], c)
             self.turn[(i, d)] = c = m.col(0, 1, True)
+            arc(lane[(i, d)], gate[(task.quick[i][0], t)], c)
+        self.through: dict[tuple[int, int, int], int] = {}
+        for (i, d, leg), t in swift.items():
+            self.through[(i, d, leg)] = c = m.col(0, 1, False)
             arc(lane[(i, d)], gate[(task.quick[i][0], t)], c)
         self.feed: dict[tuple[int, int], int] = {}
         self.hold: dict[tuple[int, int], int] = {}
@@ -244,8 +264,11 @@ class Network:
                     arc(node[((g.family, g.orig), d)], gate[(j, d)], c)
         self.redirect: dict[tuple[int, int], int] = {}
         self.token: dict[str, int] = {}
-        self.release: dict[tuple[str, int, int, int], int] = {}
+        self.deliver: dict[tuple[str, int, int], int] = {}
         self.onward: dict[tuple[str, int, int], int] = {}
+        fast_to: dict[tuple[int, int], dict[int, int]] = defaultdict(dict)
+        for (i, _, leg), c in self.through.items():
+            fast_to[(i, leg)][c] = 1
         for ln in lines:
             name, fam = ln.tail.tail, ln.tail.family
             pc = {i: self.cancel[i] for i in ln.legs}
@@ -261,6 +284,15 @@ class Network:
                     arc(node[((fam, f.dest), t)], track[((name, e), max(t, ready[(name, e)]))], c)
                     m.row({c: 1, **{self.landed[(i, d)]: -1 for d in ds}}, -INF, 0)
                     went[c] = 1
+                for q in range(e, len(ln.breaks)):
+                    fast = fast_to.get((i, ln.legs[ln.breaks[q]]))
+                    if not fast:
+                        continue
+                    went |= fast
+                    for j in ln.legs[ln.breaks[e] + 1:ln.breaks[q] + 1]:
+                        m.row({**fast, pc[j]: -1}, -INF, 0)
+                    if q + 1 < len(ln.breaks):
+                        m.row({**fast, **{pc[j]: 1 for j in ln.after(q)}}, -INF, len(ln.after(q)))
                 for j in between:
                     m.row({**went, pc[j]: -1}, -INF, 0)
                 flown = {self.xs[(i, d)]: 1 for d, _ in copies[i]}
@@ -273,25 +305,21 @@ class Network:
                 m.row({c: 1, pc[j]: -1}, -INF, 0)
             m.row({c: 1, **{pc[j]: -1 for j in before}}, 1 - len(before), INF)
             for e, k in enumerate(ln.breaks):
-                after = ln.after(e)
-                out: dict[int, dict[int, int]] = defaultdict(dict)
+                stay, on = {}, {}
                 for t in transit[(name, e)]:
                     u = track[((name, e), t)]
-                    for j in after:
-                        self.release[(name, e, j, t)] = c = m.col(0, 1, False)
-                        arc(u, node[((fam, task.flight(j).orig), t)], c)
-                        out[j][c] = 1
-                    self.onward[(name, e, t)] = c = m.col(0, 1, False)
+                    self.deliver[(name, e, t)] = c = m.col(0, 1, False)
+                    arc(u, node[((fam, task.moved[ln.legs[k]].dest), t)], c)
+                    stay[c] = 1
                     if e + 1 < len(ln.breaks):
+                        self.onward[(name, e, t)] = c = m.col(0, 1, False)
                         arc(u, track[((name, e + 1), max(t, ready[(name, e + 1)]))], c)
-                    else:
-                        arc(u, node[((fam, task.moved[ln.legs[k]].dest), t)], c)
-                    out[None][c] = 1
-                for n, j in enumerate(after):
-                    m.row({**out[j], pc[j]: 1}, -INF, 1)
-                    for q in after[:n]:
-                        m.row({**out[j], pc[q]: -1}, -INF, 0)
-                    m.row({**out[None], pc[j]: -1}, -INF, 0)
+                        on[c] = 1
+                if on:
+                    after = ln.after(e)
+                    for j in after:
+                        m.row({**on, pc[j]: -1}, -INF, 0)
+                    m.row({**stay, **{pc[j]: 1 for j in after}}, -INF, len(after))
         tokens = Counter(t.family for t in task.tails)
         self.ground: dict[tuple, list[int]] = {}
         for key, ts in self.times.items():
@@ -355,7 +383,7 @@ class Network:
         delta: dict[tuple, Counter] = defaultdict(Counter)
         carried, _ = sim.routes(task, {i for i, r in run.flights.items() if r.status == CANCELLED})
         nxt = {a: b for legs in run.legs.values() for a, b in zip(legs, legs[1:], strict=False)}
-        via = {}
+        via, fast = {}, set()
         for f in task.flights:
             r = run.flights[f.id]
             if r.status != FLOWN:
@@ -365,9 +393,15 @@ class Network:
             if k not in self.xs:
                 return None
             x[self.xs[k]] = 1
-            if k in self.turn and f.id not in carried and nxt.get(f.id) == task.quick[f.id][0]:
+            j = task.quick.get(f.id, (None,))[0]
+            swift = (*k, carried[f.id][1][-1].leg) if f.id in carried else None
+            if swift in self.through and nxt.get(f.id) == j:
+                x[self.through[swift]] = 1
+                via[j] = max([task.turned(f, r.dep + world.block[f.id]), *(m.ready for m in carried[f.id][1])])
+                fast.add(f.id)
+            elif k in self.turn and f.id not in carried and nxt.get(f.id) == j:
                 x[self.turn[k]] = 1
-                via[nxt[f.id]] = task.turned(f, r.dep + world.block[f.id])
+                via[j] = task.turned(f, r.dep + world.block[f.id])
             else:
                 x[self.landed[k]] = 1
                 delta[(f.family, f.dest)][task.back(f, r.dep + world.block[f.id])] += 1
@@ -386,7 +420,7 @@ class Network:
         for t in task.tails:
             delta[(t.family, t.pos)][t.ready] += 1
         for ln in self.lines:
-            self._carry(ln, run, x, delta)
+            self._carry(ln, run, x, delta, fast)
         ends: dict[tuple, int] = {}
         for key, ts in self.times.items():
             held = 0
@@ -404,17 +438,17 @@ class Network:
                     x[self.ferry[(fam, a, b)]] = v
         return x
 
-    def _carry(self, ln: Line, run: sim.Execution, x: np.ndarray, delta: dict[tuple, Counter]) -> None:
-        """`run`'s aircraft through the breaks of `ln` into x, walking its legs as sim.routes does."""
+    def _carry(self, ln: Line, run: sim.Execution, x: np.ndarray, delta: dict[tuple, Counter],
+               fast: set[int]) -> None:
+        """`run`'s aircraft through the breaks of `ln` into x, walking its legs as sim.routes does; a carrier in
+        `fast` went to its next leg's gate instead."""
         task, world = self.task, self.world
         name, fam = ln.tail.tail, ln.tail.family
         carrier, void, at = None, False, None
         for p, i in enumerate(ln.legs):
             if run.flights[i].status != CANCELLED:
                 if at is not None:
-                    e, t = at
-                    x[self.release[(name, e, i, t)]] = 1
-                    delta[(fam, task.flight(i).orig)][t] += 1
+                    self._deliver(ln, at, x, delta)
                 carrier, void, at = i, False, None
             if p not in ln.breaks:
                 continue
@@ -427,7 +461,7 @@ class Network:
                 x[self.token[name]] = 1
                 delta[(fam, ln.tail.pos)][ln.tail.ready] -= 1
                 at = (e, max(ln.tail.ready, r))
-            elif not void and run.flights[carrier].status == FLOWN:
+            elif not void and run.flights[carrier].status == FLOWN and carrier not in fast:
                 f = task.flight(carrier)
                 t = task.back(f, run.flights[carrier].dep + world.block[carrier])
                 x[self.redirect[(carrier, t)]] = 1
@@ -436,9 +470,12 @@ class Network:
             else:
                 void = True
         if at is not None:
-            e, t = at
-            x[self.onward[(name, e, t)]] = 1
-            delta[(fam, task.moved[ln.legs[ln.breaks[-1]]].dest)][t] += 1
+            self._deliver(ln, at, x, delta)
+
+    def _deliver(self, ln: Line, at: tuple[int, int], x: np.ndarray, delta: dict[tuple, Counter]) -> None:
+        e, t = at
+        x[self.deliver[(ln.tail.tail, e, t)]] = 1
+        delta[(ln.tail.family, self.task.moved[ln.legs[ln.breaks[e]]].dest)][t] += 1
 
 
 class _Started(_Model):

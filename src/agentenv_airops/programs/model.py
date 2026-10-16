@@ -137,9 +137,8 @@ class Flight:
 class Move:
     """A chain break's fixed, uncosted repositioning, bound to the aircraft that flies `leg`, the tail's leg before
     the break (its destination `orig`, its scheduled arrival `leave`): landed and turned, that aircraft is ready at
-    `dest` at `ready` or then, whichever is later. Legs the plan cancels next to a break were never flown, so they join
-    its repositioning (sim.routes). `ready` comes before `leave` where BTS shows a swap: the cancelled legs keep the
-    tail they were assigned, the flown ones the tail that flew them."""
+    `dest` at `ready` or then, whichever is later. Legs the plan cancels into a break were never flown, so they join
+    its repositioning; a leg cancelled after it moves nothing (sim.routes)."""
 
     leg: int
     orig: str

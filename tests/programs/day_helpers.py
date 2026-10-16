@@ -1,5 +1,5 @@
-"""Small hand-made v2 days for the sim, MIP and reference tests: a few flights and tails at JFK with the programs
-given, every program covering every origin."""
+"""Small hand-made days for the sim, MIP and reference tests: a few flights and tails at JFK with the programs given,
+every program covering every origin."""
 
 import random
 from dataclasses import replace
@@ -120,6 +120,16 @@ def quick_day(ground: int | None = 10) -> Task:
     turned = () if ground is None else (Connection(0, 1, ground),)
     return day(flights, [replace(tail("N1", "BUF", end="DCA", legs=(0, 1)), connections=turned),
                          tail("N2", "JFK", end="MCO", legs=(2,))])
+
+
+def turned_through_day(ground: int | None = 20) -> Task:
+    """N1 lands BUF-JFK at 80; BTS left it on JFK-BOS at 95, which a Move closes back to JFK, but JetBlue turned it
+    into JFK-DCA at 100, `ground` minutes after landing (None: no such turn)."""
+    flights = [flight(0, "BUF", "JFK", 20, 60), flight(1, "JFK", "BOS", 95, 50), flight(2, "JFK", "DCA", 100, 60)]
+    turned = () if ground is None else (Connection(0, 2, ground),)
+    move = Move(1, "BOS", "JFK", 145, 100 - TURN)
+    return day(flights, [replace(tail("N1", "BUF", end="DCA", repositions=(move,), legs=(0, 1, 2)),
+                                 connections=turned)])
 
 
 def random_day(rng: random.Random, n_tails: int = 3) -> Task:

@@ -12,6 +12,7 @@ from day_helpers import (
     stop,
     tail,
     three_into_a_program,
+    turned_through_day,
 )
 
 from agentenv_airops.programs import sim
@@ -98,16 +99,29 @@ def test_a_moves_leg_cancelled_leaves_its_aircraft_to_reposition_from_its_origin
     assert (run.flights[2].tail, run.flights[3].tail, run.moves, run.ends["N2"]) == ("N1", "N3", {1: 300}, "BUF")
 
 
-def test_cancelled_legs_on_either_side_of_breaks_join_their_repositioning():
+def test_cancelled_legs_into_a_break_join_its_repositioning():
     task = broken_day()
     run = sim.execute(task, {})
     assert [r.dep for r in run.flights.values()] == [20, 200, 400, 640] and run.moves == {0: 170, 1: 370}
-    run = sim.execute(task, {1: {"cancel": True}, 2: {"cancel": True}})
-    assert (run.flights[3].tail, run.flights[3].dep, run.moves) == ("N1", 640, {0: 170, 1: 370})
     run = sim.execute(task, {0: {"cancel": True}})
     assert (run.flights[1].tail, run.flights[1].dep, run.moves) == ("N1", 200, {0: 170, 1: 370})
+    run = sim.execute(task, {1: {"cancel": True}})
+    assert [(r.status, r.tail, r.dep) for r in run.flights.values()] == [
+        ("flown", "N1", 20), ("cancelled", None, None), ("flown", "N1", 400), ("flown", "N1", 640)]
+    assert run.moves == {0: 170, 1: 370}
     run = sim.execute(task, {3: {"cancel": True}})
     assert run.ends == {"N1": "MCO"}
+
+
+def test_a_leg_cancelled_after_a_break_leaves_its_aircraft_where_the_move_put_it():
+    task = broken_day()
+    run = sim.execute(task, {2: {"cancel": True}})
+    assert [r.status for r in run.flights.values()] == ["flown", "flown", "cancelled", "auto_cancelled"]
+    assert run.ends == {"N1": "DCA"} and run.moves == {0: 170, 1: 370}
+    run = sim.execute(task, {1: {"cancel": True}, 2: {"cancel": True}})
+    assert (run.flights[3].status, run.ends, run.moves) == ("auto_cancelled", {"N1": "DCA"}, {0: 170, 1: 370})
+    run = sim.execute(task, {0: {"cancel": True}, 1: {"cancel": True}})
+    assert (run.flights[2].dep, run.flights[3].dep, run.ends) == (400, 640, {"N1": "JFK"})
 
 
 def test_a_bound_leg_that_auto_cancels_moves_no_aircraft():
@@ -151,6 +165,13 @@ def test_a_crew_past_its_deadline_rests_ten_hours_or_its_flight_auto_cancels_the
     assert (on_time.flights[0].dep, on_time.flights[1].dep) == (100, 130)
     assert sim.execute(task, {0: {"left": 300}, 1: {"left": 300}}).flights[1].dep == 300
     assert sim.execute(replace(task, start=200), {}).flights[1].decided == 200
+
+
+def test_a_turn_jetblue_flew_faster_than_the_rule_holds_through_the_moves_its_aircraft_passes():
+    run = sim.execute(turned_through_day(), {1: {"cancel": True}})
+    assert (run.flights[2].tail, run.flights[2].dep, run.moves) == ("N1", 100, {1: 110})
+    assert sim.execute(turned_through_day(None), {1: {"cancel": True}}).flights[2].dep == 110
+    assert sim.execute(turned_through_day(40), {1: {"cancel": True}}).flights[2].dep == 110
 
 
 def test_a_turn_jetblue_flew_faster_than_the_rule_is_allowed_for_that_connection_only():

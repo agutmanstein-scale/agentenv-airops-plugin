@@ -1,4 +1,4 @@
-"""The v2 day: v1's dispatch inside the FAA's programs at JFK and BOS, with JetBlue's slots and EDCTs in place of
+"""The storm day: v1's dispatch inside the FAA's programs at JFK and BOS, with JetBlue's slots and EDCTs in place of
 hourly caps.
 
 A plan maps flight ids to {"cancel", "not_before", "claim", "decided", "left"}, every key optional; a flight left out
@@ -8,7 +8,8 @@ counts a pinned departure: on its slot if the minute plus its scheduled block is
 it, on nothing if that is off the pool, else under the nominal cap. The others are dispatched as in v1: in order of
 their next try, each takes the first-ready aircraft of its family at its origin, the aircraft JetBlue turned into it
 first: that aircraft may take it after JetBlue's ground time where that was shorter than the family's turn
-(Task.quick), and any other flight only after the turn. What else holds a flight ready at minute t, in this order:
+(Task.quick), through any Moves it passes on the way, and any other flight only after the turn. What else holds a
+flight ready at minute t, in this order:
 - a ground stop at its destination hub covering its origin holds it to the stop's end; airborne flights fly on;
 - a flight governed at t by a GDP segment (the one in force when it departs, the departure-time lock; its origin in
   scope and its scheduled arrival in the period) needs one of JetBlue's slots in that segment's pool: its claimed slot
@@ -28,14 +29,15 @@ past its deadline, auto-cancels at its crew deadline, decided there, never befor
 
 Moves are fixed and uncosted, and bound to an aircraft (model.Move, `routes`): the one that flies the leg before the
 Move's break, landed and turned, is ready at the Move's destination at the Move's `ready` or then, whichever is later,
-never at that leg's destination. Legs the plan cancels next to a break were never flown, so they join its
+never at that leg's destination. Legs the plan cancels into a break were never flown, so they join its
 repositioning: the Move binds the aircraft of the tail's last leg before the break the plan doesn't cancel (the tail's
-own aircraft when there is none), which goes on through any later break only cancelled legs separate it from and is
-ready at the origin of the tail's next leg the plan doesn't cancel (the last Move's destination when there is none). A
-bound leg that auto-cancels took no aircraft, and its Moves move none: the sim learns of an auto-cancel only once the
-aircraft it would have bound is free for others. So no Move takes an aircraft it isn't bound to, or delivers one it
-didn't take. A busy block keeps the aircraft that flew its leg until the block's ready time, if that is later than
-its turn; a cancelled leg has none. At the end of the day v1's ferries put the aircraft on tomorrow's needs.
+own aircraft when there is none), which goes on through any later break only cancelled legs separate it from and
+stays at the last Move's destination. Cancelling a leg after a break moves nothing: the aircraft stays where its Move
+put it. A bound leg that auto-cancels took no aircraft, and its Moves move none (a labelled limitation): the sim
+learns of an auto-cancel only once the aircraft it would have bound is free for others. So no Move takes an aircraft
+it isn't bound to, or delivers one it didn't take. A busy block keeps the aircraft that flew its leg until the
+block's ready time, if that is later than its turn; a cancelled leg has none. At the end of the day v1's ferries put
+the aircraft on tomorrow's needs.
 
 A World is what a day runs on: the truth (the task's lb, truth blocks and programs as they ran), the day as known at
 a watch (M12: lb and the truth block once the scheduled departure is within LOOK, else 0 and the scheduled block, the
@@ -257,8 +259,9 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
         station, ready[p] = through(carried[i], back, moves) if i in carried else (f.dest, back)
         at[(f.family, station)].add(p)
         quick.pop(p, None)
-        if i in task.quick and i not in carried:
-            quick[p] = (task.quick[i][0], task.turned(f, arr))
+        if i in task.quick:
+            turned = task.turned(f, arr)
+            quick[p] = (task.quick[i][0], max([turned, *(m.ready for m in carried[i][1])]) if i in carried else turned)
         if slot is not None:
             taken.add(slot)
         if hour is not None:
@@ -284,9 +287,9 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
 
 def routes(task: Task, cancelled: Collection[int]) -> tuple[dict[int, Route], dict[str, Route]]:
     """Where each Move's aircraft goes, given the cancelled legs: walking a tail's legs, the aircraft of the last one
-    not cancelled (its carrier; the tail's own before any) goes through every Move it passes and is ready at the
-    origin of the next leg not cancelled, or at the last Move's destination if none. So: each carrier, and each tail
-    whose own aircraft passes a Move, to its station and the Moves it passes."""
+    not cancelled (its carrier; the tail's own before any) goes through every Move it passes and stays at the last
+    one's destination. So: each carrier, and each tail whose own aircraft passes a Move, to its station and the Moves
+    it passes."""
     carried: dict[int, Route] = {}
     own: dict[str, Route] = {}
     for t in task.tails:
@@ -294,7 +297,7 @@ def routes(task: Task, cancelled: Collection[int]) -> tuple[dict[int, Route], di
         for i in t.legs:
             if i not in cancelled:
                 if passed:
-                    _route(carried, own, t.tail, carrier, (task.flight(i).orig, tuple(passed)))
+                    _route(carried, own, t.tail, carrier, (passed[-1].dest, tuple(passed)))
                 carrier, passed = i, []
             if i in task.moved:
                 passed.append(task.moved[i])
