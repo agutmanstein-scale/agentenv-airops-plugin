@@ -302,11 +302,11 @@ def c3_job(job: tuple) -> dict:
     res = {"date": d, "hub": hub, "kind": kind}
     try:
         med, r = calibrate.load(out / "calibration.json")
-        worlds_ = {h: world.build(INPUTS, DERIVED, d, h, med, r) for h in ("JFK", "BOS")}
-        task = desk.tasks(INPUTS, DERIVED, d, hub, worlds_)
-        lk = desk.link(worlds_[hub], task, med)
+        w = world.build(INPUTS, DERIVED, d, hub, med, r)
+        task = desk.tasks(INPUTS, DERIVED, d, hub)
+        lk = desk.link(w, task, med)
         res |= {"task_id": task.task_id, "task_flights": len(task.flights), "into_hub": len(lk.arrival),
-                "added_past_midnight": len(lk.world.arrivals) - len(worlds_[hub].arrivals)}
+                "added_past_midnight": len(lk.world.arrivals) - len(w.arrivals)}
         if kind == "naive":
             res |= desk.naive(lk)
         elif kind == "hindsight":

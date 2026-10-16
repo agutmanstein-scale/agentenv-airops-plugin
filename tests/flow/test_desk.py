@@ -38,7 +38,9 @@ def test_a_train_day_hub_links_its_task_and_the_joint_hindsight_replays_exactly(
     h = hindsight.solve(w)
     assert hindsight.bound(w) <= h.system and h.system <= flow_world.evaluate(w).totals["system"]
     assert flow_world.evaluate(w, faa.replay(w)).totals["flights"] == sum(not a.cancelled for a in w.arrivals)
-    task = desk.tasks(CACHE, DERIVED, "2022-12-07", "JFK", worlds)
+    assert desk.unseen_arrivals(CACHE, DERIVED, "2022-12-07", "BOS") == [a.sched_arr for a in worlds["BOS"].arrivals
+                                                                         if a.unseen]
+    task = desk.tasks(CACHE, DERIVED, "2022-12-07", "JFK")
     lk = desk.link(w, task, med)
     assert len(lk.arrival) == sum(f.dest == "JFK" for f in task.flights)
     assert all(lk.world.arrivals[j].carrier == "B6" and not lk.world.arrivals[j].cancelled

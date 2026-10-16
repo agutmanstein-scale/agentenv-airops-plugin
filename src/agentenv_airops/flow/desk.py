@@ -36,7 +36,7 @@ from ..programs import advisories, candidates, mip, rbs, references, sim
 from ..programs.advisories import GDP, HUBS, Advisory, Scope
 from ..programs.model import Segment, Task
 from ..programs.repairs import CUTOFF
-from . import costs, demand, policies, queue
+from . import costs, demand, policies, queue, sources
 from .demand import Arrival, Medians
 from .forecast import Forecast
 from .policies import Issue
@@ -54,12 +54,12 @@ class Timeout(RuntimeError):
     """A desk watch solve that was not proven in its time limit."""
 
 
-def tasks(inputs, derived, d: str, hub: str, worlds: Mapping[str, World]) -> Task:
+def tasks(inputs, derived, d: str, hub: str) -> Task:
     """Step 0's task of the day-hub on main, each advisory's unseen arrivals per hour (and each airport's median hour,
     06:00-24:00) counted in the world's unseen stream of its hub (P12)."""
     e_fit, e_median = {}, {}
     for h in HUBS:
-        unseen = [a.sched_arr for a in worlds[h].arrivals if a.unseen]
+        unseen = unseen_arrivals(inputs, derived, d, h)
         e_median[h] = median_rate(unseen)
         for a in advisories.load(inputs, h, candidates.midnight(d), 2 * 1440):
             if a.start is not None and a.end is not None:
@@ -68,6 +68,17 @@ def tasks(inputs, derived, d: str, hub: str, worlds: Mapping[str, World]) -> Tas
     if built.task is None:
         raise ValueError(f"{d} {hub}: no task ({built.row['reason']})")
     return built.task
+
+
+def unseen_arrivals(inputs, derived, d: str, hub: str) -> list[int]:
+    """The scheduled arrivals of the world's unseen stream at the hub (demand.unseen's spread). JFK's 2025 months, which
+    the ATR tables don't reach, count the nearest year's same month (D2's rule for 2022-12)."""
+    x = demand.frame(inputs, derived, d)
+    at = x[(x.Dest == hub) & (x.sa >= 0) & (x.sa < demand.DAY)]
+    month = f"2024-{d[5:7]}" if hub == "JFK" and d.startswith("2025") else d[:7]
+    per_day = max(0.0, sources.counted_per_day(hub, month) - demand.flown_per_day(inputs, derived, hub, d[:7]))
+    rows = [{"sched_arr": int(s), "cls": costs.CLASSES[0], "pax": 0} for s in at.sa]
+    return [r["sched_arr"] for r in demand.unseen(rows, per_day, 0)]
 
 
 def rate(unseen: Sequence[int], start: int, end: int, fallback: float) -> float:
