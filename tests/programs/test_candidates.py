@@ -64,7 +64,7 @@ def test_a_built_task_round_trips_through_json_with_its_crew_too(task, built, cr
         assert again == t and again.to_json() == line
     assert crewed.bases and all(f.crew for f in crewed.flights) and not any(f.crew for f in task.flights)
     assert (task.task_id, task.split, task.window, task.start, task.version) == (
-        "b6-jfk-20230626-1700", "train", (1020, 1320), 960, 2)
+        "b6-jfk-20230626-1700", "train", (1020, 1320), 960, 3)
     assert set(task.programs) == {"JFK", "BOS"} and built.row["task_id"] == task.task_id
     assert task.sources["nasr"] and task.sources["advisories"]["2023-06-26/JFK"]
 

@@ -37,7 +37,7 @@ put it. A bound leg that auto-cancels took no aircraft, and its Moves move none 
 learns of an auto-cancel only once the aircraft it would have bound is free for others. So no Move takes an aircraft
 it isn't bound to, or delivers one it didn't take. A busy block keeps the aircraft that flew its leg until the
 block's ready time, if that is later than its turn; a cancelled leg has none. At the end of the day v1's ferries put
-the aircraft on tomorrow's needs.
+the aircraft on tomorrow's needs (Task.needed).
 
 A World is what a day runs on: the truth (the task's lb, truth blocks and programs as they ran), the day as known at
 a watch (M12: lb and the truth block once the scheduled departure is within LOOK, else 0 and the scheduled block, the
@@ -391,7 +391,7 @@ def ferries(task: Task, ends: Mapping[str, str], family: Mapping[str, str]) -> t
     """v1's cheapest end-of-day ferries onto tomorrow's needs, per family."""
     out = []
     for fam in sorted({t.family for t in task.tails}):
-        need = Counter(t.end_req for t in task.tails if t.family == fam)
+        need = Counter({s: n for (g, s), n in task.needed.items() if g == fam})
         left, extra = Counter(need), []
         for p in sorted(p for p in ends if family[p] == fam):
             if left[ends[p]] > 0:

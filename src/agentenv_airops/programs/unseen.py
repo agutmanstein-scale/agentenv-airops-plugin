@@ -120,34 +120,37 @@ def table(fits: Iterable[Fit], scale: Mapping[str, float] | None = None) -> Tabl
 
 
 def fit_scale(tasks: Iterable[Task], fits: Iterable[Fit], grid: Sequence[float] = GRID) -> dict[str, float]:
-    """One scale per airport, on the given (train) day-hubs of that airport: the grid value whose fidelity is nearest
-    1 in the least-squares log sense across days (ties to the smaller scale)."""
+    """One scale per airport, on the given (train) tasks storming there (Task.storms): the grid value whose fidelity
+    is nearest 1 in the least-squares log sense across days (ties to the smaller scale)."""
     fits = list(fits)
     hubs = {f.hub for f in fits}
     by_hub = defaultdict(list)
     for t in tasks:
-        by_hub[t.hub].append(t)
+        for h in t.storms:
+            by_hub[h].append(t)
     tables = {s: table(fits, dict.fromkeys(hubs | set(by_hub), s)) for s in grid}
     out = {}
     for hub, ts in sorted(by_hub.items()):
-        rows = {s: [program_delay(t, tables[s]) for t in ts] for s in grid}
+        rows = {s: [program_delay(t, tables[s], hub) for t in ts] for s in grid}
         loss = {s: sum(math.log(max(m / o, FLOOR)) ** 2 for m, o, _ in r if o > 0) for s, r in rows.items()}
         out[hub] = min(grid, key=lambda s: (round(loss[s], 9), s))
     return out
 
 
-def fidelity(task: Task, at: Table | None = None) -> float | None:
-    modelled, observed, _ = program_delay(task, at)
+def fidelity(task: Task, at: Table | None = None, hub: str | None = None) -> float | None:
+    modelled, observed, _ = program_delay(task, at, hub)
     return modelled / observed if observed > 0 else None
 
 
-def program_delay(task: Task, at: Table | None = None) -> tuple[float, float, int]:
-    """(modelled, observed, flights): the other carriers' arrivals at the task's hub scheduled on its date, flown to
-    it and controlled by a GDP segment, their modelled arrival delay against their BTS NASDelay; `at` overrides the
-    hub's e. The modelled arrival is the RBS slot, held like the truth's flights: a flight leaves at the slot less its
-    scheduled block, not before its scheduled departure, and waits out any stop at the hub covering its origin."""
-    p = task.programs[task.hub]
-    e_fit, e_median = (p.e_fit, p.e_median) if at is None else (at[0], at[1][task.hub])
+def program_delay(task: Task, at: Table | None = None, hub: str | None = None) -> tuple[float, float, int]:
+    """(modelled, observed, flights): the other carriers' arrivals at `hub` (the task's by default) scheduled on its
+    date, flown to it and controlled by a GDP segment, their modelled arrival delay against their BTS NASDelay; `at`
+    overrides the hub's e. The modelled arrival is the RBS slot, held like the truth's flights: a flight leaves at the
+    slot less its scheduled block, not before its scheduled departure, and waits out any stop at the hub covering its
+    origin."""
+    hub = hub or task.hub
+    p = task.programs[hub]
+    e_fit, e_median = (p.e_fit, p.e_median) if at is None else (at[0], at[1][hub])
     runs = {r.adv.id: r for r in as_ran(p.advisories)[0]}
     rows = defaultdict(list)
     for i, a in enumerate(p.demand):
@@ -167,14 +170,16 @@ def program_delay(task: Task, at: Table | None = None) -> tuple[float, float, in
 
 
 def unseen_share(tasks: Iterable[Task]) -> dict[str, dict]:
-    """Per hub, the unseen stream's share of program-hour demand over the truth segments of the given day-hubs."""
+    """Per hub, the unseen stream's share of program-hour demand over the truth segments of the given tasks' storm
+    hubs."""
     acc = defaultdict(lambda: [0.0, 0])
     for t in tasks:
-        p = t.programs[t.hub]
-        for seg in p.segments:
-            hours = (seg.end + 1 - seg.start) / 60
-            acc[t.hub][0] += seg.e * hours
-            acc[t.hub][1] += sum(1 for a in p.demand if seg.start <= a.sched_arr <= seg.end)
+        for hub in t.storms:
+            p = t.programs[hub]
+            for seg in p.segments:
+                hours = (seg.end + 1 - seg.start) / 60
+                acc[hub][0] += seg.e * hours
+                acc[hub][1] += sum(1 for a in p.demand if seg.start <= a.sched_arr <= seg.end)
     return {h: {"unseen": round(u), "bts": n, "share": round(u / (u + n), 3) if u + n else None}
             for h, (u, n) in sorted(acc.items())}
 

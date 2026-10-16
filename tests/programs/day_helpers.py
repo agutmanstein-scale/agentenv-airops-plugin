@@ -7,6 +7,7 @@ from dataclasses import replace
 from program_helpers import EVERY, adv
 
 from agentenv_airops.core.model import Airport
+from agentenv_airops.programs import network
 from agentenv_airops.programs.advisories import HUBS, Advisory, Stop
 from agentenv_airops.programs.model import (
     Busy,
@@ -130,6 +131,53 @@ def turned_through_day(ground: int | None = 20) -> Task:
     move = Move(1, "BOS", "JFK", 145, 100 - TURN)
     return day(flights, [replace(tail("N1", "BUF", end="DCA", repositions=(move,), legs=(0, 1, 2)),
                                  connections=turned)])
+
+
+def network_day(rng: random.Random, n_tails: int = 4) -> Task:
+    """A small random whole-network day: each tail's legs are the ones it flew, in the order it flew them, a station
+    gap between two a Move bound to the leg before it, some long daytime gaps busy blocks; legs JetBlue cancelled sit
+    on no tail; tomorrow's needs are pooled from the schedule (network.needs); a GDP, maybe a stop, and some turns
+    JetBlue flew faster than the rule."""
+    flights, tails = [], []
+    for k in range(n_tails):
+        here, t, legs, moves, busy = rng.choice(list(PLACES)), rng.randrange(0, 120), [], [], []
+        start = here
+        for _ in range(rng.randrange(1, 5)):
+            if legs and rng.random() < 0.3:
+                there = rng.choice([c for c in PLACES if c != here])
+                t += rng.randrange(0, 60)
+                moves.append(Move(legs[-1], here, there, flights[-1].sched_arr, t - TURN))
+                here = there
+            elif legs and rng.random() < 0.15:
+                t += 240
+                busy.append(Busy(legs[-1], t - TURN))
+            dest = rng.choice([c for c in PLACES if c != here])
+            block = rng.randrange(50, 150)
+            flights.append(flight(len(flights), here, dest, t, block + rng.choice([0, 0, 20]),
+                                  pax=rng.randrange(50, 151), lb=rng.choice([0, 0, 30, 90, 200]),
+                                  deadline=t + rng.randrange(150, 300), sched_block=block,
+                                  actual=Outcome(False, False, "", t, t + block, dest, f"N{k}")))
+            legs.append(len(flights) - 1)
+            here, t = dest, t + block + rng.randrange(TURN - 10, 90)
+        tails.append(tail(f"N{k}", start, ready=0, end=here, repositions=tuple(moves), busy=tuple(busy),
+                          legs=tuple(legs)))
+    for _ in range(rng.randrange(1, 4)):
+        orig, dest = rng.sample(list(PLACES), 2)
+        t, block = rng.randrange(0, 400), rng.randrange(50, 150)
+        flights.append(flight(len(flights), orig, dest, t, block, pax=rng.randrange(50, 151), deadline=t + 240,
+                              actual=Outcome(True, False, "A", None, None, None, rng.choice(tails).tail)))
+    flights.sort(key=lambda f: (f.sched_dep, f.id))
+    ids = {f.id: n for n, f in enumerate(flights)}
+    flights = [replace(f, id=ids[f.id]) for f in flights]
+    tails = [replace(t, legs=tuple(ids[i] for i in t.legs), busy=tuple(replace(b, leg=ids[b.leg]) for b in t.busy),
+                     repositions=tuple(replace(m, leg=ids[m.leg]) for m in t.repositions)) for t in tails]
+    task = day(flights, tails, segments=(segment("g", 0, 1000, 150, 400, (180, 200, 240, 300, 330)),),
+               stops=(stop(250, 290),) if rng.random() < 0.5 else ())
+    tails = [replace(t, connections=tuple(Connection(a, b, rng.randrange(0, 2 * TURN))
+                                          for a, b in zip(t.legs, t.legs[1:], strict=False)
+                                          if task.flight(a).dest == task.flight(b).orig and rng.random() < 0.6))
+             for t in tails]
+    return replace(task, tails=tuple(tails), needs=network.needs(tails, flights)[0])
 
 
 def random_day(rng: random.Random, n_tails: int = 3) -> Task:

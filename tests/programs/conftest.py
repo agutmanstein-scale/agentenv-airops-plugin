@@ -38,7 +38,7 @@ def fits(slice_inputs, tmp_path_factory):
 
 @pytest.fixture(scope="session")
 def built(slice_inputs, fits, tmp_path_factory):
-    """The slice's JFK evening of 26 June 2023 as a v2 task (eight tails, so the size floor comes down)."""
+    """The slice's JFK evening of 26 June 2023 as a hub-window task (eight tails, so the size floor comes down)."""
     return build(slice_inputs, fits, tmp_path_factory.mktemp("derived"))
 
 

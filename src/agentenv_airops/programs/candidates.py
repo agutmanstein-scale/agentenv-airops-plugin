@@ -35,7 +35,7 @@ import random
 import statistics
 import zipfile
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
@@ -52,7 +52,7 @@ from ..build import bts, fetch, fleet, pack, windows
 from ..core.model import Airport
 from . import advisories, rbs, repairs, unseen
 from .advisories import HUBS, Run, Stop
-from .model import Arrival, Programs, Task, coverage
+from .model import Arrival, Flight, Programs, Task, coverage
 from .rbs import Covers
 
 CARRIER = pack.CARRIER
@@ -350,31 +350,10 @@ def span(day: pack.Day, h: int) -> tuple[int, int] | None:
 def assemble(ctx: Context, sc: pack.Scope, d: str, hub: str, e_fit: Mapping[str, float],
              e_median: Mapping[str, float], scale: Mapping[str, float], cutoff: int, slide: int, split: str,
              bases: Sequence[str] = ()) -> Task:
-    day, covers = ctx.day, ctx.covers
-
-    def tests(orig: str, dest: str, sa: int, departs: int, sd: int) -> tuple[str | None, str | None, bool]:
-        if dest not in HUBS:
-            return None, None, False
-        runs, stops = ctx.truth[dest]
-        run = rbs.governing(runs, covers, orig, sa, departs)
-        exempt = not any(covers(r.adv.scope, dest, orig) for r in runs) and not any(
-            covers(p.scope, dest, orig) for p in stops)
-        return run.adv.id if run else None, rbs.gs_held(stops, covers, orig, sd), exempt
-
-    flights = repairs.flights(day, sc, ctx.x, ctx.families, tests, cutoff=cutoff, bases=bases)
+    day = ctx.day
+    flights = repairs.flights(day, sc, ctx.x, ctx.families, tests(ctx), cutoff=cutoff, bases=bases)
     tails, closure = repairs.tails(day, sc, flights, ctx.families, day.turn)
-    horizon = max((f.deadline + f.block for f in flights), default=sc.start)
-    ids = {(f.number, f.orig, f.sched_dep): f.id for f in flights}
-    programs = {}
-    for h in HUBS:
-        runs, stops = ctx.truth[h]
-        kept = tuple(a for a in ctx.advs[h] if a.issued <= horizon)
-        periods = [(a.start, a.end) for a in kept if unseen.fittable(a)]
-        lo = min([0, sc.start] + [p[0] for p in periods])
-        hi = max([1440, horizon] + [p[1] for p in periods])
-        programs[h] = Programs(h, rbs.AAR[h], scale[h], e_median[h], {a.id: e_fit[a.id] for a in kept if a.id in e_fit},
-                               kept, (), tuple(p for p in stops if p.start <= horizon),
-                               arrivals(ctx.x, h, lo, hi, ids, runs, covers))
+    programs = hub_programs(ctx, flights, sc.start, e_fit, e_median, scale)
     codes = ({f.orig for f in flights} | {f.dest for f in flights} | set(HUBS)
              | {s for t in tails for s in (t.pos, t.end_req, t.actual_end)}
              | {a.orig for p in programs.values() for a in p.demand})
@@ -388,6 +367,41 @@ def assemble(ctx: Context, sc: pack.Scope, d: str, hub: str, e_fit: Mapping[str,
                 artcc={c: ctx.artcc[c] for c in sorted(codes) if c in ctx.artcc}, tails=tuple(tails),
                 flights=tuple(flights), programs=programs, clauses=clauses, sources=pins(ctx, sc), bases=tuple(bases))
     return rbs.rescale(task, scale, e_fit, e_median)
+
+
+def tests(ctx: Context) -> Callable[[str, str, int, int, int], tuple[str | None, str | None, bool]]:
+    """repairs.flights' tests on the programs as they ran: (controlled, gs_held, exempt) of a leg."""
+    covers = ctx.covers
+
+    def test(orig: str, dest: str, sa: int, departs: int, sd: int) -> tuple[str | None, str | None, bool]:
+        if dest not in HUBS:
+            return None, None, False
+        runs, stops = ctx.truth[dest]
+        run = rbs.governing(runs, covers, orig, sa, departs)
+        exempt = not any(covers(r.adv.scope, dest, orig) for r in runs) and not any(
+            covers(p.scope, dest, orig) for p in stops)
+        return run.adv.id if run else None, rbs.gs_held(stops, covers, orig, sd), exempt
+
+    return test
+
+
+def hub_programs(ctx: Context, flights: Sequence[Flight], start: int, e_fit: Mapping[str, float],
+                 e_median: Mapping[str, float], scale: Mapping[str, float]) -> dict[str, Programs]:
+    """Both hubs' programs over the flights' horizon: the advisories issued by then, the stops starting by then and
+    every scheduled arrival over the task and the fittable periods, the segments left to rbs.rescale."""
+    horizon = max((f.deadline + f.block for f in flights), default=start)
+    ids = {(f.number, f.orig, f.sched_dep): f.id for f in flights}
+    out = {}
+    for h in HUBS:
+        runs, stops = ctx.truth[h]
+        kept = tuple(a for a in ctx.advs[h] if a.issued <= horizon)
+        periods = [(a.start, a.end) for a in kept if unseen.fittable(a)]
+        lo = min([0, start] + [p[0] for p in periods])
+        hi = max([1440, horizon] + [p[1] for p in periods])
+        out[h] = Programs(h, rbs.AAR[h], scale[h], e_median[h], {a.id: e_fit[a.id] for a in kept if a.id in e_fit},
+                          kept, (), tuple(p for p in stops if p.start <= horizon),
+                          arrivals(ctx.x, h, lo, hi, ids, runs, ctx.covers))
+    return out
 
 
 def pins(ctx: Context, sc: pack.Scope) -> dict:

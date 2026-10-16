@@ -2,7 +2,7 @@ import random
 from dataclasses import replace
 
 import pytest
-from day_helpers import GDP, crewed, day, flight, random_day, shortened, stop, tail
+from day_helpers import GDP, crewed, day, flight, network_day, random_day, shortened, stop, tail
 from program_helpers import adv
 
 from agentenv_airops.programs import mip, references, sim
@@ -185,6 +185,11 @@ def test_no_reference_costs_less_than_the_anchor(fixture_day):
 @pytest.mark.parametrize("seed", range(4))
 def test_no_reference_costs_less_than_the_anchor_on_days_with_moves(seed):
     none_below_the_anchor(random_day(random.Random(seed)))
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_no_reference_costs_less_than_the_anchor_on_whole_network_days(seed):
+    none_below_the_anchor(network_day(random.Random(seed)))
 
 
 def stopped_bound_leg():

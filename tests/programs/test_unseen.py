@@ -50,6 +50,14 @@ def test_fidelity_grows_with_the_scale_and_the_fit_picks_from_the_grid(task, fit
     assert scale == {"JFK": min(unseen.GRID, key=lambda s: (round(loss[s], 9), s))}
 
 
+def test_a_date_storming_at_both_hubs_counts_in_each_hubs_fit(task, fits):
+    both = replace(task, hubs=("JFK", "BOS"))
+    assert unseen.program_delay(both, hub="JFK") == unseen.program_delay(task)
+    assert unseen.program_delay(both, hub="BOS")[2] == 0
+    scale = unseen.fit_scale([both], fits)
+    assert set(scale) == {"JFK", "BOS"} and scale["JFK"] == unseen.fit_scale([task], fits)["JFK"]
+
+
 def test_a_diverted_arrival_is_left_out_and_a_ground_stop_holds_the_modelled_departure(task):
     p = task.programs["JFK"]
     modelled, observed, flights = unseen.program_delay(task)

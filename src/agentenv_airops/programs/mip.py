@@ -25,7 +25,7 @@ next break when every leg between the two is cancelled, a row on those legs' can
 fast into the leg its Moves deliver it to may also go from its lane straight to that leg's gate, at its turned time
 through the Moves, under the same rows. On such a tail a leg the sim lets auto-cancel has its own column, at its auto
 price: it leaves a leg not cancelled that carries no aircraft, and a plan holds the flight past its deadline for the
-sim to decide it. Overnight nodes feed v1's ferries onto tomorrow's needs. Every solution is a day
+sim to decide it. Overnight nodes feed v1's ferries onto tomorrow's needs (Task.needed). Every solution is a day
 sim.execute reproduces from its departure minutes as holds, at the same cost, and every day sim.execute runs is a
 solution (`Network.vector`), which also starts the search.
 
@@ -334,7 +334,7 @@ class Network:
         supply: Counter = Counter()
         for t in task.tails:
             supply[node[((t.family, t.pos), t.ready)]] += 1
-        self.need = need = Counter((t.family, t.end_req) for t in task.tails)
+        self.need = need = task.needed
         self.ferry: dict[tuple[str, str, str], int] = {}
         into: dict[tuple[str, str], dict[int, int]] = defaultdict(dict)
         for fam, a in self.times:

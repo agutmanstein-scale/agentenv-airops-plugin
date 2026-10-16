@@ -1,15 +1,15 @@
-"""The v2 task: one JetBlue hub window on a real storm day inside the FAA's programs at JFK and BOS, as one JSON line.
+"""A storm-day task as one JSON line: a real storm date, every JetBlue flight and aircraft of it inside the FAA's
+programs at JFK and BOS (programs.network), or one hub window of it (programs.candidates).
 
 Times are minutes from 00:00 hub-local on `date` (`base` is that midnight's UTC epoch minute), as in v1. A task carries
 everything the truth, the forecast and the references read, and nothing they would have to fetch:
-- flights: the scope's legs from `start`, with the scheduled and the truth block, pax capped at the smallest
+- flights: the task's legs from `start`, with the scheduled and the truth block, pax capped at the smallest
   seats of the family's tails in the task (`pax_raw` kept), the exogenous delay `lb` with NAS delay removed for a
   flight controlled or GS-held on its recorded departure, the out-and-back `pair`, the `deadline`,
   JetBlue's recorded outcome and, when the task was built with the crew model (`bases`, the crew bases; empty when
   off), its crew: the pairing, its FAR 117 limit, the crew deadline and the end of the legal rest (repairs.crews);
-- tails: split family, the schedule's position and ready time, their legs in scheduled order, same-station gaps as
-  busy blocks and chain breaks as fixed repositionings (scope closure), both on the leg before them, the turns JetBlue
-  flew between their legs, and tomorrow's need;
+- tails: split family, position and ready time at the start, their legs, busy blocks and Moves on the leg before
+  them, the turns JetBlue flew between their legs, and, unless the task carries pooled `needs`, tomorrow's need;
 - programs per hub (both hubs in every task): the advisories as parsed, the in-sample unseen arrivals per hour of
   each GDP or proposed advisory and the airport's scale, the truth segments with JetBlue's slot pool, the ground-stop
   pieces, the VMC called arrival rate, and the demand: every BTS-scheduled arrival at the hub over the task, so the
@@ -21,14 +21,14 @@ import json
 import math
 from collections import Counter
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 
 from ..core.model import Airport
 from .advisories import Advisory, Scope, Stop, nm
 
-VERSION = 2
+VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -191,8 +191,9 @@ class Connection:
 @dataclass(frozen=True)
 class Tail:
     """`pos` and `ready` already close a break before the first leg (the tail reappears at its origin, ready at its
-    scheduled departure less the turn); `legs` are its flights in scheduled order, cancelled ones included;
-    `end_req` is its last scheduled destination today."""
+    scheduled departure less the turn); `legs` are its flights in order, a whole-network tail's the legs it flew in the
+    order it flew them, a hub window's in scheduled order with cancelled ones; `end_req` is the last destination of
+    those legs, tomorrow's need when the task carries no pooled `needs`."""
 
     tail: str
     family: str
@@ -324,6 +325,9 @@ class Programs:
 
 @dataclass(frozen=True)
 class Task:
+    """`hubs` are a whole-network task's storm hubs (`hub` the one whose window starts it), `needs` tomorrow's
+    aircraft per family and station; a hub window has neither, its needs being its tails' `end_req`."""
+
     task_id: str
     split: str
     carrier: str
@@ -346,6 +350,8 @@ class Task:
     sources: dict
     version: int = VERSION
     bases: tuple[str, ...] = ()
+    hubs: tuple[str, ...] = ()
+    needs: dict[str, dict[str, int]] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: Mapping) -> "Task":
@@ -354,7 +360,8 @@ class Task:
                    {c: Airport.from_dict(c, a) for c, a in d["airports"].items()}, dict(d["artcc"]),
                    tuple(Tail.from_dict(t) for t in d["tails"]), tuple(Flight.from_dict(f) for f in d["flights"]),
                    {h: Programs.from_dict(p) for h, p in d["programs"].items()}, dict(d["clauses"]),
-                   dict(d["sources"]), d["version"], tuple(d.get("bases", ())))
+                   dict(d["sources"]), d["version"], tuple(d.get("bases", ())), tuple(d.get("hubs", ())),
+                   {fam: dict(by) for fam, by in d.get("needs", {}).items()})
 
     def to_dict(self) -> dict:
         return {"version": self.version, "task_id": self.task_id, "split": self.split, "carrier": self.carrier,
@@ -364,7 +371,8 @@ class Task:
                 "artcc": dict(self.artcc), "tails": [t.to_dict() for t in self.tails],
                 "flights": [f.to_dict() for f in self.flights],
                 "programs": {h: p.to_dict() for h, p in self.programs.items()}, "clauses": self.clauses,
-                "sources": self.sources, "bases": list(self.bases)}
+                "sources": self.sources, "bases": list(self.bases), "hubs": list(self.hubs),
+                "needs": {fam: dict(by) for fam, by in self.needs.items()}}
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), separators=(",", ":"))
@@ -419,11 +427,17 @@ class Task:
     def lb(self) -> dict[int, int]:
         return {f.id: f.lb for f in self.flights}
 
-    @property
+    @cached_property
     def needed(self) -> Counter:
-        """Tomorrow's needs: aircraft per (station, family) at the end of the day, each tail's last scheduled
-        destination."""
-        return Counter((t.end_req, t.family) for t in self.tails)
+        """Tomorrow's needs: aircraft per (family, station) at the end of the day."""
+        if self.needs:
+            return Counter({(fam, s): n for fam, by in self.needs.items() for s, n in by.items()})
+        return Counter((t.family, t.end_req) for t in self.tails)
+
+    @property
+    def storms(self) -> tuple[str, ...]:
+        """The hubs whose programs the task is about: its storm hubs, or its hub."""
+        return self.hubs or (self.hub,)
 
     def covers(self, scope: Scope, hub: str, origin: str) -> bool:
         """Whether a program at `hub` with `scope` covers departures from `origin`."""
