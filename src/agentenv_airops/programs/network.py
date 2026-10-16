@@ -2,44 +2,55 @@
 airline's control center runs it.
 
 A date qualifies when the per-hub candidate rule (candidates.candidates) holds at JFK or BOS, those hubs being its storm
-hubs; a control date is one the control rule (candidates.controls) picks, with the windows it picks there. The task
-starts an hour before the earliest storm hub window (candidates.build_candidate's rule window, or the control's); where
-no storm hub has a window that passes the hub window's data clauses, an hour before the first hour a hub program is in
-force (`fallback`). Its flights are every JetBlue leg of the date from the start, flown and cancelled, and any aircraft
-of a leg's family may fly it: aircraft are pooled by family at each station. Every typed tail with a leg that day is an
-aircraft of the task, and starts where the record has it: after the last leg it flew before its first leg of the task
-(one of the date's that left before the start, or one of the day before's, delayed past the start or not), ready after
-its turn. A tail's legs are the legs it flew from the start, in the order it flew them; a station gap between two of
-them is a repositioning the record lacks (model.Move, bound to the aircraft of the leg before it), and one before the
-first moves the start to that leg's origin, ready at its scheduled departure less the turn or after its arrival there,
-whichever is later. With no record before the start the tail starts at its first flown leg's origin, ready at its
-scheduled departure less the turn, or, with no flown leg either, at its first scheduled leg's origin, ready from
-midnight. A long daytime same-station gap before or between flown legs is a busy block, as repairs.tails reads one on
-the scheduled chain: none where the tail's recorded ground time there is shorter, or where a cancelled leg BTS leaves on
-the tail was scheduled to leave inside it. A turn JetBlue flew between flown legs may be as fast (repairs.connections).
-Swaps and the stale tails BTS leaves on cancelled legs make no Move. Tomorrow's needs are pooled: per family and
-station, where flying the whole schedule and its Moves from the start positions leaves the aircraft; a count the
-schedule would leave below zero is zero, and the stations with the most aircraft of the family give up the difference,
-one at a time.
+hubs, and the programs control or hold at least MIN_CONTROLLED of the task's JetBlue flights; a control date is one the
+control rule (candidates.controls) picks, with the windows it picks there. The task starts an hour before the earliest
+storm hub window (candidates.build_candidate's rule window, or the control's) or the earliest storm hub's first program
+hour, whichever comes first; where no storm hub has a window that passes the hub window's data clauses, the windows are
+taken from the first hour a hub program is in force (`fallback`). Its flights are every JetBlue leg of the date from the
+start, flown and cancelled, and any aircraft of a leg's family may fly it: aircraft are pooled by family at each
+station. Every typed tail with a leg that day is an aircraft of the task, unless it flew none that day nor the day
+before: that one is out of service, and its cancelled legs stay for any aircraft. An aircraft starts where the record
+has it: after the last leg it flew before its first leg of the task (one of the date's that left before the start, or
+one of the day before's, delayed past the start or not), ready after its turn. A tail's legs are the legs it flew from
+the start, in the order it flew them; a station gap between two of them is a repositioning the record lacks
+(model.Move, bound to the aircraft of the leg before it), and one before the first moves the start to that leg's
+origin, ready at its scheduled departure less the turn or after its arrival there, whichever is later. With no record
+before the start the tail starts at its first flown leg's origin, ready at its scheduled departure less the turn. A long
+daytime same-station gap before or between flown legs is a busy block, as repairs.tails reads one on the scheduled
+chain: none where the tail's recorded ground time there is shorter, or where a cancelled leg BTS leaves on the tail was
+scheduled to leave inside it. A tail whose last flown leg of the date lands at one of JetBlue's international gateways
+(GATEWAYS) before DAYTIME station-local, no cancelled leg left on the tail after it, is away on flying abroad that BTS
+lacks: busy past the task's last deadline (a busy block on that leg, or from the start if it landed before). Over the
+19 months, before 18:00 at least 64% of every half hour's last landings at the gateways are more than other stations'
+ordinary end of day explains (84% of them in all), from 18:00 to 19:30 about half, later a minority. A turn JetBlue
+flew between flown legs may be as fast (repairs.connections). Swaps and the stale tails BTS leaves on cancelled legs
+make no Move. Tomorrow's needs are pooled: per family and station, where flying the whole schedule and its Moves from
+the start positions leaves the aircraft; a count the schedule would leave below zero is zero, and the stations with the
+most aircraft of the family give up the difference, one at a time.
 """
 
+import functools
 import math
 import random
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import nullcontext
+from datetime import UTC, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from ..build import pack
+from ..build import bts, pack
 from . import candidates, rbs, repairs
 from .advisories import HUBS
-from .candidates import CARRIER, EVAL_PER_HUB, EVAL_WINTER, EVAL_WINTER_SHORT, MONTHS, Built, season
+from .candidates import CARRIER, EVAL_PER_HUB, EVAL_WINTER, EVAL_WINTER_SHORT, MIN_CONTROLLED, MONTHS, Built, season
 from .model import Busy, Flight, Move, Tail, Task
 
 Windows = dict[str, tuple[int, int]]
+GATEWAYS = ("JFK", "BOS", "FLL", "MCO", "SJU")
+DAYTIME = 18 * 60
 
 
 def storms(inputs: Path, months: Sequence[str] = MONTHS) -> tuple[dict[str, tuple[str, ...]], dict]:
@@ -83,14 +94,19 @@ def build(d: str, hubs: Sequence[str], inputs: Path, derived: Path, e_fit: Mappi
     hub = min(row["windows"], key=lambda h: (row["windows"][h][0], HUBS.index(h)))
     task = assemble(candidates.context(inputs, derived, d, hub), d, hub, tuple(hubs), row, e_fit, e_median, scale,
                     cutoff, split)
+    held = task.clauses["controlled_or_held"]
+    if not windows and held < MIN_CONTROLLED:
+        return Built(None, {**row, "controlled_or_held": held,
+                            "reason": f"fewer than {MIN_CONTROLLED} JetBlue flights controlled or held"})
     return Built(task, {**row, "task_id": task.task_id})
+
 
 
 def assemble(ctx: candidates.Context, d: str, hub: str, hubs: tuple[str, ...], row: Mapping, e_fit: Mapping[str, float],
              e_median: Mapping[str, float], scale: Mapping[str, float], cutoff: int, split: str) -> Task:
     day = ctx.day
-    w0 = min(w[0] for w in row["windows"].values())
-    sc = scope(day, (w0, max(w[1] for w in row["windows"].values())), w0 - 60)
+    sc = scope(day, (min(w[0] for w in row["windows"].values()), max(w[1] for w in row["windows"].values())),
+               begins(row))
     flights = repairs.flights(day, sc, ctx.x, ctx.families, candidates.tests(ctx), cutoff=cutoff)
     tails, counts = network_tails(day, sc, flights, ctx.families, day.turn)
     need, short = needs(tails, flights)
@@ -106,12 +122,18 @@ def assemble(ctx: candidates.Context, d: str, hub: str, hubs: tuple[str, ...], r
     task = Task(task_id=f"{CARRIER.lower()}-{d.replace('-', '')}-{sc.start // 60:02d}00", split=split,
                 carrier=CARRIER, hub=hub, date=d, tz=day.tz, base=day.base, window=sc.window, start=sc.start,
                 slide=row["slides"].get(hub, 0), dmax=repairs.DMAX, cutoff=cutoff,
-                turn={f: day.turn[f] for f in sorted({t.family for t in tails})},
+                turn={f: day.turn[f] for f in sorted({t.family for t in tails} | {f.family for f in flights})},
                 airports=candidates.airports_of(codes),
                 artcc={c: ctx.artcc[c] for c in sorted(codes) if c in ctx.artcc}, tails=tuple(tails),
                 flights=tuple(flights), programs=programs, clauses=clauses, sources=candidates.pins(ctx, sc),
                 hubs=hubs, needs=need)
     return rbs.rescale(task, scale, e_fit, e_median)
+
+
+def begins(row: Mapping) -> int:
+    """An hour before the earliest storm hub window or storm hub's first program hour."""
+    return min([w[0] for w in row["windows"].values()]
+               + [60 * h for h in row["first_hours"].values() if h is not None]) - 60
 
 
 def scope(day: pack.Day, window: tuple[int, int], start: int) -> pack.Scope:
@@ -128,18 +150,24 @@ def scope(day: pack.Day, window: tuple[int, int], start: int) -> pack.Scope:
 
 def network_tails(day: pack.Day, sc: pack.Scope, flights: Sequence[Flight], families: Mapping[str, str],
                   turn: Mapping[str, int]) -> tuple[list[Tail], dict[str, int]]:
-    """Every tail of the scope with its start, the legs it flew from the start in the order it flew them, their
-    Moves and busy blocks, and counts of where the starts came from and of the Moves and blocks."""
+    """Every tail of the scope in service with its start, the legs it flew from the start in the order it flew them,
+    their Moves and busy blocks, and counts of where the starts came from, of the Moves and blocks, of the tails away
+    from a gateway and of those out of service."""
     flew, dropped = defaultdict(list), defaultdict(list)
     for f in flights:
         (dropped if f.actual.dep is None else flew)[f.actual.tail].append(f)
+    end = max((f.deadline for f in flights), default=0) + 1
     counts: Counter = Counter()
     out = []
     for t in sc.tails:
         a, fam = day.fleet[t], families[t]
         tt = turn[fam]
         path = sorted(flew[t], key=lambda f: (f.actual.dep, f.id))
-        pos, ready, source = start_of(day, sc, t, path, dropped[t], tt)
+        start = start_of(day, sc, t, path, dropped[t], tt)
+        if start is None:
+            counts["out of service"] += 1
+            continue
+        pos, ready, source = start
         busy, moves = [], []
         for f, g in zip(path, path[1:], strict=False):
             if f.dest != g.orig:
@@ -149,6 +177,12 @@ def network_tails(day: pack.Day, sc: pack.Scope, flights: Sequence[Flight], fami
                 busy.append(Busy(f.id, g.sched_dep - tt))
         counts[f"start: {source}"] += 1
         counts["busy"] += len(busy)
+        if away(day, sc, t, path, dropped[t]):
+            counts["gateway busy"] += 1
+            if path:
+                busy.append(Busy(path[-1].id, end))
+            else:
+                ready = end
         done = day.cur[(day.cur.Tail_Number == t) & (day.cur.Cancelled == 0)].sort_values("ad")
         out.append(Tail(tail=t, family=fam, type=a.type, seats=a.seats, pos=pos, ready=int(ready),
                         legs=tuple(f.id for f in path), busy=tuple(busy), repositions=tuple(moves),
@@ -158,19 +192,17 @@ def network_tails(day: pack.Day, sc: pack.Scope, flights: Sequence[Flight], fami
 
 
 def start_of(day: pack.Day, sc: pack.Scope, tail: str, path: Sequence[Flight], dropped: Sequence[Flight],
-             turn: int) -> tuple[str, int, str]:
-    """Where and when the tail is ready at the start, and where that comes from."""
+             turn: int) -> tuple[str, int, str] | None:
+    """Where and when the tail is ready at the start, and where that comes from; None for a tail out of service."""
     first = path[0].actual.dep if path else math.inf
     today = sc.frozen[sc.frozen.Tail_Number == tail].sort_values("ad")
     before = day.prev[(day.prev.Tail_Number == tail) & (day.prev.Cancelled == 0) & (day.prev.ad < first)]
     before = before.sort_values("ad")
     last, source = max(((x.iloc[-1], s) for s, x in (("day before", before), ("today", today)) if len(x)),
                        key=lambda p: p[0].ad, default=(None, ""))
-    if last is None and path:
-        return path[0].orig, path[0].sched_dep - turn, "first flown leg"
     if last is None:
-        return day.cur[day.cur.Tail_Number == tail].sort_values("sd").Origin.iloc[0], 0, "first scheduled leg"
-    arrived = int(last.aa) if pd.notna(last.aa) else int(last.ad + last.CRSElapsedTime + 60)
+        return (path[0].orig, path[0].sched_dep - turn, "first flown leg") if path else None
+    arrived = landed(last)
     ready = max(0, arrived + turn)
     if not path:
         return last.end, ready, f"{source}, no flown leg"
@@ -181,16 +213,51 @@ def start_of(day: pack.Day, sc: pack.Scope, tail: str, path: Sequence[Flight], d
     return last.end, ready, source
 
 
-def busy_gap(landed: int, leaves: int, ground: int, dropped: Iterable[Flight]) -> bool:
+def landed(leg: pd.Series) -> int:
+    """When a flown BTS leg reached the gate, or for one that diverted and never got there, an hour after its
+    scheduled block."""
+    return int(leg.aa) if pd.notna(leg.aa) else int(leg.ad + leg.CRSElapsedTime + 60)
+
+
+def busy_gap(arrives: int, leaves: int, ground: int, dropped: Iterable[Flight]) -> bool:
     """A long daytime gap between a tail's scheduled arrival and its next flown leg, as long on the ground in the
     record, that none of its cancelled legs was scheduled to fill: flying the record lacks."""
-    long = min(leaves - landed, ground) >= repairs.BUSY_GAP
-    return long and repairs.BUSY_HOURS[0] <= landed < repairs.BUSY_HOURS[1] and \
-        not any(landed <= f.sched_dep < leaves for f in dropped)
+    long = min(leaves - arrives, ground) >= repairs.BUSY_GAP
+    return long and repairs.BUSY_HOURS[0] <= arrives < repairs.BUSY_HOURS[1] and \
+        not any(arrives <= f.sched_dep < leaves for f in dropped)
+
+
+def away(day: pack.Day, sc: pack.Scope, tail: str, path: Sequence[Flight], dropped: Sequence[Flight]) -> bool:
+    """Whether the tail's last flown leg of the date (the last of `path`, else of those it flew before the start)
+    landed at a gateway before DAYTIME on the gateway's clock with no cancelled leg BTS leaves on the tail scheduled
+    after it."""
+    if path:
+        station, at, sd = path[-1].actual.end, arrival(path[-1]), path[-1].sched_dep
+    else:
+        today = sc.frozen[sc.frozen.Tail_Number == tail]
+        if not len(today):
+            return False
+        last = today.sort_values("ad").iloc[-1]
+        station, at, sd = last.end, landed(last), last.sd
+    x = day.cur
+    later = any(f.sched_dep > sd for f in dropped) or ((x.Tail_Number == tail) & (x.Cancelled == 1) & (x.sd > sd)).any()
+    return station in GATEWAYS and not later and local(day, station, at) < DAYTIME
+
+
+def local(day: pack.Day, station: str, minute: int) -> int:
+    """The task's minute on the station's clock."""
+    at = datetime.fromtimestamp(60 * (day.base + minute), UTC)
+    return minute + int((at.astimezone(zone(station)).utcoffset() - at.astimezone(ZoneInfo(day.tz)).utcoffset())
+                        .total_seconds()) // 60
+
+
+@functools.cache
+def zone(station: str) -> ZoneInfo:
+    return ZoneInfo(bts.timezones()[station])
 
 
 def arrival(f: Flight) -> int:
-    """When a flown leg reached the gate, or for one that diverted and never got there, start_of's estimate."""
+    """When a flown leg reached the gate, or for one that diverted and never got there, `landed`'s estimate."""
     return f.actual.arr if f.actual.arr is not None else f.actual.dep + f.sched_block + 60
 
 

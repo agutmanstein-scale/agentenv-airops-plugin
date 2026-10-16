@@ -4,12 +4,12 @@ from dataclasses import replace
 from datetime import date, timedelta
 
 import pandas as pd
-from day_helpers import TURN, flight
+from day_helpers import TURN, day, flight
 from program_helpers import CACHE, DATE, DERIVED, WINDOW, needs_cache
 
 from agentenv_airops.build import pack
 from agentenv_airops.build.fleet import Aircraft
-from agentenv_airops.programs import candidates, network, references, unseen
+from agentenv_airops.programs import candidates, mip, network, references, sim, unseen
 from agentenv_airops.programs.model import Busy, Move, Outcome, Tail, Task
 
 START = 360
@@ -65,12 +65,14 @@ def test_a_station_gap_on_the_flown_path_is_a_move_and_a_long_daytime_ground_gap
                cancelled(6, "N3", "BOS", "DCA", 600), flown(7, "N3", "BOS", "JFK", 1000, 1000),
                flown(8, "N4", "JFK", "BOS", 500, 800), flown(9, "N4", "BOS", "JFK", 900, 920)]
     tails, counts = built(flights)
+    away = Busy(2, 1000 + 240 + 1)
     assert tails["N1"].repositions == (Move(0, "JFK", "BOS", 460, 600 - TURN),)
-    assert tails["N1"].busy == (Busy(1, 1000 - TURN),)
-    assert tails["N2"].repositions == (Move(3, "PWM", "BOS", 480, 700 - TURN),) and not tails["N2"].busy
-    assert tails["N3"].legs == (5, 7) and not tails["N3"].busy and not tails["N3"].repositions
-    assert tails["N4"].legs == (8, 9) and not tails["N4"].busy
-    assert (counts["moves"], counts["moves after a diversion"], counts["busy"]) == (1, 1, 1)
+    assert tails["N1"].busy == (Busy(1, 1000 - TURN), away)
+    assert tails["N2"].repositions == (Move(3, "PWM", "BOS", 480, 700 - TURN),)
+    assert tails["N3"].legs == (5, 7) and not tails["N3"].repositions
+    assert tails["N4"].legs == (8, 9)
+    assert [b for t in ("N2", "N3", "N4") for b in tails[t].busy] == [replace(away, leg=i) for i in (4, 7, 9)]
+    assert (counts["moves"], counts["moves after a diversion"], counts["busy"], counts["gateway busy"]) == (1, 1, 1, 4)
 
 
 def test_each_tail_starts_where_the_record_has_it_at_the_start():
@@ -82,7 +84,7 @@ def test_each_tail_starts_where_the_record_has_it_at_the_start():
                flown(10, "N11", "BOS", "JFK", 650, 660)]
     today = [("N1", "BUF", "JFK", 250, 320, 260, 330, 0, "JFK"), ("N3", "JFK", "DCA", 250, 320, 255, 340, 0, "DCA"),
              ("N5", "BUF", "JFK", 600, 660, None, None, 1, None), ("N6", "JFK", "BOS", 300, 400, 300, 400, 0, "BOS"),
-             ("N7", "JFK", "BOS", 200, 300, 210, 310, 0, "BOS"), ("N8", "JFK", "BOS", 300, 400, 300, 400, 0, "BOS"),
+             ("N7", "JFK", "PWM", 200, 300, 210, 310, 0, "PWM"), ("N8", "JFK", "BOS", 300, 400, 300, 400, 0, "BOS"),
              ("N10", "JFK", "BOS", 200, 260, 200, 260, 0, "BOS"), ("N11", "JFK", "BOS", 300, 400, 350, 450, 0, "BOS")]
     before = [("N2", "JFK", "BOS", -200, -100, -190, -90, 0, "BOS"),
               ("N2", "BOS", "JFK", -500, -400, -490, -390, 0, "JFK"),
@@ -93,14 +95,38 @@ def test_each_tail_starts_where_the_record_has_it_at_the_start():
     tails, counts = built(flights, today, before)
     starts = {t: (x.pos, x.ready) for t, x in tails.items()}
     assert starts == {"N1": ("JFK", 330 + TURN), "N2": ("BOS", 0), "N3": ("MCO", 480 - TURN), "N4": ("PWM", 500 - TURN),
-                      "N5": ("BUF", 0), "N6": ("BOS", 700 - TURN), "N7": ("BOS", 310 + TURN),
-                      "N8": ("BOS", 400 + TURN), "N9": ("SJU", 640 + TURN), "N10": ("MCO", 450 + TURN),
-                      "N11": ("BOS", 450 + TURN)}
-    assert counts == {"busy": 0, "start: day before": 3, "start: first flown leg": 1, "start: first scheduled leg": 1,
-                      "start: today": 3, "start: today, busy": 1, "start: today, moved to the first flown leg": 1,
-                      "start: today, no flown leg": 1}
+                      "N6": ("BOS", 700 - TURN), "N7": ("PWM", 310 + TURN), "N8": ("BOS", 400 + TURN),
+                      "N9": ("SJU", 640 + TURN), "N10": ("MCO", 450 + TURN), "N11": ("BOS", 450 + TURN)}
+    assert counts == {"busy": 0, "gateway busy": 9, "out of service": 1, "start: day before": 3,
+                      "start: first flown leg": 1, "start: today": 3, "start: today, busy": 1,
+                      "start: today, moved to the first flown leg": 1, "start: today, no flown leg": 1}
     late = [flown(0, "N3", "MCO", "JFK", 360, 365)]
     assert built(late, today[1:2])[0]["N3"].ready == 340 + TURN
+
+
+def test_a_tail_whose_last_flown_leg_lands_at_a_gateway_by_day_is_busy_past_every_deadline_and_flies_no_more():
+    flights = [flown(0, "N1", "DCA", "JFK", 600, 600), flown(1, "N2", "DCA", "JFK", 600, 600),
+               cancelled(2, "N2", "JFK", "BUF", 800), flown(3, "N3", "DCA", "JFK", 1020, 1020),
+               flown(4, "N4", "JFK", "DCA", 600, 600), cancelled(5, "N3", "JFK", "DCA", 900),
+               flown(6, "N6", "DCA", "SJU", 960, 960)]
+    tails, counts = built(flights, today=[("N5", "DCA", "BOS", 200, 260, 200, 260, 0, "BOS")])
+    end = 1020 + 240 + 1
+    assert tails["N1"].busy == (Busy(0, end),) and (tails["N5"].pos, tails["N5"].ready) == ("BOS", end)
+    assert not any(tails[t].busy for t in ("N2", "N3", "N4", "N6")) and counts["gateway busy"] == 2
+    task = day(flights[:6], [x for t, x in sorted(tails.items()) if t != "N6"])
+    run = sim.execute(task, {})
+    assert run.legs["N1"] == (0,) and run.flights[5].dep == 1080 + TURN
+    sol = mip.solve(task)
+    assert sol.deps[5] in (None, 1080 + TURN) and sim.execute(task, sol.plan(0)).cost.total == sol.objective
+
+
+def test_a_tail_that_flew_nothing_that_day_nor_the_day_before_is_out_of_service_and_others_fly_its_legs():
+    flights = [flown(0, "N1", "BUF", "DCA", 380, 380), cancelled(1, "N9", "DCA", "BUF", 500),
+               flown(2, "N1", "DCA", "PWM", 700, 700), cancelled(3, "N2", "PWM", "BOS", 900)]
+    tails, counts = built(flights, before=[("N2", "BUF", "PWM", -300, -240, -300, -240, 0, "PWM")])
+    assert set(tails) == {"N1", "N2"} and tails["N2"].pos == "PWM" and counts["out of service"] == 1
+    run = sim.execute(day(flights, list(tails.values())), {})
+    assert (run.flights[1].status, run.flights[1].tail) == ("flown", "N1") and run.flights[3].tail == "N2"
 
 
 def test_tomorrows_needs_fly_the_whole_schedule_and_its_moves_from_the_start_and_a_short_station_counts_zero():
@@ -115,8 +141,8 @@ def test_tomorrows_needs_fly_the_whole_schedule_and_its_moves_from_the_start_and
     assert sum(need["A320"].values()) == 3
 
 
-def test_a_storm_date_holds_every_jetblue_leg_from_the_start_and_every_typed_tail(slice_inputs, fits,
-                                                                                 tmp_path_factory):
+def test_a_storm_date_holds_every_jetblue_leg_from_the_start_and_every_typed_tail_in_service(slice_inputs, fits,
+                                                                                            tmp_path_factory):
     derived = tmp_path_factory.mktemp("derived")
     ones = {"JFK": 1.0, "BOS": 1.0}
     e_fit, e_median = unseen.table(fits, ones)
@@ -125,9 +151,12 @@ def test_a_storm_date_holds_every_jetblue_leg_from_the_start_and_every_typed_tai
     task = b.task
     assert (task.task_id, task.start, task.hub, task.hubs, task.version) == ("b6-20230626-1600", 960, "JFK",
                                                                              ("JFK",), 3)
-    cur = candidates.context(slice_inputs, derived, DATE, "JFK").day.cur
+    day = candidates.context(slice_inputs, derived, DATE, "JFK").day
+    cur, prev = day.cur, day.prev
     decided = cur[((cur.Cancelled == 0) & (cur.ad >= 960)) | ((cur.Cancelled == 1) & (cur.sd >= 960))]
-    assert len(task.flights) == len(decided) == 20 and {t.tail for t in task.tails} == set(cur.Tail_Number)
+    idle = set(cur.Tail_Number) - set(cur[cur.Cancelled == 0].Tail_Number) - set(prev[prev.Cancelled == 0].Tail_Number)
+    assert len(task.flights) == len(decided) == 20 and len(idle) == task.clauses["network"]["out of service"] == 1
+    assert {t.tail for t in task.tails} == set(cur.Tail_Number) - idle
     for t in task.tails:
         mine = sorted((f for f in task.flights if f.actual.tail == t.tail and f.actual.dep is not None),
                       key=lambda f: (f.actual.dep, f.id))
@@ -141,6 +170,29 @@ def test_a_storm_date_holds_every_jetblue_leg_from_the_start_and_every_typed_tai
     assert again == task and again.to_json() == task.to_json()
     replay = references.airline(task)
     assert replay.auto == 0 and replay.flew == sum(f.actual.dep is not None for f in task.flights)
+
+
+def test_a_storm_date_starts_by_an_hour_before_its_first_program_hour_and_needs_five_flights_its_programs_hold(
+        slice_inputs, fits, tmp_path_factory, monkeypatch):
+    derived = tmp_path_factory.mktemp("derived")
+    ones = {"JFK": 1.0, "BOS": 1.0}
+    e_fit, e_median = unseen.table(fits, ones)
+    b = network.build(DATE, ("JFK",), slice_inputs, derived, e_fit, e_median, ones)
+    assert b.task.start == 60 * b.row["first_hours"]["JFK"] - 60 == 660
+    assert b.task.clauses["controlled_or_held"] == 10 >= network.MIN_CONTROLLED == 5
+    monkeypatch.setattr(network, "MIN_CONTROLLED", 11)
+    b = network.build(DATE, ("JFK",), slice_inputs, derived, e_fit, e_median, ones)
+    assert b.task is None and b.row["reason"] == "fewer than 11 JetBlue flights controlled or held"
+    control = network.build(DATE, ("JFK",), slice_inputs, derived, e_fit, e_median, ones, windows={"JFK": WINDOW},
+                            split="control")
+    assert control.task.clauses["controlled_or_held"] == 6
+
+
+def test_a_date_starts_an_hour_before_its_first_storm_hub_window_or_first_program_hour():
+    row = {"windows": {"JFK": [780, 1140], "BOS": [900, 1200]}, "first_hours": {"JFK": 11, "BOS": 15}}
+    assert network.begins(row) == 600
+    assert network.begins({**row, "first_hours": {"JFK": 13, "BOS": None}}) == 720
+    assert network.begins({"windows": {"JFK": [1080, 1320], "BOS": [420, 660]}, "first_hours": {}}) == 360
 
 
 def dates(first: str, n: int, gap: int) -> list[str]:
