@@ -20,22 +20,33 @@ def test_fidelity_pools_modelled_over_observed_delay_over_the_days_within_half_t
     assert world_check.pooled([(0.0, 0.0, 0)])["ratio"] is None
 
 
-def test_fidelity_passes_only_with_every_hubs_eval_and_train_pool_in_band_out_of_sample():
-    fid = {"a": (110.0, 100.0, 3), "b": (90.0, 100.0, 3), "c": (100.0, 100.0, 3), "d": (95.0, 100.0, 3),
-           "e": (500.0, 100.0, 3)}
-    split = {"a": "eval", "b": "eval", "c": "train", "d": "train", "e": "train"}
-    hub = {"a": "JFK", "b": "BOS", "c": "JFK", "d": "BOS", "e": "BOS"}
-    gate = world_check.fidelity_gate(fid, split, hub, True)
+def test_fidelity_pools_each_storm_hub_of_a_date_and_passes_only_with_every_pool_in_band_out_of_sample():
+    fid = {("a", "JFK"): (110.0, 100.0, 3), ("a", "BOS"): (90.0, 100.0, 3), ("c", "JFK"): (100.0, 100.0, 3),
+           ("d", "BOS"): (95.0, 100.0, 3), ("e", "BOS"): (500.0, 100.0, 3)}
+    split = {"a": "eval", "c": "train", "d": "train", "e": "train"}
+    gate = world_check.fidelity_gate(fid, split, True)
     assert gate["pass"] and gate["train_BOS"] == {"ratio": 0.95, "days": 1, "dropped": 1, "no_delay": 0}
-    assert not world_check.fidelity_gate(fid, split, hub, False)["pass"]
-    assert not world_check.fidelity_gate(fid, {**split, "a": "eval", "c": "eval"}, hub, True)["pass"]
-    high = world_check.fidelity_gate({**fid, "b": (130.0, 100.0, 3)}, split, hub, True)
+    assert gate["eval_JFK"]["ratio"] == 1.1 and gate["eval_BOS"]["ratio"] == 0.9
+    assert not world_check.fidelity_gate(fid, split, False)["pass"]
+    assert not world_check.fidelity_gate(fid, {**split, "c": "eval"}, True)["pass"]
+    high = world_check.fidelity_gate({**fid, ("a", "BOS"): (130.0, 100.0, 3)}, split, True)
     assert high["eval_BOS"]["ratio"] == 1.3 and not high["pass"]
 
 
-def test_a_task_is_left_out_for_every_reference_that_failed_or_did_not_prove():
+def test_a_task_is_left_out_for_every_reference_it_ran_that_failed_or_did_not_prove():
     ok = {k: {"proven": True} for k in world_check.REFERENCES}
     assert world_check.unproven(ok) == []
     r = {**ok, "follower": {"error": "RuntimeError: watch 600 solve Time limit reached"}, "flat": {"proven": False}}
     assert world_check.unproven(r) == ["follower", "flat"]
     assert world_check.unproven({k: v for k, v in ok.items() if k != "calm"}) == ["calm"]
+    stage = {"refs": list(world_check.STAGE), **{k: ok[k] for k in world_check.STAGE}}
+    assert world_check.unproven(stage) == [] and world_check.unproven({**stage, "refs": ["rule"]}) == ["rule"]
+
+
+def test_the_references_run_are_the_stage_set_unless_named_and_only_takes_dates_or_task_ids():
+    assert world_check.chosen(",".join(world_check.STAGE)) == world_check.STAGE == (
+        "naive", "airline", "recorded", "anchor", "flat", "calm")
+    assert world_check.chosen("calm,rule,airline") == ("airline", "rule", "calm")
+    only = world_check.wanted("2024-08-19,b6-20250209-0600")
+    assert [only(d) for d in ("2024-08-19", "2025-02-09", "2025-02-10")] == [True, True, False]
+    assert world_check.wanted("")("2023-07-16")
