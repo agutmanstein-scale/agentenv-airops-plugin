@@ -58,16 +58,18 @@ def test_a_tail_flies_the_legs_it_flew_in_that_order_and_a_swap_or_a_stale_tail_
     assert all(f.id not in x.legs for x in tails.values() for f in flights if f.actual.dep is None)
 
 
-def test_a_station_gap_on_the_flown_path_is_a_move_and_a_long_daytime_gap_no_cancelled_leg_fills_a_busy_block():
+def test_a_station_gap_on_the_flown_path_is_a_move_and_a_long_daytime_ground_gap_no_cancelled_leg_fills_is_busy():
     flights = [flown(0, "N1", "BUF", "JFK", 400, 400), flown(1, "N1", "BOS", "DCA", 600, 600),
                flown(2, "N1", "DCA", "JFK", 1000, 1000), flown(3, "N2", "JFK", "PWM", 420, 420, end="BOS"),
                flown(4, "N2", "BOS", "JFK", 700, 700), flown(5, "N3", "JFK", "BOS", 400, 400),
-               cancelled(6, "N3", "BOS", "DCA", 600), flown(7, "N3", "BOS", "JFK", 1000, 1000)]
+               cancelled(6, "N3", "BOS", "DCA", 600), flown(7, "N3", "BOS", "JFK", 1000, 1000),
+               flown(8, "N4", "JFK", "BOS", 500, 800), flown(9, "N4", "BOS", "JFK", 900, 920)]
     tails, counts = built(flights)
     assert tails["N1"].repositions == (Move(0, "JFK", "BOS", 460, 600 - TURN),)
     assert tails["N1"].busy == (Busy(1, 1000 - TURN),)
     assert tails["N2"].repositions == (Move(3, "PWM", "BOS", 480, 700 - TURN),) and not tails["N2"].busy
     assert tails["N3"].legs == (5, 7) and not tails["N3"].busy and not tails["N3"].repositions
+    assert tails["N4"].legs == (8, 9) and not tails["N4"].busy
     assert (counts["moves"], counts["moves after a diversion"], counts["busy"]) == (1, 1, 1)
 
 
@@ -76,11 +78,12 @@ def test_each_tail_starts_where_the_record_has_it_at_the_start():
                flown(2, "N4", "PWM", "JFK", 500, 505), flown(3, "N6", "BOS", "JFK", 700, 700),
                flown(4, "N2", "BOS", "JFK", 450, 450), cancelled(5, "N5", "BUF", "JFK", 600),
                flown(6, "N8", "BOS", "JFK", 700, 700), cancelled(7, "N8", "BOS", "PWM", 500),
-               flown(8, "N9", "SJU", "JFK", 420, 700), flown(9, "N10", "MCO", "JFK", 500, 520)]
+               flown(8, "N9", "SJU", "JFK", 420, 700), flown(9, "N10", "MCO", "JFK", 500, 520),
+               flown(10, "N11", "BOS", "JFK", 650, 660)]
     today = [("N1", "BUF", "JFK", 250, 320, 260, 330, 0, "JFK"), ("N3", "JFK", "DCA", 250, 320, 255, 340, 0, "DCA"),
              ("N5", "BUF", "JFK", 600, 660, None, None, 1, None), ("N6", "JFK", "BOS", 300, 400, 300, 400, 0, "BOS"),
              ("N7", "JFK", "BOS", 200, 300, 210, 310, 0, "BOS"), ("N8", "JFK", "BOS", 300, 400, 300, 400, 0, "BOS"),
-             ("N10", "JFK", "BOS", 200, 260, 200, 260, 0, "BOS")]
+             ("N10", "JFK", "BOS", 200, 260, 200, 260, 0, "BOS"), ("N11", "JFK", "BOS", 300, 400, 350, 450, 0, "BOS")]
     before = [("N2", "JFK", "BOS", -200, -100, -190, -90, 0, "BOS"),
               ("N2", "BOS", "JFK", -500, -400, -490, -390, 0, "JFK"),
               ("N2", "MCO", "PWM", -80, 100, 900, 1080, 0, "PWM"),
@@ -91,9 +94,10 @@ def test_each_tail_starts_where_the_record_has_it_at_the_start():
     starts = {t: (x.pos, x.ready) for t, x in tails.items()}
     assert starts == {"N1": ("JFK", 330 + TURN), "N2": ("BOS", 0), "N3": ("MCO", 480 - TURN), "N4": ("PWM", 500 - TURN),
                       "N5": ("BUF", 0), "N6": ("BOS", 700 - TURN), "N7": ("BOS", 310 + TURN),
-                      "N8": ("BOS", 400 + TURN), "N9": ("SJU", 640 + TURN), "N10": ("MCO", 450 + TURN)}
+                      "N8": ("BOS", 400 + TURN), "N9": ("SJU", 640 + TURN), "N10": ("MCO", 450 + TURN),
+                      "N11": ("BOS", 450 + TURN)}
     assert counts == {"busy": 0, "start: day before": 3, "start: first flown leg": 1, "start: first scheduled leg": 1,
-                      "start: today": 2, "start: today, busy": 1, "start: today, moved to the first flown leg": 1,
+                      "start: today": 3, "start: today, busy": 1, "start: today, moved to the first flown leg": 1,
                       "start: today, no flown leg": 1}
     late = [flown(0, "N3", "MCO", "JFK", 360, 365)]
     assert built(late, today[1:2])[0]["N3"].ready == 340 + TURN

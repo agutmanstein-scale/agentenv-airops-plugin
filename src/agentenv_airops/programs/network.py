@@ -15,11 +15,12 @@ first moves the start to that leg's origin, ready at its scheduled departure les
 whichever is later. With no record before the start the tail starts at its first flown leg's origin, ready at its
 scheduled departure less the turn, or, with no flown leg either, at its first scheduled leg's origin, ready from
 midnight. A long daytime same-station gap before or between flown legs is a busy block, as repairs.tails reads one on
-the scheduled chain: none where a cancelled leg BTS leaves on the tail was scheduled to leave inside it. A turn JetBlue
-flew between flown legs may be as fast (repairs.connections). Swaps and the stale tails BTS leaves on cancelled legs
-make no Move. Tomorrow's needs are pooled: per family and station, where flying the whole schedule and its Moves from
-the start positions leaves the aircraft; a count the schedule would leave below zero is zero, and the stations with the
-most aircraft of the family give up the difference, one at a time.
+the scheduled chain: none where the tail's recorded ground time there is shorter, or where a cancelled leg BTS leaves on
+the tail was scheduled to leave inside it. A turn JetBlue flew between flown legs may be as fast (repairs.connections).
+Swaps and the stale tails BTS leaves on cancelled legs make no Move. Tomorrow's needs are pooled: per family and
+station, where flying the whole schedule and its Moves from the start positions leaves the aircraft; a count the
+schedule would leave below zero is zero, and the stations with the most aircraft of the family give up the difference,
+one at a time.
 """
 
 import math
@@ -144,7 +145,7 @@ def network_tails(day: pack.Day, sc: pack.Scope, flights: Sequence[Flight], fami
             if f.dest != g.orig:
                 moves.append(Move(f.id, f.dest, g.orig, f.sched_arr, g.sched_dep - tt))
                 counts["moves after a diversion" if f.actual.end == g.orig else "moves"] += 1
-            elif busy_gap(f.sched_arr, g.sched_dep, dropped[t]):
+            elif busy_gap(f.sched_arr, g.sched_dep, g.actual.dep - arrival(f), dropped[t]):
                 busy.append(Busy(f.id, g.sched_dep - tt))
         counts[f"start: {source}"] += 1
         counts["busy"] += len(busy)
@@ -175,16 +176,22 @@ def start_of(day: pack.Day, sc: pack.Scope, tail: str, path: Sequence[Flight], d
         return last.end, ready, f"{source}, no flown leg"
     if last.end != path[0].orig:
         return path[0].orig, max(ready, path[0].sched_dep - turn), f"{source}, moved to the first flown leg"
-    if busy_gap(int(last.sa), path[0].sched_dep, dropped):
+    if busy_gap(int(last.sa), path[0].sched_dep, path[0].actual.dep - arrived, dropped):
         return last.end, max(ready, path[0].sched_dep - turn), f"{source}, busy"
     return last.end, ready, source
 
 
-def busy_gap(landed: int, leaves: int, dropped: Iterable[Flight]) -> bool:
-    """A long daytime gap between a tail's scheduled arrival and its next flown leg, that none of its cancelled legs
-    was scheduled to fill: flying the record lacks."""
-    return leaves - landed >= repairs.BUSY_GAP and repairs.BUSY_HOURS[0] <= landed < repairs.BUSY_HOURS[1] and \
+def busy_gap(landed: int, leaves: int, ground: int, dropped: Iterable[Flight]) -> bool:
+    """A long daytime gap between a tail's scheduled arrival and its next flown leg, as long on the ground in the
+    record, that none of its cancelled legs was scheduled to fill: flying the record lacks."""
+    long = min(leaves - landed, ground) >= repairs.BUSY_GAP
+    return long and repairs.BUSY_HOURS[0] <= landed < repairs.BUSY_HOURS[1] and \
         not any(landed <= f.sched_dep < leaves for f in dropped)
+
+
+def arrival(f: Flight) -> int:
+    """When a flown leg reached the gate, or for one that diverted and never got there, start_of's estimate."""
+    return f.actual.arr if f.actual.arr is not None else f.actual.dep + f.sched_block + 60
 
 
 def needs(tails: Sequence[Tail], flights: Sequence[Flight]) -> tuple[dict[str, dict[str, int]], dict[str, int]]:
