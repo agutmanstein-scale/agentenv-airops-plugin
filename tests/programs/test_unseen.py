@@ -3,8 +3,7 @@ from dataclasses import replace
 
 from program_helpers import EVERY, adv
 
-from agentenv_airops.build import pack
-from agentenv_airops.programs import unseen
+from agentenv_airops.programs import candidates, unseen
 from agentenv_airops.programs.advisories import Run, Stop
 from agentenv_airops.programs.model import Arrival
 
@@ -71,4 +70,4 @@ def test_the_airports_own_counts_set_what_bts_misses():
     assert jfk == {"counted_per_day": 640.1, "bts_per_day": 317.0, "missed_share": 0.505}
     bos = unseen.missed_share("BOS", 400.0, ["2024-07"], {"2024-07": 31})
     assert bos["counted_per_day"] == round(19_130 / 31, 1)
-    assert sorted(unseen.MASSPORT_ARRIVALS) == sorted(pack.MONTHS)
+    assert sorted(unseen.MASSPORT_ARRIVALS) == list(candidates.MONTHS)

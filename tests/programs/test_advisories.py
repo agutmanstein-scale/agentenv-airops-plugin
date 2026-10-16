@@ -184,9 +184,9 @@ def test_every_cached_program_reads_hourly_rates_and_a_scope():
                     single += bool(re.search(r"PROGRAM RATE:\s*\d+\s*$", r["message"], re.M))
                 if a.kind in ("gs", "gdp", "gdp_proposed") and a.only:
                     limited.append((a.id, a.only))
-    assert (kinds["gdp"], kinds["gdp_proposed"], kinds["gs"]) == (216, 181, 514)
-    assert single == 81
-    assert [i for i, who in limited if who == "JBU"] == ["adv-20250216-061", "adv-20250216-072"]
+    assert (kinds["gdp"], kinds["gdp_proposed"], kinds["gs"]) == (312, 260, 700)
+    assert single == 130
+    assert [i for i, who in limited if who == "JBU"] == ["adv-20250216-061", "adv-20250216-072", "adv-20260127-029"]
     assert [i for i, _ in limited if i in {"adv-20240719-096", "adv-20230716-144"}] == ["adv-20240719-096"]
 
 

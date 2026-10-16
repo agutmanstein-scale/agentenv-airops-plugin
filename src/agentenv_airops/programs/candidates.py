@@ -1,7 +1,9 @@
-"""The v2 candidates, their windows and splits (data pack b6-v2, from the 13 cached months).
+"""The candidates, their windows and splits, over the 19 cached months (MONTHS).
 
 A candidate is a local date and hub with a program that binds JetBlue (a GDP or an all-carrier ground stop at the hub)
-in force on the truth between 05:00 and 24:00 local, and both neighbouring days loaded. Its window is a rule, not an
+in force on the truth between 05:00 and 24:00 local, both neighbouring days loaded (one whose neighbour isn't is
+rejected, with the day missing) and every advisory it reads archived: a date whose read range meets an outage of the
+FAA's advisory archive (GAPS) is no candidate, no control and no calm day for the turns. Its window is a rule, not an
 argmax: P0 is the first hour from 05:00 to 20:00 with a hub program in force (a GDP from its signature or its period's
 start, whichever is later, to its run's end; a stop piece over its window), the window [P0, P0 + L) with L the
 longest of 6/5/4/3 h whose scope holds 30 to 80 tails, and the first watch an hour before P0. While the data clauses
@@ -17,20 +19,27 @@ the winter date with no program listed at JFK, BOS, EWR or LGA (a GDP or ground 
 day's ATCSCC list), no weather or NAS cancellation in scope and the lowest mean all-carrier arrival delay at the hub,
 windowed on the hub's busiest 4 h of JetBlue movements.
 
+The fleet of a month is typed by the two published Form 41 B-43 inventories nearest it (`b43_years`): 2026's is not
+published, so the 2026 months take 2025's and 2024's.
+
 Every function a process pool maps takes picklable arguments (dates, paths, small dicts) and reads the pinned inputs
-through per-process caches, so the ~240 candidates build in parallel.
+through per-process caches, so the ~300 candidates build in parallel.
 """
 
+import csv
 import functools
+import io
 import math
 import os
 import random
+import statistics
 import zipfile
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from datetime import date as Date
 from pathlib import Path
 
@@ -47,7 +56,10 @@ from .model import Arrival, Programs, Task, coverage
 from .rbs import Covers
 
 CARRIER = pack.CARRIER
-MONTHS = pack.MONTHS
+MONTHS = tuple(sorted((*pack.MONTHS, "2025-08", "2025-12", "2026-01", "2026-02", "2026-06", "2026-07")))
+GAPS = (("2025-08-23T09:50", "2025-08-26T03:41"),)
+"""UTC spans the FAA's advisory archive has nothing for: its lists of 2025-08-24 and 08-25 are empty, 08-23's stops at
+advisory 34 (09:50Z) and 08-26's starts at advisory 22 (03:41Z), and refetching gives the same pages."""
 SUMMER, WINTER = ("06", "07", "08"), ("12", "01", "02")
 FIRST, LAST_START, DAY_END = 5, 20, 24
 LENGTHS = (6, 5, 4, 3)
@@ -67,16 +79,23 @@ class Built:
 
 def candidates(inputs: Path, months: Sequence[str] = MONTHS) -> tuple[list[tuple[str, str]], dict]:
     """Every (local date, hub) candidate in order, and the counts behind it: UTC day-hubs with a hub GDP or ground
-    stop of any kind, local day-hubs with a hub program of any kind in force 05:00-24:00, and
-    those of them whose only programs are carrier-, GA- or approach-limited stops."""
+    stop of any kind, local day-hubs with a hub program of any kind in force 05:00-24:00, those of them whose only
+    programs are carrier-, GA- or approach-limited stops, the local dates an archive outage drops, and under
+    "rejected" each day-hub with a binding program that can't be a candidate, with the reason."""
     loaded = {d for m in months for d in pack.month_days(m)}
-    out, utc, local, limited = [], set(), set(), set()
+    out, utc, local, limited, rejected = [], set(), set(), set(), {}
+    gapped = sorted(d for d in loaded if gap(d))
     for d in sorted(loaded):
         for hub in HUBS:
             if any(v1.kind(v1.title_of(r["header"])) in (advisories.GDP, advisories.GS)
                    for r in v1.load_day(inputs, d, hub)):
                 utc.add((d, hub))
-            if pack.shift(d, -1) not in loaded or pack.shift(d, 1) not in loaded:
+            if d in gapped:
+                continue
+            missing = [x for x in (pack.shift(d, -1), pack.shift(d, 1)) if x not in loaded]
+            if missing:
+                if any_in_force(*programs_of(inputs, d, hub), 300, 1440):
+                    rejected[f"{d}/{hub}"] = f"no BTS day {', '.join(missing)}"
                 continue
             if any_in_force(*programs_of(inputs, d, hub, binding=False), 300, 1440):
                 local.add((d, hub))
@@ -85,7 +104,18 @@ def candidates(inputs: Path, months: Sequence[str] = MONTHS) -> tuple[list[tuple
                 else:
                     limited.add((d, hub))
     return out, {"utc_day_hubs": len(utc), "local_day_hubs": len(local), "limited_only": len(limited),
-                 "candidates": len(out)}
+                 "candidates": len(out), "archive_gap_dates": gapped, "rejected": rejected}
+
+
+def gap(d: str) -> bool:
+    """Whether local date d reads advisories (programs_of: from LOOKBACK before its midnight, for two days) signed in
+    an archive outage."""
+    lo = midnight(d) - advisories.LOOKBACK
+    return any(lo < utc_minute(b) and utc_minute(a) < lo + advisories.LOOKBACK + 2 * 1440 for a, b in GAPS)
+
+
+def utc_minute(text: str) -> int:
+    return bts.epoch_minutes(datetime.fromisoformat(text).replace(tzinfo=UTC))
 
 
 def program_title(title: str) -> bool:
@@ -166,22 +196,54 @@ def taxi_median(inputs: Path, derived: Path, d: str) -> dict[str, float]:
     return x.groupby("Origin").TaxiOut.median().to_dict()
 
 
-@functools.lru_cache(maxsize=13)
+@functools.lru_cache(maxsize=len(MONTHS))
 def month_fleet(inputs: Path, derived: Path, m: str) -> dict[str, fleet.Aircraft]:
     x = month_frame(inputs, derived, m)
-    return fleet.fleet(CARRIER, m, set(x[x.Reporting_Airline == CARRIER].Tail_Number.dropna()), inputs)
+    return typed(set(x[x.Reporting_Airline == CARRIER].Tail_Number.dropna()), b43_years(inputs, m), inputs)
 
 
-@functools.lru_cache(maxsize=13)
+def typed(tails: set[str], years: Sequence[int], inputs: Path) -> dict[str, fleet.Aircraft]:
+    """fleet.fleet with the B-43 inventories given: every tail of `tails` they or the FAA registry can type."""
+    out: dict[str, fleet.Aircraft] = {}
+    seats_by_family: dict[str, list[int]] = {}
+    for year in years:
+        for r in csv.DictReader(io.StringIO(fleet.b43_path(inputs, year).read_text(encoding="utf-8-sig"))):
+            seats = r["NUMBER_OF_SEATS"].strip()
+            if r["CARRIER"] != CARRIER or seats in ("", "0", "0.00"):
+                continue
+            a = fleet.Aircraft(r["TAIL_NUMBER"].strip(), fleet.family(r["MODEL"]), r["MODEL"].strip(),
+                               int(float(seats)), f"B-43 {year}")
+            seats_by_family.setdefault(a.family, []).append(a.seats)
+            if a.tail in tails and a.tail not in out:
+                out[a.tail] = a
+    missing = tails - set(out)
+    if missing:
+        median = {f: int(statistics.median(v)) for f, v in seats_by_family.items()}
+        for tail, model in fleet.registry_models(fleet.registry_path(inputs), missing).items():
+            if fleet.family(model) in median:
+                out[tail] = fleet.Aircraft(tail, fleet.family(model), model, median[fleet.family(model)],
+                                           "FAA registry")
+    return out
+
+
+def b43_years(inputs: Path, m: str) -> list[int]:
+    """fleet.b43_years over the inventories published (cached): the two nearest the month, nearest first."""
+    year, month = (int(v) for v in m.split("-"))
+    at = year + (month - 0.5) / 12
+    published = [int(p.stem.split("_")[1]) for p in (inputs / "bts").glob("b43_*.csv")]
+    return sorted(published, key=lambda y: (abs(y + 1 - at), y))[:2]
+
+
+@functools.lru_cache(maxsize=len(MONTHS))
 def month_loads(inputs: Path, m: str) -> dict:
     return fleet.load_factors(CARRIER, m, inputs)
 
 
-@functools.lru_cache(maxsize=13)
+@functools.lru_cache(maxsize=len(MONTHS))
 def month_turns(inputs: Path, derived: Path, m: str) -> dict[str, int]:
-    """Schedule turns per family on the month's calm days: those whose ATCSCC list is cached and shows no GDP or ground
-    stop for JFK or BOS."""
-    calm = [d for d in pack.month_days(m) if (v1.day_dir(inputs, d) / "list.html").exists()
+    """Schedule turns per family on the month's calm days: those whose ATCSCC list is cached, whole, and shows no GDP
+    or ground stop for JFK or BOS."""
+    calm = [d for d in pack.month_days(m) if (v1.day_dir(inputs, d) / "list.html").exists() and not gap(d)
             and not any(e in HUBS and program_title(t) for e, t in advisories.listed(inputs, d))]
     x = month_frame(inputs, derived, m)
     return repairs.turns(x[(x.Reporting_Airline == CARRIER) & x.FlightDate.isin(calm)], month_fleet(inputs, derived, m))
@@ -420,7 +482,7 @@ def settle(drawn: Mapping[tuple[str, str], str], qualifying: Iterable[tuple[str,
 def controls(inputs: Path, derived: Path, months: Sequence[str] = MONTHS) -> list[tuple[str, str, tuple[int, int]]]:
     """The four rule-chosen controls as (date, hub, window)."""
     loaded = {d for m in months for d in pack.month_days(m)}
-    quiet = [d for d in sorted(loaded) if pack.shift(d, -1) in loaded and pack.shift(d, 1) in loaded
+    quiet = [d for d in sorted(loaded) if pack.shift(d, -1) in loaded and pack.shift(d, 1) in loaded and not gap(d)
              and not any(e in LISTED and program_title(t) for day in (d, pack.shift(d, 1))
                          for e, t in advisories.listed(inputs, day))]
     out = []

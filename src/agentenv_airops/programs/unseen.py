@@ -50,6 +50,12 @@ MASSPORT_ARRIVALS = {
     "2025-01": (14_748, "2025-02/0125-avstats-airport-traffic-summary.pdf"),
     "2025-02": (13_761, "2025-03/0225-avstats-airport-traffic-summary.pdf"),
     "2025-07": (19_031, "2025-08/0725-avstats-airport-traffic-summary.pdf"),
+    "2025-08": (19_206, "2025-09/0825-avstats-airport-traffic-summary.pdf"),
+    "2025-12": (15_637, "2026-01/1225-avstats-airport-traffic-summary.pdf"),
+    "2026-01": (13_553, "2026-02/JAN-2026-Air-Traffic-Report.pdf"),
+    "2026-02": (13_128, "2026-04/0226-Air-Traffic-Report.pdf"),
+    "2026-06": (18_473, "2026-07/0626-Air-Traffic-Report.pdf"),
+    "2026-07": (19_224, "2026-08/0726AirTrafficReport.pdf"),
 }
 """Massport's Monthly Airport Traffic Summary for Logan: Total Arriving (InBound) Flights, all users, with each month's
 report under MASSPORT (pinned in inputs/massport/; Massport serves them only to a browser, so they were saved from one

@@ -4,6 +4,7 @@ from datetime import date, timedelta
 
 from program_helpers import CACHE, DERIVED, adv, needs_cache
 
+from agentenv_airops.build import fleet, pack
 from agentenv_airops.programs import candidates
 from agentenv_airops.programs.advisories import Run, Stop
 from agentenv_airops.programs.model import Task
@@ -68,11 +69,41 @@ def test_a_built_task_round_trips_through_json_with_its_crew_too(task, built, cr
     assert task.sources["nasr"] and task.sources["advisories"]["2023-06-26/JFK"]
 
 
+def test_the_months_are_the_cached_thirteen_and_six_more_in_order():
+    added = ("2025-08", "2025-12", "2026-01", "2026-02", "2026-06", "2026-07")
+    assert candidates.MONTHS == tuple(sorted(pack.MONTHS + added)) and len(candidates.MONTHS) == 19
+
+
+def test_dates_reading_advisories_in_the_archive_outage_are_dropped():
+    assert [d for d in dates("2025-08-19", 11, 1) if candidates.gap(d)] == dates("2025-08-22", 5, 1)
+
+
+def test_the_fleet_takes_the_two_published_inventories_nearest_the_month(tmp_path):
+    (tmp_path / "bts").mkdir()
+    for y in range(2021, 2026):
+        (tmp_path / "bts" / f"b43_{y}.csv").write_text("")
+    for m in pack.MONTHS:
+        assert candidates.b43_years(tmp_path, m) == fleet.b43_years(m)
+    assert candidates.b43_years(tmp_path, "2025-08") == [2025, 2024]
+    assert all(candidates.b43_years(tmp_path, m) == [2025, 2024] for m in ("2026-01", "2026-02", "2026-06", "2026-07"))
+
+
 @needs_cache
 def test_candidates_are_counted_per_local_date_without_carrier_limited_stops():
     keys, counts = candidates.candidates(CACHE)
-    assert counts == {"utc_day_hubs": 244, "local_day_hubs": 215, "limited_only": 6, "candidates": 209}
-    assert ("2024-08-19", "JFK") in keys and len(keys) == len(set(keys))
+    assert {k: v for k, v in counts.items() if isinstance(v, int)} == {
+        "utc_day_hubs": 342, "local_day_hubs": 307, "limited_only": 9, "candidates": 298}
+    assert counts["archive_gap_dates"] == dates("2025-08-22", 5, 1)
+    assert ("2024-08-19", "JFK") in keys and ("2026-07-04", "JFK") in keys and len(keys) == len(set(keys))
+
+
+@needs_cache
+def test_a_program_day_whose_neighbour_is_not_loaded_is_rejected_with_the_day_missing():
+    keys, counts = candidates.candidates(CACHE, ("2025-07",))
+    assert counts["rejected"] == {"2025-07-01/JFK": "no BTS day 2025-06-30", "2025-07-01/BOS": "no BTS day 2025-06-30",
+                                  "2025-07-31/JFK": "no BTS day 2025-08-01", "2025-07-31/BOS": "no BTS day 2025-08-01"}
+    assert not {k for k in keys if k[0] in ("2025-07-01", "2025-07-31")}
+    assert {("2025-07-31", "JFK"), ("2025-07-31", "BOS")} <= set(candidates.candidates(CACHE)[0])
 
 
 @needs_cache
