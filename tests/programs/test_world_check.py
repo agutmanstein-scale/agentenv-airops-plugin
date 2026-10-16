@@ -39,12 +39,12 @@ def test_a_task_is_left_out_for_every_reference_it_ran_that_failed_or_did_not_pr
     r = {**ok, "follower": {"error": "RuntimeError: watch 600 solve Time limit reached"}, "flat": {"proven": False}}
     assert world_check.unproven(r) == ["follower", "flat"]
     assert world_check.unproven({k: v for k, v in ok.items() if k != "calm"}) == ["calm"]
-    stage = {"refs": list(world_check.STAGE), **{k: ok[k] for k in world_check.STAGE}}
-    assert world_check.unproven(stage) == [] and world_check.unproven({**stage, "refs": ["rule"]}) == ["rule"]
+    ran = {"refs": list(world_check.DEFAULT_REFS), **{k: ok[k] for k in world_check.DEFAULT_REFS}}
+    assert world_check.unproven(ran) == [] and world_check.unproven({**ran, "refs": ["rule"]}) == ["rule"]
 
 
-def test_the_references_run_are_the_stage_set_unless_named_and_only_takes_dates_or_task_ids():
-    assert world_check.chosen(",".join(world_check.STAGE)) == world_check.STAGE == (
+def test_the_references_run_are_the_default_set_unless_named_and_only_takes_dates_or_task_ids():
+    assert world_check.chosen(",".join(world_check.DEFAULT_REFS)) == world_check.DEFAULT_REFS == (
         "naive", "airline", "recorded", "anchor", "flat", "calm")
     assert world_check.chosen("calm,rule,airline") == ("airline", "rule", "calm")
     only = world_check.wanted("2024-08-19,b6-20250209-0600")

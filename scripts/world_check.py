@@ -76,7 +76,7 @@ CUTOFF_SHARE = 0.9
 PROVE_S, WATCH_S = 3600.0, 2400.0
 RSS_UNIT = 1 << 20 if sys.platform == "darwin" else 1 << 10
 REFERENCES = ("naive", "airline", "recorded", "anchor", "flat", "follower", "blind", "rule", "calm")
-STAGE = ("naive", "airline", "recorded", "anchor", "flat", "calm")
+DEFAULT_REFS = ("naive", "airline", "recorded", "anchor", "flat", "calm")
 SOLVED = ("anchor", "flat", "calm")
 PLAYED = ("naive", "airline", "anchor", "follower", "blind", "rule")
 COLUMNS = ("task_id", "split", "hubs", "start", "kept", "flights", "tails", "moves", "anchor", "naive", "follower",
@@ -90,7 +90,8 @@ def main() -> None:
     ap.add_argument("--only", default="", help="comma-separated dates or task ids (default: all)")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--refs", default=",".join(STAGE), help=f"comma-separated references of {', '.join(REFERENCES)}")
+    ap.add_argument("--refs", default=",".join(DEFAULT_REFS),
+                    help=f"comma-separated references of {', '.join(REFERENCES)}")
     ap.add_argument("--prove-s", type=float, default=PROVE_S, help="time limit of each anchor, flat or calm solve")
     ap.add_argument("--watch-s", type=float, default=WATCH_S, help="time limit of each follower watch solve")
     ap.add_argument("--scale", default="", help="HUB=scale,... in place of the train fit (fidelity then fails)")

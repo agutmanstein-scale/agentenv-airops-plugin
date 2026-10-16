@@ -223,6 +223,13 @@ def build_one(args: tuple) -> Built:
     return build(d, hubs, inputs, derived, e_fit, e_median, scale, cutoff, windows, split)
 
 
+def split(hubs: Mapping[str, Sequence[str]], event: Mapping[str, int], seed: int) -> dict[str, str]:
+    """eval for the draw, train for every date of an event without an eval date."""
+    chosen = draw(hubs, event, seed)
+    taken = {event[d] for d in chosen}
+    return {d: "eval" if d in chosen else "train" for d in sorted(hubs) if d in chosen or event[d] not in taken}
+
+
 def draw(hubs: Mapping[str, Sequence[str]], event: Mapping[str, int], seed: int) -> dict[str, str]:
     """The eval dates, each to the storm hub it was drawn for: per hub in turn, 12 of the dates it storms on that no
     hub drew before, 8 summer and 4 winter (9 and 3 if winter has fewer than 4 events), each from a distinct event,
@@ -242,13 +249,6 @@ def draw(hubs: Mapping[str, Sequence[str]], event: Mapping[str, int], seed: int)
             rng.shuffle(order)
             out |= {rng.choice(sorted(by[s][e])): hub for e in order[:n]}
     return dict(sorted(out.items()))
-
-
-def split(hubs: Mapping[str, Sequence[str]], event: Mapping[str, int], seed: int) -> dict[str, str]:
-    """eval for the draw, train for every date of an event without an eval date."""
-    chosen = draw(hubs, event, seed)
-    taken = {event[d] for d in chosen}
-    return {d: "eval" if d in chosen else "train" for d in sorted(hubs) if d in chosen or event[d] not in taken}
 
 
 def settle(drawn: Mapping[str, str], qualifying: Iterable[str], event: Mapping[str, int]) -> dict[str, str]:
