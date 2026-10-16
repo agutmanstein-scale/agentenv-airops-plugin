@@ -235,6 +235,18 @@ def test_a_pinned_auto_cancel_carries_no_aircraft_through_its_break_and_a_pinned
     assert lapsed.objective > cancelled.objective
 
 
+def test_the_flat_optimum_prices_an_auto_cancel_flat_as_the_flat_cost_does():
+    task = broken_day()
+    sol = mip.solve(task, fixed={1: None}, lapsed={1}, flat=True)
+    run = sim.execute(task, sol.plan(task.start))
+    assert sol.lapsed == {1: task.flight(1).deadline + 1} and run.flights[1].status == "auto_cancelled"
+    assert sol.objective == run.cost.flat < run.cost.total
+    net = mip.Network(task, flat=True)
+    x = net.vector(run)
+    assert x is not None and feasible(net, x)
+    assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.flat
+
+
 @pytest.mark.parametrize("name", list(days()))
 def test_the_lp_first_canonical_plan_is_the_plan_without_it(name):
     task = days()[name]

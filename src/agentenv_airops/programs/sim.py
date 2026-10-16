@@ -40,10 +40,11 @@ block's ready time, if that is later than its turn; a cancelled leg has none. At
 the aircraft on tomorrow's needs (Task.needed).
 
 A World is what a day runs on: the truth (the task's lb, truth blocks and programs as they ran), the day as known at
-a watch (M12: lb and the truth block once the scheduled departure is within LOOK, else 0 and the scheduled block, the
-programs as issued by then, proposed GDPs included, every stop to its as-issued end, every GDP too unless a base rate
-ends it earlier), or the calm day (no delay, scheduled blocks, no programs). Nominal caps, deadlines, the hub cutoff
-and the crew deadlines, which the schedule fixes and the desk knows from the start, are the same in all of them.
+a watch (what the desk could know then: lb and the truth block once the scheduled departure is within LOOK, else 0
+and the scheduled block, the programs as issued by then, proposed GDPs included, every stop to its as-issued end,
+every GDP too unless a base rate ends it earlier), or the calm day (no delay, scheduled blocks, no programs). Nominal
+caps, deadlines, the hub cutoff and the crew deadlines, which the schedule fixes and the desk knows from the start, are
+the same in all of them.
 """
 
 import bisect

@@ -43,7 +43,7 @@ from ..core.known import FREEZE, LOOK, STEP
 from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN
 from . import mip, sim
 from .advisories import HUBS
-from .cost import NOTICE, Cost, cancel_price, flat_price, priced
+from .cost import NOTICE, Cost, cancel_price, priced
 from .model import Flight, Task
 
 TIME_LIMIT = 2400.0
@@ -87,9 +87,9 @@ def anchor(task: Task, time_limit: float = TIME_LIMIT) -> tuple[mip.Solution, si
 
 
 def flat_anchor(task: Task, time_limit: float = TIME_LIMIT, start: sim.Execution | None = None) -> mip.Solution:
-    """The hindsight optimum with every cancellation at the flat 523 per passenger, started from `start` (a day on
-    the truth, naive by default)."""
-    return mip.solve(task, price={f.id: flat_price(f) for f in task.flights}, time_limit=time_limit, canonical=False,
+    """The hindsight optimum with every cancellation, the desk's or an auto-cancel, at the flat 523 per passenger,
+    started from `start` (a day on the truth, naive by default)."""
+    return mip.solve(task, flat=True, time_limit=time_limit, canonical=False,
                      start=naive(task) if start is None else start)
 
 

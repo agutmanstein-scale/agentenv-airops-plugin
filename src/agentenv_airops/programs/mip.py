@@ -8,9 +8,10 @@ its crew deadline before its crew's rest ends. A copy on a slot counts in that s
 any other copy into a hub counts in the nominal row of its arrival hour (the minute plus the block). A copy costs its
 pax x minutes late at arrival and its aircraft's minutes (cost.flown_price: the minute's gate delay, and the world's
 block overrun, the same for every copy of a flight); a cancellation costs `price`, the notice price at the solve time,
-which keeps the model linear, or the flat price, either less the cancellation's saving, and a caller pins a
-cancellation the sim decides (an auto-cancel, `lapsed`) at the price the sim gives it (Task.auto_at). Pinned flights
-keep their minute, their cancellation or their auto-cancel, and use up the slots and nominal room they take.
+which keeps the model linear, less the cancellation's saving, and a caller pins a cancellation the sim decides (an
+auto-cancel, `lapsed`) at the price the sim gives it (Task.auto_at). With `flat` every cancellation, the desk's or an
+auto-cancel, costs the flat price less the saving, as Cost.flat prices it. Pinned flights keep their minute, their
+cancellation or their auto-cancel, and use up the slots and nominal room they take.
 
 Aircraft flow as in v1, over nodes per (family, station) at every event time; a copy of a leg with a busy block
 reaches its destination's node at the block's ready time when that is later than its turn. A leg JetBlue turned into
@@ -49,7 +50,7 @@ import numpy as np
 from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN
 from ..refs.mip import GAP, _Model
 from . import sim
-from .cost import cancel_price, ferry_cost, flown_price
+from .cost import cancel_price, ferry_cost, flat_price, flown_price
 from .model import Flight, Tail, Task
 
 INF = highspy.kHighsInf
@@ -90,12 +91,13 @@ class Solution:
 def solve(task: Task, world: sim.World | None = None, price: Mapping[int, int] | None = None,
           fixed: Mapping[int, int | None] | None = None, earliest: int | None = None, step: int = 1,
           time_limit: float = 600.0, gap: float = GAP, threads: int = 1, canonical: bool = True,
-          start: sim.Execution | None = None, lapsed: Collection[int] = (), fix: bool = True) -> Solution:
+          start: sim.Execution | None = None, lapsed: Collection[int] = (), fix: bool = True,
+          flat: bool = False) -> Solution:
     """The optimum in `world` (the truth by default) with each cancel arc at `price` (default: notice-priced at the
-    first watch). `fixed` pins flights to a departure minute (None: cancelled, or auto-cancelled for those in
-    `lapsed`); the others leave at or after `earliest`. `start` is a day sim.execute ran in `world` that the model
-    holds, to start the search from."""
-    net = Network(task, world, price, fixed, earliest, step, lapsed)
+    first watch, or flat with `flat`). `fixed` pins flights to a departure minute (None: cancelled, or auto-cancelled
+    for those in `lapsed`); the others leave at or after `earliest`. `start` is a day sim.execute ran in `world` that
+    the model holds, to start the search from."""
+    net = Network(task, world, price, fixed, earliest, step, lapsed, flat)
     return net.solve(time_limit, gap, threads, canonical, None if start is None else net.vector(start), fix)
 
 
@@ -121,10 +123,11 @@ class Network:
 
     def __init__(self, task: Task, world: sim.World | None = None, price: Mapping[int, int] | None = None,
                  fixed: Mapping[int, int | None] | None = None, earliest: int | None = None, step: int = 1,
-                 lapsed: Collection[int] = ()):
+                 lapsed: Collection[int] = (), flat: bool = False):
         self.task = task
         self.world = world = sim.truth(task) if world is None else world
-        price = {f.id: cancel_price(f, task.start) for f in task.flights} if price is None else price
+        if price is None:
+            price = {f.id: flat_price(f) if flat else cancel_price(f, task.start) for f in task.flights}
         fixed = fixed or {}
         rules = sim.Rules(task, world)
         pools = {s.id: set(s.slots) for segs in world.segments.values() for s in segs}
@@ -238,8 +241,8 @@ class Network:
                                           (f.deadline - f.sched_dep + 2) * w)
             r[c] = 1
             if f.id in on_line:
-                self.lapsed[f.id] = c = m.col(cancel_price(f, task.auto_at(f)), ub if lapses else 0, True,
-                                              (f.deadline - f.sched_dep + 3) * w)
+                self.lapsed[f.id] = c = m.col(flat_price(f) if flat else cancel_price(f, task.auto_at(f)),
+                                              ub if lapses else 0, True, (f.deadline - f.sched_dep + 3) * w)
                 r[c] = 1
             cover.append(r)
         self.landed: dict[tuple[int, int], int] = dict(self.xs)
