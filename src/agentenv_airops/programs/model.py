@@ -8,8 +8,8 @@ everything the truth, the forecast and the references read, and nothing they wou
   JetBlue's recorded outcome and, when the task was built with the crew model (`bases`, the crew bases; empty when
   off), its crew: the pairing, its FAR 117 limit, the crew deadline and the end of the legal rest (repairs.crews);
 - tails: split family, the schedule's position and ready time, their legs in scheduled order, same-station gaps as
-  busy blocks and chain breaks as fixed repositionings (scope closure), both on the leg before them, and tomorrow's
-  need;
+  busy blocks and chain breaks as fixed repositionings (scope closure), both on the leg before them, the turns JetBlue
+  flew between their legs, and tomorrow's need;
 - programs per hub (both hubs in every task): the advisories as parsed, the in-sample unseen arrivals per hour of
   each GDP or proposed advisory and the airport's scale, the truth segments with JetBlue's slot pool, the ground-stop
   pieces, the VMC called arrival rate, and the demand: every BTS-scheduled arrival at the hub over the task, so the
@@ -173,9 +173,27 @@ class Busy:
 
 
 @dataclass(frozen=True)
+class Connection:
+    """A turn JetBlue flew: the aircraft that flew `leg` next flew `next`, `ground` minutes after it reached the gate
+    (BTS gate times, the tail's consecutive flown legs)."""
+
+    leg: int
+    next: int
+    ground: int
+
+    @classmethod
+    def from_list(cls, v: list) -> "Connection":
+        return cls(v[0], v[1], v[2])
+
+    def to_list(self) -> list:
+        return [self.leg, self.next, self.ground]
+
+
+@dataclass(frozen=True)
 class Tail:
     """`pos` and `ready` already close a break before the first leg (the tail reappears at its origin, ready at its
-    scheduled departure less the turn); `legs` are its flights in scheduled order, cancelled ones included."""
+    scheduled departure less the turn); `legs` are its flights in scheduled order, cancelled ones included;
+    `end_req` is its last scheduled destination today."""
 
     tail: str
     family: str
@@ -188,18 +206,19 @@ class Tail:
     repositions: tuple[Move, ...]
     end_req: str
     actual_end: str
+    connections: tuple[Connection, ...] = ()
 
     @classmethod
     def from_dict(cls, d: Mapping) -> "Tail":
         return cls(d["tail"], d["family"], d["type"], d["seats"], d["pos"], d["ready"], tuple(d["legs"]),
                    tuple(Busy.from_dict(b) for b in d["busy"]), tuple(Move.from_dict(m) for m in d["repositions"]),
-                   d["end_req"], d["actual_end"])
+                   d["end_req"], d["actual_end"], tuple(Connection.from_list(c) for c in d.get("connections", ())))
 
     def to_dict(self) -> dict:
         return {"tail": self.tail, "family": self.family, "type": self.type, "seats": self.seats, "pos": self.pos,
                 "ready": self.ready, "legs": list(self.legs), "busy": [b.to_dict() for b in self.busy],
                 "repositions": [m.to_dict() for m in self.repositions], "end_req": self.end_req,
-                "actual_end": self.actual_end}
+                "actual_end": self.actual_end, "connections": [c.to_list() for c in self.connections]}
 
 
 @dataclass(frozen=True)
@@ -365,6 +384,17 @@ class Task:
         """When the aircraft that flew f, landing at `arr`, is ready again: after its turn or a busy block on f."""
         return max(arr + self.turn_for(f.family), self._busy.get(f.id, arr))
 
+    def turned(self, f: Flight, arr: int) -> int:
+        """When the aircraft that flew f, landing at `arr`, is ready for the flight JetBlue turned it into (`quick`)."""
+        return max(arr + self.quick[f.id][1], self._busy.get(f.id, arr))
+
+    @cached_property
+    def quick(self) -> dict[int, tuple[int, int]]:
+        """Each flight JetBlue turned into its next one faster than the family's turn, to that flight and the ground
+        time: that turn may be as fast as JetBlue's, any other waits the family's turn."""
+        return {c.leg: (c.next, c.ground) for t in self.tails for c in t.connections
+                if c.ground < self.turn_for(t.family)}
+
     @cached_property
     def _busy(self) -> dict[int, int]:
         return {b.leg: b.ready for t in self.tails for b in t.busy}
@@ -392,7 +422,8 @@ class Task:
 
     @property
     def needed(self) -> Counter:
-        """Tomorrow's needs: aircraft per (station, family) at the end of the day."""
+        """Tomorrow's needs: aircraft per (station, family) at the end of the day, each tail's last scheduled
+        destination."""
         return Counter((t.end_req, t.family) for t in self.tails)
 
     def covers(self, scope: Scope, hub: str, origin: str) -> bool:

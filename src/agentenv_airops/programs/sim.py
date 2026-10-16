@@ -6,8 +6,9 @@ flies as early as it can. A cancelled flight is cancelled for good, decided at "
 A flight with "left" (the day so far, at a watch) leaves at that minute whatever would hold it, counting where the MIP
 counts a pinned departure: on its slot if the minute plus its scheduled block is a free one of the segment governing
 it, on nothing if that is off the pool, else under the nominal cap. The others are dispatched as in v1: in order of
-their next try, each takes the first-ready aircraft of its family at its origin. What else holds a flight ready at
-minute t, in this order:
+their next try, each takes the first-ready aircraft of its family at its origin, the aircraft JetBlue turned into it
+first: that aircraft may take it after JetBlue's ground time where that was shorter than the family's turn
+(Task.quick), and any other flight only after the turn. What else holds a flight ready at minute t, in this order:
 - a ground stop at its destination hub covering its origin holds it to the stop's end; airborne flights fly on;
 - a flight governed at t by a GDP segment (the one in force when it departs, the departure-time lock; its origin in
   scope and its scheduled arrival in the period) needs one of JetBlue's slots in that segment's pool: its claimed slot
@@ -214,6 +215,12 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
     used: Counter = Counter()
     legs: dict[str, list[int]] = {p: [] for p in ready}
     waiting: dict[tuple[str, str], set[int]] = defaultdict(set)
+    quick: dict[str, tuple[int, int]] = {}
+
+    def soon(p: str, i: int) -> int:
+        q = quick.get(p)
+        return q[1] if q and q[0] == i else ready[p]
+
     while heap:
         t, kind, c, i = heapq.heappop(heap)
         if i in runs or when[i] != t:
@@ -230,9 +237,9 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
             heapq.heappush(heap, (s, kind, c, i))
             continue
         here = at[(f.family, f.orig)]
-        free = [p for p in here if ready[p] <= t]
+        free = [p for p in here if soon(p, i) <= t]
         if not free:
-            _wait(waiting[(f.family, f.orig)], i, here, ready, when, heap, kind, c)
+            _wait(waiting[(f.family, f.orig)], i, [soon(p, i) for p in here], when, heap, kind, c)
             continue
         waiting[(f.family, f.orig)].discard(i)
         if left:
@@ -243,12 +250,15 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
             when[i] = s
             heapq.heappush(heap, (s, kind, c, i))
             continue
-        p = min(free, key=lambda p: (ready[p], p))
+        p = min(free, key=lambda p: (quick.get(p, (None,))[0] != i, ready[p], p))
         here.remove(p)
         arr = t + world.block[i]
         back = task.back(f, arr)
         station, ready[p] = through(carried[i], back, moves) if i in carried else (f.dest, back)
         at[(f.family, station)].add(p)
+        quick.pop(p, None)
+        if i in task.quick and i not in carried:
+            quick[p] = (task.quick[i][0], task.turned(f, arr))
         if slot is not None:
             taken.add(slot)
         if hour is not None:
@@ -256,9 +266,9 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
         legs[p].append(i)
         runs[i] = FlightRun(i, FLOWN, p, t, arr, slot[1] if slot else None, slot[0] if slot else None)
         for j in waiting[(f.family, station)]:
-            if ready[p] < when[j]:
-                when[j] = ready[p]
-                heapq.heappush(heap, (ready[p], 1, first[j], j))
+            if soon(p, j) < when[j]:
+                when[j] = soon(p, j)
+                heapq.heappush(heap, (when[j], 1, first[j], j))
     for f in task.flights:
         runs.setdefault(f.id, FlightRun(f.id, AUTO_CANCELLED, decided=task.auto_at(f)))
     ends = {p: station for (_, station), ps in at.items() for p in ps}
@@ -308,11 +318,10 @@ def through(route: Route, t: int, record: dict[int, int | None]) -> tuple[str, i
     return station, t
 
 
-def _wait(waiting: set[int], i: int, here: set[str], ready: Mapping[str, int], when: dict, heap: list, kind: int,
-          c: int) -> None:
+def _wait(waiting: set[int], i: int, soon: list[int], when: dict, heap: list, kind: int, c: int) -> None:
     waiting.add(i)
-    when[i] = min((ready[p] for p in here), default=float("inf"))
-    if here:
+    when[i] = min(soon, default=float("inf"))
+    if soon:
         heapq.heappush(heap, (when[i], kind, c, i))
 
 

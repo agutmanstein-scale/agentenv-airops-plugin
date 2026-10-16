@@ -9,8 +9,10 @@
   before it, standing for an international leg BTS lacks: the aircraft that flies that leg is busy until the next
   leg's scheduled departure less the turn (before the first leg it delays `ready`).
 - Turns are the 5th percentile of scheduled ground times per family on the month's calm days (no GDP or ground stop
-  listed for JFK or BOS), floored at MIN_TURN. Tomorrow's need is the origin of the tail's first scheduled departure
-  the next day, else its last scheduled destination today.
+  listed for JFK or BOS), floored at MIN_TURN. A turn JetBlue flew faster, between a tail's consecutive flown legs, may
+  be as fast in the model, for that connection only (model.Connection, Task.quick): the truth allows what JetBlue did.
+  Tomorrow's need is the tail's last scheduled destination today, cancelled legs included: the schedule known at the
+  start, never how JetBlue's day ended or its next day began.
 - lb = DepDelay - LateAircraftDelay - NASDelay x [controlled or GS-held], never below the recorded early departure
   (floored at EARLY) nor below 0 for a flight that left on time or late: removing NAS delay a flight met in the air
   must not move its departure before the one it made. A cancelled flight takes the LIFT_PCT percentile of that lb over
@@ -51,7 +53,7 @@ import pandas as pd
 
 from ..build import fleet, pack
 from .advisories import HUBS
-from .model import Busy, Crew, Flight, Move, Outcome, Tail
+from .model import Busy, Connection, Crew, Flight, Move, Outcome, Tail
 
 FAMILIES = ("A320", "A321", "A321P", "A220", "E190")
 MIN_TURN = 25
@@ -191,13 +193,20 @@ def tails(day: pack.Day, sc: pack.Scope, flights: list[Flight], families: Mappin
         counts["repositions"] += len(moves)
         counts["busy"] += len(busy)
         flown_today = today[today.Cancelled == 0].sort_values("ad")
-        tomorrow = day.nxt[day.nxt.Tail_Number == t].sort_values("sd")
-        end_req = (tomorrow.Origin.iloc[0] if len(tomorrow) else today.sort_values("sd").Dest.iloc[-1] if len(today)
-                   else pos)
         out.append(Tail(tail=t, family=fam, type=a.type, seats=a.seats, pos=pos, ready=int(ready),
-                        legs=tuple(f.id for f in legs), busy=tuple(busy), repositions=tuple(moves), end_req=end_req,
-                        actual_end=flown_today.end.iloc[-1] if len(flown_today) else pos))
+                        legs=tuple(f.id for f in legs), busy=tuple(busy), repositions=tuple(moves),
+                        end_req=today.sort_values("sd").Dest.iloc[-1] if len(today) else pos,
+                        actual_end=flown_today.end.iloc[-1] if len(flown_today) else pos,
+                        connections=connections(legs)))
     return out, counts
+
+
+def connections(legs: Iterable[Flight]) -> tuple[Connection, ...]:
+    """The turns JetBlue flew between one tail's legs: each flown leg that reached its destination to the tail's next
+    flown leg, when that leaves from there, with the minutes from gate arrival to gate departure."""
+    flown = sorted((f for f in legs if f.actual.dep is not None), key=lambda f: (f.actual.dep, f.id))
+    return tuple(Connection(f.id, g.id, g.actual.dep - f.actual.arr) for f, g in zip(flown, flown[1:], strict=False)
+                 if f.actual.arr is not None and f.actual.end == f.dest == g.orig and g.actual.dep >= f.actual.arr)
 
 
 def new_lb(x: pd.DataFrame, removed: pd.Series) -> pd.Series:

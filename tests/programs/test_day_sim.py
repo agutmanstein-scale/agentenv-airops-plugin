@@ -1,6 +1,18 @@
 from dataclasses import replace
 
-from day_helpers import GDP, broken_day, busy_day, crewed, day, flight, moved_day, stop, tail, three_into_a_program
+from day_helpers import (
+    GDP,
+    broken_day,
+    busy_day,
+    crewed,
+    day,
+    flight,
+    moved_day,
+    quick_day,
+    stop,
+    tail,
+    three_into_a_program,
+)
 
 from agentenv_airops.programs import sim
 
@@ -139,3 +151,15 @@ def test_a_crew_past_its_deadline_rests_ten_hours_or_its_flight_auto_cancels_the
     assert (on_time.flights[0].dep, on_time.flights[1].dep) == (100, 130)
     assert sim.execute(task, {0: {"left": 300}, 1: {"left": 300}}).flights[1].dep == 300
     assert sim.execute(replace(task, start=200), {}).flights[1].decided == 200
+
+
+def test_a_turn_jetblue_flew_faster_than_the_rule_is_allowed_for_that_connection_only():
+    deps = {i: r.dep for i, r in sim.execute(quick_day(), {}).flights.items()}
+    assert deps == {0: 100, 1: 170, 2: 170}
+    run = sim.execute(quick_day(), {})
+    assert (run.flights[1].tail, run.flights[2].tail) == ("N1", "N2")
+    assert sorted(r.dep for r in sim.execute(quick_day(None), {}).flights.values()) == [100, 170, 190]
+    alone = replace(quick_day(), tails=quick_day().tails[:1])
+    assert sim.execute(alone, {1: {"cancel": True}}).flights[2].dep == 190
+    assert sim.execute(alone, {}).flights[1].dep == 170
+    assert sim.execute(quick_day(40), {}).flights[1].dep == sim.execute(quick_day(None), {}).flights[1].dep

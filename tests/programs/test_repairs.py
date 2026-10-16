@@ -11,7 +11,7 @@ from program_helpers import CACHE, DERIVED, needs_cache
 
 from agentenv_airops.build.fleet import Aircraft
 from agentenv_airops.programs import candidates, repairs
-from agentenv_airops.programs.model import Crew
+from agentenv_airops.programs.model import Connection, Crew, Flight, Outcome
 
 ECFR_TABLE_B = """
 0000-0359 | 9 | 9 | 9 | 9 | 9 | 9 | 9
@@ -182,3 +182,35 @@ def test_a_crewed_build_gives_every_flight_its_pairings_crew_and_changes_nothing
         c = f.crew
         assert (c.deadline, c.rest) == (c.report + c.fdp + 120 - f.sched_block, c.report + c.fdp + 720 - f.sched_block)
     assert all(f.crew.report <= f.sched_dep - 45 for f in crewed.flights)
+
+
+def leg(i: int, orig: str, dest: str, sd: int, dep: int | None, arr: int | None, tail: str = "N1",
+        end: str | None = None) -> Flight:
+    reached = end or (dest if dep is not None else None)
+    actual = Outcome(dep is None, False, "B" if dep is None else "", dep, arr, reached, tail)
+    return Flight(i, f"B6 {i}", orig, dest, sd, sd + 60, 60, 60, 100, 100, "A320", 0, 0, None, None, False, None,
+                  sd + 900, actual)
+
+
+def test_the_turns_jetblue_flew_are_its_consecutive_flown_legs_from_the_station_it_reached():
+    legs = [leg(0, "BUF", "JFK", 100, 105, 170), leg(1, "JFK", "DCA", 200, 190, 250),
+            leg(2, "DCA", "JFK", 300, None, None), leg(3, "DCA", "BOS", 320, 330, 400),
+            leg(4, "BOS", "MCO", 430, 450, 600, end="JAX"), leg(5, "MCO", "JFK", 700, 720, 900)]
+    assert repairs.connections(legs) == (Connection(0, 1, 20), Connection(1, 3, 80), Connection(3, 4, 50))
+    assert repairs.connections([leg(0, "BUF", "JFK", 100, 105, 170), leg(1, "BOS", "JFK", 200, 230, 300)]) == ()
+
+
+def test_tomorrows_need_is_the_last_scheduled_destination_today_cancelled_legs_included():
+    cur = pd.DataFrame([("N1", "BUF", "JFK", 100, 0, 105, "JFK"), ("N1", "JFK", "DCA", 200, 0, 190, "DCA"),
+                        ("N1", "DCA", "MCO", 300, 1, np.nan, np.nan), ("N2", "JFK", "BOS", 150, 0, 150, "BOS")],
+                       columns=["Tail_Number", "Origin", "Dest", "sd", "Cancelled", "ad", "end"])
+    nxt = pd.DataFrame([("N1", "JFK", 360), ("N2", "PWM", 400)], columns=["Tail_Number", "Origin", "sd"])
+    empty = pd.DataFrame(columns=["Tail_Number", "Cancelled", "ad", "aa", "sa", "end", "CRSElapsedTime"])
+    fleet = {t: Aircraft(t, "A32X", "A320-232", 162, "B-43 2024") for t in ("N1", "N2")}
+    day = SimpleNamespace(fleet=fleet, prev=empty, cur=cur, nxt=nxt)
+    sc = SimpleNamespace(tails=["N1", "N2"], frozen=empty)
+    flights = [leg(0, "BUF", "JFK", 100, 105, 170), leg(1, "JFK", "DCA", 200, 190, 250),
+               leg(2, "DCA", "MCO", 300, None, None), leg(3, "JFK", "BOS", 150, 150, 210, tail="N2")]
+    tails, _ = repairs.tails(day, sc, flights, {"N1": "A320", "N2": "A320"}, {"A320": 40})
+    assert [(t.end_req, t.actual_end) for t in tails] == [("MCO", "DCA"), ("BOS", "BOS")]
+    assert tails[0].connections == (Connection(0, 1, 20),) and tails[1].connections == ()

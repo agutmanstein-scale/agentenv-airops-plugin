@@ -8,7 +8,18 @@ from program_helpers import EVERY, adv
 
 from agentenv_airops.core.model import Airport
 from agentenv_airops.programs.advisories import HUBS, Advisory, Stop
-from agentenv_airops.programs.model import Busy, Crew, Flight, Move, Outcome, Programs, Segment, Tail, Task
+from agentenv_airops.programs.model import (
+    Busy,
+    Connection,
+    Crew,
+    Flight,
+    Move,
+    Outcome,
+    Programs,
+    Segment,
+    Tail,
+    Task,
+)
 
 PLACES = {"JFK": (40.64, -73.78), "BOS": (42.36, -71.01), "BUF": (42.94, -78.73), "DCA": (38.85, -77.04),
           "MCO": (28.43, -81.31), "PWM": (43.65, -70.31)}
@@ -102,8 +113,18 @@ def broken_day() -> Task:
     return day(flights, [tail("N1", "BUF", end="JFK", repositions=moves, legs=(0, 1, 2, 3))])
 
 
+def quick_day(ground: int | None = 10) -> Task:
+    """N1 lands BUF-JFK at 160 and JetBlue turned it into JFK-DCA at 170, `ground` minutes after (None: no such
+    turn); JFK-MCO also leaves at 170, and N2 idles at JFK."""
+    flights = [flight(0, "BUF", "JFK", 100, 60), flight(1, "JFK", "DCA", 170, 60), flight(2, "JFK", "MCO", 170, 150)]
+    turned = () if ground is None else (Connection(0, 1, ground),)
+    return day(flights, [replace(tail("N1", "BUF", end="DCA", legs=(0, 1)), connections=turned),
+                         tail("N2", "JFK", end="MCO", legs=(2,))])
+
+
 def random_day(rng: random.Random, n_tails: int = 3) -> Task:
-    """A small random day at JFK: chains of two to four legs whose breaks are Moves, delays, a GDP and a stop."""
+    """A small random day at JFK: chains of two to four legs whose breaks are Moves, delays, a GDP and a stop, and
+    some turns JetBlue flew faster than the rule."""
     stations = [c for c in PLACES if c != "JFK"]
     flights, tails = [], []
     for k in range(n_tails):
@@ -130,5 +151,8 @@ def random_day(rng: random.Random, n_tails: int = 3) -> Task:
     flights = [replace(f, id=ids[f.id]) for f in flights]
     tails = [replace(t, legs=tuple(ids[i] for i in t.legs),
                      repositions=tuple(replace(m, leg=ids[m.leg]) for m in t.repositions)) for t in tails]
-    return day(flights, tails, segments=(segment("g", 0, 1000, 150, 400, (180, 200, 240, 300, 330)),),
+    task = day(flights, tails, segments=(segment("g", 0, 1000, 150, 400, (180, 200, 240, 300, 330)),),
                stops=(stop(250, 290),) if rng.random() < 0.5 else ())
+    return replace(task, tails=tuple(replace(t, connections=tuple(
+        Connection(a, b, rng.randrange(0, 2 * TURN)) for a, b in zip(t.legs, t.legs[1:], strict=False)
+        if task.flight(a).dest == task.flight(b).orig and rng.random() < 0.6)) for t in task.tails))

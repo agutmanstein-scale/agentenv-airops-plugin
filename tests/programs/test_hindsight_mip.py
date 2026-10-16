@@ -10,6 +10,7 @@ from day_helpers import (
     day,
     flight,
     moved_day,
+    quick_day,
     random_day,
     segment,
     shortened,
@@ -34,7 +35,8 @@ def days() -> dict[str, Task]:
             "nominal": day([flight(0, "BUF", "JFK", 100, 60, lb=30), flight(1, "DCA", "JFK", 130, 60),
                             flight(2, "MCO", "JFK", 140, 60), flight(3, "JFK", "MCO", 200, 150, pax=180)],
                            [tail("N1", "BUF"), tail("N2", "DCA"), tail("N3", "MCO")], aar=1),
-            "moved": moved_day(lb=60), "broken": broken_day(), "busy": busy_day(), "families": families(),
+            "moved": moved_day(lb=60), "broken": broken_day(), "busy": busy_day(), "quick": quick_day(),
+            "lone_quick": replace(quick_day(), tails=quick_day().tails[:1]), "families": families(),
             "crew": crew(), **{f"random{seed}": random_day(random.Random(seed)) for seed in RANDOM}}
 
 
@@ -121,7 +123,7 @@ def test_every_day_the_sim_runs_is_a_solution_of_the_model_at_its_cost(name):
         assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
 
 
-@pytest.mark.parametrize("name", ["slots", "stop", "moved", "broken", "busy", "crew", "random3"])
+@pytest.mark.parametrize("name", ["slots", "stop", "moved", "broken", "busy", "quick", "crew", "random3"])
 def test_a_day_with_its_history_pinned_is_a_solution_of_the_model_with_those_pins(name):
     task = days()[name]
     first = sim.execute(task, {})
@@ -181,3 +183,14 @@ def test_pins_and_the_earliest_minute_are_kept(fixture_day):
     sol = mip.solve(task, fixed={a.id: None, b.id: b.deadline}, earliest=task.start + 120)
     assert sol.deps[a.id] is None and sol.deps[b.id] == b.deadline
     assert all(d is None or d >= task.start + 120 for i, d in sol.deps.items() if i not in (a.id, b.id))
+
+
+def test_a_faster_turn_jetblue_flew_lowers_the_optimum_and_the_optimum_uses_it():
+    alone = replace(quick_day(), tails=quick_day().tails[:1])
+    plain = replace(alone, tails=tuple(replace(t, connections=()) for t in alone.tails))
+    sol = mip.solve(alone)
+    assert sol.objective < mip.solve(plain).objective and replays(alone, sol)
+    assert sol.deps[1] == 170
+    net = mip.Network(alone)
+    x = net.vector(sim.execute(alone, sol.plan(alone.start)))
+    assert sum(x[c] for c in net.turn.values()) == 1

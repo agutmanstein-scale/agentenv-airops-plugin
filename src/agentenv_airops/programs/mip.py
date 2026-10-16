@@ -13,7 +13,10 @@ cancellation the sim decides (an auto-cancel) at the price the sim gives it (Tas
 minute or their cancellation, and use up the slots and nominal room they take.
 
 Aircraft flow as in v1, over nodes per (family, station) at every event time; a copy of a leg with a busy block
-reaches its destination's node at the block's ready time when that is later than its turn. Moves are arcs on their
+reaches its destination's node at the block's ready time when that is later than its turn. A leg JetBlue turned into
+its next one faster than the family's turn (Task.quick) lands, where that is earlier, on a lane that releases its
+aircraft to the station's node after the turn or, at JetBlue's ground time, to a gate only that next leg's copies
+draw from; the station's node feeds the gate at each of them. Moves are arcs on their
 tail (sim.routes), no aircraft created or taken: each tail with a break has a track, a node per break and time. The
 aircraft a break binds enters its track by a redirect out of the node its carrier lands at, allowed and then forced
 when every leg between the carrier and the break is cancelled, or by the tail's own aircraft leaving its start when
@@ -167,6 +170,21 @@ class Network:
         over = {key: len(node) + n for n, key in enumerate(self.times)}
         track = {(key, x): len(node) + len(over) + n
                  for n, (key, x) in enumerate((key, x) for key, ts in transit.items() for x in ts)}
+        last = {j: max((d for d, _ in copies[j]), default=-1) for j, _ in task.quick.values()}
+        quick = {}
+        for i, (j, _) in task.quick.items():
+            f = task.flight(i)
+            for d, _ in copies[i]:
+                t = task.turned(f, d + world.block[i])
+                if t < task.back(f, d + world.block[i]) and t <= last[j]:
+                    quick[(i, d)] = t
+        gates: dict[int, set[int]] = defaultdict(set)
+        for (i, _), t in quick.items():
+            gates[task.quick[i][0]].add(t)
+        self.gates = {j: sorted(ts | {d for d, _ in copies[j] if d >= min(ts)}) for j, ts in gates.items()}
+        base = len(node) + len(over) + len(track)
+        lane = {k: base + n for n, k in enumerate(quick)}
+        gate = {k: base + len(lane) + n for n, k in enumerate((j, t) for j, ts in self.gates.items() for t in ts)}
         flow: dict[int, dict[int, int]] = defaultdict(dict)
 
         def arc(u: int | None, v: int | None, c: int) -> None:
@@ -189,7 +207,8 @@ class Network:
                 arr = d + world.block[f.id]
                 c = m.col(flown_price(f, d, arr), 1, True, (d - f.sched_dep + 1) * w)
                 self.xs[(f.id, d)] = c
-                arc(node[((f.family, f.orig), d)], node[((f.family, f.dest), task.back(f, arr))], c)
+                arc(gate.get((f.id, d), node[((f.family, f.orig), d)]),
+                    lane.get((f.id, d), node[((f.family, f.dest), task.back(f, arr))]), c)
                 r[c] = 1
                 if kind != "free":
                     if f.id in fixed:
@@ -204,6 +223,25 @@ class Network:
                                               (f.deadline - f.sched_dep + 3) * w)
                 r[c] = 1
             cover.append(r)
+        self.landed: dict[tuple[int, int], int] = dict(self.xs)
+        self.turn: dict[tuple[int, int], int] = {}
+        for (i, d), t in quick.items():
+            f = task.flight(i)
+            self.landed[(i, d)] = c = m.col(0, 1, False)
+            arc(lane[(i, d)], node[((f.family, f.dest), task.back(f, d + world.block[i]))], c)
+            self.turn[(i, d)] = c = m.col(0, 1, True)
+            arc(lane[(i, d)], gate[(task.quick[i][0], t)], c)
+        self.feed: dict[tuple[int, int], int] = {}
+        self.hold: dict[tuple[int, int], int] = {}
+        for j, ts in self.gates.items():
+            g = task.flight(j)
+            for a, b in zip(ts, ts[1:], strict=False):
+                self.hold[(j, a)] = c = m.col(0, 1, False)
+                arc(gate[(j, a)], gate[(j, b)], c)
+            for d, _ in copies[j]:
+                if (j, d) in gate:
+                    self.feed[(j, d)] = c = m.col(0, 1, False)
+                    arc(node[((g.family, g.orig), d)], gate[(j, d)], c)
         self.redirect: dict[tuple[int, int], int] = {}
         self.token: dict[str, int] = {}
         self.release: dict[tuple[str, int, int, int], int] = {}
@@ -221,7 +259,7 @@ class Network:
                 for t, ds in lands[i].items():
                     self.redirect[(i, t)] = c = m.col(0, 1, False)
                     arc(node[((fam, f.dest), t)], track[((name, e), max(t, ready[(name, e)]))], c)
-                    m.row({c: 1, **{self.xs[(i, d)]: -1 for d in ds}}, -INF, 0)
+                    m.row({c: 1, **{self.landed[(i, d)]: -1 for d in ds}}, -INF, 0)
                     went[c] = 1
                 for j in between:
                     m.row({**went, pc[j]: -1}, -INF, 0)
@@ -279,7 +317,7 @@ class Network:
                     into[(fam, b)][c] = 1
         for key, n in need.items():
             m.row(into[key], n, n)
-        for v in range(len(node) + len(over) + len(track)):
+        for v in range(base + len(lane) + len(gate)):
             m.row(flow[v], -supply[v], -supply[v])
         for r in cover:
             m.row(r, 1, 1)
@@ -315,17 +353,36 @@ class Network:
         task, world = self.task, self.world
         x = np.zeros(len(self.m.cost))
         delta: dict[tuple, Counter] = defaultdict(Counter)
+        carried, _ = sim.routes(task, {i for i, r in run.flights.items() if r.status == CANCELLED})
+        nxt = {a: b for legs in run.legs.values() for a, b in zip(legs, legs[1:], strict=False)}
+        via = {}
         for f in task.flights:
             r = run.flights[f.id]
             if r.status != FLOWN:
                 x[self.lapsed[f.id] if r.status == AUTO_CANCELLED and f.id in self.lapsed else self.cancel[f.id]] = 1
                 continue
-            c = self.xs.get((f.id, r.dep))
-            if c is None:
+            k = (f.id, r.dep)
+            if k not in self.xs:
                 return None
-            x[c] = 1
+            x[self.xs[k]] = 1
+            if k in self.turn and f.id not in carried and nxt.get(f.id) == task.quick[f.id][0]:
+                x[self.turn[k]] = 1
+                via[nxt[f.id]] = task.turned(f, r.dep + world.block[f.id])
+            else:
+                x[self.landed[k]] = 1
+                delta[(f.family, f.dest)][task.back(f, r.dep + world.block[f.id])] += 1
+        for f in task.flights:
+            r = run.flights[f.id]
+            if r.status != FLOWN:
+                continue
+            if f.id in via:
+                for a in self.gates[f.id]:
+                    if via[f.id] <= a < r.dep:
+                        x[self.hold[(f.id, a)]] = 1
+                continue
+            if (f.id, r.dep) in self.feed:
+                x[self.feed[(f.id, r.dep)]] = 1
             delta[(f.family, f.orig)][r.dep] -= 1
-            delta[(f.family, f.dest)][task.back(f, r.dep + world.block[f.id])] += 1
         for t in task.tails:
             delta[(t.family, t.pos)][t.ready] += 1
         for ln in self.lines:
