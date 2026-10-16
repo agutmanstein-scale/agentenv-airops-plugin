@@ -33,7 +33,9 @@ Proven to GAP (0.01%); `canonical` then re-solves among the optimal plans for th
 departures (v1's second pass, started from the first), so the plan, not only its cost, is the same on every run. Within
 the gap the first plan need not be the cheapest, so the second may cost less: the objective is the cost of the plan
 returned. A second pass that runs out of time leaves the proven cost solve's status and plan, flagged as not
-canonical.
+canonical. With `fix` a canonical solve first solves the LP relaxation: an integral LP optimum is the proven optimum,
+and its reduced costs fix, for the second pass, every column no plan within the optimum's cost can move (an LP
+duality bound, so the plan is the one the second pass would find without it).
 """
 
 import time
@@ -51,6 +53,7 @@ from .cost import cancel_price, ferry_cost, flown_price
 from .model import Flight, Tail, Task
 
 INF = highspy.kHighsInf
+INTEGRAL = 1e-6
 
 
 @dataclass(frozen=True)
@@ -87,13 +90,13 @@ class Solution:
 def solve(task: Task, world: sim.World | None = None, price: Mapping[int, int] | None = None,
           fixed: Mapping[int, int | None] | None = None, earliest: int | None = None, step: int = 1,
           time_limit: float = 600.0, gap: float = GAP, threads: int = 1, canonical: bool = True,
-          start: sim.Execution | None = None, lapsed: Collection[int] = ()) -> Solution:
+          start: sim.Execution | None = None, lapsed: Collection[int] = (), fix: bool = True) -> Solution:
     """The optimum in `world` (the truth by default) with each cancel arc at `price` (default: notice-priced at the
     first watch). `fixed` pins flights to a departure minute (None: cancelled, or auto-cancelled for those in
     `lapsed`); the others leave at or after `earliest`. `start` is a day sim.execute ran in `world` that the model
     holds, to start the search from."""
     net = Network(task, world, price, fixed, earliest, step, lapsed)
-    return net.solve(time_limit, gap, threads, canonical, None if start is None else net.vector(start))
+    return net.solve(time_limit, gap, threads, canonical, None if start is None else net.vector(start), fix)
 
 
 @dataclass(frozen=True)
@@ -355,14 +358,20 @@ class Network:
         self.copies = copies
 
     def solve(self, time_limit: float = 600.0, gap: float = GAP, threads: int = 1, canonical: bool = True,
-              start: np.ndarray | None = None) -> Solution:
+              start: np.ndarray | None = None, fix: bool = True) -> Solution:
         m = self.m
-        status, objective, bound, mip_gap, wall, x = m.run(time_limit, gap, threads, start)
+        lp = m.relax(time_limit, threads) if fix and canonical else None
+        if lp is not None and lp.integral:
+            status, objective, bound, mip_gap, wall, x = "Optimal", lp.objective, lp.objective, 0.0, lp.wall, lp.x
+        else:
+            status, objective, bound, mip_gap, wall, x = m.run(time_limit, gap, threads, start)
+            wall += lp.wall if lp else 0.0
         settled = False
         if canonical and status == "Optimal":
+            lower, upper = lp.bounds(m, round(objective) + 0.5) if lp else (None, None)
             m.row({c: v for c, v in enumerate(m.cost) if v}, -INF, round(objective) + 0.5)
             m.cost, main = m.second, m.cost
-            tied, _, _, _, second_wall, y = m.run(time_limit, 0.0, threads, x)
+            tied, _, _, _, second_wall, y = m.run(time_limit, 0.0, threads, x, lower, upper)
             m.cost, wall = main, wall + second_wall
             m.rows.pop()
             if tied == "Optimal":
@@ -479,28 +488,14 @@ class Network:
 
 
 class _Started(_Model):
-    """v1's model, run from a start solution when one is given."""
+    """v1's model, run from a start solution when one is given, within column bounds when given, or relaxed."""
 
-    def run(self, time_limit: float, gap: float, threads: int,
-            start: np.ndarray | None = None) -> tuple[str, float, float, float, float, np.ndarray]:
-        h = highspy.Highs()
-        h.setOptionValue("output_flag", False)
-        h.setOptionValue("time_limit", float(time_limit))
-        h.setOptionValue("threads", threads)
+    def run(self, time_limit: float, gap: float, threads: int, start: np.ndarray | None = None,
+            lower: np.ndarray | None = None,
+            upper: np.ndarray | None = None) -> tuple[str, float, float, float, float, np.ndarray]:
+        h = self._highs(time_limit, threads, lower, upper)
         h.setOptionValue("mip_rel_gap", gap)
         n = len(self.cost)
-        h.addVars(n, np.zeros(n), np.array(self.ub, dtype=float))
-        h.changeColsCost(n, np.arange(n, dtype=np.int32), np.array(self.cost, dtype=float))
-        starts, idx, val = [], [], []
-        for coefs, _, _ in self.rows:
-            starts.append(len(idx))
-            for c, v in coefs.items():
-                if v:
-                    idx.append(c)
-                    val.append(v)
-        h.addRows(len(self.rows), np.array([r[1] for r in self.rows], dtype=float),
-                  np.array([r[2] for r in self.rows], dtype=float), len(idx), np.array(starts, dtype=np.int32),
-                  np.array(idx, dtype=np.int32), np.array(val, dtype=float))
         ints = np.array([c for c in range(n) if self.integer[c]], dtype=np.int32)
         h.changeColsIntegrality(len(ints), ints, np.array([highspy.HighsVarType.kInteger] * len(ints)))
         if start is not None:
@@ -514,6 +509,65 @@ class _Started(_Model):
             raise RuntimeError(f"no feasible solution: {status}")
         return (status, info.objective_function_value, info.mip_dual_bound, info.mip_gap, wall,
                 np.array(h.getSolution().col_value))
+
+    def relax(self, time_limit: float, threads: int) -> "Relaxed | None":
+        """The LP relaxation's optimum, or None if it isn't reached."""
+        h = self._highs(time_limit, threads)
+        t0 = time.monotonic()
+        h.run()
+        wall = time.monotonic() - t0
+        if h.modelStatusToString(h.getModelStatus()) != "Optimal":
+            return None
+        sol = h.getSolution()
+        x, integer = np.array(sol.col_value), np.array(self.integer)
+        integral = bool(np.all(np.abs(x[integer] - np.round(x[integer])) <= INTEGRAL))
+        return Relaxed(h.getInfo().objective_function_value, np.where(integer, np.round(x), x),
+                       np.array(sol.col_dual), integral, wall)
+
+    def _highs(self, time_limit: float, threads: int, lower: np.ndarray | None = None,
+               upper: np.ndarray | None = None) -> highspy.Highs:
+        h = highspy.Highs()
+        h.setOptionValue("output_flag", False)
+        h.setOptionValue("time_limit", float(time_limit))
+        h.setOptionValue("threads", threads)
+        n = len(self.cost)
+        h.addVars(n, np.zeros(n) if lower is None else lower,
+                  np.array(self.ub, dtype=float) if upper is None else upper)
+        h.changeColsCost(n, np.arange(n, dtype=np.int32), np.array(self.cost, dtype=float))
+        starts, idx, val = [], [], []
+        for coefs, _, _ in self.rows:
+            starts.append(len(idx))
+            for c, v in coefs.items():
+                if v:
+                    idx.append(c)
+                    val.append(v)
+        h.addRows(len(self.rows), np.array([r[1] for r in self.rows], dtype=float),
+                  np.array([r[2] for r in self.rows], dtype=float), len(idx), np.array(starts, dtype=np.int32),
+                  np.array(idx, dtype=np.int32), np.array(val, dtype=float))
+        return h
+
+
+@dataclass(frozen=True)
+class Relaxed:
+    """The LP relaxation's optimum, its solution (integer columns rounded), reduced costs and whether it is
+    integral."""
+
+    objective: float
+    x: np.ndarray
+    reduced: np.ndarray
+    integral: bool
+    wall: float
+
+    def bounds(self, m: _Model, cap: float) -> tuple[np.ndarray, np.ndarray]:
+        """Column bounds every solution costing at most `cap` keeps: one with x_j moved k off the bound its reduced
+        cost d_j holds it at costs at least the LP optimum plus k|d_j| (one unit of slack for the LP's tolerances)."""
+        d, ub, integer = self.reduced, np.array(m.ub, dtype=float), np.array(m.integer)
+        room = cap - self.objective + 1.0 + 1e-6 * abs(cap)
+        up = np.where(d > 0, room / np.where(d > 0, d, 1.0), np.inf)
+        down = np.where(d < 0, room / np.where(d < 0, -d, 1.0), np.inf)
+        upper = np.minimum(ub, np.where(integer, np.floor(up), up))
+        lower = np.maximum(0.0, ub - np.where(integer, np.floor(down), down))
+        return lower, upper
 
 
 def _place(f: Flight, d: int, rules: sim.Rules, pools: Mapping[str, set[int]]) -> tuple[str, tuple | None] | None:

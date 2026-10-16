@@ -167,7 +167,7 @@ def test_a_canonical_pass_out_of_time_keeps_the_proven_plan_flagged_as_not_canon
         return ("Time limit reached", *got[1:5], np.zeros_like(got[5])) if len(calls) == 2 else got
 
     monkeypatch.setattr(mip._Started, "run", out_of_time)
-    sol = mip.solve(task)
+    sol = mip.solve(task, fix=False)
     assert len(calls) == 2 and sol.proven and not sol.canonical
     assert (sol.status, sol.objective, sol.deps) == ("Optimal", proven.objective, proven.deps)
 
@@ -183,7 +183,7 @@ def test_the_objective_is_the_cost_of_the_canonical_plan_when_it_beats_the_first
         return (got[0], got[1] + 50, *got[2:]) if len(calls) == 1 else got
 
     monkeypatch.setattr(mip._Started, "run", loose)
-    sol = mip.solve(task)
+    sol = mip.solve(task, fix=False)
     assert len(calls) == 2 and sol.canonical and best.objective <= sol.objective < best.objective + 50
     assert sim.execute(task, sol.plan(task.start)).cost.total == sol.objective
 
@@ -233,3 +233,25 @@ def test_a_pinned_auto_cancel_carries_no_aircraft_through_its_break_and_a_pinned
     cancelled = mip.solve(task, fixed={1: None})
     assert not cancelled.lapsed and (cancelled.deps[2], cancelled.deps[3]) == (400, 640) and replays(task, cancelled)
     assert lapsed.objective > cancelled.objective
+
+
+@pytest.mark.parametrize("name", list(days()))
+def test_the_lp_first_canonical_plan_is_the_plan_without_it(name):
+    task = days()[name]
+    fast, slow = mip.solve(task), mip.solve(task, fix=False)
+    assert fast.canonical and slow.canonical and fast.proven
+    assert (fast.objective, fast.deps, fast.lapsed) == (slow.objective, slow.deps, slow.lapsed)
+
+
+def test_the_lp_first_fixture_plan_is_the_plan_without_it(fixture_day):
+    task = fixture_day
+    fast, slow = mip.solve(task, start=sim.execute(task, {})), mip.solve(task, start=sim.execute(task, {}), fix=False)
+    assert fast.canonical and (fast.objective, fast.deps) == (slow.objective, slow.deps)
+
+
+def test_a_day_whose_lp_relaxation_is_fractional_proves_through_the_mip_to_the_same_plan():
+    task = network_day(random.Random(21), 6)
+    assert not mip.Network(task).m.relax(60, 1).integral
+    fast, slow = mip.solve(task), mip.solve(task, fix=False)
+    assert fast.proven and fast.canonical and replays(task, fast)
+    assert (fast.objective, fast.deps) == (slow.objective, slow.deps)
