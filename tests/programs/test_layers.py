@@ -7,7 +7,6 @@ import pytest
 from day_helpers import day, flight, tail
 
 from agentenv_airops.programs import candidates
-from agentenv_airops.programs.advisories import HUBS
 from agentenv_airops.programs.layers import depcaps
 from agentenv_airops.programs.model import LAYERED, VERSION, Layers, Outcome, Task
 
@@ -29,8 +28,14 @@ def test_a_task_with_layers_round_trips_at_version_4():
     d = json.loads(task.to_json())
     assert d["version"] == LAYERED == 4 and d["layers"]["dep_caps"] == {"JFK": {"17": 9, "18": 7}}
     back = Task.from_dict(d)
-    assert back.layers == layers and back.to_json() == task.to_json()
-    assert replace(back, layers=None, version=VERSION).to_json() == replace(task, layers=None).to_json()
+    assert back == task and back.to_json() == task.to_json()
+
+
+def test_a_task_whose_layers_are_stripped_or_empty_serialises_as_the_v2_task():
+    task = day([flight(0, "JFK", "BUF", 1000, 60)], [tail("N1", "JFK", end="BUF")])
+    loaded = Task.from_dict(json.loads(replace(task, layers=Layers(dep_caps={"JFK": {16: 1}})).to_json()))
+    assert replace(loaded, layers=None).to_json() == task.to_json()
+    assert replace(task, layers=Layers()).to_json() == task.to_json()
 
 
 def leaving_jfk(i: int, dep: int, pushed: int | None):
@@ -60,5 +65,5 @@ def test_depcaps_caps_only_short_hours_at_the_share_never_below_what_jetblue_pus
 def test_depcaps_on_the_slice_reads_the_bts_frame_and_keeps_jetblues_pushbacks_feasible(task, slice_inputs, tmp_path):
     caps = depcaps.build(task, candidates.frame(slice_inputs, tmp_path, task.date))
     flew = Counter((f.orig, f.actual.dep // 60) for f in task.flights if f.actual.dep is not None)
-    assert set(caps) <= set(HUBS)
+    assert caps == {"JFK": {17: 1, 18: 0, 19: 0}}
     assert all(cap >= flew[(hub, h)] for hub, by in caps.items() for h, cap in by.items())
