@@ -25,8 +25,9 @@ from test_reference_plays import stopped_then_released
 from agentenv_airops.build import bts
 from agentenv_airops.core.known import CAP_LOOK, STEP
 from agentenv_airops.programs import references, sim
-from agentenv_airops.programs.layers import weather
+from agentenv_airops.programs.layers import closures, weather
 from agentenv_airops.programs.model import LAGS, Layers, Task
+from agentenv_airops.v3day.day import Day
 
 
 def two_days_of_caps() -> Task:
@@ -49,9 +50,50 @@ def test_known_carries_dep_and_outstation_caps_only_cap_look_ahead():
 def test_known_carries_a_closure_once_begun_expected_guess_on_until_its_end_comes():
     task = closed_day()
     assert sim.known(task, 119).closures == {}
-    assert sim.known(task, 120).closures == {"JFK": ((120, 120 + sim.GUESS, 1, 2),)}
-    assert sim.known(task, 170).closures == {"JFK": ((120, 170 + sim.GUESS, 1, 2),)}
+    assert sim.known(task, 120).closures == {"JFK": ((120, 120 + sim.GUESS, 1, 1),)}
+    assert sim.known(task, 170).closures == {"JFK": ((120, 170 + sim.GUESS, 3, 1),)}
     assert sim.known(task, 180).closures == sim.known(task, 300).closures == {"JFK": ((120, 180, 1, 2),)}
+
+
+def two_closures_but_their_ends() -> tuple[Task, Task]:
+    """Eighteen departures from JFK every 10 minutes from 120, its ramp closed from 120 to 150 on one day and to 300
+    on the other, each priced at rate 0.75 over its true length (closures.build)."""
+    base = day([flight(i, "JFK", "BUF", 120 + 10 * i, 60) for i in range(18)],
+               [tail(f"N{i}", "JFK", end="BUF") for i in range(18)])
+    return tuple(closed(base, closures.build(base, {"JFK": [(base.base + 120, base.base + end)]}, {"JFK": 0.75}),
+                        {"JFK": 0.75}) for end in (150, 300))
+
+
+def test_two_closures_differing_only_in_their_true_end_look_the_same_until_it_comes():
+    short, long = two_closures_but_their_ends()
+    assert short.layers.closures["JFK"][0][2] < long.layers.closures["JFK"][0][2]
+    for t in (120, 135):
+        assert sim.known(short, t).closures == sim.known(long, t).closures
+        assert sim.known(short, t).closures["JFK"][0][:2] == (120, t + sim.GUESS)
+    assert closures_situation(short, 120) == closures_situation(long, 120)
+    assert sim.known(short, 150).closures == short.layers.closures != sim.known(long, 150).closures
+
+
+def closures_situation(task: Task, t: int) -> list[dict]:
+    d = Day(task)
+    while d.t < t:
+        d.advance()
+    return d.situation()["closures"]["JFK"]
+
+
+def test_a_closure_under_way_at_a_hub_without_a_rate_cant_be_known():
+    task = closed(day([flight(0, "JFK", "BUF", 400, 60)], [tail("N1", "JFK", end="BUF")]), {"JFK": ((120, 180, 1, 1),)})
+    assert sim.known(task, 60).closures == {} and sim.known(task, 180).closures == {"JFK": ((120, 180, 1, 1),)}
+    with pytest.raises(ValueError, match="no rate"):
+        sim.known(task, 150)
+
+
+def test_a_layered_tasks_watches_run_until_every_cap_is_known():
+    task = outcapped(day([flight(0, "JFK", "SFO", 300, 360)], [tail("N1", "JFK", end="SFO")]), {"SFO": {11: 0}})
+    ts = references.watch_times(task)
+    assert ts[-1] >= 60 * 11 - CAP_LOOK and sim.known(task, ts[-1]).nominal["SFO"] == {11: 0}
+    known = sim.execute(task, {}, sim.known(task, ts[-1])).flights[0]
+    assert known == sim.execute(task, {}).flights[0] and known.dep == 360
 
 
 def test_known_keeps_the_reserve_pools_of_the_truth():
@@ -109,6 +151,17 @@ def test_the_follower_on_a_layered_day_wakes_on_events_and_its_plan_replays():
     assert again.rows() == followed.run.rows() and again.cost == followed.run.cost
     _, anchor = references.anchor(task, time_limit=60)
     assert followed.cost >= anchor.cost.total
+
+
+def test_lags_left_out_keep_their_default_and_an_unknown_kind_is_refused():
+    layers = Layers.from_dict({"dep_caps": {}, "arr_caps": {}, "closures": {}, "reserves": {}, "release": False,
+                               "lags": {"speci": 7}})
+    assert layers.lags == LAGS | {"speci": 7} and layers.to_dict()["lags"] == layers.lags
+    assert replace(closed_day(), layers=layers).lag("taf") == 10
+    with pytest.raises(ValueError, match="unknown kind"):
+        Layers(lags={"metra": 5})
+    with pytest.raises(KeyError):
+        closed_day().lag("metra")
 
 
 def test_weather_and_lags_round_trip_and_are_written_only_when_set():

@@ -57,12 +57,17 @@ def watch_times(task: Task) -> list[int]:
 
 
 def news(task: Task) -> list[News]:
-    """Every hub's advisories and, on a layered task, its weather, in the order they reach the desk."""
+    """Every hub's advisories and, on a layered task, its weather, in the order they reach the desk. A weather item's
+    id is its kind, hub and minute, the second of a kind at one hub and minute (an AUTO report beside the AO2 one, a
+    TAF COR beside its AMD) suffixed -2, and so on, so each reaches the desk once."""
     lag = task.lag("advisory")
     out = [News(a.id, a.hub, a.kind, a.issued, text(a), a.issued + lag)
            for p in task.programs.values() for a in p.advisories]
+    seen: dict[str, int] = {}
     for minute, kind, hub, body in task.layers.weather if task.layers else ():
-        out.append(News(f"{kind}-{hub.lower()}-{minute}", hub, kind, minute, " ".join(body.split()),
+        key = f"{kind}-{hub.lower()}-{minute}"
+        seen[key] = seen.get(key, 0) + 1
+        out.append(News(key if seen[key] == 1 else f"{key}-{seen[key]}", hub, kind, minute, " ".join(body.split()),
                         minute + task.lag(kind)))
     return sorted(out, key=lambda n: (n.due, n.at, n.id))
 

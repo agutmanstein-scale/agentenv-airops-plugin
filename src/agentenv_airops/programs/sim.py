@@ -63,8 +63,10 @@ calm day carries no layer. The day as known carries the layers as the desk sees 
 departure caps and outstation arrival caps of the hours starting within CAP_LOOK of the watch, as v1's slot caps were
 known, the later hours uncapped; the ramp closures begun by the watch, with their end once it has come, else expected
 GUESS minutes after the watch (a placeholder for the train days' median remaining duration, to be fitted with the
-pack's calibration), at their caps as given; and the reserve pools as they are (Task.layers, which `granted` and the
-MIP read), whose sizes the desk knows. A task without layers knows the v2 day as before.
+pack's calibration), an ended one at its caps as given and one under way at the caps its hub's rate (Layers.rates)
+gives that expected window, floored only at the pushbacks and arrivals before the watch (closures.caps), so neither
+its true length nor what flew inside it later shows; and the reserve pools as they are (Task.layers, which `granted`
+and the MIP read), whose sizes the desk knows. A task without layers knows the v2 day as before.
 """
 
 import bisect
@@ -77,6 +79,7 @@ from ..core.known import CAP_LOOK, LOOK
 from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN, Ferry, _assign
 from . import rbs, repairs
 from .cost import Cost, ferry_cost, priced
+from .layers import closures
 from .model import Flight, Move, Segment, Task
 
 Plan = Mapping[int | str, Mapping]
@@ -121,7 +124,7 @@ def known(task: Task, t: int, programs: bool = True, early: int = 0) -> World:
         return World(lb, block, segments, stops, nominal_caps(task))
     layers = task.layers
     return World(lb, block, segments, stops, nominal_caps(task) | _ahead(layers.arr_caps, t),
-                 _ahead(layers.dep_caps, t), closures_known(layers.closures, t))
+                 _ahead(layers.dep_caps, t), closures_known(task, t))
 
 
 def _ahead(caps: Mapping[str, Mapping[int, int]], t: int) -> dict[str, dict[int, int]]:
@@ -130,12 +133,26 @@ def _ahead(caps: Mapping[str, Mapping[int, int]], t: int) -> dict[str, dict[int,
     return {s: by for s, by in out.items() if by}
 
 
-def closures_known(closures: Mapping[str, tuple[tuple[int, int, int, int], ...]],
-                   t: int) -> dict[str, tuple[tuple[int, int, int, int], ...]]:
-    """The ramp closures begun by t: those ended by t as they ran, the others expected to end GUESS after t."""
-    out = {s: tuple((a, b if b <= t else max(t, a) + GUESS, dep, arr) for a, b, dep, arr in spans if a <= t)
-           for s, spans in closures.items()}
-    return {s: spans for s, spans in out.items() if spans}
+def closures_known(task: Task, t: int) -> dict[str, tuple[tuple[int, int, int, int], ...]]:
+    """The ramp closures begun by t: those ended by t as they ran, the others expected to end GUESS after t, priced
+    at their hub's rate over that window. A closure under way at a hub without a rate is a ValueError: the truth's caps
+    would show its true length."""
+    layers, out = task.layers, {}
+    for s, spans in layers.closures.items():
+        shut = []
+        for a, b, dep, arr in spans:
+            if a > t:
+                continue
+            if b <= t:
+                shut.append((a, b, dep, arr))
+                continue
+            if s not in layers.rates:
+                raise ValueError(f"{s}'s closure {a}-{b} is under way at {t} but {s} has no rate to price it as known")
+            end = max(t, a) + GUESS
+            shut.append((a, end, *closures.caps(task, s, layers.rates[s], a, end, by=t)))
+        if shut:
+            out[s] = tuple(shut)
+    return out
 
 
 def calm(task: Task) -> World:

@@ -348,9 +348,11 @@ class Layers:
 
     The desk's news beyond the advisories (docs/v3/DESIGN.md §4): the hubs' weather as (minute, kind, station, text),
     kind "metar", "speci" or "taf", the minute its observation or issue (layers.weather), and the delivery lag per
-    product kind in minutes (`lags`, LAGS by default: advisory 0, metar 5, speci 5, taf 10), each item reaching the
-    desk at its minute plus its kind's lag. Both are written only when set, so a task without them reads and writes
-    as before."""
+    product kind in minutes (`lags` over LAGS: advisory 0, metar 5, speci 5, taf 10, a kind it leaves out keeping
+    LAGS's, one LAGS doesn't have a ValueError), each item reaching the desk at its minute plus its kind's lag; and the
+    closure rate per hub that priced its closures (`rates`, closures.fit_rate's), with which the day as known prices a
+    closure under way over its expected end, not its true one (sim.known). All three are written only when set, so a
+    task without them reads and writes as before."""
 
     dep_caps: dict[str, dict[int, int]] = field(default_factory=dict)
     arr_caps: dict[str, dict[int, int]] = field(default_factory=dict)
@@ -359,8 +361,13 @@ class Layers:
     release: bool = False
     weather: tuple[tuple[int, str, str, str], ...] = ()
     lags: dict[str, int] = field(default_factory=lambda: dict(LAGS))
+    rates: dict[str, float] = field(default_factory=dict)
 
     def __post_init__(self):
+        unknown = sorted(set(self.lags) - set(LAGS))
+        if unknown:
+            raise ValueError(f"lags for unknown kind(s) {', '.join(unknown)}: the kinds are {', '.join(LAGS)}")
+        object.__setattr__(self, "lags", LAGS | dict(self.lags))
         hubs = sorted(set(self.arr_caps) & set(HUBS))
         if hubs:
             raise ValueError(f"arrival caps at hub(s) {', '.join(hubs)}: a hub's arrivals answer to its programs "
@@ -372,7 +379,7 @@ class Layers:
                    {s: {int(h): c for h, c in by.items()} for s, by in d["arr_caps"].items()},
                    {s: tuple((a, b, c, e) for a, b, c, e in spans) for s, spans in d["closures"].items()},
                    dict(d["reserves"]), d["release"], tuple((m, k, s, x) for m, k, s, x in d.get("weather", ())),
-                   dict(d.get("lags", LAGS)))
+                   dict(d.get("lags", {})), dict(d.get("rates", {})))
 
     def to_dict(self) -> dict:
         out = {"dep_caps": {s: {str(h): c for h, c in sorted(by.items())} for s, by in self.dep_caps.items()},
@@ -383,6 +390,8 @@ class Layers:
             out["weather"] = [list(x) for x in self.weather]
         if self.lags != LAGS:
             out["lags"] = dict(self.lags)
+        if self.rates:
+            out["rates"] = dict(self.rates)
         return out
 
 
@@ -541,7 +550,7 @@ class Task:
 
     def lag(self, kind: str) -> int:
         """The minutes a news item of `kind` takes to reach the desk (Layers.lags; LAGS without layers)."""
-        return (self.layers.lags if self.layers else LAGS).get(kind, 0)
+        return (self.layers.lags if self.layers else LAGS)[kind]
 
     @property
     def storms(self) -> tuple[str, ...]:

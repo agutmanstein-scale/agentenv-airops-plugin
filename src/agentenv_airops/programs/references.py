@@ -47,7 +47,7 @@ anchor (`below_anchor`).
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
-from ..core.known import FREEZE, LOOK, STEP
+from ..core.known import CAP_LOOK, FREEZE, LOOK, STEP
 from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN
 from . import mip, sim
 from .advisories import HUBS
@@ -210,12 +210,15 @@ def calm(task: Task, time_limit: float = TIME_LIMIT) -> Calm:
 
 
 def watch_times(task: Task) -> list[int]:
-    """Every STEP minutes from the start, through the first watch that knows every delay, while some flight could
+    """Every STEP minutes from the start, through the first watch that knows every delay (on a layered task every
+    departure and outstation arrival cap too, known CAP_LOOK ahead as v1's slot caps were), while some flight could
     still leave unfrozen (t + FREEZE <= its deadline). A layered task's watches also wake on events (docs/v3/DESIGN.md
     §4, `events`) up to that last minute: walking the hourly watches and the events in order, one closer than
     WATCH_MIN to the watch before moves to WATCH_MIN after it, taking in any others up to there, and a gap longer than
     STEP gets a watch every STEP, so consecutive watches are WATCH_MIN to STEP apart."""
-    reveal = max(f.sched_dep - LOOK for f in task.flights)
+    hours = [h for caps in ((task.layers.dep_caps, task.layers.arr_caps) if task.layered else ())
+             for by in caps.values() for h in by]
+    reveal = max([f.sched_dep - LOOK for f in task.flights] + [60 * h - CAP_LOOK for h in hours])
     last = max(f.deadline for f in task.flights) - FREEZE
     ts = [task.start]
     while ts[-1] < reveal and ts[-1] + STEP <= last:
