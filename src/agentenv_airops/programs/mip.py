@@ -1,18 +1,20 @@
 """The hindsight MIP (HiGHS): v1's time-line network (refs.mip) by split family, inside the programs.
 
 Each flight gets a copy per departure minute (every `step` minutes, at the EDCT of every slot into its destination, the
-slot less its scheduled block, and at the end of its crew's rest) from its earliest to its deadline, the hub cutoff
+slot less its scheduled block, at the end of every ramp closure at its origin, at the end of every one at its
+destination less its block, and at the end of its crew's rest) from its earliest to its deadline, the hub cutoff
 included, less the minutes the world forbids: those a ground stop holds it, those at which a segment governs it with
 its slot time (the minute plus the scheduled block) inside the period but on none of JetBlue's slots, and those after
 its crew deadline before its crew's rest ends. A copy on a slot counts in that slot's row, at most one flight per slot;
 any other copy into a hub counts in the nominal row of its arrival hour (the minute plus the block); and any copy,
-slotted or not, leaving in an hour its origin caps (Layers.dep_caps) counts in that hour's departure row. A copy costs
-its pax x minutes late at arrival and its aircraft's minutes (cost.flown_price: the minute's gate delay, and the world's
-block overrun, the same for every copy of a flight); a cancellation costs `price`, the notice price at the solve time,
-which keeps the model linear, or the flat price, either less the cancellation's saving, and a caller pins a
-cancellation the sim decides (an auto-cancel, `lapsed`) at the price the sim gives it (Task.auto_at). Pinned flights
-keep their minute, their cancellation or their auto-cancel, and use up the slots, nominal and departure room they
-take.
+slotted or not, leaving in an hour its origin caps (Layers.dep_caps) counts in that hour's departure row, one leaving
+inside a ramp closure at its origin (Layers.closures) in that closure's departure row, and one arriving (the minute
+plus the block) inside a ramp closure at its destination in that closure's arrival row. A copy costs its pax x minutes
+late at arrival and its aircraft's minutes (cost.flown_price: the minute's gate delay, and the world's block overrun,
+the same for every copy of a flight); a cancellation costs `price`, the notice price at the solve time, which keeps the
+model linear, or the flat price, either less the cancellation's saving, and a caller pins a cancellation the sim
+decides (an auto-cancel, `lapsed`) at the price the sim gives it (Task.auto_at). Pinned flights keep their minute,
+their cancellation or their auto-cancel, and use up the slots, nominal, departure and closure room they take.
 
 Aircraft flow as in v1, over nodes per (family, station) at every event time; a copy of a leg with a busy block
 reaches its destination's node at the block's ready time when that is later than its turn. A leg JetBlue turned into
@@ -140,6 +142,8 @@ class Network:
             else:
                 lo = max(task.earliest(f, world.lb[f.id]), earliest or 0)
                 jumps = {s - f.sched_block for seg in world.segments.get(f.dest, ()) for s in seg.slots}
+                jumps |= {b for _, b, _, _ in world.closures.get(f.orig, ())}
+                jumps |= {b - world.block[f.id] for _, b, _, _ in world.closures.get(f.dest, ())}
                 if f.crew and f.crew.rest is not None:
                     jumps.add(f.crew.rest)
                 minutes = set(range(lo, f.deadline + 1, step)) | {d for d in jumps if lo <= d <= f.deadline}
@@ -229,8 +233,7 @@ class Network:
                 arc(gate.get((f.id, d), node[((f.family, f.orig), d)]),
                     lane.get((f.id, d), node[((f.family, f.dest), task.back(f, arr))]), c)
                 r[c] = 1
-                dep = rules.dep_hour(f, d)
-                for row in ((kind, key),) + ((("dep", dep[0]),) if dep else ()):
+                for row in ((kind, key),) + rules.leaving(f, d):
                     if row[0] == "free":
                         continue
                     if f.id in fixed:
@@ -357,9 +360,11 @@ class Network:
             m.row(flow[v], -supply[v], -supply[v])
         for r in cover:
             m.row(r, 1, 1)
+        shut = {(kind, (s, a)): cap for s, spans in world.closures.items() for a, _, dep, arr in spans
+                for kind, cap in (("closure_dep", dep), ("closure_arr", arr))}
         for (kind, key), r in rows.items():
             room = (1 if kind == "slot" else world.nominal[key[0]][key[1]] if kind == "hour"
-                    else world.dep_caps[key[0]][key[1]])
+                    else world.dep_caps[key[0]][key[1]] if kind == "dep" else shut[(kind, key)])
             m.row(r, -INF, max(0, room - pinned[(kind, key)]))
         self.copies = copies
 

@@ -53,8 +53,9 @@ beyond Edgar's proxy, next-day schedules.
   same layers, for comparison with v2.
 - **Schema:** `Task.layers: Layers | None` (model version 4 when set), a frozen dataclass with `from_dict`/`to_dict`:
   `dep_caps: {station: {hour: cap}}`, `arr_caps: {station: {hour: cap}}` (outstations only), `closures: {station:
-  ((start, end, rate), ...)}`, `reserves: {base: pool}` and `release: bool`. Hours and minutes from the task's
-  midnight, as everywhere.
+  ((start, end, dep_cap, arr_cap), ...)}` (JetBlue's departure and arrival caps over [start, end); §3.2's `rate`
+  stays in the builder), `reserves: {base: pool}` and `release: bool`. Hours and minutes from the task's midnight, as
+  everywhere.
 - **Inputs:** the 19 months' pinned BTS on-time (every carrier), IEM METARs (routine, `report_type=3`) and SPECIs
   (`report_type=4`, via `flow/sources.py`'s pins), and nothing new from the FAA. Every new input is sha256-pinned in
   the pack manifest.
@@ -74,17 +75,28 @@ Each section: what it is, how the sim applies it, how the MIP carries it, how it
 - **Calibration:** `SHORT` (spike 0.9) and `MIN_SCHED` (5) fitted on train days to match JetBlue's replay
   departures (the replay must stay feasible on the recorded day by construction).
 
-### §3.2 Ramp closures as a departure-rate cut
+### §3.2 Ramp closures as a departure- and gate-in-rate cut
 - **What:** lightning within 5 nm closes the ramp. Truth intervals come from METARs: TS in present weather (not VCTS),
   begin and end minutes from the TSB/TSE remarks, SPECIs for exact onset. The data reject a full stop: during such
   intervals all carriers still pushed back at ~75% of the rate just before (JFK 411 vs 563, BOS 449 vs 584 over the
-  same minutes). So a closure cuts the hub's departure cap to `rate` x JetBlue's normal hourly departures for its
-  duration, and an aircraft landing inside it reaches its gate at the closure's end (gate hold).
-- **Sim:** the closure's rate becomes a cap row over the closure interval (departures counted by pushback minute);
-  `gate(world, station, landed)` gives the gate arrival, used by cost, turn and aircraft flow.
-- **MIP:** a row per closure over the copies leaving inside it; each copy's gate arrival (and so its aircraft node and
-  its arrival cost) is precomputed, keeping the model linear (as busy blocks are).
-- **Calibration:** `rate` per hub fitted on train days from BTS pushbacks inside vs just before closures.
+  same minutes), and still gated in at 70-74% of it (BTS over the 19 months: JFK 565 vs 807 on 75 closures, BOS 732
+  vs 989 on 64). So a closure cuts the hub's departure cap to `rate` x JetBlue's normal hourly departures for its
+  duration, never below what JetBlue's in-scope flights pushed back inside it, and caps its gate-ins there the same
+  way: `rate` x its normal hourly arrivals into the hub for the duration, never below the in-scope flights scheduled
+  into the hub that arrive inside it as the sim times the recorded day (recorded pushback plus truth block, diversions
+  included: the replay flies them to the hub), so the recorded day's arrivals fit the caps. There is no gate hold (an aircraft landing inside a closure reaching its gate only at its end): it
+  contradicts the gate-ins above, and it made the recorded day infeasible (a recorded turn inside a closure, landed and
+  pushed back again before its end, took a probe day's airline replay from 670 to 19740; DECISIONS 2026-10-17, U3
+  Q1).
+- **Sim:** each closure is two cap rows over its interval, departures counted by pushback minute and arrivals by
+  arrival minute (the departure plus the world's block, as the nominal cap counts them), pinned flights in both. A
+  departure into a full closure's departures waits for its end; one whose arrival would fall inside a full closure's
+  arrivals leaves so as to arrive at its end. Aircraft reach the gate on landing, as in v2.
+- **MIP:** a row per closure and direction, `("closure_dep", (hub, start))` over the copies leaving inside it and
+  `("closure_arr", (hub, start))` over those arriving inside it, room = the cap less the pinned flights; a closure's
+  end, and its end less the block, join the copy minutes. The model stays linear.
+- **Calibration:** `rate` per hub fitted on train days from BTS pushbacks inside vs just before closures, used for
+  both caps.
 
 ### §3.3 Outstation arrival caps
 - **What:** the §3.1 rule on arrivals at every non-hub destination, from BTS arrivals of every carrier. It stands in
@@ -155,7 +167,7 @@ pairs count once), replay flown share and departures within 15 min, proofs and e
 |---|---|---|
 | U1 | This doc | merged in the fork |
 | U2 | `Layers` schema (model v4 when set), `programs/layers/` package, hub departure caps (§3.1) | sim and MIP enforce them; agreement tests pass on a capped day; tasks without layers byte-identical; ruff, pytest green |
-| U3 | Ramp closures as a rate cut with gate hold (§3.2), METAR/SPECI parsing, calibration | as U2 for a closure day; the rate fitted on train dates from BTS |
+| U3 | Ramp closures as a departure and gate-in rate cut (§3.2), METAR/SPECI parsing, calibration | as U2 for a closure day; `fit_rate` (the train-split fit and the manifest rates are U6's: DECISIONS 2026-10-17, U3 Q2) |
 | U4 | Outstation arrival caps (§3.3) | as U2 for an outstation-capped day |
 | U5 | Finite reserve pool at bases (§3.4), replay reserve calls | as U2 for a crewed day with a binding pool |
 | U6 | Layers on whole-network dates: `network.build(bases=, layers=)`, the layer builders, train-date calibration | a layered network date builds, replays and solves exactly |

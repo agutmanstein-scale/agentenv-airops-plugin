@@ -124,6 +124,24 @@ def two_from_jfk() -> Task:
                       [tail("N1", "JFK", end="BUF"), tail("N2", "JFK", end="DCA")]), {"JFK": {1: 1}})
 
 
+def closed(task: Task, closures: dict[str, tuple[tuple[int, int, int, int], ...]]) -> Task:
+    """The task with ramp closures per station (start, end, dep_cap, arr_cap), added to any layer it carries."""
+    return replace(task, layers=replace(task.layers or Layers(), closures=closures))
+
+
+def closed_day(arr_cap: int = 2) -> Task:
+    """JFK's ramp is closed 120-180 with room for one departure and `arr_cap` arrivals: N1, N2 and N3 are ready there
+    for flights 0, 1 and 2 at 120, 130 and 140. N4 lands from BUF at 160 and N5 from DCA at 170, both inside the
+    closure, for flights 4 to PWM at 200 and 6 to BUF at 210."""
+    flights = [flight(0, "JFK", "BUF", 120, 60), flight(1, "JFK", "DCA", 130, 60, pax=60),
+               flight(2, "JFK", "MCO", 140, 150, pax=180), flight(3, "BUF", "JFK", 100, 60),
+               flight(4, "JFK", "PWM", 200, 70), flight(5, "DCA", "JFK", 110, 60, pax=80),
+               flight(6, "JFK", "BUF", 210, 60)]
+    tails = [tail("N1", "JFK", end="BUF"), tail("N2", "JFK", end="DCA"), tail("N3", "JFK", end="MCO"),
+             tail("N4", "BUF", end="PWM"), tail("N5", "DCA", end="BUF")]
+    return closed(day(flights, tails), {"JFK": ((120, 180, 1, arr_cap),)})
+
+
 def shortened(task: Task, slack: int = 150) -> Task:
     """The task with every deadline at most `slack` after the earliest departure, to keep a test's MIP small."""
     return replace(task, flights=tuple(replace(f, deadline=min(f.deadline, task.earliest(f, f.lb) + slack))

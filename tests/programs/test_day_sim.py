@@ -6,6 +6,8 @@ from day_helpers import (
     busy_day,
     capped,
     capped_day,
+    closed,
+    closed_day,
     crewed,
     day,
     flight,
@@ -29,6 +31,11 @@ def deps(run):
 
 def slots(run):
     return {i: (r.dep, r.slot) for i, r in run.flights.items()}
+
+
+def arrivals(run):
+    """Departure and arrival of the flights into JFK on closed_day."""
+    return {i: (run.flights[i].dep, run.flights[i].arr) for i in (3, 5)}
 
 
 def test_controlled_flights_leave_at_the_edct_of_the_earliest_free_slot_and_a_cancellation_moves_the_queue_up():
@@ -222,3 +229,49 @@ def test_a_pinned_departure_its_aircraft_makes_late_counts_in_the_hour_it_leaves
 
 def test_a_slotted_departure_uses_up_its_hour_of_leaving():
     assert slots(sim.execute(shared_hour_day(), {})) == {0: (70, 130), 1: (120, None)}
+
+
+def test_a_ramp_closure_cuts_departures_to_its_cap_and_the_rest_leave_at_its_end():
+    run = sim.execute(closed_day(), {})
+    assert deps(run) == {0: 120, 1: 180, 2: 180, 3: 100, 4: 200, 5: 110, 6: 210}
+    assert deps(sim.execute(replace(closed_day(), layers=None), {})) == {
+        0: 120, 1: 130, 2: 140, 3: 100, 4: 200, 5: 110, 6: 210}
+    assert deps(sim.execute(closed_day(), {0: {"cancel": True}})) == {
+        0: None, 1: 130, 2: 180, 3: 100, 4: 200, 5: 110, 6: 210}
+
+
+def test_a_full_ramp_closure_holds_an_arrival_so_that_it_arrives_at_its_end_and_its_aircraft_turns_from_there():
+    """Room for one arrival: flight 3 lands at 160, inside, and flight 5, which would land at 170, leaves DCA at 120
+    to arrive at 180. With none, both arrive at 180, and flight 4 waits for an aircraft until 210. An arrival inside a
+    closure with room reaches its gate on landing: no gate hold."""
+    room, one, none = (sim.execute(closed_day(n), {}) for n in (2, 1, 0))
+    assert arrivals(room) == {3: (100, 160), 5: (110, 170)}
+    assert arrivals(one) == {3: (100, 160), 5: (120, 180)}
+    assert arrivals(none) == {3: (120, 180), 5: (120, 180)}
+    assert (one.flights[4].dep, none.flights[4].dep) == (200, 210)
+    assert none.cost.total > one.cost.total > room.cost.total
+
+
+def test_a_pinned_arrival_uses_up_its_ramp_closure_before_the_others_arrive():
+    assert arrivals(sim.execute(closed_day(1), {5: {"left": 110}})) == {3: (120, 180), 5: (110, 170)}
+
+
+def test_a_pinned_departure_uses_up_its_ramp_closure_before_the_others_leave():
+    run = sim.execute(closed_day(), {1: {"left": 125}})
+    assert deps(run) == {0: 180, 1: 125, 2: 180, 3: 100, 4: 200, 5: 110, 6: 210}
+
+
+def test_a_ramp_closure_with_no_room_holds_its_stations_departures_to_its_end():
+    task = closed(closed_day(), {"JFK": ((120, 180, 0, 2),), "BUF": ((0, 130, 0, 2),)})
+    run = sim.execute(task, {})
+    assert deps(run) == {0: 180, 1: 180, 2: 180, 3: 130, 4: 200, 5: 110, 6: 220} and run.flights[3].arr == 190
+
+
+def test_a_ramp_closure_counts_an_arrival_at_its_truth_block_not_its_scheduled_one():
+    """Flight 0 leaves BUF at 120 with a 60-minute scheduled block but a 45-minute truth one: it would land at 165,
+    inside JFK's closure 150-170 with no room for arrivals (by its scheduled block, 180, it would not), so it leaves at
+    125 to arrive at 170."""
+    task = closed(day([flight(0, "BUF", "JFK", 120, 45, sched_block=60)], [tail("N1", "BUF", end="JFK")]),
+                  {"JFK": ((150, 170, 9, 0),)})
+    run = sim.execute(task, {})
+    assert (run.flights[0].dep, run.flights[0].arr) == (125, 170)
