@@ -65,5 +65,5 @@ def test_depcaps_caps_only_short_hours_at_the_share_never_below_what_jetblue_pus
 def test_depcaps_on_the_slice_reads_the_bts_frame_and_keeps_jetblues_pushbacks_feasible(task, slice_inputs, tmp_path):
     caps = depcaps.build(task, candidates.frame(slice_inputs, tmp_path, task.date))
     flew = Counter((f.orig, f.actual.dep // 60) for f in task.flights if f.actual.dep is not None)
-    assert caps == {"JFK": {17: 1, 18: 0, 19: 0}}
+    assert caps == {"JFK": {17: 1, 18: 1, 19: 1}}
     assert all(cap >= flew[(hub, h)] for hub, by in caps.items() for h, cap in by.items())
