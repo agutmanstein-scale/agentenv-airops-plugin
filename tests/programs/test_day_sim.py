@@ -265,3 +265,13 @@ def test_a_ramp_closure_with_no_room_holds_its_stations_departures_to_its_end():
     task = closed(closed_day(), {"JFK": ((120, 180, 0, 2),), "BUF": ((0, 130, 0, 2),)})
     run = sim.execute(task, {})
     assert deps(run) == {0: 180, 1: 180, 2: 180, 3: 130, 4: 200, 5: 110, 6: 220} and run.flights[3].arr == 190
+
+
+def test_a_ramp_closure_counts_an_arrival_at_its_truth_block_not_its_scheduled_one():
+    """Flight 0 leaves BUF at 120 with a 60-minute scheduled block but a 45-minute truth one: it would land at 165,
+    inside JFK's closure 150-170 with no room for arrivals (by its scheduled block, 180, it would not), so it leaves at
+    125 to arrive at 170."""
+    task = closed(day([flight(0, "BUF", "JFK", 120, 45, sched_block=60)], [tail("N1", "BUF", end="JFK")]),
+                  {"JFK": ((150, 170, 9, 0),)})
+    run = sim.execute(task, {})
+    assert (run.flights[0].dep, run.flights[0].arr) == (125, 170)

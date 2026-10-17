@@ -167,7 +167,7 @@ pairs count once), replay flown share and departures within 15 min, proofs and e
 |---|---|---|
 | U1 | This doc | merged in the fork |
 | U2 | `Layers` schema (model v4 when set), `programs/layers/` package, hub departure caps (§3.1) | sim and MIP enforce them; agreement tests pass on a capped day; tasks without layers byte-identical; ruff, pytest green |
-| U3 | Ramp closures as a departure and gate-in rate cut (§3.2), METAR/SPECI parsing, calibration | as U2 for a closure day; the rate fitted on train dates from BTS |
+| U3 | Ramp closures as a departure and gate-in rate cut (§3.2), METAR/SPECI parsing, calibration | as U2 for a closure day; `fit_rate` (the train-split fit and the manifest rates are U6's: DECISIONS 2026-10-17, U3 Q2) |
 | U4 | Outstation arrival caps (§3.3) | as U2 for an outstation-capped day |
 | U5 | Finite reserve pool at bases (§3.4), replay reserve calls | as U2 for a crewed day with a binding pool |
 | U6 | Layers on whole-network dates: `network.build(bases=, layers=)`, the layer builders, train-date calibration | a layered network date builds, replays and solves exactly |
