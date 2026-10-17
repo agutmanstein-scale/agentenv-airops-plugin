@@ -13,6 +13,8 @@ from day_helpers import (
     flight,
     late_pin_day,
     moved_day,
+    outcapped,
+    outcapped_day,
     quick_day,
     shared_hour_day,
     stop,
@@ -275,3 +277,31 @@ def test_a_ramp_closure_counts_an_arrival_at_its_truth_block_not_its_scheduled_o
                   {"JFK": ((150, 170, 9, 0),)})
     run = sim.execute(task, {})
     assert (run.flights[0].dep, run.flights[0].arr) == (125, 170)
+
+
+def times(run):
+    """Every flight's departure and arrival."""
+    return {i: (r.dep, r.arr) for i, r in run.flights.items()}
+
+
+def test_a_full_outstation_hour_pushes_an_arrival_on_to_the_next_hour_and_leaves_other_stations_alone():
+    """BUF caps hour 2 at one arrival: flight 0 lands at 120, so flight 1, ready to land at 130, leaves DCA at 120 to
+    land at 180; PWM is uncapped."""
+    run = sim.execute(outcapped_day(), {})
+    assert times(run) == {0: (60, 120), 1: (120, 180), 2: (55, 125)}
+    assert times(sim.execute(replace(outcapped_day(), layers=None), {})) == {0: (60, 120), 1: (70, 130),
+                                                                               2: (55, 125)}
+    assert times(sim.execute(outcapped(outcapped_day(), {"BUF": {2: 2}}), {})) == {
+        0: (60, 120), 1: (70, 130), 2: (55, 125)}
+
+
+def test_a_pinned_arrival_uses_up_its_outstation_hour_before_the_later_ones_arrive():
+    """At a watch at 75, flight 1 left DCA at 70 to land at 130: flight 0 can't land in hour 2 too."""
+    run = sim.execute(outcapped_day(), {0: {"not_before": 75}, 1: {"left": 70}})
+    assert times(run) == {0: (120, 180), 1: (70, 130), 2: (55, 125)}
+
+
+def test_outstation_arrival_caps_join_the_truths_nominal_caps_and_neither_the_known_nor_the_calm_day_carries_them():
+    task = outcapped_day()
+    assert sim.truth(task).nominal == sim.nominal_caps(task) | {"BUF": {2: 1}}
+    assert "BUF" not in sim.known(task, 0).nominal and "BUF" not in sim.calm(task).nominal
