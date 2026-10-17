@@ -1,11 +1,11 @@
 from dataclasses import replace
 
 import pandas as pd
-from day_helpers import based, crewed, day, flight, tail
+from day_helpers import based, chain_day, crewed, day, flight, tail
 
 from agentenv_airops.programs import references
 from agentenv_airops.programs.candidates import midnight
-from agentenv_airops.programs.layers import calibrate, config
+from agentenv_airops.programs.layers import calibrate, config, crew
 from agentenv_airops.programs.model import Outcome
 
 DATE = "2024-01-01"
@@ -140,3 +140,42 @@ def test_the_fit_rates_closures_on_the_train_dates_alone_and_pools_reserves_on_t
     assert cfg.reserves == calibrate.pools(layered) == {"BOS": 0, "JFK": 2}
     assert config.Config.from_dict(cfg.to_dict()) == cfg
     assert calibrate.fit(["2024-01-02"], tasks, lambda d: empty, spans, pushed).reserves == {"BOS": 0, "JFK": 1}
+
+
+def scored(naive: int, anchor: int = 100, recorded: int = 120, cancels: int = 1, jetblue: int = 2, calm: int = 0,
+           ferries: int = 0, proven: bool = True) -> dict:
+    return {"date": DATE, "naive": naive, "recorded": recorded, "anchor": anchor, "proven": proven,
+            "anchor_cancels": cancels, "jetblue_cancels": jetblue, "calm_cancels": calm, "calm_ferries": ferries}
+
+
+def test_the_crew_fit_takes_the_hardest_cut_whose_guards_all_hold_ties_to_the_laxer(monkeypatch):
+    """Over two dates each: the hardest cut forces two calm cancellations on one, the next costs the recorded day
+    under the anchor on one, the next cancels more than JetBlue; of the two left at 20% the larger buffer wins. A
+    date whose MIPs did not prove is left out."""
+    rules = calibrate.grid((0, 30, 60), (4, 6))
+    table = {(rules[0], 0): scored(150), (rules[0], 1): scored(150, calm=2),
+             (rules[1], 0): scored(140), (rules[1], 1): scored(140, recorded=90),
+             (rules[2], 0): scored(130, cancels=4), (rules[2], 1): scored(130),
+             (rules[3], 0): scored(120), (rules[3], 1): scored(120, calm=5, proven=False),
+             (rules[4], 0): scored(120), (rules[4], 1): scored(120, ferries=2),
+             (rules[5], 0): scored(110), (rules[5], 1): scored(110)}
+    monkeypatch.setattr(calibrate, "score", lambda job, time_limit: table[job])
+    chosen, rows = calibrate.crew_fit({r: [(r, 0), (r, 1)] for r in rules})
+    assert chosen == crew.Rule("v4", 60, 4) and [r["guards"] for r in rows] == [False] * 3 + [True] * 3
+    assert [r["checks"] for r in rows[:3]] == [{"calm": False, "recorded": True, "cancels": True},
+                                               {"calm": True, "recorded": False, "cancels": True},
+                                               {"calm": True, "recorded": True, "cancels": False}]
+    assert (rows[3]["proven"], rows[3]["do_nothing"], rows[4]["calm_share"]) == (1, 0.2, 1.0)
+    monkeypatch.setattr(calibrate, "score", lambda job, time_limit: scored(150, calm=3))
+    assert calibrate.crew_fit({r: [(r, 0)] for r in rules})[0] is None
+
+
+def test_the_crew_fit_scores_a_day_by_its_references_and_samples_train_dates_by_seed():
+    s = calibrate.score(chain_day(crew.Rule("v4")), 60)
+    assert (s["calm_cancels"], s["calm_ferries"], s["jetblue_cancels"], s["proven"]) == (0, 0, 0, True)
+    assert s["naive"] >= s["anchor"] and s["date"] == "2024-07-01"
+    dates = [f"2024-07-{d:02d}" for d in range(1, 31)]
+    picked = calibrate.sample(dates)
+    assert len(picked) == calibrate.SAMPLE == 12 and list(picked) == sorted(set(picked)) and set(picked) <= set(dates)
+    assert calibrate.sample(dates) == picked != calibrate.sample(dates, seed=1)
+    assert calibrate.sample(dates[:5]) == tuple(dates[:5])
