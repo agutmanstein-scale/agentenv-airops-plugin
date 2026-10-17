@@ -19,6 +19,16 @@ The probe found the programs world too easy and too loose for the task to test a
 The spike showed MIP-expressible layers fix much of that: on all 149 days, do-nothing +13.9% median, the optimum
 cancels 37% of JetBlue's, the forecast desk's gap +4.4% -> +8.3% on 6 days, every anchor reproduced exactly.
 
+**Status (2026-10-17): v3 is the more realistic successor of v2; "harder" moves to v4.** The check on 129 storm
+dates (docs/v3/REPORT.md) found the layers sound and more realistic on every measure that moved, but barely harder on
+whole-network dates, and Edgar's crew model harder only by being stricter than reality (JetBlue's recorded day below
+the anchor, the calm day cancelling on every date). So v3 ships the layers without crews (`scripts/v3_pack.py`
+builds without bases by default), its done-when is criteria 2-4 below, and criterion 1 is v4's (docs/v4/DESIGN.md).
+Measured: the optimum's cancellations 26% -> 31% of JetBlue's, the could-fly-for-free share 58% -> 54%, the recorded
+day's excess 71% -> 67%, the replay unchanged (flown 99.5%, within 15 min 95.3%), all anchors proven and exact.
+
+The criteria as first set (v3 was meant to meet all four; 1 is now v4's and 2's thresholds were not reached):
+
 v3 is done when, on the v3 pack's days (§6), measured by `scripts/v3_check.py` (§6.2):
 1. **Harder:** do-nothing's median excess over the hindsight optimum is at least 1.4x v2's on the same days, and the
    follower's median gap at least 1.5x v2's.

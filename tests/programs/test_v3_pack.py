@@ -27,8 +27,9 @@ CONTROL = ("2025-02-04", {"BOS": (420, 660)})
 def test_the_pack_splits_and_fits_on_its_train_dates_and_a_quick_run_writes_the_full_packs_tasks(tmp_path,
                                                                                                  monkeypatch):
     """Over the storm dates of two winter months (so the test builds 11, not 207) and one control date: every split
-    date is written with crew and layers at constants fitted on the train dates, rescaled to the unseen scale fitted
-    on them, the control after them alike; `--only` two of them, resumed, writes those same lines."""
+    date is written with layers and no crews (v3's default) at constants fitted on the train dates, rescaled to the
+    unseen scale fitted on them, the control after them alike; `--only` two of them, resumed, writes those same
+    lines."""
     storms, counts = network.storms(CACHE, MONTHS)
     monkeypatch.setattr(network, "storms", lambda inputs: (storms, counts))
     monkeypatch.setattr(network, "control_dates", lambda inputs, derived: dict([CONTROL]))
@@ -36,20 +37,19 @@ def test_the_pack_splits_and_fits_on_its_train_dates_and_a_quick_run_writes_the_
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     lines = (tmp_path / "tasks.jsonl").read_text().splitlines()
     control = Task.from_dict(json.loads(lines.pop()))
-    assert control.split == "control" and control.date == CONTROL[0] and control.bases and control.layered
+    assert control.split == "control" and control.date == CONTROL[0] and not control.bases and control.layered
     assert manifest["controls"] == {CONTROL[0]: {"hubs": ["BOS"], "windows": {"BOS": [420, 660]},
                                                  "task_id": control.task_id}}
     built = {d: tuple(json.loads((tmp_path / "built" / f"{d}.json").read_text())["task"]["hubs"]) for d in storms}
     split = network.split(built, candidates.events(storms), 0)
     train = sorted(d for d, v in split.items() if v == "train")
     assert manifest["split"] == split and manifest["constants"]["dates"] == train and train
-    assert set(manifest["constants"]["reserves"]) == {"BOS", "FLL", "JFK", "MCO"}
+    assert manifest["constants"]["reserves"] == {} and manifest["bases"] == []
     assert (manifest["constants"]["short"], manifest["constants"]["min_sched"]) == (0.9, 5)
     tasks = [Task.from_dict(json.loads(line)) for line in lines]
     assert [t.date for t in tasks] == sorted(split) and all(t.split == split[t.date] for t in tasks)
     assert all(json.loads(line)["version"] == LAYERED for line in lines)
-    assert all(t.bases and all(f.crew for f in t.flights) and t.layers.reserves == manifest["constants"]["reserves"]
-               for t in tasks)
+    assert all(not t.bases and not any(f.crew for f in t.flights) and not t.layers.reserves for t in tasks)
     assert manifest["counts"]["total"]["flights"] == sum(len(t.flights) for t in [*tasks, control])
     fits = candidates.e_table(CACHE, DERIVED)
     plain = {d: Task.from_dict(json.loads((tmp_path / "built" / f"{d}.json").read_text())["task"]) for d in split}

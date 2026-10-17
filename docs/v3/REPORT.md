@@ -51,6 +51,11 @@ world_check's gates on each pack:
   FAR 117 limits on schedule (U11 crew diagnostic).
 - **Not met by either variant:** the could-fly-for-free share drops 3.7-4.5 points, not 10.
 
+## Decision (Alec, 2026-10-17)
+
+v3 is the more realistic successor: layers only, no crews by default (`v3_pack.py --bases none`). Making the
+days harder is v4's goal (docs/v4/DESIGN.md), starting with option 1 below.
+
 ## What would close it
 
 The loop paused here (LOOP.md "Pause early": a §0 criterion still failing on the pack after its calibration pass).
