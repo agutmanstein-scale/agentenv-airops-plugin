@@ -342,9 +342,8 @@ class Layers:
     """The world's realism layers beyond the FAA's programs, hours and minutes from the task's midnight:
     JetBlue's departure cap per hour at a hub (`dep_caps`) and arrival cap per hour at an outstation (`arr_caps`),
     ramp closures per station as (start, end, dep_cap, arr_cap): JetBlue's departures from the station leaving in
-    [start, end) total at most dep_cap, and its arrivals there inside it at most arr_cap; the reserve crews per crew
-    base, and whether a cancelled flight's slot is released to compression (`release`). A hub's arrivals answer to
-    its programs and nominal cap, so an arrival cap at a hub is a ValueError.
+    [start, end) total at most dep_cap, and its arrivals there inside it at most arr_cap; and the reserve crews per
+    crew base. A hub's arrivals answer to its programs and nominal cap, so an arrival cap at a hub is a ValueError.
 
     The desk's news beyond the advisories (docs/v3/DESIGN.md §4): the hubs' weather as (minute, kind, station, text),
     kind "metar", "speci" or "taf", the minute its observation or issue (layers.weather), and the delivery lag per
@@ -359,7 +358,6 @@ class Layers:
     arr_caps: dict[str, dict[int, int]] = field(default_factory=dict)
     closures: dict[str, tuple[tuple[int, int, int, int], ...]] = field(default_factory=dict)
     reserves: dict[str, int] = field(default_factory=dict)
-    release: bool = False
     weather: tuple[tuple[int, str, str, str], ...] = ()
     lags: dict[str, int] = field(default_factory=lambda: dict(LAGS))
     rates: dict[str, float] = field(default_factory=dict)
@@ -386,14 +384,14 @@ class Layers:
         return cls({s: {int(h): c for h, c in by.items()} for s, by in d["dep_caps"].items()},
                    {s: {int(h): c for h, c in by.items()} for s, by in d["arr_caps"].items()},
                    {s: tuple((a, b, c, e) for a, b, c, e in spans) for s, spans in d["closures"].items()},
-                   dict(d["reserves"]), d["release"], tuple((m, k, s, x) for m, k, s, x in d.get("weather", ())),
+                   dict(d["reserves"]), tuple((m, k, s, x) for m, k, s, x in d.get("weather", ())),
                    dict(d.get("lags", {})), dict(d.get("rates", {})))
 
     def to_dict(self) -> dict:
         out = {"dep_caps": {s: {str(h): c for h, c in sorted(by.items())} for s, by in self.dep_caps.items()},
                "arr_caps": {s: {str(h): c for h, c in sorted(by.items())} for s, by in self.arr_caps.items()},
                "closures": {s: [list(x) for x in spans] for s, spans in self.closures.items()},
-               "reserves": dict(self.reserves), "release": self.release}
+               "reserves": dict(self.reserves)}
         if self.weather:
             out["weather"] = [list(x) for x in self.weather]
         if self.lags != LAGS:
