@@ -155,12 +155,13 @@ def test_crew_deadline_and_rest_are_shown():
     assert rows[0]["crew"] == {"pairing": "N1/0", "deadline": "03:20", "rest": "13:20"} and "crew" not in rows[1]
 
 
-def test_reward_is_step0s_curve_one_at_the_anchor_and_never_below_the_floor():
+def test_reward_is_step0s_curve_one_at_the_anchor_and_never_below_the_floor_even_on_a_day_costing_nothing():
     assert reward(50, 100, 50) == 1.0 and reward(40, 100, 50) == 1.0
     assert reward(100, 100, 50) == 0.2 + 0.8 * math.exp(-2)
     assert reward(75, 100, 50) == 0.2 + 0.8 * math.exp(-1)
     assert 0.2 <= reward(10_000, 100, 50) < 0.2 + 1e-9
     assert reward(101, 100, 100) == 0.2 + 0.8 * math.exp(-0.1 / 0.5)
+    assert (reward(0, 0, 0), reward(5, 0, 0)) == (1.0, 0.2)
 
 
 def test_grade_prices_the_plan_on_the_truth_against_naive_and_anchor():
