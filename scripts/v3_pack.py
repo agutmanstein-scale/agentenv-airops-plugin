@@ -4,25 +4,31 @@ scripts/v3_check.py reads, and each task's anchor and follower costs for the pla
 
     python scripts/v3_pack.py --out DIR [--only DATE,...] [--workers 14] [--seed 0] [--resume]
                               [--refs] [--prove-s 1800] [--watch-s 900] [--bases none|JFK,BOS,...]
+                              [--crew edgar|v4] [--buffer MIN] [--max-segments N]
 
 1. every storm date over the 19 cached months (network.storms) built as a whole-network task, without crews by default
-   (v3: docs/v3/DESIGN.md §0 status; `--bases JFK,BOS,FLL,MCO` turns Edgar's crew model on at those bases), at scale 1
-   and the 03:00 cutoff, as world_check builds them, and so are the control
+   (v3: docs/v3/DESIGN.md §0 status; `--bases JFK,BOS,FLL,MCO` turns the crew model on at those bases, its pairings
+   cut by `--crew`: Edgar's proxy, the default, or v4's legal on schedule, layers.crew, at `--buffer` and
+   `--max-segments`), at scale 1 and the 03:00 cutoff, as world_check builds them, and so are the control
    dates (network.control_dates, each with its hubs' control windows, split 'control'); each date's build is written
-   to DIR/built/ as it finishes (a control's as control-DATE.json), and `--resume` keeps those already built there (a
-   date left unbuilt, or a file cut short, is built again). A date an input is missing for (say the FAA registry, for
-   a tail B-43 doesn't type) is unbuilt, its error the reason; any other error stops the pack;
+   to DIR/built/ (v4's to DIR/built-v4-BUFFER-SEGMENTS/) as it finishes (a control's as control-DATE.json), and
+   `--resume` keeps those already built there (a date left unbuilt, or a file cut short, is built again). A date an
+   input is missing for (say the FAA registry, for a tail B-43 doesn't type) is unbuilt, its error the reason; any
+   other error stops the pack;
 2. the seeded whole-event split over the built storm dates, as world_check draws it (network.split, `--seed`, default
    0), and the unseen-traffic scale fitted on the train dates (unseen.fit_scale), every task (the controls too)
    rescaled to it;
-3. the layer constants fitted on the train dates only (layers.calibrate.fit): the ramp closures' rate per hub, the
-   reserve pool per base, the cap clauses kept at 0.9 and 5;
+3. the layer constants fitted on the train dates only (layers.calibrate.fit): the ramp closures' rate per hub, then,
+   with `--crew v4` and `--buffer` or `--max-segments` left out, v4's crew cut over the grid of what is left out
+   (layers.calibrate.crew_fit, on its seeded sample of the train dates, each built at every cut of the grid; no cut
+   holding the guards stops the pack, the fit written to the manifest), every date then built again at the cut, then
+   the reserve pool per base, the cap clauses kept at 0.9 and 5;
 4. every date of the split (eval and train) and every control date (`--only` a few of them, storm or control) given
    every layer at those constants (network.layered, as network.build(layers=) does), written to DIR/tasks.jsonl, the
    storm dates first, and DIR/manifest.json: the inputs the pack reads beyond each task's own pins (`sources`) with
    their sha256 (BTS on-time per month, the hubs' IEM METARs, SPECIs and TAFs per month), the seed, the split, the
-   controls and the scale, the constants with the dates they were fitted on, the counts per task and per layer, and
-   the wall clock per phase;
+   controls and the scale, the crew mode with its buffer, max segments and fit, the constants with the dates they were
+   fitted on, the counts per task and per layer, and the wall clock per phase;
 5. with `--refs`, the references on every task written (`refs`, below): one JSON per task under DIR/refs/ as it
    finishes, in a pool of `--workers` processes, heaviest first, a result kept when its task's signature (the task, the
    references and the time limits) matches; then DIR/refs.json, each task's anchor and follower costs on the truth
@@ -64,7 +70,7 @@ from agentenv_airops.flow import sources
 from agentenv_airops.programs import candidates, network, probe, rbs, references, repairs, sim, unseen
 from agentenv_airops.programs.advisories import HUBS
 from agentenv_airops.programs.candidates import Built
-from agentenv_airops.programs.layers import calibrate, config
+from agentenv_airops.programs.layers import calibrate, config, crew
 from agentenv_airops.programs.model import Task, write_tasks
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -89,10 +95,20 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--bases", default="none",
                     help="crew bases for Edgar's crew model, comma-separated (JetBlue's: JFK,BOS,FLL,MCO); 'none', the "
                          "v3 default, builds without crews (docs/v3/DESIGN.md §0 status)")
+    ap.add_argument("--crew", choices=crew.MODES, default="edgar",
+                    help="how the crew model cuts pairings with --bases: Edgar's proxy or v4's legal on schedule")
+    ap.add_argument("--buffer", type=int, help="v4's duty buffer in minutes (default: fitted on the train dates)")
+    ap.add_argument("--max-segments", type=int, help="v4's legs per duty at most (default: fitted on the train dates)")
     ap.add_argument("--prove-s", type=float, default=PROVE_S, help="time limit of each anchor, flat or calm solve")
     ap.add_argument("--watch-s", type=float, default=WATCH_S, help="time limit of each follower watch solve")
     args = ap.parse_args(argv)
     out = args.out
+    bases = () if args.bases.lower() == "none" else tuple(b for b in args.bases.split(",") if b)
+    if args.crew == "v4" and not bases:
+        sys.exit("ERROR: --crew v4 cuts the crew model's pairings: give it --bases")
+    fitting = args.crew == "v4" and (args.buffer is None or args.max_segments is None)
+    rule = crew.Rule(args.crew, crew.BUFFER if args.buffer is None else args.buffer,
+                     crew.MAX_SEGMENTS if args.max_segments is None else args.max_segments)
     out.mkdir(parents=True, exist_ok=True)
     clock = Clock()
 
@@ -103,10 +119,8 @@ def main(argv: list[str] | None = None) -> None:
     clock.lap("storms", f"{len(storms)} storm dates, {len(controls)} control dates, {len(fits)} advisories fitted")
     jobs = {d: (d, hubs, None, "") for d, hubs in storms.items()}
     jobs |= {CONTROL + d: (d, tuple(h for h in HUBS if h in w), w, "control") for d, w in controls.items()}
-    bases = () if args.bases.lower() == "none" else tuple(b for b in args.bases.split(",") if b)
-    built = build(out / "built", jobs, e_fit, e_median, args.workers, args.resume, bases)
-    tasks = {d: b.task for d, b in built.items() if b.task and not d.startswith(CONTROL)}
-    held = {d.removeprefix(CONTROL): b.task for d, b in built.items() if b.task and d.startswith(CONTROL)}
+    built = build(folder_of(out, rule), jobs, e_fit, e_median, args.workers, args.resume, bases, rule)
+    tasks, held = storm_and_control(built)
     clock.lap("build", f"{len(tasks)} of {len(storms)} storm dates built, {len(held)} of {len(controls)} controls")
 
     event = candidates.events(storms)
@@ -116,14 +130,42 @@ def main(argv: list[str] | None = None) -> None:
     if set(scale) != set(HUBS):
         sys.exit(f"ERROR: no train dates to fit the scale at {sorted(set(HUBS) - set(scale))}")
     shipped_e = unseen.table(fits, scale)
-    shipped = {d: rbs.rescale(replace(tasks[d], split=v), scale, *shipped_e) for d, v in drawn.items()}
-    calm = {d: rbs.rescale(replace(t, split="control"), scale, *shipped_e) for d, t in held.items()}
     clock.lap("split", f"eval {len(drawn) - len(train)}, train {len(train)}, scale {scale}")
 
     spans = config.spans(INPUTS, candidates.MONTHS)
     pushed = pd.concat([candidates.month_frame(INPUTS, DERIVED, m)[["Origin", "act_dep"]] for m in candidates.MONTHS],
                        ignore_index=True)
-    constants = calibrate.fit(train, [shipped[d] for d in train], frame_of, spans, pushed, args.workers)
+    rated = calibrate.rates(train, pushed, spans)
+    crewing = {**rule.to_dict(), "fitted": fitting}
+    if fitting:
+        sample = calibrate.sample(train)
+        rules = calibrate.grid((args.buffer,) if args.buffer is not None else calibrate.BUFFERS,
+                               (args.max_segments,) if args.max_segments is not None else calibrate.SEGMENTS)
+        grid = {}
+        for r in rules:
+            at = build(folder_of(out, r), {d: jobs[d] for d in sample}, e_fit, e_median, args.workers, args.resume,
+                       bases, r)
+            grid[r] = [network.layered(rbs.rescale(replace(t, split="train"), scale, *shipped_e), rated, INPUTS,
+                                       DERIVED) for t in storm_and_control(at)[0].values()]
+        chosen, rows = calibrate.crew_fit(grid, args.workers)
+        crewing["fit"] = {"sample": list(sample), "seed": calibrate.SAMPLE_SEED, "time_limit_s": calibrate.CREW_S,
+                          "rules": rows, "chosen": chosen.to_dict() if chosen else None}
+        clock.lap("crew fit", json.dumps(chosen.to_dict() if chosen else None))
+        if chosen is None:
+            (out / "manifest.json").write_text(json.dumps({"code": revision(), "crew": crewing}, indent=1) + "\n")
+            sys.exit("ERROR: no crew cut of the grid holds the guards on the train sample (manifest.json: crew.fit)")
+        if chosen != rule:
+            rule = chosen
+            built = build(folder_of(out, rule), jobs, e_fit, e_median, args.workers, args.resume, bases, rule)
+            again = storm_and_control(built)
+            if set(again[0]) != set(tasks) or set(again[1]) != set(held):
+                sys.exit("ERROR: the dates built at the fitted crew cut are not those the split drew from")
+            tasks, held = again
+            clock.lap("build", f"again at {rule}")
+        crewing |= rule.to_dict()
+    shipped = {d: rbs.rescale(replace(tasks[d], split=v), scale, *shipped_e) for d, v in drawn.items()}
+    calm = {d: rbs.rescale(replace(t, split="control"), scale, *shipped_e) for d, t in held.items()}
+    constants = calibrate.pooled_fit(rated, [shipped[d] for d in train], frame_of, spans, args.workers)
     clock.lap("calibrate", json.dumps({k: v for k, v in constants.to_dict().items() if k != "dates"}))
 
     only = dates_of(args.only)
@@ -137,7 +179,8 @@ def main(argv: list[str] | None = None) -> None:
     clock.lap("layers", f"{len(layered)} tasks written")
 
     manifest = {"code": revision(), "seed": args.seed, "months": list(candidates.MONTHS), "bases": list(bases),
-                "only": only, "storm_dates": len(storms), "built": len(tasks), "candidates": counts,
+                "crew": crewing if bases else None, "only": only, "storm_dates": len(storms), "built": len(tasks),
+                "candidates": counts,
                 "unbuilt": {d: b.row["reason"] for d, b in built.items() if not b.task},
                 "split": dict(sorted(drawn.items())), "unsplit": sorted(set(tasks) - set(drawn)),
                 "controls": {d: {"hubs": list(jobs[CONTROL + d][1]), "windows": {h: list(x) for h, x in w.items()},
@@ -171,15 +214,15 @@ class Clock:
 
 def build(folder: Path, jobs: Mapping[str, tuple[str, tuple[str, ...], network.Windows | None, str]],
           e_fit: Mapping[str, float], e_median: Mapping[str, float], workers: int, resume: bool,
-          bases: Sequence[str] = repairs.BASES) -> dict[str, Built]:
-    """Every job's whole-network task with crew, at scale 1, one JSON per job under `folder` as it finishes (a job
-    keyed by its date, a control's by CONTROL + its date; each a (date, storm hubs, windows or None, split)); with
-    `resume` the jobs built there already are read back (kept), the others built again."""
+          bases: Sequence[str] = repairs.BASES, rule: crew.Rule = crew.EDGAR) -> dict[str, Built]:
+    """Every job's whole-network task with crew at `bases` cut by `rule`, at scale 1, one JSON per job under `folder` as
+    it finishes (a job keyed by its date, a control's by CONTROL + its date; each a (date, storm hubs, windows or None,
+    split)); with `resume` the jobs built there already are read back (kept), the others built again."""
     folder.mkdir(parents=True, exist_ok=True)
     out = kept(folder, jobs) if resume else {}
     ones = dict.fromkeys(HUBS, 1.0)
     args = {k: (d, hubs, INPUTS, DERIVED, dict(e_fit), dict(e_median), ones, repairs.CUTOFF, w, split, tuple(bases),
-                None) for k, (d, hubs, w, split) in jobs.items() if k not in out}
+                None, rule) for k, (d, hubs, w, split) in jobs.items() if k not in out}
     with ProcessPoolExecutor(max(1, workers)) as pool:
         futures = {pool.submit(build_one, a): k for k, a in args.items()}
         for job in as_completed(futures):
@@ -187,6 +230,18 @@ def build(folder: Path, jobs: Mapping[str, tuple[str, tuple[str, ...], network.W
             save(folder / f"{futures[job]}.json", b)
             out[futures[job]] = b
     return dict(sorted(out.items()))
+
+
+def folder_of(out: Path, rule: crew.Rule) -> Path:
+    """Where a pack's builds at `rule` go: DIR/built/ for Edgar's cut (or none), DIR/built-v4-BUFFER-SEGMENTS/ for
+    v4's."""
+    return out / ("built" if rule.mode == "edgar" else f"built-v4-{rule.buffer}-{rule.max_segments}")
+
+
+def storm_and_control(built: Mapping[str, Built]) -> tuple[dict[str, Task], dict[str, Task]]:
+    """The built storm tasks by date, and the built controls by date."""
+    return ({d: b.task for d, b in built.items() if b.task and not d.startswith(CONTROL)},
+            {d.removeprefix(CONTROL): b.task for d, b in built.items() if b.task and d.startswith(CONTROL)})
 
 
 def kept(folder: Path, keys: Iterable[str]) -> dict[str, Built]:
