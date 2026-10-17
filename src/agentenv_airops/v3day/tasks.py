@@ -20,7 +20,7 @@ def rules(task: Task) -> str:
     outstation arrival caps and the ramp closures."""
     layered = task.layered
     watches = (f"in watches starting at watch 0: one an hour, and one more when an advisory or a SPECI reaches "
-               f"the desk or a ramp closure begins, so watches are {references.WATCH_MIN} to {STEP} minutes "
+               f"the desk or a ramp closure begins or ends, so watches are {references.WATCH_MIN} to {STEP} minutes "
                "apart" if layered else "in watches, one an hour, starting at watch 0")
     news = (f"FAA Command Center advisories and the hubs' METARs, SPECIs and TAFs arrive as messages at the first "
             f"watch after they reach the desk: an advisory {task.lag('advisory')} minutes after it is signed, a METAR "

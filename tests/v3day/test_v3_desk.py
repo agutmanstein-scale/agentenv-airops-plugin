@@ -36,7 +36,7 @@ def test_weather_reaches_the_desk_at_the_first_watch_after_its_minute_plus_its_l
     assert set(when) == set(due)
     for n, t in when.items():
         assert t == next(x for x in times if x >= due[n])
-    assert times == [0, 60, 120, 155] and when["speci-jfk-150"] == 155 and when["taf-jfk-140"] == 155
+    assert times == [0, 60, 120, 155, 180] and when["speci-jfk-150"] == 155 and when["taf-jfk-140"] == 155
     assert when["metar-jfk-50"] == 60 and when["taf-jfk--100"] == when["metar-jfk--9"] == 0
 
 
@@ -55,6 +55,15 @@ def delivered(task: Task) -> dict[str, int]:
     while not d.done:
         d.advance()
     return {e["news_id"]: e["t"] for e in d.log}
+
+
+def test_the_latest_observation_is_the_one_observed_last_when_lags_bring_an_older_one_with_it():
+    wx = ((40, "speci", "JFK", "KJFK 260540Z TS"), (51, "metar", "JFK", "KJFK 260551Z"))
+    task = replace(closed_day(), layers=replace(closed_day().layers, weather=wx, lags=LAGS | {"speci": 20}))
+    d = Day(task)
+    d.advance()
+    assert d.t == 60 and d.delivered.index("speci-jfk-40") > d.delivered.index("metar-jfk-51")
+    assert d.situation()["weather"]["JFK"]["observation"]["id"] == "metar-jfk-51"
 
 
 def test_two_weather_items_of_one_kind_hub_and_minute_each_reach_the_desk_once():
@@ -115,7 +124,7 @@ def test_a_closure_is_reported_over_only_once_its_end_has_come_even_when_the_gue
         d.advance()
     assert d.situation()["closures"]["JFK"][0]["reported"] is False
     d.advance()
-    assert d.t == 180 and d.situation()["closures"]["JFK"] == [
+    assert d.t == 120 + sim.GUESS and d.situation()["closures"]["JFK"] == [
         {"from": "02:00", "to": "02:30", "reported": True, "dep_cap": 1, "arr_cap": 1}]
 
 

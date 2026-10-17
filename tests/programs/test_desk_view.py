@@ -23,10 +23,11 @@ from program_helpers import adv
 from test_reference_plays import stopped_then_released
 
 from agentenv_airops.build import bts
-from agentenv_airops.core.known import CAP_LOOK, STEP
+from agentenv_airops.core.known import CAP_LOOK, FREEZE, STEP
 from agentenv_airops.programs import references, sim
 from agentenv_airops.programs.layers import closures, weather
 from agentenv_airops.programs.model import LAGS, Layers, Task
+from agentenv_airops.v3day import clock
 from agentenv_airops.v3day.day import Day
 
 
@@ -128,7 +129,7 @@ def eventful() -> Task:
 def test_a_layered_tasks_watches_wake_on_news_and_closures_15_to_60_apart():
     task = eventful()
     ts = references.watch_times(task)
-    assert references.events(task) == [120, 200, 300 + LAGS["speci"]]
+    assert references.events(task) == [120, 180, 200, 300 + LAGS["speci"]]
     assert {200, 305} <= set(ts) and 120 in ts
     assert ts == [0, 60, 120, 180, 200, 260, 305]
     assert all(references.WATCH_MIN <= b - a <= STEP for a, b in zip(ts, ts[1:], strict=False))
@@ -139,8 +140,42 @@ def test_an_event_close_to_a_watch_moves_to_watch_min_after_it_absorbing_the_res
     task = closed(day([flight(0, "JFK", "BUF", 400, 60)], [tail("N1", "JFK", end="BUF")]),
                   {"JFK": ((125, 160, 1, 1), (130, 170, 1, 1))})
     ts = references.watch_times(task)
-    assert ts[:4] == [0, 60, 120, 135] and ts[4] == 180
+    assert ts[:4] == [0, 60, 120, 135] and ts[4:7] == [160, 175, 190]
 
+
+
+def test_a_closure_outlasting_the_hourly_watches_is_watched_until_its_end_comes():
+    flights = [flight(i, "JFK", "BUF", 200 + 20 * i, 60, deadline=600 + 20 * i) for i in range(6)]
+    task = closed(day(flights, [tail(f"N{i}", "JFK", end="BUF") for i in range(6)]), {"JFK": ((200, 420, 1, 1),)},
+                  {"JFK": 0.5})
+    ts = references.watch_times(task)
+    assert ts == [0, 60, 120, 180, 200, 260, 320, 380, 420]
+    assert sim.known(task, 380).closures["JFK"][0][1] == 380 + sim.GUESS
+    assert sim.known(task, ts[-1]).closures == task.layers.closures
+    assert all(references.WATCH_MIN <= b - a <= STEP for a, b in zip(ts, ts[1:], strict=False))
+
+
+def test_an_event_just_before_the_last_hourly_watch_moves_it_onto_the_last_minute():
+    f = flight(0, "JFK", "BUF", 600, 60, deadline=665)
+    capped_far = replace(day([f], [tail("N1", "JFK", end="BUF")]), layers=Layers(dep_caps={"JFK": {30: 5}}))
+    last = f.deadline - FREEZE
+    assert references.watch_times(capped_far)[-1] == 600
+    task = replace(capped_far, layers=replace(capped_far.layers, weather=((590, "speci", "JFK", "KJFK SPECI TS"),
+                                                                          (598, "speci", "JFK", "KJFK SPECI +TS"))))
+    ts = references.watch_times(task)
+    assert ts[-3:] == [540, 595, last]
+    news = {n for w in clock.timetable(task) for n in w.news}
+    assert {"speci-jfk-590", "speci-jfk-598"} <= news
+
+
+def test_a_negative_lag_and_an_advisory_lag_the_known_programs_would_not_wait_for_are_refused():
+    with pytest.raises(ValueError, match="not a whole number"):
+        Layers(lags={"speci": -60})
+    with pytest.raises(ValueError, match="not a whole number"):
+        Layers(lags={"taf": 2.5})
+    with pytest.raises(ValueError, match="advisory lag must be 0"):
+        Layers(lags={"advisory": 30})
+    assert Layers(lags={"advisory": 0, "speci": 0}).lags == LAGS | {"speci": 0}
 
 def test_the_follower_on_a_layered_day_wakes_on_events_and_its_plan_replays():
     task = eventful()

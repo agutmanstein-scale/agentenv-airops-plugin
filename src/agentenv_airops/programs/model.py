@@ -349,10 +349,11 @@ class Layers:
     The desk's news beyond the advisories (docs/v3/DESIGN.md §4): the hubs' weather as (minute, kind, station, text),
     kind "metar", "speci" or "taf", the minute its observation or issue (layers.weather), and the delivery lag per
     product kind in minutes (`lags` over LAGS: advisory 0, metar 5, speci 5, taf 10, a kind it leaves out keeping
-    LAGS's, one LAGS doesn't have a ValueError), each item reaching the desk at its minute plus its kind's lag; and the
-    closure rate per hub that priced its closures (`rates`, closures.fit_rate's), with which the day as known prices a
-    closure under way over its expected end, not its true one (sim.known). All three are written only when set, so a
-    task without them reads and writes as before."""
+    LAGS's; one LAGS doesn't have, a negative lag or an advisory lag other than 0 is a ValueError), each item
+    reaching the desk at its minute plus its kind's lag; and the closure rate per hub that priced its closures
+    (`rates`, closures.fit_rate's), with which the day as known prices a closure under way over its expected end, not
+    its true one (sim.known). All three are written only when set, so a task without them reads and writes as
+    before."""
 
     dep_caps: dict[str, dict[int, int]] = field(default_factory=dict)
     arr_caps: dict[str, dict[int, int]] = field(default_factory=dict)
@@ -367,6 +368,13 @@ class Layers:
         unknown = sorted(set(self.lags) - set(LAGS))
         if unknown:
             raise ValueError(f"lags for unknown kind(s) {', '.join(unknown)}: the kinds are {', '.join(LAGS)}")
+        bad = sorted(k for k, v in self.lags.items() if not isinstance(v, int) or isinstance(v, bool) or v < 0)
+        if bad:
+            raise ValueError(f"lags for {', '.join(bad)} not a whole number of minutes >= 0: news can't reach the desk "
+                             "before its minute")
+        if self.lags.get("advisory", 0):
+            raise ValueError("an advisory lag must be 0: the day as known reads the programs as signed by the watch "
+                             "(advisories.issued_by), so a later delivery would act on news the desk hasn't had")
         object.__setattr__(self, "lags", LAGS | dict(self.lags))
         hubs = sorted(set(self.arr_caps) & set(HUBS))
         if hubs:

@@ -20,7 +20,7 @@ from ..day import fid
 from ..programs import sim
 from ..programs.advisories import PROPOSED
 from ..programs.model import Task
-from .clock import WEATHER
+from .clock import WEATHER, News
 
 if TYPE_CHECKING:
     from .day import Day
@@ -75,12 +75,19 @@ def closures(world: sim.World, t: int) -> dict[str, list[dict]]:
 
 
 def weather(day: "Day") -> dict[str, dict]:
-    """Per hub the latest observation (METAR or SPECI) and the latest TAF delivered so far."""
-    out: dict[str, dict] = {}
+    """Per hub the latest observation (METAR or SPECI) and the latest TAF delivered so far: the one observed or issued
+    last, of those observed or issued at one minute the last delivered (kinds' lags differ, so an older one can
+    arrive with or after a newer one)."""
+    latest: dict[tuple[str, str], News] = {}
     for n in (day.items[i] for i in day.delivered):
         if n.kind in WEATHER:
-            out.setdefault(n.hub, {})["taf" if n.kind == "taf" else "observation"] = n.to_dict()
-    return dict(sorted(out.items()))
+            key = (n.hub, "taf" if n.kind == "taf" else "observation")
+            if key not in latest or n.at >= latest[key].at:
+                latest[key] = n
+    out: dict[str, dict] = {}
+    for (hub, kind), n in sorted(latest.items()):
+        out.setdefault(hub, {})[kind] = n.to_dict()
+    return out
 
 
 def reserves(task: Task, granted: frozenset[int]) -> dict[str, dict]:

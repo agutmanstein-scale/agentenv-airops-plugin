@@ -214,8 +214,9 @@ def watch_times(task: Task) -> list[int]:
     departure and outstation arrival cap too, known CAP_LOOK ahead as v1's slot caps were), while some flight could
     still leave unfrozen (t + FREEZE <= its deadline). A layered task's watches also wake on events (docs/v3/DESIGN.md
     §4, `events`) up to that last minute: walking the hourly watches and the events in order, one closer than
-    WATCH_MIN to the watch before moves to WATCH_MIN after it, taking in any others up to there, and a gap longer than
-    STEP gets a watch every STEP, so consecutive watches are WATCH_MIN to STEP apart."""
+    WATCH_MIN to the watch before moves to WATCH_MIN after it (to the last minute if that is sooner), taking in any
+    others up to there, and a gap longer than STEP gets a watch every STEP, so consecutive watches are WATCH_MIN to
+    STEP apart but for a last one moved onto the last minute, and every event by the last minute reaches the desk."""
     hours = [h for caps in ((task.layers.dep_caps, task.layers.arr_caps) if task.layered else ())
              for by in caps.values() for h in by]
     reveal = max([f.sched_dep - LOOK for f in task.flights] + [60 * h - CAP_LOOK for h in hours])
@@ -229,22 +230,22 @@ def watch_times(task: Task) -> list[int]:
     for c in sorted(set(ts) | {e for e in events(task) if task.start < e <= last}):
         if c <= kept[-1]:
             continue
-        c = max(c, kept[-1] + WATCH_MIN)
+        c = min(max(c, kept[-1] + WATCH_MIN), last)
         while c - kept[-1] > STEP:
             kept.append(kept[-1] + STEP)
-        if c <= last:
-            kept.append(c)
+        kept.append(c)
     return kept
 
 
 def events(task: Task) -> list[int]:
     """The minutes a desk learns something it should act on: each advisory and each SPECI as it reaches the desk
-    (its signature or observation plus its kind's lag, Task.lag) and each ramp closure's start."""
+    (its signature or observation plus its kind's lag, Task.lag) and each ramp closure's start and end (until its end
+    the day as known expects it GUESS after each watch, sim.known)."""
     advs = [a.issued + task.lag("advisory") for p in task.programs.values() for a in p.advisories]
     layers = task.layers
     specis = [m + task.lag("speci") for m, kind, _, _ in layers.weather if kind == "speci"]
-    starts = [a for spans in layers.closures.values() for a, _, _, _ in spans]
-    return sorted(set(advs + specis + starts))
+    bounds = [m for spans in layers.closures.values() for a, b, _, _ in spans for m in (a, b)]
+    return sorted(set(advs + specis + bounds))
 
 
 def frozen(run: sim.Execution, t: int) -> set[int]:
