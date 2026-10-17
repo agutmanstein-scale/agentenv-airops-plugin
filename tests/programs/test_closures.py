@@ -4,13 +4,15 @@ from datetime import UTC, datetime
 
 import pandas as pd
 import pytest
-from day_helpers import day, flight, tail
+from day_helpers import closed, day, flight, tail
 from program_helpers import SLICE
 
 from agentenv_airops.build import bts
 from agentenv_airops.flow import sources
+from agentenv_airops.programs import references
 from agentenv_airops.programs.candidates import midnight
 from agentenv_airops.programs.layers import closures
+from agentenv_airops.programs.model import Outcome
 
 
 def at(s: str) -> int:
@@ -167,3 +169,27 @@ def test_build_names_a_closed_hub_that_fit_rate_gave_no_rate():
     assert closures.build(task, {"JFK": spans["JFK"], "BOS": [(m + 5000, m + 5100)]}, rate) == {
         "JFK": ((100, 160, 1, 0),)}
 
+
+def test_the_airline_replay_of_a_recorded_turn_inside_a_built_closure_flies_as_on_the_open_day():
+    """N4 landed from BUF at 160 and pushed back for PWM at 195, both inside JFK's closure 150-220: the floors keep
+    both inside its caps, so the replay is the open day's (a gate hold to 220 took it from 670 to 19740)."""
+    base = 1_000_000
+    task = replace(day([flight(3, "BUF", "JFK", 100, 60, actual=Outcome(False, False, "", 100, 160, "JFK", "N4")),
+                        flight(4, "JFK", "PWM", 190, 70, actual=Outcome(False, False, "", 195, 265, "PWM", "N4"))],
+                       [tail("N4", "BUF", end="PWM")]), base=base)
+    shut = closed(task, closures.build(task, {"JFK": [(base + 150, base + 220)]}, {"JFK": 0.75}))
+    assert shut.layers.closures == {"JFK": ((150, 220, 1, 1),)}
+    held, open_ = references.airline(shut), references.airline(task)
+    assert held.auto == open_.auto == 0 and held.run.cost == open_.run.cost and held.run.rows() == open_.run.rows()
+
+
+def test_the_airline_replay_under_a_built_closure_in_any_hour_of_the_fixture_day_auto_cancels_nothing_more(task):
+    """The replay flies every flight it flies on the open day: a closure can only delay one, as when the GDP's slots
+    move a recorded arrival into a closure its recorded gate-in was outside of."""
+    open_ = references.airline(task)
+    status = {i: r.status for i, r in open_.run.flights.items()}
+    for rate in (0.0, 0.3, 0.7):
+        for a in range(task.start, task.start + 600, 60):
+            shut = closed(task, closures.build(task, {"JFK": [(task.base + a, task.base + a + 60)]}, {"JFK": rate}))
+            held = references.airline(shut)
+            assert held.auto == open_.auto and {i: r.status for i, r in held.run.flights.items()} == status, (rate, a)
