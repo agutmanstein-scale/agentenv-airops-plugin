@@ -30,7 +30,7 @@ from functools import cached_property
 from pathlib import Path
 
 from ..core.model import Airport
-from .advisories import Advisory, Scope, Stop, nm
+from .advisories import HUBS, Advisory, Scope, Stop, nm
 
 VERSION = 3
 LAYERED = 4
@@ -334,13 +334,20 @@ class Layers:
     JetBlue's departure cap per hour at a hub (`dep_caps`) and arrival cap per hour at an outstation (`arr_caps`),
     ramp closures per station as (start, end, dep_cap, arr_cap): JetBlue's departures from the station leaving in
     [start, end) total at most dep_cap, and its arrivals there inside it at most arr_cap; the reserve crews per crew
-    base, and whether a cancelled flight's slot is released to compression (`release`)."""
+    base, and whether a cancelled flight's slot is released to compression (`release`). A hub's arrivals answer to
+    its programs and nominal cap, so an arrival cap at a hub is a ValueError."""
 
     dep_caps: dict[str, dict[int, int]] = field(default_factory=dict)
     arr_caps: dict[str, dict[int, int]] = field(default_factory=dict)
     closures: dict[str, tuple[tuple[int, int, int, int], ...]] = field(default_factory=dict)
     reserves: dict[str, int] = field(default_factory=dict)
     release: bool = False
+
+    def __post_init__(self):
+        hubs = sorted(set(self.arr_caps) & set(HUBS))
+        if hubs:
+            raise ValueError(f"arrival caps at hub(s) {', '.join(hubs)}: a hub's arrivals answer to its programs "
+                             "and nominal cap")
 
     @classmethod
     def from_dict(cls, d: Mapping) -> "Layers":

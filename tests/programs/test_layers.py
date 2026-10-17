@@ -67,3 +67,13 @@ def test_depcaps_on_the_slice_reads_the_bts_frame_and_keeps_jetblues_pushbacks_f
     flew = Counter((f.orig, f.actual.dep // 60) for f in task.flights if f.actual.dep is not None)
     assert caps == {"JFK": {17: 1, 18: 1, 19: 1}}
     assert all(cap >= flew[(hub, h)] for hub, by in caps.items() for h, cap in by.items())
+
+
+@pytest.mark.parametrize("hub", ["JFK", "BOS"])
+def test_an_arrival_cap_at_a_hub_is_rejected_as_its_arrivals_answer_to_its_programs(hub):
+    with pytest.raises(ValueError, match=f"arrival caps at hub.*{hub}"):
+        Layers(arr_caps={"PWM": {19: 2}, hub: {19: 3}})
+    d = Layers(arr_caps={"PWM": {19: 2}}).to_dict()
+    with pytest.raises(ValueError, match=hub):
+        Layers.from_dict(d | {"arr_caps": d["arr_caps"] | {hub: {"19": 3}}})
+
