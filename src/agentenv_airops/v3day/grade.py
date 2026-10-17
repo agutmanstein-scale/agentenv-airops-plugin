@@ -18,7 +18,12 @@ TEMPERATURE, FLOOR_SHARE = 0.5, 0.1
 
 
 def reward(cost: float, naive: float, anchor: float) -> float:
-    g = max(0.0, cost - anchor) / max(naive - anchor, FLOOR_SHARE * anchor)
+    """On a day that costs nothing at the anchor and doing nothing, any plan at the anchor's cost scores 1 and any
+    other 0.2."""
+    scale = max(naive - anchor, FLOOR_SHARE * anchor)
+    if scale <= 0:
+        return 1.0 if cost <= anchor else 0.2
+    g = max(0.0, cost - anchor) / scale
     return 0.2 + 0.8 * math.exp(-g / TEMPERATURE)
 
 
