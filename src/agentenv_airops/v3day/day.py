@@ -1,0 +1,271 @@
+"""One playable day on the programs world (docs/v3/DESIGN.md §5), pure and deterministic: v1's day.py ported onto
+programs.sim, the follower's day as known and its freeze.
+
+The desk plays the follower's watches (clock.watch_times). At a watch t the day so far is history and the rest is the
+day as known: the plan runs as `references.so_far` has it (a flight that has left on the truth left when it did, every
+other one no earlier than t) in `sim.known(task, t)` (delays known LOOK ahead, the programs as issued). From the
+second watch on, what that projection has leaving before the freeze line t + FREEZE commits to fly, every
+cancellation is final, and a projected auto-cancel decided before the line stands (`references.frozen`, kept as a
+union over the watches); an open flight the plan would have leaving before the line is held to it, as the follower's
+watch solve starts every open flight at the line, so a decision never reaches back past it.
+
+Actions are v1's: cancel, hold (not_before) and restore, read by v1's `day.read_changes` and confirmed as plan entries
+`{"cancel": True, "decided": minute}` and `{"not_before": minute}`. Every tool call (the situation, a check, a
+confirm) costs CALL_MIN minutes of the watch's virtual time and acts at the clock's minute when it starts, so a
+cancellation is priced from the minute it was confirmed; when the clock reaches the next watch, the watch ends by
+itself, and the last watch ends STEP minutes on with the day. advance() ends the watch at once. The news, the hubs'
+advisories, is queued at its watch (clock.timetable) for the desk to drain. The grade runs the final plan on the truth
+(grade.grade)."""
+
+from collections.abc import Callable, Mapping
+
+from ..core.known import FREEZE, STEP
+from ..core.model import hhmm
+from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN
+from ..day import ChangeError, fid, read_changes
+from ..programs import references, sim
+from ..programs.model import Task
+from . import situation as view
+from .clock import CALL_MIN, News, news, timetable
+from .grade import grade
+
+DESK = "Duty manager"
+
+
+class Day:
+    def __init__(self, task: Task, anchor: int | None = None):
+        """`anchor` is the anchor's cost when known; the grade solves it otherwise."""
+        self.task = task
+        self.anchor = anchor
+        self.watches = timetable(task)
+        self.items: dict[str, News] = {n.id: n for n in news(task)}
+        self.watch = 0
+        self.elapsed = 0
+        self.calls = 0
+        self.plan: dict[int, dict] = {}
+        self.frozen: set[int] = set()
+        self.delivered: list[str] = []
+        self.queue: list[News] = []
+        self.log: list[dict] = []
+        self.changes: list[dict] = []
+        self.refusals: list[dict] = []
+        self.freezes = [{"watch": 0, "t": task.start, "line": None, "frozen": []}]
+        self.done = False
+        self.end_reason: str | None = None
+        self.result: dict | None = None
+        self._worlds: dict[int, sim.World] = {}
+        self._deliver("load")
+
+    @property
+    def t(self) -> int:
+        return self.watches[self.watch].t
+
+    @property
+    def clock(self) -> int:
+        """The virtual minute: the watch's time plus the minutes its calls have used."""
+        return self.t + self.elapsed
+
+    @property
+    def line(self) -> int | None:
+        """The freeze line; none at the first watch, where the desk sets the day up."""
+        return self.t + FREEZE if self.t > self.task.start else None
+
+    @property
+    def last(self) -> bool:
+        return self.watch == len(self.watches) - 1
+
+    @property
+    def ends(self) -> int:
+        """The minute the watch's time runs out: the next watch, or STEP after the last."""
+        return self.t + STEP if self.last else self.watches[self.watch + 1].t
+
+    def known(self) -> sim.World:
+        if self.watch not in self._worlds:
+            self._worlds[self.watch] = sim.known(self.task, self.t)
+        return self._worlds[self.watch]
+
+    def project(self, plan: Mapping[int, Mapping]) -> sim.Execution:
+        """`plan` run on the day as known at the watch, the day so far as history."""
+        return sim.execute(self.task, references.so_far(self.task, plan, self.t), self.known())
+
+    def situation(self) -> dict:
+        return self._call(lambda at: view.build(self))
+
+    def text(self) -> str:
+        return view.render(self.task, view.build(self))
+
+    def check(self, raw) -> dict:
+        def act(at: int) -> dict:
+            plan, _, _, refused, problems, held = self._merge(raw, at)
+            now, then = self.project(self.plan), self.project(plan)
+            return {"cost": then.cost.to_dict(), "cost_now": now.cost.total, "flights": self._moved(now, then, plan),
+                    "auto_cancelled": _auto(then), "held_to_freeze_line": [fid(i) for i in held],
+                    "refused": refused, "problems": problems}
+
+        return self._call(act)
+
+    def confirm(self, raw) -> dict:
+        def act(at: int) -> dict:
+            plan, confirmed, unchanged, refused, problems, held = self._merge(raw, at)
+            for i in sorted(set(confirmed) | set(held)):
+                self.changes.append({"watch": self.watch, "t": at, "flight": i, "was": self.plan.get(i, {}),
+                                     "now": plan.get(i, {}), "by": "desk" if i in confirmed else "freeze_line"})
+            self.plan = dict(sorted(plan.items()))
+            self.refusals += [{"watch": self.watch, **r} for r in refused]
+            run = self.project(self.plan)
+            return {"confirmed": [fid(i) for i in confirmed], "unchanged": [fid(i) for i in unchanged],
+                    "held_to_freeze_line": [fid(i) for i in held], "refused": refused, "problems": problems,
+                    "cost": run.cost.to_dict(), "auto_cancelled": _auto(run)}
+
+        return self._call(act)
+
+    def advance(self) -> dict:
+        """End the watch now: on to the next, or, after the last, the end of the day and its grade."""
+        if self.done:
+            return {"error": "the day is over"}
+        return self._next("done")
+
+    def drain(self) -> list[dict]:
+        """The news delivered since the last drain."""
+        out, self.queue = [n.to_dict() for n in self.queue], []
+        return out
+
+    def _call(self, act: Callable[[int], dict]) -> dict:
+        if self.done:
+            return {"error": "the day is over"}
+        try:
+            out = act(self.clock)
+        except ChangeError as e:
+            out = {"error": str(e)}
+        self.calls += 1
+        self.elapsed += CALL_MIN
+        out["now"] = hhmm(self.clock)
+        if self.clock >= self.ends:
+            out["watch_over"] = self._next("time")
+        return out
+
+    def _next(self, reason: str) -> dict:
+        if self.last:
+            return self.finish(reason)
+        self.watch += 1
+        self.elapsed = 0
+        if self.line is not None:
+            self.frozen |= references.frozen(self.project(self.plan), self.t)
+        self.freezes.append({"watch": self.watch, "t": self.t, "line": self.line, "frozen": sorted(self.frozen)})
+        got = self._deliver("watch")
+        return {"watch": self.watch, "time": hhmm(self.t), "freeze_line": _time(self.line),
+                "frozen": len(self.frozen), "news": got}
+
+    def _deliver(self, via: str) -> list[str]:
+        got = list(self.watches[self.watch].news)
+        for n in got:
+            self.delivered.append(n)
+            self.queue.append(self.items[n])
+            self.log.append({"news_id": n, "watch": self.watch, "t": self.t, "at": self.items[n].at, "via": via})
+        return got
+
+    def finish(self, reason: str) -> dict:
+        self.done, self.end_reason = True, reason
+        self.result = grade(self.task, self.plan, self.anchor)
+        return {"done": True, "end_reason": reason, "cost": self.result["cost"]["total"],
+                "reward": self.result["reward"]}
+
+    def _merge(self, raw, at: int) -> tuple[dict, list[int], list[int], list[dict], list[str], list[int]]:
+        rows, problems = read_changes(self.task, raw)
+        plan, confirmed, unchanged, refused = dict(self.plan), [], [], []
+        run = None
+        for i, entry in rows:
+            if _entry(self.plan.get(i)) == entry:
+                unchanged.append(i)
+            elif i in self.frozen:
+                run = run or self.project(self.plan)
+                refused.append({"flight": fid(i), "from": DESK, "reason": self._frozen_reason(i, run.flights[i])})
+            else:
+                plan.pop(i, None)
+                if entry["cancel"]:
+                    plan[i] = {"cancel": True, "decided": at}
+                elif entry["not_before"] is not None:
+                    plan[i] = {"not_before": entry["not_before"]}
+                confirmed.append(i)
+        return plan, confirmed, unchanged, refused, problems, self._settle(plan)
+
+    def _settle(self, plan: dict) -> list[int]:
+        """Holds to the freeze line every open flight `plan` has leaving before it; returns them."""
+        if self.line is None:
+            return []
+        held: set[int] = set()
+        while early := [i for i, r in self.project(plan).flights.items()
+                        if r.status == FLOWN and i not in self.frozen and r.dep < self.line]:
+            for i in early:
+                plan[i] = {"not_before": self.line}
+            held.update(early)
+        return sorted(held)
+
+    def _frozen_reason(self, i: int, r: sim.FlightRun) -> str:
+        f = self.task.flight(i)
+        if r.status == FLOWN:
+            how = f"the plan has it leaving at {hhmm(r.dep)}"
+        elif r.status == CANCELLED:
+            how = "it is cancelled, and a cancellation is final"
+        else:
+            how = f"it can't leave in time and auto-cancels at {hhmm(r.decided)}"
+        return f"{fid(i)} ({f.flight} {f.orig}-{f.dest}) is frozen: {how}, before the freeze line at " \
+               f"{hhmm(self.line)}; it stands."
+
+    def _moved(self, now: sim.Execution, then: sim.Execution, plan: Mapping[int, Mapping]) -> list[str]:
+        """The flights the changes alter, as they would be (was: as they are)."""
+        out = []
+        for i in sorted(now.flights):
+            a, b = now.flights[i], then.flights[i]
+            if (a.status, a.dep, a.arr) != (b.status, b.dep, b.arr) or _entry(self.plan.get(i)) != _entry(plan.get(i)):
+                f = self.task.flight(i)
+                out.append(f"{fid(i)} {f.flight} {f.orig}-{f.dest} {view.plan_text(plan.get(i))} "
+                           f"{view.proj_text(self.task, b)} (was {view.plan_text(self.plan.get(i))} "
+                           f"{view.proj_text(self.task, a)})")
+        return out
+
+    def data(self) -> dict:
+        return {"task_id": self.task.task_id, "watches": len(self.watches), "watch": self.watch, "t": self.t,
+                "clock": self.clock, "calls": self.calls, "done": self.done, "end_reason": self.end_reason,
+                "plan": [{"flight": i, **e} for i, e in sorted(self.plan.items())], "frozen": sorted(self.frozen),
+                "notices": self.log, "freezes": self.freezes, "changes": self.changes, "refusals": self.refusals,
+                "grade": self.result}
+
+
+def changes_to(day: Day, target: Mapping[int, Mapping]) -> list[dict]:
+    """The changes that make the day's plan `target` (programs plan entries by flight id) on the flights that aren't
+    frozen."""
+    want = {int(i): _entry(e) for i, e in target.items()}
+    rows = []
+    for i in sorted(set(day.plan) | set(want)):
+        a, b = _entry(day.plan.get(i)), want.get(i, _entry(None))
+        if i in day.frozen or a == b:
+            continue
+        action = "cancel" if b["cancel"] else "restore" if a["cancel"] else "hold"
+        rows.append({"flight": fid(i), "action": action, "not_before": _time(b["not_before"])})
+    return rows
+
+
+def play(task: Task, policy: Callable[[Day], Mapping[int, Mapping]], anchor: int | None = None) -> Day:
+    """The day a scripted policy (the plan it wants at each watch) plays: one confirm per watch, then advance."""
+    day = Day(task, anchor)
+    while not day.done:
+        if rows := changes_to(day, policy(day)):
+            day.confirm(rows)
+        if not day.done:
+            day.advance()
+    return day
+
+
+def _entry(e: Mapping | None) -> dict:
+    """A plan entry as an action reads it: cancelled, or flying no earlier than `not_before`."""
+    cancel = bool(e and e.get("cancel"))
+    return {"cancel": cancel, "not_before": None if cancel or not e else e.get("not_before")}
+
+
+def _time(minute: int | None) -> str | None:
+    return None if minute is None else hhmm(minute)
+
+
+def _auto(run: sim.Execution) -> list[str]:
+    return [fid(i) for i, r in run.flights.items() if r.status == AUTO_CANCELLED]
