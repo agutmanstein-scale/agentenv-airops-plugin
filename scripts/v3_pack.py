@@ -5,8 +5,9 @@ dates alone (docs/v3/DESIGN.md §2, §6.1). No reference runs here (scripts/v3_c
 
 1. every storm date over the 19 cached months (network.storms) built as a whole-network task with Edgar's crew model at
    JetBlue's bases (repairs.BASES), at scale 1 and the 03:00 cutoff, as world_check builds them; each date's build is
-   written to DIR/built/ as it finishes, and `--resume` keeps those already there. A date whose inputs can't build it
-   (a missing file, say the FAA registry a tail B-43 doesn't type needs) is unbuilt, its error the reason;
+   written to DIR/built/ as it finishes, and `--resume` keeps those already built there (a date left unbuilt, or a
+   file cut short, is built again). A date an input is missing for (say the FAA registry, for a tail B-43 doesn't
+   type) is unbuilt, its error the reason; any other error stops the pack;
 2. the seeded whole-event split over the built dates, as world_check draws it (network.split, `--seed`, default 0), and
    the unseen-traffic scale fitted on the train dates (unseen.fit_scale), every task rescaled to it;
 3. the layer constants fitted on the train dates only (layers.calibrate.fit): the ramp closures' rate per hub, the
@@ -23,6 +24,7 @@ the ones the full pack writes for those dates.
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -81,10 +83,10 @@ def main(argv: list[str] | None = None) -> None:
     constants = calibrate.fit(train, [shipped[d] for d in train], frame_of, spans, pushed, args.workers)
     clock.lap("calibrate", json.dumps({k: v for k, v in constants.to_dict().items() if k != "dates"}))
 
-    only = [x.strip() for x in args.only.split(",") if x.strip()]
+    only = dates_of(args.only)
     if missing := [d for d in only if d not in shipped]:
         sys.exit(f"ERROR: not in the split: {', '.join(f'{d} ({why(d, storms, built)})' for d in missing)}")
-    chosen = sorted(only or shipped)
+    chosen = only or sorted(shipped)
     layered = [network.layered(shipped[d], constants, INPUTS, DERIVED) for d in chosen]
     write_tasks(layered, out / "tasks.jsonl")
     clock.lap("layers", f"{len(layered)} tasks written")
@@ -117,34 +119,55 @@ class Clock:
 def build(folder: Path, storms: Mapping[str, tuple[str, ...]], e_fit: Mapping[str, float],
           e_median: Mapping[str, float], workers: int, resume: bool) -> dict[str, Built]:
     """Every storm date's whole-network task with crew, at scale 1, one JSON per date under `folder` as it
-    finishes; with `resume` a date already there is read back."""
+    finishes; with `resume` the dates built there already are read back (kept), the others built again."""
     folder.mkdir(parents=True, exist_ok=True)
-    out: dict[str, Built] = {}
-    for d in storms:
-        path = folder / f"{d}.json"
-        if resume and path.exists():
-            x = json.loads(path.read_text())
-            out[d] = Built(Task.from_dict(x["task"]) if x["task"] else None, x["row"])
+    out = kept(folder, storms) if resume else {}
     ones = dict.fromkeys(HUBS, 1.0)
     jobs = [(d, hubs, INPUTS, DERIVED, dict(e_fit), dict(e_median), ones, repairs.CUTOFF, None, "", repairs.BASES,
              None) for d, hubs in storms.items() if d not in out]
     with ProcessPoolExecutor(max(1, workers)) as pool:
         for job in as_completed([pool.submit(build_one, j) for j in jobs]):
             b = job.result()
-            d = b.row["date"]
-            (folder / f"{d}.json").write_text(json.dumps({"row": b.row, "task": b.task.to_dict() if b.task else None},
-                                                         default=str))
-            out[d] = b
+            save(folder / f"{b.row['date']}.json", b)
+            out[b.row["date"]] = b
     return dict(sorted(out.items()))
 
 
+def kept(folder: Path, dates: Iterable[str]) -> dict[str, Built]:
+    """The dates whose build an earlier run wrote whole under `folder` with a task: one it left unbuilt (an input
+    missing then may be there now) or whose file it was killed writing is built again."""
+    out = {}
+    for d in dates:
+        try:
+            x = json.loads((folder / f"{d}.json").read_text())
+        except (OSError, ValueError):
+            continue
+        if x.get("task"):
+            out[d] = Built(Task.from_dict(x["task"]), x["row"])
+    return out
+
+
+def save(path: Path, b: Built) -> None:
+    """Write a date's build whole or not at all (a run killed mid-write leaves the old file, or none)."""
+    part = path.with_suffix(".part")
+    part.write_text(json.dumps({"row": b.row, "task": b.task.to_dict() if b.task else None}, default=str))
+    os.replace(part, path)
+
+
 def build_one(job: tuple) -> Built:
-    """network.build_one, a date whose inputs fail to build it unbuilt with the error as its reason."""
+    """network.build_one, a date an input is missing for (say the FAA registry, for a tail B-43 doesn't type) unbuilt
+    with the error as its reason. Any other error (a bug, or a fault such as too many open files that would drop a
+    date and so reshuffle the split) stops the pack."""
     try:
         return network.build_one(job)
-    except (OSError, ValueError, KeyError) as e:
+    except FileNotFoundError as e:
         return Built(None, {"date": job[0], "hubs": list(job[1]), "task_id": None,
                             "reason": f"error: {type(e).__name__}: {e}"})
+
+
+def dates_of(only: str) -> list[str]:
+    """`--only`'s dates, each once, in order."""
+    return sorted({x.strip() for x in only.split(",") if x.strip()})
 
 
 def frame_of(d: str) -> pd.DataFrame:

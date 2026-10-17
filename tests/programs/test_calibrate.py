@@ -35,6 +35,25 @@ def one_late_at_jfk():
                             *t.flights[2:]))
 
 
+def late_at_bos_turning_at_jfk():
+    """JetBlue flew a BOS departure past its crew deadline (150) and the aircraft's next leg out of JFK on time, before
+    that leg's crew deadline (400). Denied a reserve, the BOS crew waits out its rest (to 750) and still flies, so the
+    JFK leg leaves at 840: on unlimited JFK reserves it flies, but on a JFK pool its crew rests to 1000, past its
+    deadline (900), and it auto-cancels."""
+    flights = [flew(0, "BOS", "JFK", 100, 200, "N1", deadline=900),
+               based(flight(1, "JFK", "BUF", 300, 60, deadline=900,
+                            actual=Outcome(False, False, "", 300, 360, "BUF", "N1")), 400)]
+    return replace(day(flights, [tail("N1", "BOS", end="BUF")]), bases=("BOS", "JFK"), base=midnight(DATE), date=DATE)
+
+
+def test_a_pool_that_loses_a_flight_only_with_another_bases_pool_lifts_the_bases_to_that_dates_calls():
+    task = late_at_bos_turning_at_jfk()
+    assert calibrate.least(task) == ({"BOS": 0, "JFK": 0}, {"BOS": 1, "JFK": 0})
+    assert calibrate.auto(task, {"BOS": 0, "JFK": 0}) == 1 > calibrate.auto(task, {}) == 0
+    pools = calibrate.pools([task])
+    assert pools == {"BOS": 1, "JFK": 0} and calibrate.auto(task, pools) == 0
+
+
 def test_a_bases_pool_is_the_smallest_that_keeps_every_dates_replay_auto_cancels_and_the_largest_over_dates():
     two, one = two_late_at_jfk(), one_late_at_jfk()
     assert calibrate.least(two) == ({"BOS": 0, "JFK": 2}, {"BOS": 1, "JFK": 2})
@@ -63,4 +82,4 @@ def test_the_fit_rates_closures_on_the_train_dates_alone_and_pools_reserves_on_t
     assert layered[0].layers.closures == {"JFK": ((600, 660, 0, 0),)}
     assert cfg.reserves == calibrate.pools(layered) == {"BOS": 0, "JFK": 2}
     assert config.Config.from_dict(cfg.to_dict()) == cfg
-    assert calibrate.fit([DATE], tasks, lambda d: empty, spans, pushed).reserves == {"BOS": 0, "JFK": 2}
+    assert calibrate.fit(["2024-01-02"], tasks, lambda d: empty, spans, pushed).reserves == {"BOS": 0, "JFK": 1}

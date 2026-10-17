@@ -9,7 +9,8 @@ from program_helpers import CACHE, DATE, DERIVED, WINDOW, needs_cache
 
 from agentenv_airops.build import pack
 from agentenv_airops.build.fleet import Aircraft
-from agentenv_airops.programs import candidates, network, references, repairs, unseen
+from agentenv_airops.programs import candidates, mip, network, references, repairs, sim, unseen
+from agentenv_airops.programs.cost import cancel_price
 from agentenv_airops.programs.layers import arrcaps, closures, config, depcaps
 from agentenv_airops.programs.model import LAYERED, Busy, Layers, Move, Outcome, Tail, Task
 
@@ -180,7 +181,8 @@ def test_a_storm_date_with_crew_and_layers_carries_the_builders_layers_and_witho
         slice_inputs, fits, tmp_path_factory):
     """With crew bases every leg has build_candidate's crew and the task its bases; with a layer config its layers are
     the builders' on the date's frame and closures, the pools at its bases; stripped of both it is the plain build
-    byte for byte."""
+    byte for byte. Layered, its airline replay is a solution of the model at its cost, and the optimum replays
+    exactly."""
     derived = tmp_path_factory.mktemp("derived")
     ones = {"JFK": 1.0, "BOS": 1.0}
     e_fit, e_median = unseen.table(fits, ones)
@@ -203,3 +205,14 @@ def test_a_storm_date_with_crew_and_layers_carries_the_builders_layers_and_witho
     assert bare.to_json() == plain.to_json()
     replay = references.airline(task)
     assert replay.auto == references.airline(plain).auto == 0 and replay.flew == references.airline(plain).flew
+    price = {f.id: cancel_price(f, task.start if replay.run.flights[f.id].decided is None
+                                else replay.run.flights[f.id].decided) for f in task.flights}
+    net = mip.Network(task, price=price)
+    x = net.vector(replay.run)
+    assert x is not None and all(lo - 1e-6 <= sum(v * x[c] for c, v in coefs.items()) <= up + 1e-6
+                                 for coefs, lo, up in net.m.rows)
+    assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == replay.run.cost.total
+    sol = mip.solve(task, start=replay.run)
+    run = sim.execute(task, sol.plan(task.start))
+    assert sol.proven and run.cost.total == sol.objective <= replay.run.cost.total
+    assert all((run.flights[i].dep if run.flights[i].status == "flown" else None) == d for i, d in sol.deps.items())
