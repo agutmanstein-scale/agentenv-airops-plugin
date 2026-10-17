@@ -74,8 +74,9 @@ Each section: what it is, how the sim applies it, how the MIP carries it, how it
 - **Sim:** `Rules.dep_hour(f, t)`; `_leave` checks it right after the stop holds, before the GDP logic, and moves t
   to the next hour when full; a pinned (`left`) flight counts in its hour.
 - **MIP:** each copy leaving a capped hub hour joins row `("dep", (hub, hour))` with room = cap less pinned flights.
-- **Calibration:** `SHORT` (spike 0.9) and `MIN_SCHED` (5) fitted on train days to match JetBlue's replay
-  departures (the replay must stay feasible on the recorded day by construction).
+- **Calibration:** `SHORT` and `MIN_SCHED` stay at the spike's 0.9 and 5, not fitted: the caps are floored at
+  JetBlue's recorded pushbacks per hour, so the recorded day fits at any value and the replay gives no target to fit
+  them to (DECISIONS 2026-10-17, U6 Q1). The outstation arrival caps (§3.3) share them.
 
 ### §3.2 Ramp closures as a departure- and gate-in-rate cut
 - **What:** lightning within 5 nm closes the ramp. Truth intervals come from METARs: TS in present weather (not VCTS),
