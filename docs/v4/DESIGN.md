@@ -37,7 +37,9 @@ enforcement, the reserve pools of v3's U5) and replaces only how pairings are cu
 
 So every duty is legal on schedule and the crew binds only when delays push a duty past its limit, as real crews time
 out. `max_segments` is kept but has no effect in practice: every base departure starts a duty, so duties rarely
-exceed 3 legs (V4-1's fit: the same scores at 3 to 6 on every buffer). `buffer` and `max_segments` are fitted on train dates only: the values that maximise do-nothing's excess while
+exceed 3 legs (V4-1's fit: the same scores at 3 to 6 for every buffer from 30 min up; only at 0 does a cap of 3
+keep one sample date's calm day at v3's).
+`buffer` and `max_segments` are fitted on train dates only: the values that maximise do-nothing's excess while
 every §0 guard holds on the train dates (defaults 60 min and 4, the spike's). Reserve pools are then fitted as in v3.
 
 ## §2 Further levers (only if §1 alone misses §0)
