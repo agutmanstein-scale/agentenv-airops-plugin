@@ -130,12 +130,23 @@ Each section: what it is, how the sim applies it, how the MIP carries it, how it
 
 `sim.known(task, t)` carries the layers as a desk sees them; the follower and the playable day both read it.
 - **Caps** (departure, outstation arrival, closure rates): known `CAP_LOOK` (240 min) ahead, as v1's slot caps were.
-- **Closures:** known once begun (the METAR or SPECI reporting TS), expected to last `GUESS` more minutes (train-day
-  median of remaining duration) until its end is reported.
-- **News and its delivery lag:** advisories at signature + `lag.advisory`, METARs and SPECIs at observation +
-  `lag.metar`, TAFs at issue + `lag.taf`. Lags are per product type (default 0, 5, 10 min) and part of the task.
-- **Watches wake on events:** the next watch is the earliest of a news item, a freeze boundary and 60 min after the
-  last one. The follower uses the same watch times (`references.watch_times`), so its gap measures the same desk.
+  The watches run until every cap is known (as v1's `core.known.watch_times`), while some flight can leave unfrozen.
+- **Closures:** known from their start minute (the onset the METAR or SPECI remarks give, TSBmm, with no report lag),
+  expected to end `GUESS` minutes after the watch (placeholder 30; the train-day median of remaining duration, fitted
+  with the pack) until its end comes. A closure under way is priced over that expected window at its hub's rate
+  (`Layers.rates`, `closures.fit_rate`'s), floored only at the pushbacks and arrivals before the watch
+  (`closures.caps`), so neither its true length nor what flew inside it later shows; an ended one has its true caps.
+- **News and its delivery lag:** advisories at signature + `lag.advisory`, METARs at observation + `lag.metar`,
+  SPECIs at observation + `lag.speci`, TAFs at issue + `lag.taf`. Lags are per product type (default 0, 5, 5, 10 min)
+  and part of the task (`Layers.lags`, over the defaults). News reaches the desk at the first watch at or after it is
+  due (watches are the playable day's only delivery points).
+- **Watches wake on events:** the hourly watches plus an event watch when an advisory or a SPECI reaches the desk and
+  when a closure starts; one closer than `WATCH_MIN` (15) to the watch before moves to 15 after it, and a gap over 60
+  is filled every 60, so watches are 15 to 60 min apart. Routine METARs and TAFs don't wake the desk (an hourly METAR
+  would double the watches with nothing new), and freeze boundaries aren't events. Without layers the watches are v2's.
+  The follower uses the same watch times (`references.watch_times`), so its gap measures the same desk.
+  (Amended in U7 from "the earliest of a news item, a freeze boundary and 60 min after the last one" and "known once
+  the METAR or SPECI reports TS".)
 
 ## §5 The playable day
 
