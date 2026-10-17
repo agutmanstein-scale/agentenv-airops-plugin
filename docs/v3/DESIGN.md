@@ -110,7 +110,12 @@ Each section: what it is, how the sim applies it, how the MIP carries it, how it
   pool of `reserves[base]` crews per day: a base departure past its pairing's crew deadline flies only by calling one.
 - **Sim:** plan key `reserve: True`; `granted(task, plan)` grants in flight-id order while the base's pool lasts.
 - **MIP:** a 0/1 reserve column per eligible flight bounding its copies past the crew deadline, and a pool row per
-  base. The airline replay calls a reserve for each flight JetBlue flew past its crew deadline from a base.
+  base. The airline replay calls a reserve for each base departure its replay with unlimited reserves (the v2 replay)
+  flies past its crew deadline: one JetBlue flew late, or one its aircraft or the programs make leave late (deciding
+  from JetBlue's recorded minute alone would auto-cancel the second kind with the pool to spare). When the pool binds,
+  the calls are granted in flight-id order, as any plan's are.
+- **Desk:** `call_reserve` and `release_reserve`; a release is refused once the flight's crew deadline has passed
+  (without the reserve it would auto-cancel back then, a decision before the clock).
 - **Calibration:** the pool per base, on train days, the smallest pool that keeps the replay's auto-cancels within
   G1 (none is public).
 

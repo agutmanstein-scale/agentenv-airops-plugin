@@ -12,7 +12,7 @@ import httpx
 import pytest
 from agent_env.task_step.task_steps.apply_server_config import ApplyServerConfigStep
 from agentenv_protocol import client
-from day_helpers import adv, capped, day, flight, tail
+from day_helpers import adv, capped, day, flight, reserve_day, tail
 from fastmcp import Client
 from served_v3 import Tools, served_v3
 from test_v3_play import airline, airline_expected
@@ -77,7 +77,7 @@ async def test_the_card_routes_and_tools_sit_beside_v1s(monkeypatch, tmp_path):
     assert all("\n" not in t.description for t in listed)
     item = listed[1].inputSchema["properties"]["changes"]["anyOf"][0]["items"]
     assert (item["required"], item["additionalProperties"]) == (["flight", "action", "not_before"], False)
-    assert item["properties"]["action"]["enum"] == ["cancel", "restore", "hold"]
+    assert item["properties"]["action"]["enum"] == ["cancel", "restore", "hold", "call_reserve", "release_reserve"]
 
 
 async def test_a_layered_task_loads_from_a_tasks_jsonl_line_and_its_caps_show(monkeypatch, tmp_path, task):
@@ -329,3 +329,19 @@ def test_the_v3_prompts_describe_the_programs_world(task, crewed):
     assert ApplyServerConfigStep.from_dict(given).timeout_seconds < references.TIME_LIMIT
     assert steps[3]["virtual_time"] == virtual_time(task, task.start)
     assert steps[4]["system_prompt"] == rules and steps[4]["max_turns"] == 5 * len(d.watches) + 4
+
+
+async def test_a_reserve_call_in_list_form_flies_a_late_base_departure_through_the_tools(monkeypatch, tmp_path):
+    """The live tools take v3's reserve actions as list items (the strict schema's enum), as the Day does."""
+    task = reserve_day()
+    with served_v3(monkeypatch, tmp_path, [task]) as (url, env, _):
+        async with Client(f"{url}/mcp") as mcp:
+            tools = Tools(mcp)
+            before = await tools("get_situation")
+            assert "Reserve crews" in before["situation"]
+            out = await tools("confirm_changes", changes=[{"flight": "f1", "action": "call_reserve",
+                                                           "not_before": None}])
+            assert out["confirmed"] == ["f1"] and env.day.plan[1] == {"reserve": True}
+            again = await tools("confirm_changes", changes=[{"flight": "f0", "action": "call_reserve",
+                                                             "not_before": None}])
+            assert "no reserve crew is left at JFK" in again["refused"][0]["reason"]

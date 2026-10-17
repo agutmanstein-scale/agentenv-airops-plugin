@@ -16,6 +16,8 @@ from day_helpers import (
     outcapped,
     outcapped_day,
     quick_day,
+    reserve_day,
+    reserved,
     shared_hour_day,
     stop,
     tail,
@@ -183,6 +185,45 @@ def test_a_crew_past_its_deadline_rests_ten_hours_or_its_flight_auto_cancels_the
     assert (on_time.flights[0].dep, on_time.flights[1].dep) == (100, 130)
     assert sim.execute(task, {0: {"left": 300}, 1: {"left": 300}}).flights[1].dep == 300
     assert sim.execute(replace(task, start=200), {}).flights[1].decided == 200
+
+
+def test_with_one_reserve_the_first_late_base_departure_by_id_flies_on_it_and_the_second_auto_cancels_at_its_deadline():
+    task = reserve_day()
+    calls = {0: {"reserve": True}, 1: {"reserve": True}}
+    run = sim.execute(task, calls)
+    assert run.reserved == sim.granted(task, calls) == {0}
+    assert [(r.status, r.dep, r.decided) for r in run.flights.values()][:2] == [
+        ("flown", 200, None), ("auto_cancelled", None, 150)]
+    assert (task.auto_at(task.flight(1)), task.auto_at(task.flight(1), reserve=True)) == (150, 700)
+    assert task.crew(task.flight(0)).deadline == 150 and task.flight(0).crew.deadline is None
+    uncalled = sim.execute(task, {})
+    assert [uncalled.flights[i].status for i in (0, 1)] == ["auto_cancelled", "auto_cancelled"]
+    second = sim.execute(task, {1: {"reserve": True}})
+    assert (second.reserved, second.flights[0].status, second.flights[1].dep) == ({1}, "auto_cancelled", 205)
+    assert sim.granted(task, {0: {"reserve": True, "cancel": True}, 1: {"reserve": True}}) == {1}
+    two = sim.execute(reserved(task, {"JFK": 2}), calls)
+    assert two.reserved == {0, 1} and [two.flights[i].dep for i in (0, 1)] == [200, 205]
+
+
+def test_a_plan_entry_for_a_flight_outside_the_task_changes_nothing_with_or_without_a_pool():
+    for task in (two_from_jfk(), reserve_day()):
+        assert sim.execute(task, {999: {"not_before": 0, "reserve": True}}).rows() == sim.execute(task, {}).rows()
+    assert sim.granted(reserve_day(), {999: {"reserve": True}, "1": {"reserve": True}}) == {1}
+
+
+def test_without_a_pool_a_base_departure_keeps_unlimited_reserves_and_a_call_changes_nothing():
+    task = replace(reserve_day(), layers=None)
+    run = sim.execute(task, {})
+    assert [run.flights[i].dep for i in (0, 1)] == [200, 205] and run.reserved == frozenset()
+    assert sim.execute(task, {0: {"reserve": True}}).rows() == run.rows()
+    elsewhere = reserved(task, {"BOS": 3})
+    assert sim.execute(elsewhere, {}).rows() == run.rows() and not elsewhere.reservable(elsewhere.flight(0))
+
+
+def test_a_pinned_base_departure_leaves_at_its_minute_past_its_crew_deadline_and_holds_the_reserve_it_called():
+    task = reserve_day()
+    run = sim.execute(task, {0: {"left": 210, "reserve": True}, 1: {"reserve": True}})
+    assert run.flights[0].dep == 210 and run.reserved == {0} and run.flights[1].status == "auto_cancelled"
 
 
 def test_a_turn_jetblue_flew_faster_than_the_rule_holds_through_the_moves_its_aircraft_passes():

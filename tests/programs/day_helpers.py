@@ -10,6 +10,7 @@ from agentenv_airops.core.model import Airport
 from agentenv_airops.programs import network
 from agentenv_airops.programs.advisories import HUBS, Advisory, Stop
 from agentenv_airops.programs.model import (
+    EXTENSION,
     Busy,
     Connection,
     Crew,
@@ -287,3 +288,34 @@ def random_day(rng: random.Random, n_tails: int = 3) -> Task:
     return replace(task, tails=tuple(replace(t, connections=tuple(
         Connection(a, b, rng.randrange(0, 2 * TURN)) for a, b in zip(t.legs, t.legs[1:], strict=False)
         if task.flight(a).dest == task.flight(b).orig and rng.random() < 0.6)) for t in task.tails))
+
+
+def based(f: Flight, deadline: int) -> Flight:
+    """f leaving a crew base on a pairing whose crew deadline, with a finite reserve pool there, is `deadline`."""
+    report = f.sched_dep - 45
+    return replace(f, crew=Crew(f"{f.actual.tail}/0", report, f.orig, 2, deadline - report - EXTENSION + f.sched_block,
+                                None, None))
+
+
+def reserved(task: Task, pools: dict[str, int]) -> Task:
+    """The task with a reserve pool per crew base, added to any layer it carries."""
+    return replace(task, layers=replace(task.layers or Layers(), reserves=pools))
+
+
+def reserve_day() -> Task:
+    """Two JFK departures held past their crew deadline (150) by a known delay, their rest ending past their deadline
+    (700), and a PWM departure whose outstation crew must leave by 480; JFK's pool holds one reserve."""
+    flights = [based(flight(0, "JFK", "BUF", 100, 60, lb=100, deadline=700), 150),
+               based(flight(1, "JFK", "PWM", 105, 70, pax=120, lb=100, deadline=700), 150),
+               crewed(flight(2, "PWM", "JFK", 400, 70, deadline=640), 480)]
+    return reserved(day(flights, [tail("N1", "JFK", end="BUF"), tail("N2", "JFK", end="JFK")]), {"JFK": 1})
+
+
+def with_crews(task: Task, rng: random.Random, pools: dict[str, int]) -> Task:
+    """The task with a crew on every flight, its crew deadline 0-150 after its scheduled departure (from a hub, a
+    base with a pool of `pools`), and those pools."""
+    flights = []
+    for f in task.flights:
+        d = f.sched_dep + rng.randrange(0, 150)
+        flights.append(based(f, d) if f.orig in HUBS else crewed(f, d))
+    return reserved(replace(task, flights=tuple(flights)), pools)

@@ -2,7 +2,9 @@
 the freeze line, the programs as issued (sim.known's GDP segments, a proposed one included, and ground-stop pieces),
 the departure caps known so far (the truth's `layers.dep_caps` for the hours within CAP_LOOK), every flight on the day
 as known (status, known delay, the plan, where the plan has it leave and land, its slot or hold, its crew's deadline
-and rest), the aircraft as the plan has them now, and the news delivered so far."""
+and rest, and for a departure from a base with a reserve pool whether the plan has a reserve crew on it), each such
+base's reserve pool and what the plan's calls leave of it (sim.granted), the aircraft as the plan has them now, and the
+news delivered so far."""
 
 from collections import defaultdict
 from collections.abc import Mapping
@@ -20,17 +22,17 @@ from ..programs.model import Task
 if TYPE_CHECKING:
     from .day import Day
 
-KEYS = ("watch", "time", "clock", "freeze_line", "frozen", "cost", "programs", "dep_caps", "flights", "aircraft",
-        "news")
+KEYS = ("watch", "time", "clock", "freeze_line", "frozen", "cost", "programs", "dep_caps", "reserves", "flights",
+        "aircraft", "news")
 
 
 def build(day: "Day") -> dict:
     task, t, run, world = day.task, day.t, day.project(day.plan), day.known()
     return {"watch": day.watch, "time": hhmm(t), "clock": hhmm(day.clock), "freeze_line": _time(day.line),
             "frozen": len(day.frozen), "cost": run.cost.to_dict() | {"counts": run.counts},
-            "programs": programs(task, world), "dep_caps": dep_caps(task, t),
-            "flights": [flight_row(day, f.id, run.flights[f.id]) for f in sorted(task.flights,
-                                                                                key=lambda f: (f.sched_dep, f.id))],
+            "programs": programs(task, world), "dep_caps": dep_caps(task, t), "reserves": reserves(task, run.reserved),
+            "flights": [flight_row(day, f.id, run.flights[f.id], run.reserved)
+                        for f in sorted(task.flights, key=lambda f: (f.sched_dep, f.id))],
             "aircraft": aircraft(task, run, day.clock), "news": [day.items[n].to_dict() for n in day.delivered]}
 
 
@@ -52,7 +54,14 @@ def dep_caps(task: Task, t: int) -> dict[str, dict[str, int]]:
                 if 60 * h <= t + CAP_LOOK} for s, by in sorted(caps.items())}
 
 
-def flight_row(day: "Day", i: int, r: sim.FlightRun) -> dict:
+def reserves(task: Task, granted: frozenset[int]) -> dict[str, dict]:
+    """Each crew base's reserve pool, the flights the plan has on its reserve crews and how many are left."""
+    pools = task.layers.reserves if task.layers else {}
+    on = {b: sorted(i for i in granted if task.flight(i).orig == b) for b in pools}
+    return {b: {"pool": n, "called": [fid(i) for i in on[b]], "left": n - len(on[b])} for b, n in sorted(pools.items())}
+
+
+def flight_row(day: "Day", i: int, r: sim.FlightRun, granted: frozenset[int] = frozenset()) -> dict:
     f, entry = day.task.flight(i), day.plan.get(i)
     row = {"id": fid(i), "flight": f.flight, "orig": f.orig, "dest": f.dest, "sched_dep": hhmm(f.sched_dep),
            "sched_arr": hhmm(f.sched_arr), "pax": f.pax, "family": f.family, "status": status(day, i, r),
@@ -62,7 +71,10 @@ def flight_row(day: "Day", i: int, r: sim.FlightRun) -> dict:
            "late": r.arr - f.sched_arr if r.status == FLOWN else None, "tail": r.tail,
            "slot": {"program": r.program, "at": hhmm(r.slot)} if r.slot is not None else None}
     if f.crew:
-        row["crew"] = {"pairing": f.crew.pairing, "deadline": _time(f.crew.deadline), "rest": _time(f.crew.rest)}
+        c = day.task.crew(f)
+        row["crew"] = {"pairing": c.pairing, "deadline": _time(c.deadline), "rest": _time(c.rest)}
+        if day.task.reservable(f):
+            row["crew"]["reserve"] = i in granted
     return row
 
 
@@ -113,7 +125,8 @@ def render(task: Task, s: Mapping) -> str:
              f"Your plan on the day as known costs {c['total']:,} (delay {c['delay']:,}, cancellations {c['cancel']:,},"
              f" notice {c['notice']:,}, ferries {c['ferry']:,}): {n[CANCELLED]} cancelled, {n[AUTO_CANCELLED]} "
              f"cancelled automatically, {n['slots']} on slots.",
-             _programs_text(s["programs"]), _caps_text(s["dep_caps"]), _flights_text(s["flights"]),
+             _programs_text(s["programs"]), _caps_text(s["dep_caps"]), *_reserves_text(s["reserves"]),
+             _flights_text(s["flights"]),
              _aircraft_text(s["aircraft"]), _news_text(s["news"])]
     return "\n\n".join(parts)
 
@@ -136,16 +149,27 @@ def _caps_text(caps: Mapping) -> str:
             + ("\n".join(lines) or "None known."))
 
 
+def _reserves_text(pools: Mapping) -> list[str]:
+    """The reserve pools, when the day has any: a base departure past its crew deadline flies only on one."""
+    if not pools:
+        return []
+    lines = [f"{b}: {p['left']} of {p['pool']} left" + (f" (called: {' '.join(p['called'])})" if p["called"] else "")
+             for b, p in pools.items()]
+    return ["## Reserve crews (call_reserve: a departure from the base may leave past its crew deadline on one; "
+            "granted in flight-id order while the pool lasts; release_reserve gives it back)\n" + "\n".join(lines)]
+
+
 def _flights_text(rows: list[dict]) -> str:
     out = ["## Flights (sched = scheduled dep-arr; delay = known delay, ? not yet; plan = cancel or hold@HH:MM; "
            "proj = where your plan has it leave and land on the day as known; late = arrival delay; slot = its GDP "
-           "slot; crew = crew deadline/rest end)",
+           "slot; crew = crew deadline/rest end, +R on a reserve crew)",
            "id flight route sched pax type status delay plan proj late tail slot crew"]
     for r in rows:
         proj = f"{r['dep']}-{r['arr']}" if r["dep"] else "-"
         late = f"{r['late']:+d}" if r["late"] is not None else "-"
         slot = f"{r['slot']['program']}@{r['slot']['at']}" if r["slot"] else "-"
         crew = f"{r['crew']['deadline'] or '-'}/{r['crew']['rest'] or '-'}" if r.get("crew") else "-"
+        crew += "+R" if r.get("crew", {}).get("reserve") else ""
         delay = "?" if r["known_delay"] is None else str(r["known_delay"])
         out.append(f"{r['id']} {r['flight'].split()[-1]} {r['orig']}-{r['dest']} {r['sched_dep']}-{r['sched_arr']} "
                    f"{r['pax']} {r['family']} {r['status']} {delay} {r['plan']} {proj} {late} {r['tail'] or '-'} "
@@ -169,7 +193,8 @@ def _news_text(items: list[dict]) -> str:
 def plan_text(e: Mapping | None) -> str:
     if e and e.get("cancel"):
         return "cancel"
-    return f"hold@{hhmm(e['not_before'])}" if e and e.get("not_before") is not None else "-"
+    text = f"hold@{hhmm(e['not_before'])}" if e and e.get("not_before") is not None else "-"
+    return (text + "+reserve" if text != "-" else "reserve") if e and e.get("reserve") else text
 
 
 def proj_text(task: Task, r: sim.FlightRun) -> str:

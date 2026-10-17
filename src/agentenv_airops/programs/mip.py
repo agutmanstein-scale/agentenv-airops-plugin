@@ -34,6 +34,13 @@ sim to decide it. Overnight nodes feed v1's ferries onto tomorrow's needs (Task.
 sim.execute reproduces from its departure minutes as holds, at the same cost, and every day sim.execute runs is a
 solution (`Network.vector`), which also starts the search.
 
+With a finite reserve pool at a crew base (Layers.reserves, docs/v3/DESIGN.md §3.4) each departure from it that is
+not pinned and has a copy past its crew deadline (Task.crew) before its crew's rest ends, or that may auto-cancel on
+a line, gets a 0/1 reserve column, which bounds those copies (and, on a line, a column auto-cancelling it on the
+reserve crew, at its deadline) and joins its base's pool row: room = the pool less the pinned flights the caller says
+hold a reserve (`reserved`, sim.granted's of them), whose own auto-cancel is then priced at its deadline. The copies of
+a reservable flight are Edgar's base departure's, every minute to its deadline, plus one at its crew's rest end.
+
 Proven to GAP (0.01%); `canonical` then re-solves among the optimal plans for the one with the earliest weighted
 departures (v1's second pass, started from the first), so the plan, not only its cost, is the same on every run. Within
 the gap the first plan need not be the cheapest, so the second may cost less: the objective is the cost of the plan
@@ -75,6 +82,7 @@ class Solution:
     started: bool
     canonical: bool
     lapsed: dict[int, int]
+    reserve: frozenset[int] = frozenset()
 
     @property
     def proven(self) -> bool:
@@ -82,9 +90,10 @@ class Solution:
 
     def plan(self, decided: int) -> dict[int, dict]:
         """The solution as holds to each departure minute, its cancellations decided at `decided`; a flight it lets
-        auto-cancel is held past its deadline."""
-        return {i: {"not_before": self.lapsed[i]} if i in self.lapsed else {"cancel": True, "decided": decided}
-                if d is None else {"not_before": d} for i, d in self.deps.items()}
+        auto-cancel is held past its deadline; one it flies past its crew deadline on a reserve crew calls one."""
+        out = {i: {"not_before": self.lapsed[i]} if i in self.lapsed else {"cancel": True, "decided": decided}
+               if d is None else {"not_before": d} for i, d in self.deps.items()}
+        return {i: e | {"reserve": True} if i in self.reserve else e for i, e in out.items()}
 
     def to_dict(self) -> dict:
         return {"status": self.status, "objective": self.objective, "bound": round(self.bound, 1),
@@ -95,12 +104,13 @@ class Solution:
 def solve(task: Task, world: sim.World | None = None, price: Mapping[int, int] | None = None,
           fixed: Mapping[int, int | None] | None = None, earliest: int | None = None, step: int = 1,
           time_limit: float = 600.0, gap: float = GAP, threads: int = 1, canonical: bool = True,
-          start: sim.Execution | None = None, lapsed: Collection[int] = (), fix: bool = True) -> Solution:
+          start: sim.Execution | None = None, lapsed: Collection[int] = (), fix: bool = True,
+          reserved: Collection[int] = ()) -> Solution:
     """The optimum in `world` (the truth by default) with each cancel arc at `price` (default: notice-priced at the
     first watch). `fixed` pins flights to a departure minute (None: cancelled, or auto-cancelled for those in
     `lapsed`); the others leave at or after `earliest`. `start` is a day sim.execute ran in `world` that the model
-    holds, to start the search from."""
-    net = Network(task, world, price, fixed, earliest, step, lapsed)
+    holds, to start the search from; `reserved` are the pinned flights holding a reserve crew."""
+    net = Network(task, world, price, fixed, earliest, step, lapsed, reserved)
     return net.solve(time_limit, gap, threads, canonical, None if start is None else net.vector(start), fix)
 
 
@@ -126,7 +136,7 @@ class Network:
 
     def __init__(self, task: Task, world: sim.World | None = None, price: Mapping[int, int] | None = None,
                  fixed: Mapping[int, int | None] | None = None, earliest: int | None = None, step: int = 1,
-                 lapsed: Collection[int] = ()):
+                 lapsed: Collection[int] = (), reserved: Collection[int] = ()):
         self.task = task
         self.world = world = sim.truth(task) if world is None else world
         price = {f.id: cancel_price(f, task.start) for f in task.flights} if price is None else price
@@ -145,8 +155,9 @@ class Network:
                 jumps = {s - f.sched_block for seg in world.segments.get(f.dest, ()) for s in seg.slots}
                 jumps |= {b for _, b, _, _ in world.closures.get(f.orig, ())}
                 jumps |= {b - world.block[f.id] for _, b, _, _ in world.closures.get(f.dest, ())}
-                if f.crew and f.crew.rest is not None:
-                    jumps.add(f.crew.rest)
+                crew = task.crew(f)
+                if crew and crew.rest is not None:
+                    jumps.add(crew.rest)
                 minutes = set(range(lo, f.deadline + 1, step)) | {d for d in jumps if lo <= d <= f.deadline}
                 copies[f.id] = [(d, at) for d in sorted(minutes)
                                 if rules.held(f, d) == d and f.legal(d) == d and (at := _place(f, d, rules, pools))]
@@ -221,6 +232,10 @@ class Network:
         self.xs: dict[tuple[int, int], int] = {}
         self.cancel: dict[int, int] = {}
         self.lapsed: dict[int, int] = {}
+        self.reserve: dict[int, int] = {}
+        self.on_reserve: dict[int, int] = {}
+        self.reserved = frozenset(i for i in reserved if i in fixed and task.reservable(task.flight(i)))
+        calls: dict[str, dict[int, int]] = defaultdict(dict)
         rows: dict[tuple, dict[int, int]] = defaultdict(dict)
         pinned: Counter = Counter()
         cover = []
@@ -247,9 +262,19 @@ class Network:
                                           (f.deadline - f.sched_dep + 2) * w)
             r[c] = 1
             if f.id in on_line:
-                self.lapsed[f.id] = c = m.col(cancel_price(f, task.auto_at(f)), ub if lapses else 0, True,
-                                              (f.deadline - f.sched_dep + 3) * w)
+                self.lapsed[f.id] = c = m.col(cancel_price(f, task.auto_at(f, f.id in self.reserved)),
+                                              ub if lapses else 0, True, (f.deadline - f.sched_dep + 3) * w)
                 r[c] = 1
+            if task.reservable(f) and f.id not in fixed:
+                bound = {self.xs[(f.id, d)]: 1 for d, _ in copies[f.id] if task.late(f, d)}
+                if f.id in on_line:
+                    self.on_reserve[f.id] = c = m.col(cancel_price(f, task.auto_at(f, True)), 1, True,
+                                                      (f.deadline - f.sched_dep + 4) * w)
+                    r[c] = bound[c] = 1
+                if bound:
+                    self.reserve[f.id] = c = m.col(0, 1, True)
+                    m.row({**bound, c: -1}, -INF, 0)
+                    calls[f.orig][c] = 1
             cover.append(r)
         self.landed: dict[tuple[int, int], int] = dict(self.xs)
         self.turn: dict[tuple[int, int], int] = {}
@@ -367,6 +392,9 @@ class Network:
             room = (1 if kind == "slot" else world.nominal[key[0]][key[1]] if kind == "hour"
                     else world.dep_caps[key[0]][key[1]] if kind == "dep" else shut[(kind, key)])
             m.row(r, -INF, max(0, room - pinned[(kind, key)]))
+        held = Counter(task.flight(i).orig for i in self.reserved)
+        for base, r in calls.items():
+            m.row(r, -INF, max(0, task.layers.reserves[base] - held[base]))
         self.copies = copies
 
     def solve(self, time_limit: float = 600.0, gap: float = GAP, threads: int = 1, canonical: bool = True,
@@ -392,9 +420,13 @@ class Network:
         for f in self.task.flights:
             flown = [d for d, _ in self.copies[f.id] if x[self.xs[(f.id, d)]] > 0.5]
             deps[f.id] = flown[0] if flown else None
-        lapsed = {i: self.task.flight(i).deadline + 1 for i, c in self.lapsed.items() if x[c] > 0.5}
+        lapsed = {i: self.task.flight(i).deadline + 1 for i, c in [*self.lapsed.items(), *self.on_reserve.items()]
+                  if x[c] > 0.5}
+        reserve = {i for i, c in self.on_reserve.items() if x[c] > 0.5} | {
+            i for i in self.reserve if deps[i] is not None and self.task.late(self.task.flight(i), deps[i])}
         return Solution(status, round(objective), bound, round(100 * mip_gap, 4), round(wall, 2), deps, len(m.cost),
-                        len(m.rows), sum(len(v) for v in self.copies.values()), start is not None, settled, lapsed)
+                        len(m.rows), sum(len(v) for v in self.copies.values()), start is not None, settled, lapsed,
+                        frozenset(reserve) | self.reserved)
 
     def vector(self, run: sim.Execution) -> np.ndarray | None:
         """`run` (a day sim.execute ran in this world, holding every pin) as a solution of the model, or None if a
@@ -407,8 +439,11 @@ class Network:
         via, fast = {}, set()
         for f in task.flights:
             r = run.flights[f.id]
+            if f.id in self.reserve:
+                x[self.reserve[f.id]] = f.id in run.reserved
             if r.status != FLOWN:
-                x[self.lapsed[f.id] if r.status == AUTO_CANCELLED and f.id in self.lapsed else self.cancel[f.id]] = 1
+                lapse = self.on_reserve if f.id in run.reserved and f.id in self.on_reserve else self.lapsed
+                x[lapse[f.id] if r.status == AUTO_CANCELLED and f.id in lapse else self.cancel[f.id]] = 1
                 continue
             k = (f.id, r.dep)
             if k not in self.xs:

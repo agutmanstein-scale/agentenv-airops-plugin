@@ -1,15 +1,15 @@
 """The storm day: v1's dispatch inside the FAA's programs at JFK and BOS, with JetBlue's slots and EDCTs in place of
 hourly caps.
 
-A plan maps flight ids to {"cancel", "not_before", "claim", "decided", "left"}, every key optional; a flight left out
-flies as early as it can. A cancelled flight is cancelled for good, decided at "decided" (the first watch when absent).
-A flight with "left" (the day so far, at a watch) leaves at that minute whatever would hold it, counting where the MIP
-counts a pinned departure: on its slot if the minute plus its scheduled block is a free one of the segment governing
-it, on nothing if that is off the pool, else under the nominal cap. The others are dispatched as in v1: in order of
-their next try, each takes the first-ready aircraft of its family at its origin, the aircraft JetBlue turned into it
-first: that aircraft may take it after JetBlue's ground time where that was shorter than the family's turn
-(Task.quick), through any Moves it passes on the way, and any other flight only after the turn. What else holds a
-flight ready at minute t, in this order:
+A plan maps flight ids to {"cancel", "not_before", "claim", "decided", "left", "reserve"}, every key optional; a flight
+left out flies as early as it can. A cancelled flight is cancelled for good, decided at "decided" (the first watch when
+absent). A flight with "left" (the day so far, at a watch) leaves at that minute whatever would hold it, counting where
+the MIP counts a pinned departure: on its slot if the minute plus its scheduled block is a free one of the segment
+governing it, on nothing if that is off the pool, else under the nominal cap. The others are dispatched as in v1: in
+order of their next try, each takes the first-ready aircraft of its family at its origin, the aircraft JetBlue turned
+into it first: that aircraft may take it after JetBlue's ground time where that was shorter than the family's turn
+(Task.quick), through any Moves it passes on the way, and any other flight only after the turn. What else holds a flight
+ready at minute t, in this order:
 - a ground stop at its destination hub covering its origin holds it to the stop's end; airborne flights fly on;
 - a departure in an hour its origin caps (Layers.dep_caps, docs/v3/DESIGN.md §3.1) needs room under the cap, else
   it tries again at the next hour's start; every flight that left in the hour counts, a pinned one ("left") from the
@@ -36,6 +36,11 @@ the EDCT), and a cancelled or late flight leaves its slot to the flights behind.
 auto-cancels there, decided there. With the crew model (model.Crew, repairs.crews) a flight not gone by its crew
 deadline may leave only from the end of its crew's rest on, still by its deadline; one that can't, its rest ending
 past its deadline, auto-cancels at its crew deadline, decided there, never before the first watch (Task.auto_at).
+With a finite reserve pool at a crew base (Layers.reserves, §3.4) a departure from it has its pairing's crew deadline
+too (Task.crew) unless the plan calls a reserve crew for it ("reserve"), which the sim grants in flight-id order while
+the base's pool lasts (`granted`); a granted flight has no crew deadline, as every base departure has without the
+pool, and keeps its reserve whether it needs it or not. A pinned flight flies at its minute whatever its crew, as it
+did.
 
 Moves are fixed and uncosted, and bound to an aircraft (model.Move, `routes`): the one that flies the leg before the
 Move's break, landed and turned, is ready at the Move's destination at the Move's `ready` or then, whichever is later,
@@ -218,6 +223,7 @@ class Execution:
     wasted: tuple[SlotKey, ...]
     moves: dict[int, int | None]
     cost: Cost
+    reserved: frozenset[int] = frozenset()
 
     @property
     def counts(self) -> dict[str, int]:
@@ -236,6 +242,7 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
     rules = Rules(task, world)
     want = {int(k): v for k, v in plan.items()}
     cancelled = {i for i, d in want.items() if d.get("cancel")}
+    reserved = granted(task, want)
     runs: dict[int, FlightRun] = {}
     when: dict[int, float] = {}
     first: dict[int, int] = {}
@@ -280,9 +287,9 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
             continue
         f = task.flight(i)
         left = want.get(i, {}).get("left") is not None
-        s = t if left else f.legal(t)
+        s = t if left else task.legal(f, t, i in reserved)
         if s > f.deadline:
-            runs[i] = FlightRun(i, AUTO_CANCELLED, decided=task.auto_at(f))
+            runs[i] = FlightRun(i, AUTO_CANCELLED, decided=task.auto_at(f, i in reserved))
             continue
         if s != t:
             when[i] = s
@@ -324,7 +331,7 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
                 when[j] = soon(p, j)
                 heapq.heappush(heap, (when[j], 1, first[j], j))
     for f in task.flights:
-        runs.setdefault(f.id, FlightRun(f.id, AUTO_CANCELLED, decided=task.auto_at(f)))
+        runs.setdefault(f.id, FlightRun(f.id, AUTO_CANCELLED, decided=task.auto_at(f, f.id in reserved)))
     ends = {p: station for (_, station), ps in at.items() for p in ps}
     out = ferries(task, ends, family)
     wasted = tuple(sorted(k for k, i in bound.items() if runs[i].status != FLOWN or (runs[i].program, runs[i].slot)
@@ -333,7 +340,21 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
                   {i: r.decided for i, r in runs.items() if r.status != FLOWN},
                   [(x.family, x.orig, x.dest) for x in out])
     return Execution({i: runs[i] for i in sorted(runs)}, {p: tuple(v) for p, v in legs.items()},
-                     dict(sorted(ends.items())), out, wasted, moves, cost)
+                     dict(sorted(ends.items())), out, wasted, moves, cost, reserved)
+
+
+def granted(task: Task, plan: Plan) -> frozenset[int]:
+    """The flights whose reserve call (`reserve` in the plan) the pool grants: those not cancelled, reservable
+    (Task.reservable), in flight-id order while their base's pool lasts."""
+    pool = Counter(task.layers.reserves if task.layers else {})
+    want = {int(k): v for k, v in plan.items()}
+    out = set()
+    for f in sorted(task.flights, key=lambda f: f.id):
+        d = want.get(f.id, {})
+        if d.get("reserve") and not d.get("cancel") and task.reservable(f) and pool[f.orig] > 0:
+            pool[f.orig] -= 1
+            out.add(f.id)
+    return frozenset(out)
 
 
 def routes(task: Task, cancelled: Collection[int]) -> tuple[dict[int, Route], dict[str, Route]]:
