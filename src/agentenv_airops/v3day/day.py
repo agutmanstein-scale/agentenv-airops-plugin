@@ -14,19 +14,24 @@ would move such a flight's outcome, departure or aircraft is refused, in the pro
 prices (a flight gone on the truth by the clock), and a decision never reaches back past it.
 
 Actions are v1's: cancel, hold (not_before) and restore, read by v1's `day.read_changes` and confirmed as plan entries
-`{"cancel": True, "decided": minute}` and `{"not_before": minute}`. Every tool call (the situation, a check, a
-confirm) costs CALL_MIN minutes of the watch's virtual time and acts at the clock's minute when it starts, so a
-cancellation is priced from the minute it was confirmed; when the clock reaches the next watch, the watch ends by
-itself, and the last watch ends STEP minutes on with the day. advance() ends the watch at once. The news, the hubs'
-advisories, is queued at its watch (clock.timetable) for the desk to drain. The grade runs the final plan on the truth
-(grade.grade)."""
+`{"cancel": True, "decided": minute}` and `{"not_before": minute}`, and, with a finite reserve pool at a crew base
+(docs/v3/DESIGN.md §3.4), call_reserve: the plan entry gains `"reserve": True`, so the flight may leave its base past
+its crew deadline on a reserve crew. A call is refused for a flight that doesn't leave a base with a pool, a cancelled
+one, or one the pool has no crew left for (it would take one from a flight already holding it: sim.granted grants in
+flight-id order); a hold or a restore keeps the call, a cancellation drops it, and a call stands, like any change, once
+its flight is frozen or gone. Every tool call (the situation, a check, a confirm) costs CALL_MIN minutes of the watch's
+virtual time and acts at the clock's minute when it starts, so a cancellation is priced from the minute it was
+confirmed; when the clock reaches the next watch, the watch ends by itself, and the last watch ends STEP minutes on with
+the day. advance() ends the watch at once. The news, the hubs' advisories, is queued at its watch (clock.timetable) for
+the desk to drain. The grade runs the final plan on the truth (grade.grade)."""
 
+import json
 from collections.abc import Callable, Mapping
 
 from ..core.known import FREEZE, STEP
 from ..core.model import hhmm
 from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN
-from ..day import ChangeError, fid, read_changes
+from ..day import USAGE, ChangeError, _flight, fid, read_changes
 from ..programs import references, sim
 from ..programs.model import Task
 from . import situation as view
@@ -179,13 +184,14 @@ class Day:
         """The plan with `raw`'s changes, one at a time: a change to a frozen flight, or one that would move a frozen
         flight or one gone by `at` in the projection or on the truth (`sim.routes` reroutes the tails on every
         cancellation, the day so far included), is refused; what is left open before the line is held to it."""
-        rows, problems = read_changes(self.task, raw)
+        rows, problems = _read(self.task, raw)
         plan, confirmed, unchanged, refused, held = dict(self.plan), [], [], [], set()
         base, truth = self.project(self.plan).flights, sim.execute(self.task, self.plan).flights
         pinned = self.frozen | _gone(base, at)
         gone = _gone(truth, at)
         for i, entry in rows:
-            if _entry(self.plan.get(i)) == entry:
+            was = self.plan.get(i) or {}
+            if (was.get("reserve") if entry.get("reserve") else _entry(was) == entry):
                 unchanged.append(i)
                 continue
             if i in pinned or i in gone:
@@ -193,11 +199,18 @@ class Day:
                 refused.append({"flight": fid(i), "from": DESK, "reason": why})
                 continue
             then = dict(plan)
-            then.pop(i, None)
-            if entry["cancel"]:
+            kept = {"reserve": True} if (then.pop(i, None) or {}).get("reserve") else {}
+            if entry.get("reserve"):
+                if why := self._uncallable(i, plan):
+                    refused.append({"flight": fid(i), "from": DESK, "reason": why})
+                    continue
+                then[i] = {**plan.get(i, {}), "reserve": True}
+            elif entry["cancel"]:
                 then[i] = {"cancel": True, "decided": at}
             elif entry["not_before"] is not None:
-                then[i] = {"not_before": entry["not_before"]}
+                then[i] = {"not_before": entry["not_before"]} | kept
+            elif kept:
+                then[i] = kept
             early, run = self._settle(then, pinned, at)
             after = sim.execute(self.task, then).flights
             moved = [(k, base) for k in sorted(pinned) if _fixed(run.flights[k]) != _fixed(base[k])] + \
@@ -222,8 +235,24 @@ class Day:
             if not early:
                 return sorted(held), run
             for i in early:
-                plan[i] = {"not_before": line}
+                plan[i] = {**plan.get(i, {}), "not_before": line}
             held.update(early)
+
+    def _uncallable(self, i: int, plan: Mapping[int, Mapping]) -> str | None:
+        """Why a reserve can't be called for i under `plan`, or None."""
+        task, f = self.task, self.task.flight(i)
+        name = f"{fid(i)} ({f.flight} {f.orig}-{f.dest})"
+        if not task.reservable(f):
+            return f"{name} doesn't leave a crew base with a reserve pool: no reserve to call."
+        if (plan.get(i) or {}).get("cancel"):
+            return f"{name} is cancelled: restore it before calling a reserve."
+        held = sim.granted(task, plan)
+        after = sim.granted(task, {**plan, i: {**plan.get(i, {}), "reserve": True}})
+        if i not in after or not held <= after:
+            on = " ".join(fid(j) for j in sorted(held) if task.flight(j).orig == f.orig)
+            return f"{name}: no reserve crew is left at {f.orig}: its pool of {task.layers.reserves[f.orig]} is on " \
+                   f"{on}."
+        return None
 
     def _pinned_reason(self, i: int, r: sim.FlightRun, at: int) -> str:
         if i in self.frozen:
@@ -253,7 +282,8 @@ class Day:
         out = []
         for i in sorted(now.flights):
             a, b = now.flights[i], then.flights[i]
-            if (a.status, a.dep, a.arr) != (b.status, b.dep, b.arr) or _entry(self.plan.get(i)) != _entry(plan.get(i)):
+            if ((a.status, a.dep, a.arr) != (b.status, b.dep, b.arr) or _entry(self.plan.get(i)) != _entry(plan.get(i))
+                    or _called(self.plan.get(i)) != _called(plan.get(i))):
                 f = self.task.flight(i)
                 out.append(f"{fid(i)} {f.flight} {f.orig}-{f.dest} {view.plan_text(plan.get(i))} "
                            f"{view.proj_text(self.task, b)} (was {view.plan_text(self.plan.get(i))} "
@@ -272,13 +302,17 @@ def changes_to(day: Day, target: Mapping[int, Mapping]) -> list[dict]:
     """The changes that make the day's plan `target` (programs plan entries by flight id) on the flights that aren't
     frozen."""
     want = {int(i): _entry(e) for i, e in target.items()}
+    calls = {int(i) for i, e in target.items() if e.get("reserve") and not e.get("cancel")}
     rows = []
     for i in sorted(set(day.plan) | set(want)):
-        a, b = _entry(day.plan.get(i)), want.get(i, _entry(None))
-        if i in day.frozen or a == b:
+        if i in day.frozen:
             continue
-        action = "cancel" if b["cancel"] else "restore" if a["cancel"] else "hold"
-        rows.append({"flight": fid(i), "action": action, "not_before": _time(b["not_before"])})
+        a, b = _entry(day.plan.get(i)), want.get(i, _entry(None))
+        if a != b:
+            action = "cancel" if b["cancel"] else "restore" if a["cancel"] else "hold"
+            rows.append({"flight": fid(i), "action": action, "not_before": _time(b["not_before"])})
+        if i in calls and not (day.plan.get(i) or {}).get("reserve"):
+            rows.append({"flight": fid(i), "action": CALL})
     return rows
 
 
@@ -291,6 +325,33 @@ def play(task: Task, policy: Callable[[Day], Mapping[int, Mapping]], anchor: int
         if not day.done:
             day.advance()
     return day
+
+
+CALL = "call_reserve"
+
+
+def _read(task: Task, raw) -> tuple[list[tuple[int, dict]], list[str]]:
+    """v1's read_changes, plus call_reserve rows ({"flight": "f3", "action": "call_reserve"}) as `{"reserve": True}`,
+    in the order given."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise ChangeError(f"changes are not valid JSON ({e.msg}): send a list like {USAGE}") from None
+    if isinstance(raw, dict) and isinstance(raw.get("changes"), list):
+        raw = raw["changes"]
+    if not isinstance(raw, list):
+        raise ChangeError(f"changes must be a list like {USAGE}")
+    calls = [c for c in raw if isinstance(c, dict) and c.get("action") == CALL]
+    rows, problems = read_changes(task, [c for c in raw if not (isinstance(c, dict) and c.get("action") == CALL)])
+    for c in calls:
+        i = _flight(task, c.get("flight"))
+        if i is None:
+            problems.append(f"unknown flight {json.dumps(c.get('flight'))}: use the ids from the flight table (f0, f1, "
+                            "...)")
+        else:
+            rows.append((i, {"reserve": True}))
+    return rows, problems
 
 
 def _gone(flights: Mapping[int, sim.FlightRun], at: int) -> set[int]:
@@ -308,6 +369,10 @@ def _entry(e: Mapping | None) -> dict:
     """A plan entry as an action reads it: cancelled, or flying no earlier than `not_before`."""
     cancel = bool(e and e.get("cancel"))
     return {"cancel": cancel, "not_before": None if cancel or not e else e.get("not_before")}
+
+
+def _called(e: Mapping | None) -> bool:
+    return bool(e and e.get("reserve"))
 
 
 def _time(minute: int | None) -> str | None:

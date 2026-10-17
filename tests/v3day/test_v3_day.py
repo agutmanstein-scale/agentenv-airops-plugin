@@ -3,15 +3,25 @@ import math
 import random
 from dataclasses import replace
 
-from day_helpers import capped, crewed, day, flight, network_day, random_day, tail, three_into_a_program
+from day_helpers import (
+    capped,
+    crewed,
+    day,
+    flight,
+    network_day,
+    random_day,
+    reserve_day,
+    tail,
+    three_into_a_program,
+)
 from program_helpers import adv
 from test_reference_plays import committed_then_stopped, delay_revealed_late, stopped_then_released
 
 from agentenv_airops.core.model import hhmm
 from agentenv_airops.core.sim import FLOWN
-from agentenv_airops.programs import references, sim
+from agentenv_airops.programs import mip, references, sim
 from agentenv_airops.v3day import clock
-from agentenv_airops.v3day.day import Day
+from agentenv_airops.v3day.day import Day, changes_to, play
 from agentenv_airops.v3day.grade import grade, reward
 from agentenv_airops.v3day.situation import KEYS
 
@@ -153,6 +163,57 @@ def test_crew_deadline_and_rest_are_shown():
     task = replace(task, flights=(crewed(task.flight(0), 200), task.flight(1)))
     rows = Day(task).situation()["flights"]
     assert rows[0]["crew"] == {"pairing": "N1/0", "deadline": "03:20", "rest": "13:20"} and "crew" not in rows[1]
+
+
+def call(i: int) -> list[dict]:
+    return [{"flight": f"f{i}", "action": "call_reserve"}]
+
+
+def test_a_reserve_call_flies_a_base_departure_past_its_crew_deadline_while_the_pool_lasts():
+    d = Day(reserve_day())
+    before = d.situation()
+    assert before["reserves"] == {"JFK": {"pool": 1, "called": [], "left": 1}}
+    assert before["flights"][0]["crew"] == {"pairing": "N1/0", "deadline": "02:30", "rest": "12:30", "reserve": False}
+    assert before["flights"][0]["status"] == "auto-cancel"
+    out = d.confirm(call(1))
+    assert out["confirmed"] == ["f1"] and d.plan == {1: {"reserve": True}} and out["auto_cancelled"] == ["f0"]
+    s = d.situation()
+    assert s["reserves"]["JFK"] == {"pool": 1, "called": ["f1"], "left": 0}
+    row = next(r for r in s["flights"] if r["id"] == "f1")
+    assert row["crew"]["reserve"] and row["dep"] == "03:25" and row["plan"] == "reserve"
+    assert "JFK: 0 of 1 left (called: f1)" in d.text() and "02:30/12:30+R" in d.text()
+    refused = d.confirm(call(0))["refused"]
+    assert len(refused) == 1 and "no reserve crew is left at JFK" in refused[0]["reason"] and 0 not in d.plan
+
+
+def test_a_reserve_is_refused_off_a_pooled_base_and_on_a_cancelled_flight_and_kept_by_a_hold():
+    d = Day(reserve_day())
+    assert "doesn't leave a crew base" in d.confirm(call(2))["refused"][0]["reason"]
+    d.confirm(cancel(1))
+    assert "is cancelled" in d.confirm(call(1))["refused"][0]["reason"]
+    d.confirm([{"flight": "f1", "action": "restore"}, *call(1), {"flight": "f1", "action": "hold",
+                                                                 "not_before": "03:40"}])
+    assert d.plan[1] == {"not_before": 220, "reserve": True}
+    assert d.check(call(1))["refused"] == [] and d.confirm(call(1))["unchanged"] == ["f1"]
+    d.confirm(cancel(1))
+    assert d.plan[1] == {"cancel": True, "decided": d.clock - 1} and d.situation()["reserves"]["JFK"]["left"] == 1
+
+
+def test_a_scripted_policy_playing_the_anchors_reserve_calls_scores_the_anchors_cost():
+    task = reserve_day()
+    sol = mip.solve(task)
+    target = sol.plan(task.start)
+    rows = changes_to(Day(task), target)
+    assert {"flight": "f1", "action": "call_reserve"} in rows
+    played = play(task, lambda d: target, anchor=sol.objective)
+    assert played.plan[1]["reserve"] and played.result["cost"]["total"] == sol.objective
+
+
+def test_without_a_pool_the_situation_shows_no_reserves():
+    task = replace(reserve_day(), layers=None)
+    d = Day(task)
+    assert d.situation()["reserves"] == {} and "Reserve crews" not in d.text()
+    assert "reserve" not in d.situation()["flights"][0]["crew"]
 
 
 def test_reward_is_step0s_curve_one_at_the_anchor_and_never_below_the_floor_even_on_a_day_costing_nothing():
