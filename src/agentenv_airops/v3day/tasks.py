@@ -64,9 +64,11 @@ confirm_changes would refuse. It confirms nothing.
 - confirm_changes(changes): commits the changes; flights you leave out keep their plan.
 - advance(): ends the watch; its result has the new watch's news. After the last watch it returns "done": the day \
 is graded on your plan.
-A change is {{"flight": "f12", "action": "cancel" | "restore" | "hold", "not_before": "HH:MM" | null}}: cancel takes \
-not_before null; restore and hold fly the flight, held until not_before (local time, "00:30+1" after midnight), or as \
-early as it can with null.
+A change is {{"flight": "f12", "action": "cancel" | "restore" | "hold" | "call_reserve" | "release_reserve", \
+"not_before": "HH:MM" | null}}: cancel takes not_before null; restore and hold fly the flight, held until not_before \
+(local time, "00:30+1" after midnight), or as early as it can with null. Where a crew base has a reserve pool (the \
+situation's Reserve crews), a flight leaving it past its crew's deadline flies only on a reserve: call_reserve gives \
+it one while the pool lasts, release_reserve hands it back before that deadline.
 
 The cost, in passenger-minutes: every passenger's minutes of arrival delay; 523 for each passenger on a cancelled \
 flight, plus one for every minute the cancellation is decided later than {NOTICE // 60} hours before its scheduled \

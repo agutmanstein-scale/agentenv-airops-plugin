@@ -18,20 +18,45 @@ import asyncio
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import httpx
 from agentenv_protocol import AgentEnvEnvironment, DataPart, environment_card, extension, get_data, reset_data, tool
 from fastmcp import FastMCP
 from fastmcp.server.middleware import Middleware
+from pydantic import BaseModel, ConfigDict, Field
 
-from ..live import ChangesArg, _raw
+from ..live import _raw, _strict
 from ..programs import references
 from ..programs.model import Task, load_tasks
 from ..schedule import CLOCK_URI
 from . import situation as view
 from .clock import CALL_MIN, virtual_time
 from .day import Day
+
+
+class Change(BaseModel):
+    """v1's change (live.Change) with v3's reserve calls: a flight leaving a crew base past its pairing's crew deadline
+    flies only on a reserve crew, while the base's pool lasts."""
+
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_strict)
+
+    flight: str = Field(description='flight id from the table, e.g. "f12"')
+    action: Literal["cancel", "restore", "hold", "call_reserve", "release_reserve"] = Field(
+        description="cancel the flight; restore a cancelled flight; hold a flight until not_before (restoring it if "
+                    "cancelled); call_reserve: give a flight leaving a crew base a reserve crew, so it may leave past "
+                    "its crew's deadline; release_reserve: hand the reserve back before that deadline")
+    not_before: str | None = Field(
+        default=None,
+        description='local time the flight may not leave before, "HH:MM" ("00:30+1" after midnight); null to let it '
+                    "leave as early as it can, and with cancel and the reserve actions")
+
+
+ChangesArg = Annotated[list[Change] | str, Field(
+    description='[{"flight": "f12", "action": "cancel", "not_before": null}, {"flight": "f30", "action": "hold", '
+                '"not_before": "15:40"}, {"flight": "f7", "action": "call_reserve", "not_before": null}, ...]; '
+                "flights left out keep their plan")]
+
 
 ENV = "airops-v3-day"
 LIVE_LOAD_URI = "urn:airops:v3-live-load/v1"
