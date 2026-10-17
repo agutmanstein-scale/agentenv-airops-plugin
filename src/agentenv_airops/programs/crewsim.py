@@ -454,18 +454,20 @@ class Pool:
         return TIMES_OUT, last
 
     def costs(self) -> dict[str, float]:
-        d = self.task.date
-        dh = hotel = end = 0.0
+        out = {"deadhead": 0.0, "hotel": 0.0, "end": 0.0}
         for s in self.state.values():
-            u = s.unit
-            planned = set(u.deadheads)
-            for duty in s.duties:
-                for i, t, arr in duty["deadheads"]:
-                    if i not in planned:
-                        dh += crews.deadhead(u.kind, u.group, arr - t, d)
-            hotel += sum(crews.hotel(h["station"], d) * u.size for h in s.hotels)
-            end += crews.reposition(u, s.station, self.airports, d)
-        return {"deadhead": dh, "hotel": hotel, "end": end}
+            for k, v in self.spent(s).items():
+                out[k] += v
+        return out
+
+    def spent(self, s: State) -> dict[str, float]:
+        """A unit's crew cost: its deadheads off its trip, its nights away from base, its end-of-day position."""
+        u, d = s.unit, self.task.date
+        planned = set(u.deadheads)
+        dh = sum(crews.deadhead(u.kind, u.group, arr - t, d) for duty in s.duties for i, t, arr in duty["deadheads"]
+                 if i not in planned)
+        return {"deadhead": dh, "hotel": sum(crews.hotel(h["station"], d) * u.size for h in s.hotels),
+                "end": crews.reposition(u, s.station, self.airports, d)}
 
     def unit_log(self) -> dict[str, dict]:
         out = {}
@@ -473,7 +475,8 @@ class Pool:
             if not s.duties and s.call is None:
                 continue
             out[uid] = {"kind": s.unit.kind, "group": s.unit.group, "home": s.unit.home, "reserve": s.unit.reserve,
-                        "call": s.call, "duties": s.duties, "hotels": s.hotels, "station": s.station}
+                        "call": s.call, "duties": s.duties, "hotels": s.hotels, "station": s.station,
+                        "cost": self.spent(s)}
         return out
 
 

@@ -336,7 +336,8 @@ def calm_day(w: World, units: Sequence[Unit], optimum: mip.Solution | None = Non
         attempts.append({"try": n, "aircraft": aircraft.objective, "aircraft_status": aircraft.status,
                          "crew": crewed.summary(), "crew_cost": round(crewed.crew_cost, 1),
                          "planned": round(aircraft.objective + crewed.crew_cost, 1), "exact": round(exact.total, 1),
-                         "replayed": round(day.total, 1), "sim_uncrewed": len(day.uncrewed)})
+                         "replayed": round(day.total, 1), "sim_uncrewed": len(day.uncrewed),
+                         "causes": uncrewed_causes(p, crewed)})
         if best is None or day.total < best[1].total:
             best = (plan, day)
         if not crewed.uncrewed:
