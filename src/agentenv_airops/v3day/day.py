@@ -16,14 +16,17 @@ prices (a flight gone on the truth by the clock), and a decision never reaches b
 Actions are v1's: cancel, hold (not_before) and restore, read by v1's `day.read_changes` and confirmed as plan entries
 `{"cancel": True, "decided": minute}` and `{"not_before": minute}`, and, with a finite reserve pool at a crew base
 (docs/v3/DESIGN.md §3.4), call_reserve: the plan entry gains `"reserve": True`, so the flight may leave its base past
-its crew deadline on a reserve crew. A call is refused for a flight that doesn't leave a base with a pool, a cancelled
-one, or one the pool has no crew left for (it would take one from a flight already holding it: sim.granted grants in
-flight-id order); a hold or a restore keeps the call, a cancellation drops it, and a call stands, like any change, once
-its flight is frozen or gone. Every tool call (the situation, a check, a confirm) costs CALL_MIN minutes of the watch's
-virtual time and acts at the clock's minute when it starts, so a cancellation is priced from the minute it was
-confirmed; when the clock reaches the next watch, the watch ends by itself, and the last watch ends STEP minutes on with
-the day. advance() ends the watch at once. The news, the hubs' advisories, is queued at its watch (clock.timetable) for
-the desk to drain. The grade runs the final plan on the truth (grade.grade)."""
+its crew deadline on a reserve crew, and release_reserve drops the call. A call is refused for a flight that doesn't
+leave a base with a pool, a cancelled one, or one the pool has no crew left for (it would take one from a flight already
+holding it: sim.granted grants in flight-id order); a hold or a restore keeps the call, a cancellation drops it, and a
+call stands, like any change, once its flight is frozen or gone. In a batch, as in v1, a flight's last change of each
+kind counts (cancel, restore or hold; call or release); releases go first and calls last, so one batch can move a
+reserve from one flight to another, and a flight both cancelled and called keeps the cancellation. Every tool call (the
+situation, a check, a confirm) costs CALL_MIN minutes of the watch's virtual time and acts at the clock's minute when it
+starts, so a cancellation is priced from the minute it was confirmed; when the clock reaches the next watch, the watch
+ends by itself, and the last watch ends STEP minutes on with the day. advance() ends the watch at once. The news, the
+hubs' advisories, is queued at its watch (clock.timetable) for the desk to drain. The grade runs the final plan on the
+truth (grade.grade)."""
 
 import json
 from collections.abc import Callable, Mapping
@@ -190,8 +193,7 @@ class Day:
         pinned = self.frozen | _gone(base, at)
         gone = _gone(truth, at)
         for i, entry in rows:
-            was = self.plan.get(i) or {}
-            if (was.get("reserve") if entry.get("reserve") else _entry(was) == entry):
+            if (_called(plan.get(i)) == entry["reserve"] if "reserve" in entry else _entry(self.plan.get(i)) == entry):
                 unchanged.append(i)
                 continue
             if i in pinned or i in gone:
@@ -199,12 +201,16 @@ class Day:
                 refused.append({"flight": fid(i), "from": DESK, "reason": why})
                 continue
             then = dict(plan)
-            kept = {"reserve": True} if (then.pop(i, None) or {}).get("reserve") else {}
+            old = then.pop(i, None) or {}
+            kept = {"reserve": True} if old.get("reserve") else {}
             if entry.get("reserve"):
                 if why := self._uncallable(i, plan):
                     refused.append({"flight": fid(i), "from": DESK, "reason": why})
                     continue
-                then[i] = {**plan.get(i, {}), "reserve": True}
+                then[i] = {**old, "reserve": True}
+            elif "reserve" in entry:
+                if rest := {k: v for k, v in old.items() if k != "reserve"}:
+                    then[i] = rest
             elif entry["cancel"]:
                 then[i] = {"cancel": True, "decided": at}
             elif entry["not_before"] is not None:
@@ -250,8 +256,9 @@ class Day:
         after = sim.granted(task, {**plan, i: {**plan.get(i, {}), "reserve": True}})
         if i not in after or not held <= after:
             on = " ".join(fid(j) for j in sorted(held) if task.flight(j).orig == f.orig)
-            return f"{name}: no reserve crew is left at {f.orig}: its pool of {task.layers.reserves[f.orig]} is on " \
-                   f"{on}."
+            pool = task.layers.reserves[f.orig]
+            return f"{name}: no reserve crew is left at {f.orig}: " + (
+                f"its pool of {pool} is on {on}; release one first." if on else "its pool is empty.")
         return None
 
     def _pinned_reason(self, i: int, r: sim.FlightRun, at: int) -> str:
@@ -311,8 +318,10 @@ def changes_to(day: Day, target: Mapping[int, Mapping]) -> list[dict]:
         if a != b:
             action = "cancel" if b["cancel"] else "restore" if a["cancel"] else "hold"
             rows.append({"flight": fid(i), "action": action, "not_before": _time(b["not_before"])})
-        if i in calls and not (day.plan.get(i) or {}).get("reserve"):
+        if i in calls and not _called(day.plan.get(i)):
             rows.append({"flight": fid(i), "action": CALL})
+        elif i not in calls and _called(day.plan.get(i)) and not b["cancel"]:
+            rows.append({"flight": fid(i), "action": RELEASE})
     return rows
 
 
@@ -327,12 +336,14 @@ def play(task: Task, policy: Callable[[Day], Mapping[int, Mapping]], anchor: int
     return day
 
 
-CALL = "call_reserve"
+CALL, RELEASE = "call_reserve", "release_reserve"
+V1_ACTIONS, ACTIONS = "cancel, restore or hold", "cancel, restore, hold, call_reserve or release_reserve"
 
 
 def _read(task: Task, raw) -> tuple[list[tuple[int, dict]], list[str]]:
-    """v1's read_changes, plus call_reserve rows ({"flight": "f3", "action": "call_reserve"}) as `{"reserve": True}`,
-    in the order given."""
+    """v1's read_changes, plus call_reserve and release_reserve rows ({"flight": "f3", "action": "call_reserve"}) as
+    `{"reserve": True}` and `{"reserve": False}`: a flight's last row of each kind counts, the releases first, v1's
+    changes next, the calls last, each by flight; a call on a flight the batch cancels is dropped."""
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)
@@ -342,16 +353,25 @@ def _read(task: Task, raw) -> tuple[list[tuple[int, dict]], list[str]]:
         raw = raw["changes"]
     if not isinstance(raw, list):
         raise ChangeError(f"changes must be a list like {USAGE}")
-    calls = [c for c in raw if isinstance(c, dict) and c.get("action") == CALL]
-    rows, problems = read_changes(task, [c for c in raw if not (isinstance(c, dict) and c.get("action") == CALL)])
-    for c in calls:
+    ours = [isinstance(c, dict) and c.get("action") in (CALL, RELEASE) for c in raw]
+    rows, problems = read_changes(task, [c for c, o in zip(raw, ours, strict=True) if not o])
+    problems = [p.replace(V1_ACTIONS, ACTIONS) for p in problems]
+    reserve: dict[int, bool] = {}
+    for c in (c for c, o in zip(raw, ours, strict=True) if o):
         i = _flight(task, c.get("flight"))
         if i is None:
             problems.append(f"unknown flight {json.dumps(c.get('flight'))}: use the ids from the flight table (f0, f1, "
                             "...)")
-        else:
-            rows.append((i, {"reserve": True}))
-    return rows, problems
+            continue
+        if i in reserve:
+            problems.append(f"{fid(i)} has more than one reserve call or release: the last counts")
+        reserve[i] = c["action"] == CALL
+    for i, e in rows:
+        if e["cancel"] and reserve.get(i):
+            problems.append(f"{fid(i)} is cancelled and calls a reserve: the cancellation counts and drops the call")
+            del reserve[i]
+    return ([(i, {"reserve": False}) for i, r in sorted(reserve.items()) if not r] + rows
+            + [(i, {"reserve": True}) for i, r in sorted(reserve.items()) if r]), problems
 
 
 def _gone(flights: Mapping[int, sim.FlightRun], at: int) -> set[int]:

@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 from day_helpers import (
     PLACES,
+    based,
     broken_day,
     busy_day,
     capped,
@@ -277,6 +278,35 @@ def test_a_binding_pool_is_what_the_optimum_spends_and_its_plan_calls_exactly_th
     unlimited = replace(one, layers=None)
     free = mip.solve(unlimited)
     assert free.deps[0] is not None and free.deps[1] is not None and free.objective < sol.objective
+
+
+def test_a_pinned_flight_holding_the_pools_reserve_leaves_none_for_the_rest_of_the_re_solve():
+    """f1 left at 205 on JFK's one reserve: re-solving from that pin, f0 can't fly past its crew deadline (150) too and
+    is cancelled, the re-solve replays with the pin, and it costs more than one that forgets f1's reserve."""
+    task = reserve_day()
+    pin = {1: {"left": 205, "reserve": True}}
+    sol = mip.solve(task, fixed={1: 205}, reserved={1})
+    assert sol.proven and sol.reserve == {1} and sol.deps[0] is None
+    run = sim.execute(task, {**sol.plan(task.start), **pin})
+    assert run.reserved == {1} and run.cost.total == sol.objective and run.flights[0].status != "flown"
+    forgot = mip.solve(task, fixed={1: 205})
+    assert forgot.deps[0] is not None and forgot.objective < sol.objective
+
+
+def test_a_coarse_step_keeps_the_minute_a_pooled_base_crews_rest_ends():
+    """With no reserve left at JFK, f0 (known 100 minutes late, crew deadline 150, rest to 750, deadline 900) leaves
+    when its crew's rest ends, 750, a minute a 7-minute step doesn't reach: the sim's day is still a solution."""
+    task = reserved(day([based(flight(0, "JFK", "BUF", 100, 60, lb=100, deadline=900), 150)],
+                        [tail("N1", "JFK", end="BUF")]),
+                    {"JFK": 0})
+    run = sim.execute(task, {})
+    assert run.flights[0].dep == 750 and task.crew(task.flight(0)).rest == 750
+    net = mip.Network(task, step=7)
+    x = net.vector(run)
+    assert x is not None and feasible(net, x)
+    assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
+    sol = mip.solve(task, step=7)
+    assert sol.proven and replays(task, sol) and sol.objective <= run.cost.total
 
 
 def test_a_day_with_a_departure_pinned_before_its_aircraft_is_ready_is_a_solution_pinned_where_it_left():

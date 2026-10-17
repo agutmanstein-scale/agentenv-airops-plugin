@@ -25,8 +25,9 @@ airline's aircraft-minutes at the FAA's rates).
   are counted over the flights it flew by their deadline, which covers dmax and the hub cutoff, less those whose
   aircraft a leg it flew past its deadline brought (`counted`); a flight it flew past its crew deadline still counts,
   which is what tells a crew model too strict for JetBlue's day. With a finite reserve pool at a base (§3.4 of
-  docs/v3/DESIGN.md) it calls a reserve for each departure from that base it flew past its crew deadline (Task.crew),
-  granted while the pool lasts (sim.granted), and one the pool can't crew auto-cancels;
+  docs/v3/DESIGN.md) it calls a reserve for each departure from that base its replay with unlimited reserves (the v2
+  replay) flies past its crew deadline (Task.crew), JetBlue's own departure or a later one its aircraft or the
+  programs make, granted while the pool lasts (sim.granted), and one the pool can't crew auto-cancels;
 - recorded day: JetBlue's real outcome priced directly, its aircraft's minutes on its recorded departures and blocks,
   cancellations decided at sched - NOTICE, plus end-of-day ferries from its recorded end positions to tomorrow's needs.
   A diverted flight that never reached its destination counts as cancelled when it left, the moment the desk knew;
@@ -41,7 +42,7 @@ anchor (`below_anchor`).
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..core.known import FREEZE, LOOK, STEP
 from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN
@@ -158,9 +159,13 @@ def naive(task: Task) -> sim.Execution:
 
 
 def airline_plan(task: Task) -> dict[int, dict]:
-    return {f.id: {"cancel": True, "decided": max(f.sched_dep - NOTICE, task.start)} if f.actual.dep is None
-            else {"not_before": f.actual.dep, "claim": f.actual.dep + f.sched_block}
-            | ({"reserve": True} if task.late(f, f.actual.dep) else {}) for f in task.flights}
+    plan = {f.id: {"cancel": True, "decided": max(f.sched_dep - NOTICE, task.start)} if f.actual.dep is None
+            else {"not_before": f.actual.dep, "claim": f.actual.dep + f.sched_block} for f in task.flights}
+    if not any(task.reservable(f) for f in task.flights):
+        return plan
+    free = sim.execute(replace(task, layers=replace(task.layers, reserves={})), plan).flights
+    return {i: e | {"reserve": True} if free[i].dep is not None and task.late(task.flight(i), free[i].dep) else e
+            for i, e in plan.items()}
 
 
 def airline(task: Task) -> Replay:

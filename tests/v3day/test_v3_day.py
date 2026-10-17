@@ -11,6 +11,7 @@ from day_helpers import (
     network_day,
     random_day,
     reserve_day,
+    reserved,
     tail,
     three_into_a_program,
 )
@@ -197,6 +198,37 @@ def test_a_reserve_is_refused_off_a_pooled_base_and_on_a_cancelled_flight_and_ke
     assert d.check(call(1))["refused"] == [] and d.confirm(call(1))["unchanged"] == ["f1"]
     d.confirm(cancel(1))
     assert d.plan[1] == {"cancel": True, "decided": d.clock - 1} and d.situation()["reserves"]["JFK"]["left"] == 1
+
+
+def test_a_reserve_is_released_and_a_target_that_moves_it_to_another_flight_is_reached():
+    d = Day(reserve_day())
+    d.confirm(call(1))
+    assert "release one first" in d.confirm(call(0))["refused"][0]["reason"]
+    rows = changes_to(d, {0: {"reserve": True}})
+    assert rows == [{"flight": "f0", "action": "call_reserve"}, {"flight": "f1", "action": "release_reserve"}]
+    out = d.confirm(rows)
+    assert out["confirmed"] == ["f1", "f0"] and out["refused"] == [] and d.plan == {0: {"reserve": True}}
+    assert d.situation()["reserves"]["JFK"] == {"pool": 1, "called": ["f0"], "left": 0}
+    d.confirm([{"flight": "f0", "action": "hold", "not_before": "03:40"}])
+    assert d.confirm([{"flight": "f0", "action": "release_reserve"}])["confirmed"] == ["f0"]
+    assert d.plan == {0: {"not_before": 220}} and d.confirm([{"flight": "f0", "action": "release_reserve"}])[
+        "unchanged"] == ["f0"]
+
+
+def test_a_batch_counts_a_flights_last_reserve_row_and_a_cancellation_over_a_call_whatever_their_order():
+    for rows in ([*call(1), *cancel(1)], [*cancel(1), *call(1)]):
+        d = Day(reserve_day())
+        out = d.confirm(rows)
+        assert out["confirmed"] == ["f1"] and out["refused"] == [] and d.plan[1] == {"cancel": True, "decided": 0}
+        assert out["problems"] == ["f1 is cancelled and calls a reserve: the cancellation counts and drops the call"]
+    d = Day(reserve_day())
+    out = d.confirm([*call(0), *call(0)])
+    assert out["confirmed"] == ["f0"] and out["problems"] == ["f0 has more than one reserve call or release: the last "
+                                                              "counts"]
+    out = Day(reserve_day()).check([{"flight": "f0", "action": "reserve"}])
+    assert out["problems"] == ['f0: action must be cancel, restore, hold, call_reserve or release_reserve, not '
+                               '"reserve"']
+    assert "its pool is empty" in Day(reserved(reserve_day(), {"JFK": 0})).confirm(call(0))["refused"][0]["reason"]
 
 
 def test_a_scripted_policy_playing_the_anchors_reserve_calls_scores_the_anchors_cost():

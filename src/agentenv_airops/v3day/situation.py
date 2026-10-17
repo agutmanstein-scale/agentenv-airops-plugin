@@ -156,7 +156,7 @@ def _reserves_text(pools: Mapping) -> list[str]:
     lines = [f"{b}: {p['left']} of {p['pool']} left" + (f" (called: {' '.join(p['called'])})" if p["called"] else "")
              for b, p in pools.items()]
     return ["## Reserve crews (call_reserve: a departure from the base may leave past its crew deadline on one; "
-            "granted in flight-id order while the pool lasts)\n" + "\n".join(lines)]
+            "granted in flight-id order while the pool lasts; release_reserve gives it back)\n" + "\n".join(lines)]
 
 
 def _flights_text(rows: list[dict]) -> str:

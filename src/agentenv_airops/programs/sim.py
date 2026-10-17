@@ -347,13 +347,13 @@ def granted(task: Task, plan: Plan) -> frozenset[int]:
     """The flights whose reserve call (`reserve` in the plan) the pool grants: those not cancelled, reservable
     (Task.reservable), in flight-id order while their base's pool lasts."""
     pool = Counter(task.layers.reserves if task.layers else {})
+    want = {int(k): v for k, v in plan.items()}
     out = set()
-    for i in sorted(int(k) for k in plan):
-        d = plan[i] if i in plan else plan[str(i)]
-        f = task.flight(i)
+    for f in sorted(task.flights, key=lambda f: f.id):
+        d = want.get(f.id, {})
         if d.get("reserve") and not d.get("cancel") and task.reservable(f) and pool[f.orig] > 0:
             pool[f.orig] -= 1
-            out.add(i)
+            out.add(f.id)
     return frozenset(out)
 
 

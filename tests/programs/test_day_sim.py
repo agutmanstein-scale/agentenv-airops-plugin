@@ -205,6 +205,12 @@ def test_with_one_reserve_the_first_late_base_departure_by_id_flies_on_it_and_th
     assert two.reserved == {0, 1} and [two.flights[i].dep for i in (0, 1)] == [200, 205]
 
 
+def test_a_plan_entry_for_a_flight_outside_the_task_changes_nothing_with_or_without_a_pool():
+    for task in (two_from_jfk(), reserve_day()):
+        assert sim.execute(task, {999: {"not_before": 0, "reserve": True}}).rows() == sim.execute(task, {}).rows()
+    assert sim.granted(reserve_day(), {999: {"reserve": True}, "1": {"reserve": True}}) == {1}
+
+
 def test_without_a_pool_a_base_departure_keeps_unlimited_reserves_and_a_call_changes_nothing():
     task = replace(reserve_day(), layers=None)
     run = sim.execute(task, {})

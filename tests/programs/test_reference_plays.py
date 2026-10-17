@@ -211,9 +211,24 @@ def test_the_airline_replay_calls_a_reserve_for_each_base_departure_flown_past_i
     assert one.auto == 1 and references.airline(task).auto == 0
 
 
+def test_the_airline_replay_calls_a_reserve_for_a_base_departure_its_aircraft_makes_leave_past_its_crew_deadline():
+    """JetBlue left at 140, before the crew deadline (150), but the replay's aircraft is ready only at 170: the call
+    follows the replay's departure, so with a pool to spare the replay is the one with unlimited reserves."""
+    flights = [based(flight(0, "JFK", "BUF", 100, 60, deadline=700,
+                            actual=Outcome(False, False, "", 140, 200, "BUF", "N1")), 150)]
+    task = day(flights, [tail("N1", "JFK", ready=170, end="BUF")])
+    v2 = references.airline(task)
+    assert [(r.status, r.dep) for r in v2.run.flights.values()] == [("flown", 170)]
+    assert references.airline_plan(reserved(task, {"JFK": 5}))[0]["reserve"]
+    assert references.airline(reserved(task, {"JFK": 5})).run.rows() == v2.run.rows()
+    none = references.airline(reserved(task, {"JFK": 0}))
+    assert [(r.status, r.decided) for r in none.run.flights.values()] == [("auto_cancelled", 150)] and none.auto == 1
+
+
 def test_the_airline_replay_on_the_crewed_evening_with_empty_pools_is_its_v2_replay(crewed):
-    """JetBlue flew no departure from a base past its crew deadline on the fixture evening, so with every base's pool
-    empty the replay calls no reserve and flies as with unlimited reserves."""
+    """Neither JetBlue nor its replay with unlimited reserves flew a departure from a base past its crew deadline on the
+    fixture evening, so with every base's pool empty the replay calls no reserve and flies as with unlimited
+    reserves."""
     task = reserved(crewed, {b: 0 for b in crewed.bases})
     assert sum(task.reservable(f) for f in task.flights) > 0
     assert not [f for f in task.flights if f.actual.dep is not None and task.late(f, f.actual.dep)]
