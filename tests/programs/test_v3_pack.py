@@ -53,7 +53,11 @@ def test_the_pack_splits_and_fits_on_its_train_dates_and_a_quick_run_writes_the_
         network.layered(rbs.rescale(replace(plain[d], split=split[d]), scale, *shipped), cfg, CACHE, DERIVED).to_json()
         for d in sorted(split)]
     assert any(t.layers.dep_caps for t in tasks) and any(t.layers.arr_caps for t in tasks)
-    for key in ("iem/speci/JFK_2026_01.csv", "iem/metar/BOS_2023_12.csv", "bts/ontime_2026_07.zip"):
+    assert all(t.layers.rates == manifest["constants"]["rate"] and t.layers.weather for t in tasks)
+    tafs = sum(k == "taf" for t in tasks for _, k, _, _ in t.layers.weather)
+    assert manifest["counts"]["total"]["weather"]["taf"] == tafs > 0
+    for key in ("iem/speci/JFK_2026_01.csv", "iem/metar/BOS_2023_12.csv", "bts/ontime_2026_07.zip",
+                "iem/afos/TAFBOS_2023_12.txt"):
         assert manifest["inputs"][key] == fetch.sha256(CACHE / key)
 
     chosen = [min(train), min(d for d, v in split.items() if v == "eval")]

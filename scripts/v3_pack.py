@@ -14,8 +14,8 @@ dates alone (docs/v3/DESIGN.md §2, §6.1). No reference runs here (scripts/v3_c
    reserve pool per base, the cap clauses kept at 0.9 and 5;
 4. every date of the split (eval and train; `--only` a few of them) given every layer at those constants
    (network.layered, as network.build(layers=) does), written to DIR/tasks.jsonl, and DIR/manifest.json: the inputs the
-   pack reads beyond each task's own pins (`sources`) with their sha256 (BTS on-time per month, the hubs' IEM METARs
-   and SPECIs per month), the seed, the split and the scale, the constants with the dates they were fitted on, the
+   pack reads beyond each task's own pins (`sources`) with their sha256 (BTS on-time per month, the hubs' IEM METARs,
+   SPECIs and TAFs per month), the seed, the split and the scale, the constants with the dates they were fitted on, the
    counts per task and per layer, and the wall clock per phase.
 
 `--only` still builds and splits every storm date: the split and the constants are the whole pack's, so its tasks are
@@ -28,6 +28,7 @@ import os
 import subprocess
 import sys
 import time
+from collections import Counter
 from collections.abc import Iterable, Mapping
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import replace
@@ -184,17 +185,19 @@ def why(d: str, storms: Mapping[str, tuple[str, ...]], built: Mapping[str, Built
 
 def inputs_of(inputs: Path, months: Iterable[str]) -> dict[str, str]:
     """The sha256 of each input the pack reads beyond the tasks' own pins: every month's BTS on-time (the closure
-    rates' pushbacks) and each hub's routine METARs and SPECIs."""
+    rates' pushbacks) and each hub's routine METARs, SPECIs and TAFs (the closures and the desk's weather news)."""
     src = pack.Sources(inputs)
     paths = [bts.ontime_path(inputs, m) for m in months]
     paths += [p for m in months for h in HUBS
-              for p in (weather.metar_path(inputs, h, m), sources.speci_path(inputs, h, m))]
+              for p in (weather.metar_path(inputs, h, m), sources.speci_path(inputs, h, m),
+                        weather.afos_path(inputs, f"TAF{h}", m))]
     return {str(p.relative_to(inputs)): src.file(p) for p in paths}
 
 
 def tally(task: Task) -> dict:
     """A task's flights and its layers' counts: crew deadlines (outstation departures', and base departures' under a
-    pool), departure-capped hours, closures, outstation-capped hours and stations, and the pools."""
+    pool), departure-capped hours, closures, outstation-capped hours and stations, the pools, and the weather news
+    per kind."""
     lay = task.layers
     return {"flights": len(task.flights), "tails": len(task.tails),
             "crew_deadlines": sum(f.crew is not None and f.crew.deadline is not None for f in task.flights),
@@ -202,7 +205,8 @@ def tally(task: Task) -> dict:
             "dep_capped_hours": {h: len(by) for h, by in lay.dep_caps.items()},
             "closures": {h: len(x) for h, x in lay.closures.items()},
             "outstation_capped_hours": sum(len(by) for by in lay.arr_caps.values()),
-            "outstations_capped": len(lay.arr_caps), "pools": dict(lay.reserves)}
+            "outstations_capped": len(lay.arr_caps), "pools": dict(lay.reserves),
+            "weather": dict(sorted(Counter(kind for _, kind, _, _ in lay.weather).items()))}
 
 
 def total(tasks: Iterable[Task]) -> dict:
@@ -213,6 +217,7 @@ def total(tasks: Iterable[Task]) -> dict:
                                                                           "outstations_capped")},
             "dep_capped_hours": sum(sum(r["dep_capped_hours"].values()) for r in rows),
             "closures": sum(sum(r["closures"].values()) for r in rows),
+            "weather": dict(sorted(sum((Counter(r["weather"]) for r in rows), Counter()).items())),
             "tasks_with": {k: sum(bool(r[k]) for r in rows) for k in ("dep_capped_hours", "closures",
                                                                         "outstation_capped_hours", "pools")}}
 

@@ -11,8 +11,8 @@ from agentenv_airops.build import pack
 from agentenv_airops.build.fleet import Aircraft
 from agentenv_airops.programs import candidates, mip, network, references, repairs, sim, unseen
 from agentenv_airops.programs.cost import cancel_price
-from agentenv_airops.programs.layers import arrcaps, closures, config, depcaps
-from agentenv_airops.programs.model import LAYERED, Busy, Layers, Move, Outcome, Tail, Task
+from agentenv_airops.programs.layers import arrcaps, closures, config, depcaps, weather
+from agentenv_airops.programs.model import LAGS, LAYERED, Busy, Layers, Move, Outcome, Tail, Task
 
 START = 360
 RECORD = ("Tail_Number", "Origin", "Dest", "sd", "sa", "ad", "aa", "CRSElapsedTime", "Cancelled", "end")
@@ -180,7 +180,8 @@ def test_storm_dates_union_the_hub_candidates_and_the_control_rule_picks_two_dat
 def test_a_storm_date_with_crew_and_layers_carries_the_builders_layers_and_without_them_is_unchanged(
         slice_inputs, fits, tmp_path_factory):
     """With crew bases every leg has build_candidate's crew and the task its bases; with a layer config its layers are
-    the builders' on the date's frame and closures, the pools at its bases; stripped of both it is the plain build
+    the builders' on the date's frame and closures, the pools at its bases, the closure rates and the hubs' weather
+    news at the default lags (the desk's view, sim.known); stripped of both it is the plain build
     byte for byte. Layered, its airline replay is a solution of the model at its cost, and the optimum replays
     exactly."""
     derived = tmp_path_factory.mktemp("derived")
@@ -197,8 +198,9 @@ def test_a_storm_date_with_crew_and_layers_carries_the_builders_layers_and_witho
     frame = candidates.frame(slice_inputs, derived, DATE)
     spans = config.spans(slice_inputs, tuple(candidates.months_of(DATE)))
     assert task.layers == Layers(depcaps.build(task, frame), arrcaps.build(task, frame),
-                                 closures.build(task, spans, cfg.rate), {"JFK": 2, "BOS": 1})
-    assert task.layers.dep_caps and task.layers.closures
+                                 closures.build(task, spans, cfg.rate), {"JFK": 2, "BOS": 1},
+                                 weather=weather.build(task, slice_inputs), rates=cfg.rate)
+    assert task.layers.dep_caps and task.layers.closures and task.layers.weather and task.layers.lags == LAGS
     line = task.to_json()
     assert json.loads(line)["version"] == LAYERED and Task.from_dict(json.loads(line)).to_json() == line
     bare = replace(task, bases=(), layers=None, flights=tuple(replace(f, crew=None) for f in task.flights))

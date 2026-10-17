@@ -26,8 +26,9 @@ With crew `bases` the build turns Edgar's crew model on, as candidates.build_can
 crew, Task.bases). With a v3 layer config (layers.config.Config, the constants fitted on train dates) the task carries
 v3's layers (docs/v3/DESIGN.md §2): the departure caps at the hubs and the arrival caps at the outstations from every
 carrier's BTS flights of the date (candidates.frame), the hubs' ramp closures from their METARs and SPECIs at the
-config's fitted rates, and the config's reserve pool at each of the task's crew bases (`layered`). Without either the
-task is v2's, byte for byte.
+config's fitted rates, and the config's reserve pool at each of the task's crew bases, with the desk's view of them:
+the closure rates, the storm hubs' METARs, SPECIs and TAFs as news (layers.weather) and the default lags (`layered`).
+Without either the task is v2's, byte for byte.
 """
 
 import math
@@ -45,7 +46,7 @@ from ..build import pack
 from . import candidates, rbs, repairs
 from .advisories import HUBS
 from .candidates import CARRIER, EVAL_PER_HUB, EVAL_WINTER, EVAL_WINTER_SHORT, MONTHS, Built, season
-from .layers import config
+from .layers import config, weather
 from .model import Busy, Flight, Move, Tail, Task
 
 Windows = dict[str, tuple[int, int]]
@@ -99,10 +100,11 @@ def build(d: str, hubs: Sequence[str], inputs: Path, derived: Path, e_fit: Mappi
 
 
 def layered(task: Task, cfg: config.Config, inputs: Path, derived: Path) -> Task:
-    """The task with v3's layers at `cfg`, from the date's BTS flights of every carrier and the hubs' closures over
-    the months they span."""
+    """The task with v3's layers at `cfg`, from the date's BTS flights of every carrier, the hubs' closures over the
+    months they span and the storm hubs' METARs, SPECIs and TAFs over the task's span as news."""
     spans = config.spans(inputs, tuple(candidates.months_of(task.date)))
-    return replace(task, layers=config.build(task, cfg, candidates.frame(inputs, derived, task.date), spans))
+    return replace(task, layers=config.build(task, cfg, candidates.frame(inputs, derived, task.date), spans,
+                                             weather.build(task, inputs)))
 
 
 def assemble(ctx: candidates.Context, d: str, hub: str, hubs: tuple[str, ...], row: Mapping, e_fit: Mapping[str, float],
