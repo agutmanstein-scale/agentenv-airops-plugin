@@ -4,21 +4,22 @@ and, when its cost is given, the follower as reference scores: each one's cost o
 same curve. The rule is `references.rule` as v2 plays it, its day so far recomputed under its later cancellations
 (the Day refuses such a change), so on a rare day it is not quite the desk's rule.
 
-reward = (naive - cost) / (naive - anchor), never above 1 (a plan can't beat a proven optimum, and an unproven one
-earns no credit for it) and never below 0 (doing nothing or worse). §5 says "clipped as v1's core.reward", whose
-curve floors at 0.2; this reads the clip as [0, 1], so doing nothing scores 0, not 0.2. A day where the anchor is no
-better than doing nothing scores 1 for matching it and 0 otherwise."""
+The reward is v2's (scripts/step0.py `reward`), so a v3 score sits on step 0's curve: 0.2 + 0.8 exp(-g / 0.5), g the
+plan's excess over the anchor in units of doing nothing's excess (at least FLOOR_SHARE of the anchor): 1 at the
+anchor, about 0.31 at doing nothing, never below 0.2 (v1's floor: the env never strands a flight)."""
 
+import math
 from collections.abc import Mapping
 
 from ..programs import references, sim
 from ..programs.model import Task
 
+TEMPERATURE, FLOOR_SHARE = 0.5, 0.1
+
 
 def reward(cost: float, naive: float, anchor: float) -> float:
-    if naive <= anchor:
-        return 1.0 if cost <= anchor else 0.0
-    return min(1.0, max(0.0, (naive - cost) / (naive - anchor)))
+    g = max(0.0, cost - anchor) / max(naive - anchor, FLOOR_SHARE * anchor)
+    return 0.2 + 0.8 * math.exp(-g / TEMPERATURE)
 
 
 def grade(task: Task, plan: Mapping[int, Mapping], anchor: int | None = None, follower: int | None = None) -> dict:

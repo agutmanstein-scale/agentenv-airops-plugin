@@ -10,6 +10,7 @@ from agentenv_airops.core.sim import AUTO_CANCELLED
 from agentenv_airops.programs import references, sim
 from agentenv_airops.programs.cost import NOTICE
 from agentenv_airops.v3day.day import Day, play
+from agentenv_airops.v3day.grade import reward
 
 
 def nothing(day: Day) -> dict:
@@ -72,7 +73,7 @@ def test_doing_nothing_costs_the_naive_day_and_scores_zero():
     for task in hand_and_random_days():
         d = play(task, nothing)
         assert d.plan == {} and d.result["cost"]["total"] == d.result["naive"] == references.naive(task).cost.total
-        assert d.result["reward"] == (1.0 if d.result["naive"] <= d.result["anchor"] else 0.0)
+        assert d.result["reward"] == round(reward(d.result["naive"], d.result["naive"], d.result["anchor"]), 6)
 
 
 def test_the_rule_played_through_the_day_is_the_rule_reference():
