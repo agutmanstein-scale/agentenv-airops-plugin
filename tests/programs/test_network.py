@@ -9,8 +9,9 @@ from program_helpers import CACHE, DATE, DERIVED, WINDOW, needs_cache
 
 from agentenv_airops.build import pack
 from agentenv_airops.build.fleet import Aircraft
-from agentenv_airops.programs import candidates, network, references, unseen
-from agentenv_airops.programs.model import Busy, Move, Outcome, Tail, Task
+from agentenv_airops.programs import candidates, network, references, repairs, unseen
+from agentenv_airops.programs.layers import arrcaps, closures, config, depcaps
+from agentenv_airops.programs.model import LAYERED, Busy, Layers, Move, Outcome, Tail, Task
 
 START = 360
 RECORD = ("Tail_Number", "Origin", "Dest", "sd", "sa", "ad", "aa", "CRSElapsedTime", "Cancelled", "end")
@@ -173,3 +174,32 @@ def test_storm_dates_union_the_hub_candidates_and_the_control_rule_picks_two_dat
     assert Counter(storms.values()) == {("JFK", "BOS"): 87, ("JFK",): 67, ("BOS",): 53}
     assert network.control_dates(CACHE, DERIVED) == {"2024-08-21": {"JFK": (1080, 1320), "BOS": (1020, 1260)},
                                                      "2025-02-04": {"JFK": (1080, 1320), "BOS": (420, 660)}}
+
+
+def test_a_storm_date_with_crew_and_layers_carries_the_builders_layers_and_without_them_is_unchanged(
+        slice_inputs, fits, tmp_path_factory):
+    """With crew bases every leg has build_candidate's crew and the task its bases; with a layer config its layers are
+    the builders' on the date's frame and closures, the pools at its bases; stripped of both it is the plain build
+    byte for byte."""
+    derived = tmp_path_factory.mktemp("derived")
+    ones = {"JFK": 1.0, "BOS": 1.0}
+    e_fit, e_median = unseen.table(fits, ones)
+    args = (DATE, ("JFK",), slice_inputs, derived, e_fit, e_median, ones)
+    plain = network.build(*args, windows={"JFK": WINDOW}, split="control").task
+    cfg = config.Config(rate={"JFK": 0.7, "BOS": 0.75}, reserves={"JFK": 2, "BOS": 1, "SJU": 3}, dates=("2023-06-25",))
+    built = network.build_all([(DATE, ("JFK",), {"JFK": WINDOW}, "control")], slice_inputs, derived, e_fit, e_median,
+                              ones, bases=repairs.BASES, layers=cfg)
+    task = built[0].task
+    assert task.bases == repairs.BASES and all(f.crew is not None for f in task.flights)
+    assert any(f.crew.deadline is not None for f in task.flights)
+    frame = candidates.frame(slice_inputs, derived, DATE)
+    spans = config.spans(slice_inputs, tuple(candidates.months_of(DATE)))
+    assert task.layers == Layers(depcaps.build(task, frame), arrcaps.build(task, frame),
+                                 closures.build(task, spans, cfg.rate), {"JFK": 2, "BOS": 1})
+    assert task.layers.dep_caps and task.layers.closures
+    line = task.to_json()
+    assert json.loads(line)["version"] == LAYERED and Task.from_dict(json.loads(line)).to_json() == line
+    bare = replace(task, bases=(), layers=None, flights=tuple(replace(f, crew=None) for f in task.flights))
+    assert bare.to_json() == plain.to_json()
+    replay = references.airline(task)
+    assert replay.auto == references.airline(plain).auto == 0 and replay.flew == references.airline(plain).flew
