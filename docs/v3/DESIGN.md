@@ -127,6 +127,17 @@ Each section: what it is, how the sim applies it, how the MIP carries it, how it
 - **Sim / MIP:** slot rows gain `<= 1 - c_holder` for slots past the holder's decision; the sim drops a released slot
   from the pool.
 - **Kept only if** it moves §0's metrics without breaking the replay; otherwise recorded as tried and dropped.
+- **Tried and dropped (U8, 2026-10-17).** The strict variant (a slot RBS gave to a flight the plan cancels leaves
+  JetBlue's pool and no JetBlue flight may take it; MIP `room <= 1 - c_holder`, the holder's auto-cancel its own
+  column) passed the sim/MIP agreement tests, but on the 16 sample day-hubs (`~/handoff/spike/sample.txt`, rebuilt
+  with this branch's `build_candidate` at v2's windows and scales; every anchor proven at 600 s) it moved §0's
+  metrics the wrong way or not at all, off -> on: the probe's feasible share of JetBlue's 296 cancellations
+  72.3% -> 72.0% (§0 wants -10 points); do-nothing's median excess over the optimum +13.1% -> +12.1% (do-nothing
+  cancels nothing, so release only constrains the optimum); the optimum's cancellations 89 -> 87 (cancelling a
+  holder no longer frees its slot for a fuller flight); the replay's auto-cancels 2 -> 2, flown flights unchanged.
+  JetBlue's replay releases 136 of the 485 pool slots, but a restored cancellation takes back its own slot, so the
+  probe's idle slots are not what release removes. Release is not part of v3: `Layers.release` is in the schema but
+  no enforcer reads it. Patch and numbers: `~/handoff/v3-loop/units/U8/`.
 
 ## §4 What the desk knows, and when (the day as known)
 
