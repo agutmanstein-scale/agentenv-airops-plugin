@@ -4,12 +4,14 @@ from dataclasses import replace
 from datetime import date, timedelta
 
 import pandas as pd
+import pytest
 from day_helpers import TURN, flight
 from program_helpers import CACHE, DATE, DERIVED, WINDOW, needs_cache
 
 from agentenv_airops.build import pack
 from agentenv_airops.build.fleet import Aircraft
 from agentenv_airops.programs import candidates, mip, network, references, repairs, sim, unseen
+from agentenv_airops.programs.advisories import HUBS
 from agentenv_airops.programs.cost import cancel_price
 from agentenv_airops.programs.layers import arrcaps, closures, config, depcaps, weather
 from agentenv_airops.programs.model import LAGS, LAYERED, Busy, Layers, Move, Outcome, Tail, Task
@@ -218,3 +220,44 @@ def test_a_storm_date_with_crew_and_layers_carries_the_builders_layers_and_witho
     run = sim.execute(task, sol.plan(task.start))
     assert sol.proven and run.cost.total == sol.objective <= replay.run.cost.total
     assert all((run.flights[i].dep if run.flights[i].status == "flown" else None) == d for i, d in sol.deps.items())
+
+
+def test_the_follower_plays_a_layered_storm_date_through_a_closure_the_desk_prices_at_the_fitted_rate(
+        slice_inputs, fits, tmp_path_factory):
+    """The slice's layered date has a watch as its JFK closure begins: the day as known there prices the closure at
+    the rate the build carries (without it, sim.known can't), and the follower plays every watch to a proven optimum,
+    no cheaper than hindsight's."""
+    ones = {"JFK": 1.0, "BOS": 1.0}
+    e_fit, e_median = unseen.table(fits, ones)
+    cfg = config.Config(rate={"JFK": 0.7, "BOS": 0.75}, reserves={"JFK": 2, "BOS": 1}, dates=("2023-06-25",))
+    task = network.build(DATE, ("JFK",), slice_inputs, tmp_path_factory.mktemp("derived"), e_fit, e_median, ones,
+                         windows={"JFK": WINDOW}, split="control", bases=repairs.BASES, layers=cfg).task
+    ts = references.watch_times(task)
+    (a, b, _, _), = task.layers.closures["JFK"]
+    t = next(t for t in ts if a <= t < b)
+    assert task.layers.rates == cfg.rate and sim.known(task, t).closures["JFK"][0][:2] == (a, t + sim.GUESS)
+    with pytest.raises(ValueError, match="no rate"):
+        sim.known(replace(task, layers=replace(task.layers, rates={})), t)
+    followed = references.follow(task)
+    assert [w["t"] for w in followed.watches] == ts and all(w["status"] == "Optimal" for w in followed.watches)
+    assert followed.cost == sim.execute(task, followed.plan).cost.total >= mip.solve(task).objective
+
+
+@needs_cache
+def test_the_follower_plays_a_real_layered_storm_date_through_its_closures_and_event_watches():
+    """15 July 2024 (BOS closes three times) with crew and every layer at the pack's fitted constants: the watches wake
+    on its events, the day as known prices the closures under way at the build's rates, and the follower proves every
+    watch, no cheaper than hindsight's optimum."""
+    d = "2024-07-15"
+    storms, _ = network.storms(CACHE, ("2024-07",))
+    ones = dict.fromkeys(HUBS, 1.0)
+    e_fit, e_median = unseen.table(candidates.e_table(CACHE, DERIVED), ones)
+    cfg = config.Config(rate={"BOS": 0.678, "JFK": 0.755}, reserves={"BOS": 1, "FLL": 1, "JFK": 1, "MCO": 3})
+    task = network.build(d, storms[d], CACHE, DERIVED, e_fit, e_median, ones, bases=repairs.BASES, layers=cfg).task
+    ts = references.watch_times(task)
+    assert task.layers.closures["BOS"] and task.layers.weather and any(t % 60 != task.start % 60 for t in ts)
+    under = [t for t in ts if any(a <= t < b for a, b, _, _ in task.layers.closures["BOS"])]
+    assert under and all(sim.known(task, t).closures["BOS"][-1][1] == t + sim.GUESS for t in under)
+    followed = references.follow(task, time_limit=600.0)
+    assert [w["t"] for w in followed.watches] == ts and all(w["status"] == "Optimal" for w in followed.watches)
+    assert followed.cost == sim.execute(task, followed.plan).cost.total >= mip.solve(task).objective
