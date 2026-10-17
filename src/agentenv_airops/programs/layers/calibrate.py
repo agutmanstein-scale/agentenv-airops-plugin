@@ -20,14 +20,20 @@
 - v4's crew cut (layers.crew, docs/v4/DESIGN.md §1), when a pack fits it (`crew_fit`), comes before the pools: on a
   seeded `sample` of at most SAMPLE train dates (SAMPLE_SEED), each date built at every Rule of the grid (BUFFERS x
   SEGMENTS) with the other layers on at the fitted rates and unlimited reserves, and scored (`score`) by its naive day,
-  its recorded day, its anchor and its calm day at CREW_S. The cut is the one that maximises do-nothing's median excess
-  over the anchor on the sample while docs/v4/DESIGN.md §0's guards hold there (`guards`): the calm day forces at most
-  CALM_CANCELS cancellation and CALM_FERRIES ferries on at least CALM_SHARE of the dates, the recorded day costs no less
-  than the anchor on at least RECORDED_SHARE of them, and the anchors cancel (auto-cancels included) no more than
+  its recorded day, its anchor and its calm day at CREW_S, and so is each date built without crews, once (a score is
+  kept under the pack's `cache` by its task's signature, so a rerun solves only what changed). The cut is the one that
+  maximises do-nothing's median excess over the anchor on the sample while docs/v4/DESIGN.md §0's guards hold there
+  (`summary`): the calm day forces no more cancellations and no more ferries than the same date's without crews, on
+  every date (relative, as v2's and v3's own calm days pass the absolute <= 1 and <= 2 on only 80.6% of the 129-date
+  pack: the guard is that v4's crews add no calm-day failure; DECISIONS 2026-10-17), the recorded day costs no less
+  than the anchor on at least RECORDED_SHARE of the dates, and the anchors cancel (auto-cancels included) no more than
   JetBlue did, pooled; ties go to the larger buffer, then the fewer segments (the laxer crew). A date counts where its
-  anchor and calm day proved. None holds: no cut, and the pack stops. The pools are then fitted at that cut.
+  MIPs proved (for the calm guard, its no-crew build's too). None holds: no cut, and the pack stops. The pools are then
+  fitted at that cut.
 """
 
+import hashlib
+import json
 import random
 import statistics
 from collections import Counter
@@ -36,6 +42,7 @@ from concurrent.futures import ProcessPoolExecutor
 from contextlib import nullcontext
 from dataclasses import replace
 from itertools import product
+from pathlib import Path
 
 import pandas as pd
 
@@ -48,7 +55,7 @@ from .crew import Rule
 AUTO_SHARE, AUTO_MAX = 0.01, 2
 BUFFERS, SEGMENTS = (0, 30, 60, 90, 120), (3, 4, 5, 6)
 SAMPLE, SAMPLE_SEED, CREW_S = 12, 0, 600.0
-CALM_CANCELS, CALM_FERRIES, CALM_SHARE, RECORDED_SHARE = 1, 2, 0.9, 0.95
+RECORDED_SHARE = 0.95
 
 
 def fit(dates: Iterable[str], tasks: Iterable[Task], frame_of: Callable[[str], pd.DataFrame],
@@ -82,22 +89,43 @@ def grid(buffers: Sequence[int] = BUFFERS, segments: Sequence[int] = SEGMENTS) -
     return [Rule("v4", b, s) for b, s in product(buffers, segments)]
 
 
-def crew_fit(tasks: Mapping[Rule, Sequence[Task]], workers: int = 1,
-             time_limit: float = CREW_S) -> tuple[Rule | None, list[dict]]:
+def crew_fit(tasks: Mapping[Rule, Sequence[Task]], plain: Sequence[Task], workers: int = 1,
+             time_limit: float = CREW_S, cache: Path | None = None) -> tuple[Rule | None, list[dict]]:
     """The cut of `tasks` (the sample's tasks built at each Rule, layered at the rates, unlimited reserves) that
-    maximises do-nothing's median excess over the anchor while the guards hold, or None; and each Rule's row."""
-    jobs = [(rule, t) for rule, ts in tasks.items() for t in ts]
+    maximises do-nothing's median excess over the anchor while the guards hold against `plain` (the sample built
+    without crews, alike), or None; and each Rule's row, then the no-crew row."""
+    jobs = [(rule, t) for rule, ts in tasks.items() for t in ts] + [(None, t) for t in plain]
+    args = [(t, time_limit, cache) for _, t in jobs]
     with ProcessPoolExecutor(workers) if workers > 1 and len(jobs) > 1 else nullcontext() as pool:
-        scores = list(pool.map(score, [t for _, t in jobs], [time_limit] * len(jobs)) if pool
-                      else (score(t, time_limit) for _, t in jobs))
-    by: dict[Rule, list[dict]] = {rule: [] for rule in tasks}
+        scores = list(pool.map(kept_score, args) if pool else map(kept_score, args))
+    by: dict[Rule | None, list[dict]] = {rule: [] for rule in tasks} | {None: []}
     for (rule, _), s in zip(jobs, scores, strict=True):
         by[rule].append(s)
-    rows = [summary(rule, s) for rule, s in by.items()]
+    base = {s["date"]: s for s in by.pop(None)}
+    rows = [summary(rule, s, base) for rule, s in by.items()]
     held = [(r, rule) for r, rule in zip(rows, by, strict=True) if r["guards"]]
+    rows.append(summary(None, list(base.values()), base))
     if not held:
         return None, rows
     return max(held, key=lambda x: (x[0]["do_nothing"], x[1].buffer, -x[1].max_segments))[1], rows
+
+
+def kept_score(job: tuple[Task, float, Path | None]) -> dict:
+    """`score`, read from the cache where the same task at the same time limit was scored, else written there."""
+    task, time_limit, cache = job
+    if cache is None:
+        return score(task, time_limit)
+    sig = hashlib.sha256(f"{task.to_json()}|{time_limit}".encode()).hexdigest()[:16]
+    path = cache / f"{task.task_id}-{sig}.json"
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        pass
+    out = score(task, time_limit)
+    cache.mkdir(parents=True, exist_ok=True)
+    path.with_suffix(".part").write_text(json.dumps(out))
+    path.with_suffix(".part").replace(path)
+    return out
 
 
 def score(task: Task, time_limit: float = CREW_S) -> dict:
@@ -113,15 +141,18 @@ def score(task: Task, time_limit: float = CREW_S) -> dict:
             "calm_ferries": calm.ferries}
 
 
-def summary(rule: Rule, scores: Sequence[dict]) -> dict:
-    """A Rule's row: do-nothing's median excess over the anchor and each guard on the dates whose MIPs proved."""
+def summary(rule: Rule | None, scores: Sequence[dict], base: Mapping[str, dict]) -> dict:
+    """A Rule's row (None: the no-crew build's): do-nothing's median excess over the anchor and each guard on the
+    dates whose MIPs proved, the calm day against `base`, the no-crew scores by date."""
     ok = [s for s in scores if s["proven"]]
-    calm = share(s["calm_cancels"] <= CALM_CANCELS and s["calm_ferries"] <= CALM_FERRIES for s in ok)
+    paired = [(s, base[s["date"]]) for s in ok if s["date"] in base and base[s["date"]]["proven"]]
+    calm = share(s["calm_cancels"] <= b["calm_cancels"] and s["calm_ferries"] <= b["calm_ferries"] for s, b in paired)
     recorded = share(s["recorded"] >= s["anchor"] for s in ok)
     cancels = sum(s["anchor_cancels"] for s in ok), sum(s["jetblue_cancels"] for s in ok)
-    checks = {"calm": calm is not None and calm >= CALM_SHARE,
-              "recorded": recorded is not None and recorded >= RECORDED_SHARE, "cancels": cancels[0] <= cancels[1]}
-    return {**rule.to_dict(), "dates": len(scores), "proven": len(ok),
+    checks = {"calm": calm == 1, "recorded": recorded is not None and recorded >= RECORDED_SHARE,
+              "cancels": cancels[0] <= cancels[1]}
+    head = rule.to_dict() if rule else {"crew": None, "buffer": None, "max_segments": None}
+    return {**head, "dates": len(scores), "proven": len(ok),
             "do_nothing": round(statistics.median(s["naive"] / s["anchor"] - 1 for s in ok), 4) if ok else None,
             "calm_share": calm, "recorded_share": recorded, "anchor_cancels": cancels[0], "jetblue_cancels": cancels[1],
             "checks": checks, "guards": bool(ok) and all(checks.values()), "scores": list(scores)}

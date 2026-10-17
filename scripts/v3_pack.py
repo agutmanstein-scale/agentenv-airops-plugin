@@ -20,8 +20,9 @@ scripts/v3_check.py reads, and each task's anchor and follower costs for the pla
    rescaled to it;
 3. the layer constants fitted on the train dates only (layers.calibrate.fit): the ramp closures' rate per hub, then,
    with `--crew v4` and `--buffer` or `--max-segments` left out, v4's crew cut over the grid of what is left out
-   (layers.calibrate.crew_fit, on its seeded sample of the train dates, each built at every cut of the grid; no cut
-   holding the guards stops the pack, the fit written to the manifest), every date then built again at the cut, then
+   (layers.calibrate.crew_fit, on its seeded sample of the train dates, each built at every cut of the grid and once
+   without crews, to DIR/built-nocrew/, its scores kept under DIR/crew-fit/; no cut holding the guards stops the pack,
+   the fit written to the manifest), every date then built again at the cut, then
    the reserve pool per base, the cap clauses kept at 0.9 and 5;
 4. every date of the split (eval and train) and every control date (`--only` a few of them, storm or control) given
    every layer at those constants (network.layered, as network.build(layers=) does), written to DIR/tasks.jsonl, the
@@ -142,12 +143,13 @@ def main(argv: list[str] | None = None) -> None:
         rules = calibrate.grid((args.buffer,) if args.buffer is not None else calibrate.BUFFERS,
                                (args.max_segments,) if args.max_segments is not None else calibrate.SEGMENTS)
         grid = {}
-        for r in rules:
-            at = build(folder_of(out, r), {d: jobs[d] for d in sample}, e_fit, e_median, args.workers, args.resume,
-                       bases, r)
+        for r in [*rules, None]:
+            at = build(out / "built-nocrew" if r is None else folder_of(out, r), {d: jobs[d] for d in sample}, e_fit,
+                       e_median, args.workers, args.resume, () if r is None else bases, r or crew.EDGAR)
             grid[r] = [network.layered(rbs.rescale(replace(t, split="train"), scale, *shipped_e), rated, INPUTS,
                                        DERIVED) for t in storm_and_control(at)[0].values()]
-        chosen, rows = calibrate.crew_fit(grid, args.workers)
+        plain = grid.pop(None)
+        chosen, rows = calibrate.crew_fit(grid, plain, args.workers, cache=out / "crew-fit")
         crewing["fit"] = {"sample": list(sample), "seed": calibrate.SAMPLE_SEED, "time_limit_s": calibrate.CREW_S,
                           "rules": rows, "chosen": chosen.to_dict() if chosen else None}
         clock.lap("crew fit", json.dumps(chosen.to_dict() if chosen else None))

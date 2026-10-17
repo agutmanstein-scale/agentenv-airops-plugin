@@ -89,8 +89,10 @@ def test_a_v4_crewed_pack_fits_its_cut_on_a_train_sample_and_builds_every_date_a
     monkeypatch.setattr(network, "control_dates", lambda inputs, derived: dict([CONTROL]))
     seen = {}
 
-    def fit(grid, workers):
+    def fit(grid, plain, workers, cache):
         seen.update(grid)
+        seen[None] = plain
+        assert cache == tmp_path / "crew-fit"
         return crew.Rule("v4", 30, 4), [{"stub": True}]
 
     monkeypatch.setattr(calibrate, "crew_fit", fit)
@@ -104,6 +106,8 @@ def test_a_v4_crewed_pack_fits_its_cut_on_a_train_sample_and_builds_every_date_a
     assert manifest["crew"] == {"crew": "v4", "buffer": 30, "max_segments": 4, "fitted": True,
                                 "fit": {"sample": sample, "seed": 0, "time_limit_s": 600.0, "rules": [{"stub": True}],
                                         "chosen": {"crew": "v4", "buffer": 30, "max_segments": 4}}}
+    plain = seen.pop(None)
+    assert [t.date for t in plain] == sample and not any(t.bases or t.flights[0].crew for t in plain)
     assert list(seen) == calibrate.grid(calibrate.BUFFERS, (4,))
     for rule, tasks in seen.items():
         assert [t.date for t in tasks] == sample and all(t.layers and not t.layers.reserves for t in tasks)
