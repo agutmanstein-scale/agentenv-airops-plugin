@@ -39,6 +39,10 @@ it isn't bound to, or delivers one it didn't take. A busy block keeps the aircra
 block's ready time, if that is later than its turn; a cancelled leg has none. At the end of the day v1's ferries put
 the aircraft on tomorrow's needs (Task.needed).
 
+With a crew pool (crewsim.Pool) a flight ready to leave also needs its crews: the pool's `board` says whether
+they are there now, when to try again, or never (the flight then auto-cancels at its deadline unless a crew's arrival
+wakes it); a flight with "left" leaves whatever crews it finds. A plan for the crew sim may carry "reports".
+
 A World is what a day runs on: the truth (the task's lb, truth blocks and programs as they ran), the day as known at
 a watch (what the desk could know then: lb and the truth block once the scheduled departure is within LOOK, else 0
 and the scheduled block, the programs as issued by then, proposed GDPs included, every stop to its as-issued end,
@@ -183,11 +187,11 @@ class Execution:
         return [self.flights[i].to_dict() for i in sorted(self.flights)]
 
 
-def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
-    """The day under `plan` in `world` (the truth by default)."""
+def execute(task: Task, plan: Plan, world: World | None = None, crew=None) -> Execution:
+    """The day under `plan` in `world` (the truth by default), with the crew pool `crew` when given."""
     world = truth(task) if world is None else world
     rules = Rules(task, world)
-    want = {int(k): v for k, v in plan.items()}
+    want = {int(k): v for k, v in plan.items() if k != "reports"}
     cancelled = {i for i, d in want.items() if d.get("cancel")}
     runs: dict[int, FlightRun] = {}
     when: dict[int, float] = {}
@@ -198,6 +202,8 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
         if f.id in cancelled:
             decided = d.get("decided")
             runs[f.id] = FlightRun(f.id, CANCELLED, decided=task.start if decided is None else decided)
+            if crew is not None:
+                crew.cancel(f.id, runs[f.id].decided)
             continue
         c = d["left"] if d.get("left") is not None else max(task.earliest(f, world.lb[f.id]), d.get("not_before") or 0)
         when[f.id] = first[f.id] = c
@@ -233,6 +239,8 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
         s = t if left else f.legal(t)
         if s > f.deadline:
             runs[i] = FlightRun(i, AUTO_CANCELLED, decided=task.auto_at(f))
+            if crew is not None:
+                crew.cancel(i, runs[i].decided)
             continue
         if s != t:
             when[i] = s
@@ -253,6 +261,12 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
             when[i] = s
             heapq.heappush(heap, (s, kind, c, i))
             continue
+        if crew is not None:
+            go = crew.board(f, t, want.get(i, {}), left)
+            if go != t:
+                when[i] = f.deadline + 1 if go is None else go
+                heapq.heappush(heap, (when[i], kind, c, i))
+                continue
         p = min(free, key=lambda p: (quick.get(p, (None,))[0] != i, ready[p], p))
         here.remove(p)
         arr = t + world.block[i]
@@ -269,6 +283,12 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
             used[hour] += 1
         legs[p].append(i)
         runs[i] = FlightRun(i, FLOWN, p, t, arr, slot[1] if slot else None, slot[0] if slot else None)
+        if crew is not None:
+            crew.fly(f, t, arr, want.get(i, {}))
+            for j, at in crew.woken():
+                if j not in runs and at < when[j]:
+                    when[j] = at
+                    heapq.heappush(heap, (at, 1, first[j], j))
         for j in waiting[(f.family, station)]:
             if soon(p, j) < when[j]:
                 when[j] = soon(p, j)
