@@ -8,4 +8,5 @@ a proven optimum. A builder returns its field of Layers; a task without layers i
 - weather: the hubs' METARs, SPECIs and TAFs as the desk's news (§4), each delivered after its kind's lag.
 - config: the constants a pack fits, and every layer of a task at them (network.build's `layers`).
 - calibrate: the constants fitted on a pack's train dates: closure rates and reserve pools (§3.4, §6.1).
+- crew: v4's pairings legal on schedule, a build's crew Rule (docs/v4/DESIGN.md §1).
 """
