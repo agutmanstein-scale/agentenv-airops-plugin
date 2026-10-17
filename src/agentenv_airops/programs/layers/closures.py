@@ -12,16 +12,18 @@ without them the routine reports alone, whose remarks carry the same minutes an 
 
 Lightning doesn't stop the ramp: during such intervals every carrier together still pushed back at about 75% of its
 rate in the same minutes just before (the spike: JFK 411 vs 563, BOS 449 vs 584), and gated in at 70 to 74% (BTS over
-the 19 months: JFK 565 vs 807, BOS 732 vs 989). `fit_rate` measures the departure ratio per hub on train dates,
-leaving out a closure whose minutes just before reach into another closure, as they hold no normal rate. `build` turns
-each closure over a task into JetBlue's two caps there (§3.2), at the same rate: `rate` x JetBlue's normal hourly
-departures from the hub (the task's flights scheduled to leave it in the clock hours the closure touches, per hour) x
-the closure's length in hours, rounded to the nearest flight and never below what those flights actually pushed back
-inside it; and the same of its flights scheduled to arrive at the hub, never below those that gated in there inside it
-(a diversion gates in elsewhere). The floors keep the recorded pushbacks and gate-ins inside a closure within its
-caps; the sim times a recorded arrival at its pushback plus its truth block, a few minutes before its gate-in when the
-block leaves out a held taxi-out, so the recorded day is close to feasible, not feasible by construction. `intervals`
-are in UTC epoch minutes, closures in minutes from the task's midnight.
+the 19 months: JFK 565 vs 807, BOS 732 vs 989). `fit_rate` measures the departure ratio per hub on train dates, leaving
+out a closure whose minutes just before reach into another closure, as they hold no normal rate. `build` turns each
+closure over a task into JetBlue's two caps there (§3.2), at the same rate: `rate` x JetBlue's normal hourly departures
+from the hub (the task's flights scheduled to leave it in the clock hours the closure touches, per hour) x the
+closure's length in hours, rounded to the nearest flight and never below what those flights actually pushed back inside
+it; and the same of its flights scheduled to arrive at the hub, never below those that arrive inside it as the sim
+times the recorded day: at the recorded pushback plus the truth block, a few minutes before the gate-in when the block
+leaves out a held taxi-out, and at the hub even for a flight that diverted elsewhere (the airline replay flies it
+there), and one diverted into the hub at the station it was scheduled into. The floors keep the recorded day's
+pushbacks and arrivals inside a closure within its caps, so the airline replay leaves and lands there as on the open
+day unless something else (a slot, a cap) moves a flight into a closure. `intervals` are in UTC epoch minutes, closures
+in minutes from the task's midnight.
 """
 
 import csv
@@ -101,14 +103,14 @@ def build(task: Task, spans: Mapping[str, Sequence[Interval]],
         leave = [f.sched_dep for f in task.flights if f.orig == hub]
         land = [f.sched_arr for f in task.flights if f.dest == hub]
         pushed = [f.actual.dep for f in task.flights if f.orig == hub and f.actual.dep is not None]
-        gated = [f.actual.arr for f in task.flights if f.dest == f.actual.end == hub and f.actual.arr is not None]
+        landed = [f.actual.dep + f.block for f in task.flights if f.dest == hub and f.actual.dep is not None]
         shut = []
         for a, b in ((a - task.base, b - task.base) for a, b in xs):
             if b <= task.start or a >= hi:
                 continue
             if hub not in rate:
                 raise ValueError(f"{hub} closes {a}-{b} on {task.date} but has no fitted rate")
-            shut.append((a, b, _cap(rate[hub], leave, pushed, a, b), _cap(rate[hub], land, gated, a, b)))
+            shut.append((a, b, _cap(rate[hub], leave, pushed, a, b), _cap(rate[hub], land, landed, a, b)))
         if shut:
             out[hub] = tuple(shut)
     return out

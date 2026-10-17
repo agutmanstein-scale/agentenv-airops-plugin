@@ -94,11 +94,12 @@ def landing(i: int, dest: str, arr: int, gated: int | None, end: str | None = No
                                      arr=gated, end=None if gated is None else end or dest))
 
 
-def test_build_caps_each_closures_gate_ins_at_the_rate_of_jetblues_normal_hourly_arrivals_never_below_what_gated_in():
-    """JFK closed 600-660: 5 scheduled to arrive in hour 10 (flight 3 cancelled, flight 5 diverted to EWR), and 4
-    gated in inside (flight 4, scheduled at 580, late). At 0.5, 0.5 x 5/h x 1 h = 2.5, so 3, floored at 4; at 1.0, 5.
-    Flight 6, scheduled into BOS, diverted to JFK and gated in there inside: it counts in neither. BOS closes 650-680
-    with no arrival scheduled inside but 4 in hours 10-11: 0.75 x 2/h x 0.5 h = 0.75, so 1."""
+def test_build_caps_each_closures_gate_ins_at_the_rate_of_jetblues_normal_hourly_arrivals_never_below_what_arrived():
+    """JFK closed 600-660: 5 scheduled to arrive in hour 10 (flight 3 cancelled), and 5 arrive inside as the sim times
+    them, at pushback plus truth block: flights 0, 1, 2, 4 (scheduled at 580, late) and 5, which diverted to EWR but
+    the sim flies to JFK. At 0.5, 0.5 x 5/h x 1 h = 2.5, so 3, floored at 5; at 2.0, 10. Flight 6, scheduled into BOS
+    and diverted to JFK, arrives inside at neither. BOS closes 650-680 with no arrival scheduled inside but 4 in hours
+    10-11: 0.75 x 2/h x 0.5 h = 0.75, so 1."""
     base = 1_000_000
     flights = [landing(0, "JFK", 600, 610), landing(1, "JFK", 620, 630), landing(2, "JFK", 640, 650),
                landing(3, "JFK", 650, None), landing(4, "JFK", 580, 655), landing(5, "JFK", 630, 640, "EWR"),
@@ -107,8 +108,8 @@ def test_build_caps_each_closures_gate_ins_at_the_rate_of_jetblues_normal_hourly
     task = replace(day(flights, [tail("N1", "BUF")], start=300), base=base)
     spans = {"JFK": [(base + 600, base + 660)], "BOS": [(base + 650, base + 680)]}
     assert closures.build(task, spans, {"JFK": 0.5, "BOS": 0.75}) == {
-        "JFK": ((600, 660, 0, 4),), "BOS": ((650, 680, 0, 1),)}
-    assert closures.build(task, spans, {"JFK": 1.0, "BOS": 0.75})["JFK"] == ((600, 660, 0, 5),)
+        "JFK": ((600, 660, 0, 5),), "BOS": ((650, 680, 0, 1),)}
+    assert closures.build(task, spans, {"JFK": 2.0, "BOS": 0.75})["JFK"] == ((600, 660, 0, 10),)
 
 
 def test_fit_rate_is_every_carriers_pushbacks_inside_over_the_same_minutes_before_on_the_dates_given():
@@ -181,6 +182,33 @@ def test_the_airline_replay_of_a_recorded_turn_inside_a_built_closure_flies_as_o
     assert shut.layers.closures == {"JFK": ((150, 220, 1, 1),)}
     held, open_ = references.airline(shut), references.airline(task)
     assert held.auto == open_.auto == 0 and held.run.cost == open_.run.cost and held.run.rows() == open_.run.rows()
+
+
+def test_the_airline_replay_of_a_diversion_the_sim_lands_inside_a_built_closure_flies_as_on_the_open_day():
+    """Flight 5 left DCA at 92 and diverted to EWR, but the replay flies it to JFK, landing at 152, inside JFK's
+    closure 150-220 with N4's recorded gate-in at 160: the floor counts both, so neither is held."""
+    base = 1_000_000
+    task = replace(day([flight(3, "BUF", "JFK", 100, 60, actual=Outcome(False, False, "", 100, 160, "JFK", "N4")),
+                        flight(4, "JFK", "PWM", 190, 70, actual=Outcome(False, False, "", 195, 265, "PWM", "N4")),
+                        flight(5, "DCA", "JFK", 90, 60, actual=Outcome(False, True, "", 92, 175, "EWR", "N5"))],
+                       [tail("N4", "BUF", end="PWM"), tail("N5", "DCA", end="JFK")]), base=base)
+    shut = closed(task, closures.build(task, {"JFK": [(base + 150, base + 220)]}, {"JFK": 0.0}))
+    assert shut.layers.closures == {"JFK": ((150, 220, 1, 2),)}
+    held, open_ = references.airline(shut), references.airline(task)
+    assert held.run.cost == open_.run.cost and held.run.rows() == open_.run.rows()
+
+
+def test_the_airline_replay_of_a_held_taxi_the_sim_lands_inside_a_built_closure_flies_as_on_the_open_day():
+    """Flight 3 left BUF at 100 and gated in at JFK at 175 after a held taxi-out its truth block of 60 leaves out, so
+    the replay lands it at 160, inside JFK's closure 150-170 though its gate-in is past it: the floor counts it."""
+    base = 1_000_000
+    task = replace(day([flight(3, "BUF", "JFK", 100, 60, actual=Outcome(False, False, "", 100, 175, "JFK", "N4")),
+                        flight(4, "JFK", "PWM", 190, 70, actual=Outcome(False, False, "", 190, 260, "PWM", "N4"))],
+                       [tail("N4", "BUF", end="PWM")]), base=base)
+    shut = closed(task, closures.build(task, {"JFK": [(base + 150, base + 170)]}, {"JFK": 0.0}))
+    assert shut.layers.closures == {"JFK": ((150, 170, 0, 1),)}
+    held, open_ = references.airline(shut), references.airline(task)
+    assert held.run.cost == open_.run.cost and held.run.rows() == open_.run.rows()
 
 
 def test_the_airline_replay_under_a_built_closure_in_any_hour_of_the_fixture_day_auto_cancels_nothing_more(task):

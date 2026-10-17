@@ -82,8 +82,9 @@ Each section: what it is, how the sim applies it, how the MIP carries it, how it
   same minutes), and still gated in at 70-74% of it (BTS over the 19 months: JFK 565 vs 807 on 75 closures, BOS 732
   vs 989 on 64). So a closure cuts the hub's departure cap to `rate` x JetBlue's normal hourly departures for its
   duration, never below what JetBlue's in-scope flights pushed back inside it, and caps its gate-ins there the same
-  way: `rate` x its normal hourly arrivals into the hub for the duration, never below what its in-scope flights gated
-  in inside it. There is no gate hold (an aircraft landing inside a closure reaching its gate only at its end): it
+  way: `rate` x its normal hourly arrivals into the hub for the duration, never below the in-scope flights scheduled
+  into the hub that arrive inside it as the sim times the recorded day (recorded pushback plus truth block, diversions
+  included: the replay flies them to the hub), so the recorded day's arrivals fit the caps. There is no gate hold (an aircraft landing inside a closure reaching its gate only at its end): it
   contradicts the gate-ins above, and it made the recorded day infeasible (a recorded turn inside a closure, landed and
   pushed back again before its end, took a probe day's airline replay from 670 to 19740; DECISIONS 2026-10-17, U3
   Q1).
