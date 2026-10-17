@@ -90,7 +90,9 @@ def _at(report: datetime, digits: str) -> datetime:
 def build(task: Task, spans: Mapping[str, Sequence[Interval]],
           rate: Mapping[str, float]) -> dict[str, tuple[tuple[int, int, int], ...]]:
     """The task's ramp closures per hub, (start, end, cap) from its midnight: each of `spans` (UTC epoch minutes, per
-    hub) that overlaps the task's span, from its first watch to the end of the hour after its last deadline."""
+    hub) that overlaps the task's span, from its first watch to the end of the hour after its last deadline. A hub
+    closed over the task without a `rate` (`fit_rate` gives none to a hub with nothing pushed back before its
+    closures) is a ValueError: its cap can't be priced, and dropping the closure would hide the gap."""
     hi = 60 * (max(f.deadline for f in task.flights) // 60 + 2)
     out = {}
     for hub, xs in spans.items():
@@ -99,6 +101,8 @@ def build(task: Task, spans: Mapping[str, Sequence[Interval]],
         for a, b in ((a - task.base, b - task.base) for a, b in xs):
             if b <= task.start or a >= hi:
                 continue
+            if hub not in rate:
+                raise ValueError(f"{hub} closes {a}-{b} on {task.date} but has no fitted rate")
             lo, top = 60 * (a // 60), 60 * -(-b // 60)
             hourly = sum(lo <= f.sched_dep < top for f in mine) * 60 / (top - lo)
             flew = sum(f.actual.dep is not None and a <= f.actual.dep < b for f in mine)

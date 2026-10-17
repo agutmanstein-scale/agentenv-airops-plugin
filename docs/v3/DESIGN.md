@@ -53,8 +53,8 @@ beyond Edgar's proxy, next-day schedules.
   same layers, for comparison with v2.
 - **Schema:** `Task.layers: Layers | None` (model version 4 when set), a frozen dataclass with `from_dict`/`to_dict`:
   `dep_caps: {station: {hour: cap}}`, `arr_caps: {station: {hour: cap}}` (outstations only), `closures: {station:
-  ((start, end, rate), ...)}`, `reserves: {base: pool}` and `release: bool`. Hours and minutes from the task's
-  midnight, as everywhere.
+  ((start, end, cap), ...)}` (JetBlue's departure cap over [start, end); §3.2's `rate` stays in the builder),
+  `reserves: {base: pool}` and `release: bool`. Hours and minutes from the task's midnight, as everywhere.
 - **Inputs:** the 19 months' pinned BTS on-time (every carrier), IEM METARs (routine, `report_type=3`) and SPECIs
   (`report_type=4`, via `flow/sources.py`'s pins), and nothing new from the FAA. Every new input is sha256-pinned in
   the pack manifest.

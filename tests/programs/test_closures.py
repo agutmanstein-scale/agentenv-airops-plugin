@@ -3,6 +3,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 import pandas as pd
+import pytest
 from day_helpers import day, flight, tail
 from program_helpers import SLICE
 
@@ -126,3 +127,19 @@ def test_a_remark_minute_past_its_reports_is_in_the_hour_or_day_before(tmp_path)
     path = reports(tmp_path / "m.csv", rows)
     assert closures.intervals("JFK", [path]) == [(at("2024-06-14 23:55"), at("2024-06-15 01:20"))]
     assert closures.intervals("BOS", [path]) == [(at("2024-06-14 23:51"), at("2024-06-14 23:58"))]
+
+
+def test_build_names_a_closed_hub_that_fit_rate_gave_no_rate():
+    """fit_rate gives BOS no rate (nothing pushed back before its closure); building a task over that closure says so
+    rather than failing on a bare key, and a hub with no closure over the task needs no rate."""
+    m = midnight("2024-06-14")
+    frame = pd.DataFrame({"Origin": ["JFK", "JFK"], "act_dep": [float(m + 50), float(m + 105)]})
+    spans = {"JFK": [(m + 100, m + 160)], "BOS": [(m + 100, m + 160)]}
+    rate = closures.fit_rate(["2024-06-14"], frame, spans)
+    assert rate == {"JFK": 1.0}
+    task = replace(day([flight(0, "JFK", "BUF", 120, 60), flight(1, "BOS", "JFK", 120, 60)],
+                       [tail("N1", "JFK"), tail("N2", "BOS")]), base=m)
+    with pytest.raises(ValueError, match="BOS"):
+        closures.build(task, spans, rate)
+    assert closures.build(task, {"JFK": spans["JFK"], "BOS": [(m + 5000, m + 5100)]}, rate) == {
+        "JFK": ((100, 160, 1),)}
