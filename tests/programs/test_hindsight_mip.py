@@ -246,6 +246,14 @@ def test_a_coarse_step_keeps_every_slots_edct():
     assert {d for d in sol.deps.values()} == {120, 180, 240}
 
 
+def test_a_coarse_step_keeps_every_ramp_closures_end():
+    """At a 7-minute step the closure's end, 180, is still a minute flights 0 and 1 may leave at."""
+    task = closed_day()
+    sol = mip.solve(task, step=7)
+    assert sol.proven and replays(task, sol)
+    assert (sol.deps[0], sol.deps[1]) == (180, 180)
+
+
 def test_pins_and_the_earliest_minute_are_kept(fixture_day):
     task = fixture_day
     a, b = task.flights[3], task.flights[10]

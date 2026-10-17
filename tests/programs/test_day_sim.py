@@ -237,7 +237,7 @@ def test_an_aircraft_landing_inside_a_ramp_closure_reaches_its_gate_at_its_end_a
     task = closed_day()
     held, open_ = sim.execute(task, {}), sim.execute(replace(task, layers=None), {})
     assert (held.flights[3].arr, open_.flights[3].arr) == (180, 160)
-    assert sim.gate(sim.truth(task), "JFK", 160) == 180 and sim.gate(sim.truth(task), "JFK", 180) == 180
+    assert [sim.gate(sim.truth(task), "JFK", t) for t in (119, 120, 160, 179, 180)] == [119, 180, 180, 180, 180]
     assert sim.gate(sim.truth(task), "BOS", 160) == 160
     late = task.flight(3).pax * 20 + task.flight(4).pax * 10
     assert held.cost.delay - open_.cost.delay >= late

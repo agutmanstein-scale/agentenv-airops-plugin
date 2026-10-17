@@ -67,19 +67,22 @@ def leaving(i: int, orig: str, dep: int, pushed: int | None):
     return replace(f, actual=replace(f.actual, cancelled=pushed is None, dep=pushed, arr=None))
 
 
-def test_build_caps_each_closure_at_the_rate_of_jetblues_schedule_never_below_what_it_pushed_back():
-    """JFK closed 600-660: 4 scheduled, 1 pushed back inside, 0.5 x 4 = 2. Closed 700-760: 1 scheduled, 2 pushed back
-    inside (flight 2, late, and flight 4), so 2. One before the first watch and one past the span drop; BOS has no
-    JetBlue flight inside its closure, so nothing may leave it then."""
+def test_build_caps_each_closure_at_the_rate_of_jetblues_normal_hourly_departures_never_below_what_it_pushed_back():
+    """JFK closed 600-660: 4 scheduled in hour 10, 1 pushed back inside, 0.5 x 4/h x 1 h = 2. Closed 700-760: 1
+    scheduled in hours 11-12, 2 pushed back inside (flight 2, late, and flight 4), so 2. One before the first watch and
+    one past the span drop. BOS closes 650-700 with no JetBlue flight scheduled inside it but 3 in hours 10-11, all
+    pushed back before it: 0.75 x 1.5/h x 50/60 h = 0.94, so 1 (to the nearest flight, not down)."""
     base = 1_000_000
     flights = [leaving(0, "JFK", 600, 605), leaving(1, "JFK", 610, 680), leaving(2, "JFK", 620, 700),
-               leaving(3, "JFK", 650, None), leaving(4, "JFK", 720, 725), leaving(5, "BOS", 500, 500)]
+               leaving(3, "JFK", 650, None), leaving(4, "JFK", 720, 725), leaving(5, "BOS", 600, 600),
+               leaving(6, "BOS", 610, 610), leaving(7, "BOS", 615, 615)]
     task = replace(day(flights, [tail("N1", "JFK")], start=300), base=base)
     spans = {"JFK": [(base + 100, base + 200), (base + 600, base + 660), (base + 700, base + 760),
                      (base + 5000, base + 5100)], "BOS": [(base + 650, base + 700)]}
     assert closures.build(task, spans, {"JFK": 0.5, "BOS": 0.75}) == {
-        "JFK": ((600, 660, 2), (700, 760, 2)), "BOS": ((650, 700, 0),)}
+        "JFK": ((600, 660, 2), (700, 760, 2)), "BOS": ((650, 700, 1),)}
     assert closures.build(task, spans, {"JFK": 1.0, "BOS": 0.75})["JFK"] == ((600, 660, 4), (700, 760, 2))
+    assert closures.build(task, spans, {"JFK": 1.0, "BOS": 0.25})["BOS"] == ((650, 700, 0),)
 
 
 def test_fit_rate_is_every_carriers_pushbacks_inside_over_the_same_minutes_before_on_the_dates_given():
@@ -93,3 +96,33 @@ def test_fit_rate_is_every_carriers_pushbacks_inside_over_the_same_minutes_befor
     spans = {"JFK": [(a, a + 30), (b, b + 30)], "BOS": [(a, a + 10)]}
     assert closures.fit_rate(["2024-06-14"], frame, spans) == {"JFK": 0.75}
     assert closures.fit_rate(["2024-06-14", "2024-06-15"], frame, spans) == {"JFK": 23 / 4}
+
+
+def test_fit_rate_leaves_out_a_closure_whose_minutes_before_reach_into_another():
+    """A steady pushback a minute, one every two inside closures 100-160 and 170-230: the second's 60 minutes before
+    hold the first closure, so only the first counts."""
+    m = midnight("2024-06-14")
+    deps = [m + t for t in range(400) if not ((100 <= t < 160 or 170 <= t < 230) and t % 2)]
+    frame = pd.DataFrame({"Origin": "JFK", "act_dep": [float(x) for x in deps]})
+    spans = {"JFK": [(m + 100, m + 160), (m + 170, m + 230)]}
+    assert closures.fit_rate(["2024-06-14"], frame, spans) == {"JFK": 0.5}
+
+
+def test_an_end_remark_older_than_the_open_closure_belongs_to_an_earlier_storm(tmp_path):
+    """BOS 2024-06-14 as reported: TSB22 at 17:24, "TSE13B24" at 17:40 and 17:54, TS until TSE36 at 18:36."""
+    rows = [("BOS", "2024-06-14 16:54", "", "AO2 LTG DSNT W"),
+            ("BOS", "2024-06-14 17:24", "TS", "AO2 TSB22"),
+            ("BOS", "2024-06-14 17:40", "+TSRA", "AO2 RAB30 TSE13B24"),
+            ("BOS", "2024-06-14 17:54", "TSRA BR", "AO2 RAB30 TSE13B24"),
+            ("BOS", "2024-06-14 18:36", "", "AO2 RAE36 TSE36")]
+    assert closures.intervals("BOS", [reports(tmp_path / "m.csv", rows)]) == [
+        (at("2024-06-14 17:22"), at("2024-06-14 18:36"))]
+
+
+def test_a_remark_minute_past_its_reports_is_in_the_hour_or_day_before(tmp_path):
+    """TSB55 in the 00:51 report began at 23:55 the day before; TSE2358 in the 00:20 report ended at 23:58."""
+    rows = [("JFK", "2024-06-15 00:51", "TS", "AO2 TSB55"), ("JFK", "2024-06-15 01:51", "", "AO2 TSE20"),
+            ("BOS", "2024-06-14 23:51", "TS", "AO2"), ("BOS", "2024-06-15 00:20", "", "AO2 TSE2358")]
+    path = reports(tmp_path / "m.csv", rows)
+    assert closures.intervals("JFK", [path]) == [(at("2024-06-14 23:55"), at("2024-06-15 01:20"))]
+    assert closures.intervals("BOS", [path]) == [(at("2024-06-14 23:51"), at("2024-06-14 23:58"))]
