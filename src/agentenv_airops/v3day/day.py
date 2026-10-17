@@ -2,14 +2,16 @@
 programs.sim, the follower's day as known and its freeze.
 
 The desk plays the follower's watches (clock.watch_times). At a watch t the day so far is history and the rest is the
-day as known: the plan runs as `references.so_far` has it (a flight that has left on the truth left when it did, every
-other one no earlier than t) in `sim.known(task, t)` (delays known LOOK ahead, the programs as issued). From the
+day as known: the plan runs as `references.so_far` has it at the clock (a flight that has left on the truth by then
+left when it did, as a desk would know, every other one no earlier than the clock) in `sim.known(task, t)` (delays
+known LOOK ahead, the programs as issued). From the
 second watch on, what that projection has leaving before the freeze line t + FREEZE commits to fly, every
 cancellation is final, and a projected auto-cancel decided before the line stands (`references.frozen`, kept as a
 union over the watches); an open flight the plan would have leaving before the line (at the first watch, before the
 clock) is held to it, as the follower's watch solve starts every open flight at the line. What is frozen and what has
 gone by the clock stands: the sim reroutes the tails on every cancellation, the day so far included, so a change that
-would move such a flight's outcome, departure or aircraft is refused, and a decision never reaches back past it.
+would move such a flight's outcome, departure or aircraft is refused, in the projection and on the truth the grade
+prices (a flight gone on the truth by the clock), and a decision never reaches back past it.
 
 Actions are v1's: cancel, hold (not_before) and restore, read by v1's `day.read_changes` and confirmed as plan entries
 `{"cancel": True, "decided": minute}` and `{"not_before": minute}`. Every tool call (the situation, a check, a
@@ -88,8 +90,8 @@ class Day:
         return self._worlds[self.watch]
 
     def project(self, plan: Mapping[int, Mapping]) -> sim.Execution:
-        """`plan` run on the day as known at the watch, the day so far as history."""
-        return sim.execute(self.task, references.so_far(self.task, plan, self.t), self.known())
+        """`plan` run on the day as known at the watch, the day so far (to the clock) as history."""
+        return sim.execute(self.task, references.so_far(self.task, plan, self.clock), self.known())
 
     def situation(self) -> dict:
         return self._call(lambda at: view.build(self))
@@ -175,19 +177,20 @@ class Day:
 
     def _merge(self, raw, at: int) -> tuple[dict, list[int], list[int], list[dict], list[str], list[int]]:
         """The plan with `raw`'s changes, one at a time: a change to a frozen flight, or one that would move a frozen
-        flight or one gone by `at` (`sim.routes` reroutes the tails on every cancellation, the day so far included),
-        is refused; what is left open before the line is held to it."""
+        flight or one gone by `at` in the projection or on the truth (`sim.routes` reroutes the tails on every
+        cancellation, the day so far included), is refused; what is left open before the line is held to it."""
         rows, problems = read_changes(self.task, raw)
         plan, confirmed, unchanged, refused, held = dict(self.plan), [], [], [], set()
-        base = self.project(self.plan).flights
-        pinned = self.frozen | {i for i, r in base.items() if (r.status == FLOWN and r.dep < at)
-                                or (r.status == AUTO_CANCELLED and r.decided < at)}
+        base, truth = self.project(self.plan).flights, sim.execute(self.task, self.plan).flights
+        pinned = self.frozen | _gone(base, at)
+        gone = _gone(truth, at)
         for i, entry in rows:
             if _entry(self.plan.get(i)) == entry:
                 unchanged.append(i)
                 continue
-            if i in pinned:
-                refused.append({"flight": fid(i), "from": DESK, "reason": self._pinned_reason(i, base[i], at)})
+            if i in pinned or i in gone:
+                why = self._pinned_reason(i, base[i] if i in pinned else truth[i], at)
+                refused.append({"flight": fid(i), "from": DESK, "reason": why})
                 continue
             then = dict(plan)
             then.pop(i, None)
@@ -196,9 +199,12 @@ class Day:
             elif entry["not_before"] is not None:
                 then[i] = {"not_before": entry["not_before"]}
             early, run = self._settle(then, pinned, at)
-            moved = [k for k in sorted(pinned) if _fixed(run.flights[k]) != _fixed(base[k])]
+            after = sim.execute(self.task, then).flights
+            moved = [(k, base) for k in sorted(pinned) if _fixed(run.flights[k]) != _fixed(base[k])] + \
+                    [(k, truth) for k in sorted(gone) if _fixed(after[k]) != _fixed(truth[k])]
             if moved:
-                refused.append({"flight": fid(i), "from": DESK, "reason": self._moves_reason(i, moved[0], base, at)})
+                k, runs = moved[0]
+                refused.append({"flight": fid(i), "from": DESK, "reason": self._moves_reason(i, k, runs, at)})
                 continue
             plan = then
             confirmed.append(i)
@@ -285,6 +291,12 @@ def play(task: Task, policy: Callable[[Day], Mapping[int, Mapping]], anchor: int
         if not day.done:
             day.advance()
     return day
+
+
+def _gone(flights: Mapping[int, sim.FlightRun], at: int) -> set[int]:
+    """The flights a run has gone before `at`: left, or auto-cancelled."""
+    return {i for i, r in flights.items()
+            if (r.status == FLOWN and r.dep < at) or (r.status == AUTO_CANCELLED and r.decided < at)}
 
 
 def _fixed(r: sim.FlightRun) -> tuple:

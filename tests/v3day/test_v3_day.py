@@ -167,8 +167,12 @@ def test_grade_prices_the_plan_on_the_truth_against_naive_and_anchor():
     assert g["cost"]["total"] == sim.execute(task, plan).cost.total
     assert g["naive"] == references.naive(task).cost.total and g["anchor"] == references.anchor(task)[1].cost.total
     assert g["reward"] == round(reward(g["cost"]["total"], g["naive"], g["anchor"]), 6) < 1
-    assert g["references"] == {"rule": references.rule(task).cost, "follower": None}
+    rule = references.rule(task).cost
+    assert g["references"] == {"rule": {"cost": rule, "reward": round(reward(rule, g["naive"], g["anchor"]), 6)},
+                               "follower": None}
     assert grade(task, {}, anchor=g["anchor"])["reward"] == reward(g["naive"], g["naive"], g["anchor"])
+    assert grade(task, plan, anchor=g["anchor"], follower=g["naive"])["references"]["follower"] == \
+        {"cost": g["naive"], "reward": round(reward(g["naive"], g["naive"], g["anchor"]), 6)}
 
 
 def test_the_hubs_advisories_are_the_news():
@@ -220,10 +224,11 @@ def changes_keep_the_day_so_far(seed: int) -> list[tuple]:
             out = d.confirm(rows)
             if d.done or "watch_over" in out:
                 continue
-            after = d.project(d.plan).flights
+            after, truth = d.project(d.plan).flights, sim.execute(task, d.plan).flights
             bad += [(seed, d.watch, i) for i in pinned if _kept(before[i]) != _kept(after[i])]
             bad += [(seed, d.watch, i, "open") for i, r in after.items()
-                    if r.status == FLOWN and i not in d.frozen and at <= r.dep < d.line]
+                    if r.status == FLOWN and i not in d.frozen and at <= r.dep < d.line
+                    and not (truth[i].status == FLOWN and truth[i].dep < d.clock)]
         d.advance()
     return bad
 
@@ -234,6 +239,49 @@ def _kept(r) -> tuple:
 
 def test_no_change_reaches_back_past_the_freeze_or_the_clock():
     assert [b for seed in range(130) for b in changes_keep_the_day_so_far(seed)] == []
+
+
+def changes_keep_the_truth_so_far(seed: int) -> list[tuple]:
+    """Random changes after a random stretch of thinking at every watch; what moved, on the truth the grade prices,
+    among the flights that had left or auto-cancelled on the truth by the clock."""
+    rng = random.Random(seed)
+    task = network_day(rng) if seed % 2 else random_day(rng)
+    d, bad = Day(task, anchor=0), []
+    while not d.done:
+        for _ in range(rng.randint(0, 50)):
+            if "watch_over" in d.situation():
+                break
+        if d.done:
+            break
+        before, at = sim.execute(task, d.plan).flights, d.clock
+        gone = {i for i, r in before.items() if (r.status == FLOWN and r.dep < at)
+                or (r.status == "auto_cancelled" and r.decided < at)}
+        rows = [{"flight": f"f{i}", "action": (a := rng.choice(["cancel", "restore", "hold"])),
+                 "not_before": hhmm(task.flight(i).sched_dep + rng.randint(0, 200)) if a == "hold" else None}
+                for i in rng.sample([f.id for f in task.flights], min(3, len(task.flights)))]
+        out = d.confirm(rows)
+        after = sim.execute(task, d.plan).flights
+        bad += [(seed, d.watch, i) for i in gone if _kept(before[i]) != _kept(after[i])]
+        if not d.done and "watch_over" not in out:
+            d.advance()
+    return bad
+
+
+def test_no_change_reaches_back_past_what_has_left_on_the_truth():
+    assert [b for seed in range(60) for b in changes_keep_the_truth_so_far(seed)] == []
+
+
+def test_a_flight_gone_on_the_truth_by_the_clock_is_shown_gone_and_stands():
+    task = random_day(random.Random(48))
+    d = Day(task, anchor=0)
+    d.advance()
+    while d.clock < 109:
+        d.situation()
+    assert (sim.execute(task, d.plan).flights[1].status, sim.execute(task, d.plan).flights[1].dep) == (FLOWN, 62)
+    assert d.situation()["flights"][1]["status"] in ("airborne", "flown")
+    out = d.confirm(cancel(1))
+    assert out["confirmed"] == [] and "is gone: it left at 01:02" in out["refused"][0]["reason"]
+    assert d.plan == {} and sim.execute(task, d.plan).flights[1].status == FLOWN
 
 
 def test_a_delay_shows_only_once_it_is_known():
