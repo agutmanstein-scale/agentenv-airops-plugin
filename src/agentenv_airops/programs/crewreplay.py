@@ -15,7 +15,7 @@ its departure, so the best way to be at a station by a departure is known when t
 reserve reports, and a second duty period reports, on the last whole hour that leaves BRIEF before its first departure
 (a world rule the sim follows too). Identical units are priced once.
 
-Column generation to the LP optimum (or half the time limit), then a dive: fix the columns the LP has above one half
+Column generation to the LP optimum (or half the time limit), then a dive: fix the columns the LP has at SURE or more
 (the largest if none), price again, repeat until the LP is integral, which is a feasible integer plan; then the integer
 program over every column generated, started from it (from every unit idle if the dive ran out of time). The LP and the
 Lagrangian bound give how far from the fewest uncrewed flights the plan can be.
@@ -38,13 +38,14 @@ INF = highspy.kHighsInf
 UNCREWED = 1_000_000
 EPS = 1e-6
 ENDS = 24
+SURE = 0.9
 OP, DH = 0, 1
 
 
 @dataclass(frozen=True)
 class Leg:
     """A leg at a fixed departure: it arrives at `arr` at `dest`, has `free` seats, and `need`s a crew of these kinds
-    (a leg flown by crews the task does not model only carries deadheads)."""
+    (a leg flown by crews the task does not model only carries deadheads), going without one at `price`."""
 
     id: int
     flight: str
@@ -56,6 +57,7 @@ class Leg:
     group: str
     free: int
     need: tuple[str, ...] = crews.KINDS
+    price: float = UNCREWED
 
     @property
     def block(self) -> int:
@@ -481,10 +483,10 @@ def back(p: Problem, w: dict, how: int, k: int, layer: int) -> tuple[tuple[int, 
 
 class Master:
     """Per needed leg and kind, the units operating it plus its slack equal one, the slack at most the leg's uncrewed
-    variable (UNCREWED each); per unit one column; per pilot unit and period, Table A's excess at most zero; per leg
-    its deadheading people within its free seats."""
+    variable (at the leg's price); per unit one column; per pilot unit and period, Table A's excess at most zero; per
+    leg its deadheading people within its free seats."""
 
-    def __init__(self, p: Problem, uncrewed: float = UNCREWED):
+    def __init__(self, p: Problem):
         self.p = p
         self.h = h = highspy.Highs()
         h.setOptionValue("output_flag", False)
@@ -510,7 +512,8 @@ class Master:
         for k in need:
             rows = [nc + self.cover[(kind, k)] for kind in p.legs[k].need]
             self.z[k] = h.getNumCol()
-            h.addCol(float(uncrewed), 0.0, 1.0, len(rows), np.array(rows, dtype=np.int32), -np.ones(len(rows)))
+            h.addCol(float(p.legs[k].price), 0.0, 1.0, len(rows), np.array(rows, dtype=np.int32),
+                     -np.ones(len(rows)))
         self.first = h.getNumCol()
         self.seat_row: dict[int, int] = {}
         self.columns: list[Column] = []
@@ -573,7 +576,7 @@ class Master:
 @dataclass(frozen=True)
 class Solved:
     """The integer plan (a column per unit), the legs it leaves without a legal crew, its crew cost, and the LP and
-    Lagrangian bounds on its objective (UNCREWED per uncrewed leg plus crew cost)."""
+    Lagrangian bounds on its objective (each uncrewed leg's price plus crew cost)."""
 
     columns: dict[str, Column]
     uncrewed: tuple[int, ...]
@@ -605,7 +608,7 @@ class Solved:
                 "polished": self.polished}
 
 
-def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int = 3, polish: float = 120.0,
+def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int = 3, polish: float = 300.0,
           log: Callable[[str], None] | None = None) -> Solved:
     t0 = time.monotonic()
     master = Master(p)
@@ -657,7 +660,7 @@ def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int 
         if not frac:
             break
         top = max(frac)[1]
-        for batch in ([j for v, j in frac if v > 0.5] or [top], [top]):
+        for batch in ([j for v, j in frac if v >= SURE] or [top], [top]):
             for j in batch:
                 master.h.changeColBounds(master.first + j, 1.0, INF)
             if master.solve()[0] == "Optimal":
@@ -686,7 +689,8 @@ def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int 
             crewed[i].add(p.unit[c.unit].kind)
     uncrewed = tuple(sorted(g.id for g in p.legs if not set(g.need) <= crewed[g.id]))
     cost = sum(c.cost for c in cols.values())
-    return Solved(cols, uncrewed, UNCREWED * len(uncrewed) + cost, cost, lp, bound, converged, root_rounds, dives,
+    return Solved(cols, uncrewed, sum(p.leg[i].price for i in uncrewed) + cost, cost, lp, bound, converged,
+                  root_rounds, dives,
                   len(master.columns), round(time.monotonic() - t0, 1), integral, polished)
 
 
