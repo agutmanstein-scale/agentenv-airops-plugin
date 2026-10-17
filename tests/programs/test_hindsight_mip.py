@@ -9,6 +9,8 @@ from day_helpers import (
     busy_day,
     capped,
     capped_day,
+    closed,
+    closed_day,
     crewed,
     day,
     flight,
@@ -36,6 +38,7 @@ RANDOM = range(8)
 NETWORK = range(8)
 CAPPED = range(4)
 TIGHT = {c: {h: h % 3 for h in range(24)} for c in PLACES}
+SHUT = {"JFK": ((150, 240, 1), (300, 330, 0)), "BOS": ((100, 160, 0),), "BUF": ((200, 260, 1),)}
 
 
 def days() -> dict[str, Task]:
@@ -54,7 +57,11 @@ def days() -> dict[str, Task]:
             **{f"network{seed}": network_day(random.Random(seed)) for seed in NETWORK},
             "capped": capped_day(), "shared_hour": shared_hour_day(),
             **{f"capped_random{seed}": capped(random_day(random.Random(seed)), TIGHT) for seed in CAPPED},
-            **{f"capped_network{seed}": capped(network_day(random.Random(seed)), TIGHT) for seed in CAPPED}}
+            **{f"capped_network{seed}": capped(network_day(random.Random(seed)), TIGHT) for seed in CAPPED},
+            "closed": closed_day(),
+            **{f"closed_random{seed}": closed(random_day(random.Random(seed)), SHUT) for seed in CAPPED},
+            **{f"closed_network{seed}": closed(network_day(random.Random(seed)), SHUT) for seed in CAPPED},
+            "closed_capped_network1": closed(capped(network_day(random.Random(1)), TIGHT), SHUT)}
 
 
 def crew() -> Task:
@@ -161,7 +168,8 @@ def test_a_day_with_legs_cancelled_on_either_side_of_its_breaks_is_a_solution_at
 
 
 @pytest.mark.parametrize("name", ["slots", "stop", "moved", "broken", "busy", "quick", "crew", "random3", "network2",
-                                  "capped", "capped_random1", "capped_network2"])
+                                  "capped", "capped_random1", "capped_network2", "closed", "closed_random1",
+                                  "closed_network0", "closed_capped_network1"])
 def test_a_day_with_its_history_pinned_is_a_solution_of_the_model_with_those_pins(name):
     task = days()[name]
     first = sim.execute(task, {})
@@ -292,3 +300,21 @@ def test_a_day_whose_lp_relaxation_is_fractional_proves_through_the_mip_to_the_s
     fast, slow = mip.solve(task), mip.solve(task, fix=False)
     assert fast.proven and fast.canonical and replays(task, fast)
     assert (fast.objective, fast.deps) == (slow.objective, slow.deps)
+
+
+def test_a_ramp_closure_raises_the_optimum_and_the_optimum_replays_under_it():
+    task = closed_day()
+    sol = mip.solve(task)
+    assert sol.proven and replays(task, sol)
+    assert sol.objective > mip.solve(replace(task, layers=None)).objective
+    assert sum(sol.deps[i] is not None and 120 <= sol.deps[i] < 180 for i in (0, 1, 2, 4)) <= 1
+
+
+def test_a_pinned_departure_inside_a_ramp_closure_leaves_the_others_the_rest_of_its_cap():
+    task = closed_day()
+    sol = mip.solve(task, fixed={1: 125})
+    run = sim.execute(task, {**sol.plan(task.start), 1: {"left": 125}})
+    assert all(d is None or not 120 <= d < 180 for i, d in sol.deps.items() if i != 1 and task.flight(i).orig == "JFK")
+    assert {i: r.dep for i, r in run.flights.items() if r.status == "flown"} == {
+        i: d for i, d in sol.deps.items() if d is not None}
+    assert run.cost.total == sol.objective

@@ -6,6 +6,8 @@ from day_helpers import (
     busy_day,
     capped,
     capped_day,
+    closed,
+    closed_day,
     crewed,
     day,
     flight,
@@ -222,3 +224,31 @@ def test_a_pinned_departure_its_aircraft_makes_late_counts_in_the_hour_it_leaves
 
 def test_a_slotted_departure_uses_up_its_hour_of_leaving():
     assert slots(sim.execute(shared_hour_day(), {})) == {0: (70, 130), 1: (120, None)}
+
+
+def test_a_ramp_closure_cuts_departures_to_its_cap_and_the_rest_leave_at_its_end():
+    run = sim.execute(closed_day(), {})
+    assert deps(run) == {0: 120, 1: 180, 2: 180, 3: 100, 4: 210}
+    assert deps(sim.execute(replace(closed_day(), layers=None), {})) == {0: 120, 1: 130, 2: 140, 3: 100, 4: 200}
+    assert deps(sim.execute(closed_day(), {0: {"cancel": True}})) == {0: None, 1: 130, 2: 180, 3: 100, 4: 200}
+
+
+def test_an_aircraft_landing_inside_a_ramp_closure_reaches_its_gate_at_its_end_and_turns_from_there():
+    task = closed_day()
+    held, open_ = sim.execute(task, {}), sim.execute(replace(task, layers=None), {})
+    assert (held.flights[3].arr, open_.flights[3].arr) == (180, 160)
+    assert sim.gate(sim.truth(task), "JFK", 160) == 180 and sim.gate(sim.truth(task), "JFK", 180) == 180
+    assert sim.gate(sim.truth(task), "BOS", 160) == 160
+    late = task.flight(3).pax * 20 + task.flight(4).pax * 10
+    assert held.cost.delay - open_.cost.delay >= late
+
+
+def test_a_pinned_departure_uses_up_its_ramp_closure_before_the_others_leave():
+    run = sim.execute(closed_day(), {1: {"left": 125}})
+    assert deps(run) == {0: 180, 1: 125, 2: 180, 3: 100, 4: 210}
+
+
+def test_a_ramp_closure_with_no_room_holds_its_stations_departures_to_its_end():
+    task = closed(closed_day(), {"JFK": ((120, 180, 0),), "BUF": ((0, 130, 0),)})
+    run = sim.execute(task, {})
+    assert deps(run) == {0: 180, 1: 180, 2: 180, 3: 130, 4: 220} and run.flights[3].arr == 190
