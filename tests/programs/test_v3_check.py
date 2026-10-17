@@ -75,3 +75,32 @@ def test_sound_and_playable_read_the_anchors_and_the_tests_and_a_test_not_run_fa
     assert c["sound_agreement_tests"]["pass"] and c["playable"]["value"] == "1 passed"
     c = v3_check.criteria(v3, {"a": refs()}, {})
     assert not c["playable"]["pass"] and c["playable"]["value"] == "not run"
+
+
+def with_calm(r: dict, cancelled: int, ferries: int) -> dict:
+    return {**r, "calm": {"cancelled": cancelled, "ferries": ferries}}
+
+
+def test_a_crew_pack_adds_v4s_guards_and_a_no_crew_pack_keeps_v3s_criteria(tmp_path):
+    v2 = {"a": refs(within=84), "b": refs(within=85), "c": refs(within=80)}
+    v3 = {"a": with_calm(refs(recorded=120, cancels=(5, 0), jetblue=(10, 90), within=83), 2, 1),
+          "b": with_calm(refs(recorded=99, cancels=(4, 0), jetblue=(2, 90), within=84), 0, 0),
+          "c": with_calm(refs(recorded=130, cancels=(1, 0), jetblue=(0, 90), within=80), 1, 0),
+          "x": with_calm(refs(split="control"), 9, 9)}
+    plain = {"a": with_calm(refs(), 2, 1), "b": with_calm(refs(), 0, 0), "c": with_calm(refs(), 0, 0)}
+    assert not any(k.startswith("guard_") for k in v3_check.criteria(v3, v2, TESTS))
+    g = v3_check.criteria(v3, v2, TESTS, True, plain)
+    assert (g["guard_recorded"]["value"], g["guard_recorded"]["pass"]) == (round(2 / 3, 4), False)
+    assert (g["guard_anchor_cancels"]["value"], g["guard_anchor_cancels"]["pass"]) == (0.8333, True)
+    calm = g["guard_calm_vs_v3"]
+    assert (calm["n"], calm["value"], calm["worse"], calm["pass"]) == (3, 2, ["c"], False)
+    assert g["guard_within_15"]["v3"] == round(247 / 264, 4) and g["guard_within_15"]["pass"]
+    v3["c"]["fidelity"]["within"] = 75
+    assert not v3_check.criteria(v3, v2, TESTS, True, plain)["guard_within_15"]["pass"]
+    assert not v3_check.criteria(v3, v2, TESTS, True, None)["guard_calm_vs_v3"]["pass"]
+    plain["c"]["calm"]["cancelled"] = 1
+    assert v3_check.criteria(v3, v2, TESTS, True, plain)["guard_calm_vs_v3"]["pass"]
+    (tmp_path / "refs").mkdir()
+    (tmp_path / "refs" / "a.json").write_text('{"calm": {"cancelled": 1, "ferries": 0}}')
+    (tmp_path / "refs" / "b.json").write_text('{"cal')
+    assert v3_check.read_refs(tmp_path, ["a", "b", "z"]) == {"a": {"calm": {"cancelled": 1, "ferries": 0}}}

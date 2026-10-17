@@ -2,7 +2,7 @@
 gates on the v3 pack (§6.2). No LLM is called; only the reference solvers run (HiGHS), and the suite's agreement and
 live-play tests as evidence.
 
-    python scripts/v3_check.py PACK --v2 DIR [--workers 14] [--prove-s 1800] [--watch-s 900] [--no-tests]
+    python scripts/v3_check.py PACK --v2 DIR [--v3 DIR] [--workers 14] [--prove-s 1800] [--watch-s 900] [--no-tests]
 
 1. the v3 pack's tasks (scripts/v3_pack.py) and their references under PACK/refs/ (v3_pack.refs: those there whose
    signature matches are kept, the others run, so a pack built with `--refs` runs nothing here);
@@ -26,6 +26,12 @@ The criteria, on the storm dates both packs have the numbers for (the controls o
   sim/MIP agreement tests (tests/programs/test_hindsight_mip.py, layered days included) pass;
 - playable: the live-server test in which an LLM (a fake LiteLLM) plays a v3 day end to end, graded on the truth
   (tests/v3day/test_v3_agent.py), passes.
+On a pack with crews (v4's, or Edgar's: its manifest names crew bases), docs/v4/DESIGN.md §0's guards are criteria
+too, on the same storm dates: the recorded day costs no less than the anchor on at least RECORDED_SHARE of them; the
+anchors cancel (auto-cancels included) no more than JetBlue did, pooled; on every date the calm day forces no more
+cancellations and no more ferries than the no-crew pack's (`--v3`, its references read under DIR/refs/, never run)
+does there; and of the replay's flown flights the share leaving within 15 min of JetBlue's is within WITHIN_SLACK of
+v2's.
 The gates, as world_check registers them (airline_replay, fidelity, calm_day, controls, references) on the pack's kept
 tasks, a task being kept when every MIP it ran proved and no reference failed; `days` reports the pack's dates.
 """
@@ -53,6 +59,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INPUTS, DERIVED = ROOT / "cache" / "inputs", ROOT / "cache" / "derived"
 DO_NOTHING, FOLLOWER = 1.4, 1.5
 OPTIMUM_SHARE, FREE_DROP, FLOWN_SHARE = 0.35, 0.10, 0.97
+RECORDED_SHARE, WITHIN_SLACK = 0.95, 0.01
 AGREEMENT = ("tests/programs/test_hindsight_mip.py",)
 PLAYABLE = ("tests/v3day/test_v3_agent.py",)
 
@@ -61,6 +68,7 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("pack", type=Path)
     ap.add_argument("--v2", type=Path, required=True, help="v2's folder: its tasks.jsonl and refs/, built if missing")
+    ap.add_argument("--v3", type=Path, help="the no-crew pack whose calm days a crew pack's are read against")
     ap.add_argument("--workers", type=int, default=14)
     ap.add_argument("--prove-s", type=float, default=v3_pack.PROVE_S, help="time limit of each anchor, flat or calm")
     ap.add_argument("--watch-s", type=float, default=v3_pack.WATCH_S, help="time limit of each follower watch solve")
@@ -76,8 +84,11 @@ def main(argv: list[str] | None = None) -> None:
     v2_refs = v3_pack.refs(args.v2, v2, args.workers, limits, clock)
     tests = {} if args.no_tests else {"agreement": pytest(AGREEMENT), "playable": pytest(PLAYABLE)}
     clock.lap("tests", json.dumps({k: v["pass"] for k, v in tests.items()}))
-    out = {"criteria": criteria(v3_refs, v2_refs, tests), "gates": gates(v3, v3_refs, manifest),
-           "parameters": {"pack": str(args.pack), "v2": str(args.v2), "time_limits_s": limits,
+    crewed = bool(manifest.get("bases"))
+    plain = read_refs(args.v3, [t.task_id for t in v3]) if crewed and args.v3 else None
+    out = {"criteria": criteria(v3_refs, v2_refs, tests, crewed, plain), "gates": gates(v3, v3_refs, manifest),
+           "parameters": {"pack": str(args.pack), "v2": str(args.v2), "v3": str(args.v3) if args.v3 else None,
+                          "crewed": crewed, "time_limits_s": limits,
                           "scale": manifest["scale"], "code": v3_pack.revision(), "pack_code": manifest.get("code")},
            "tasks": [row(t, v3_refs.get(t.task_id, {}), v2_refs.get(t.task_id, {})) for t in v3],
            "wall_s": clock.laps}
@@ -131,8 +142,21 @@ def pytest(paths: Iterable[str]) -> dict:
             "wall_s": round(time.monotonic() - t0, 1)}
 
 
-def criteria(v3: Mapping[str, dict], v2: Mapping[str, dict], tests: Mapping[str, dict]) -> dict:
-    """§0's criteria from the two packs' references by task id (refs/<id>.json each) and the tests' outcomes."""
+def read_refs(folder: Path, ids: Iterable[str]) -> dict[str, dict]:
+    """The references a pack holds under folder/refs/ for each of `ids` it has."""
+    out = {}
+    for i in ids:
+        try:
+            out[i] = json.loads((folder / "refs" / f"{i}.json").read_text())
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def criteria(v3: Mapping[str, dict], v2: Mapping[str, dict], tests: Mapping[str, dict], crewed: bool = False,
+             plain: Mapping[str, dict] | None = None) -> dict:
+    """§0's criteria from the two packs' references by task id (refs/<id>.json each) and the tests' outcomes; on a
+    `crewed` pack v4's guards too, the calm day against the no-crew pack's references `plain`."""
     storm = {i: (r, v2[i]) for i, r in v3.items() if r.get("split") != "control" and i in v2}
     out = {
         "harder_do_nothing": ratio_of(storm, lambda r: excess(r, "naive"), DO_NOTHING,
@@ -160,7 +184,35 @@ def criteria(v3: Mapping[str, dict], v2: Mapping[str, dict], tests: Mapping[str,
         "sound_agreement_tests": tested(tests, "agreement", "the suite's sim/MIP agreement tests pass"),
         "playable": tested(tests, "playable", "an LLM (fake LiteLLM) plays a v3 day end to end through the server"),
     }
+    if crewed:
+        out |= guards(storm, plain)
     return out
+
+
+def guards(storm: Mapping[str, tuple[dict, dict]], plain: Mapping[str, dict] | None) -> dict:
+    """docs/v4/DESIGN.md §0's guards on a crew pack's storm dates (each its references and v2's)."""
+    rec = [x >= 0 for r, _ in storm.values() if (x := safe(lambda r: excess(r, "recorded"), r)) is not None]
+    rec_share = round(sum(rec) / len(rec), 4) if rec else None
+    calm = {}
+    for i, (r, _) in storm.items():
+        b = (plain or {}).get(i, {}).get("calm", {})
+        if "cancelled" in r.get("calm", {}) and "cancelled" in b:
+            calm[i] = r["calm"]["cancelled"] <= b["cancelled"] and r["calm"]["ferries"] <= b["ferries"]
+    worse = sorted(i for i, ok in calm.items() if not ok)
+    return {
+        "guard_recorded": {"rule": "the recorded day costs >= the anchor on >= 95% of dates", "n": len(rec),
+                           "value": rec_share, "threshold": RECORDED_SHARE,
+                           "pass": rec_share is not None and rec_share >= RECORDED_SHARE},
+        "guard_anchor_cancels": pooled_of(storm, anchor_cancels, lambda r: r["jetblue"]["cancelled"],
+                                          lambda a, b: a <= 1, "the anchors' cancellations over JetBlue's, <= 100%"),
+        "guard_calm_vs_v3": {"rule": "on every date the calm day forces no more cancellations and ferries than the "
+                                     "no-crew pack's (--v3)", "n": len(calm), "value": len(calm) - len(worse),
+                             "worse": worse, "pass": plain is not None and bool(calm) and not worse},
+        "guard_within_15": pooled_of(storm, lambda r: r["fidelity"]["within"], lambda r: r["fidelity"]["flown"],
+                                     lambda a, b: b is not None and a >= b - WITHIN_SLACK,
+                                     "of the replay's flown flights, the share leaving within 15 min of JetBlue's "
+                                     "minute, within 1 point of v2's"),
+    }
 
 
 def excess(r: dict, k: str) -> float | None:

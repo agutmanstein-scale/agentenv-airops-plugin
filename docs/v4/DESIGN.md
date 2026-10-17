@@ -13,8 +13,10 @@ the anchor cancelled 129% of what JetBlue did.
 v4 is done when, on the pack's dates, measured by `scripts/v3_check.py` against v2 and v3 on the same dates:
 1. **Harder:** do-nothing's median excess over the anchor >= 1.4x v2's, and the follower's >= 1.5x v2's.
 2. **No stricter than reality (guards):** world_check's controls gate passes (each control's recorded day >= its
-   anchor); the calm-day gate passes (<= 1 forced cancellation and <= 2 ferries on >= 90% of dates); the recorded
-   day's excess over the anchor is >= 0 on >= 95% of dates; the anchor cancels no more than JetBlue did (<= 100%);
+   anchor); the calm day is relative to v3 (no crews) on the same dates: on every date it forces no more cancellations
+   and no more ferries than v3's calm day there (v4's crews add no calm-day failure; the absolute <= 1 and <= 2 on
+   >= 90% of dates can't be met by any crew, as v2's and v3's own calm days pass it on only 80.6% of the 129-date pack;
+   DECISIONS 2026-10-17); the recorded day's excess over the anchor is >= 0 on >= 95% of dates; the anchor cancels no more than JetBlue did (<= 100%);
    the replay flies >= 97% of JetBlue's flown flights and its departures within 15 min stay within 1 point of v2's.
 3. **Sound and playable:** as v3 (every anchor proven or flagged and replaying exactly; agreement tests; the live
    server test).
@@ -34,7 +36,8 @@ enforcement, the reserve pools of v3's U5) and replaces only how pairings are cu
   departure past it flies only on a reserve (v3's pools).
 
 So every duty is legal on schedule and the crew binds only when delays push a duty past its limit, as real crews time
-out. `buffer` and `max_segments` are fitted on train dates only: the values that maximise do-nothing's excess while
+out. `max_segments` is kept but has no effect in practice: every base departure starts a duty, so duties rarely
+exceed 3 legs (V4-1's fit: the same scores at 3 to 6 on every buffer). `buffer` and `max_segments` are fitted on train dates only: the values that maximise do-nothing's excess while
 every §0 guard holds on the train dates (defaults 60 min and 4, the spike's). Reserve pools are then fitted as in v3.
 
 ## §2 Further levers (only if §1 alone misses §0)
