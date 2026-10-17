@@ -40,7 +40,8 @@
   takeoff (117.19(a)(1)). A departure from a base has no crew deadline: reserves crew it. A departure from an
   outstation must block in by the report + the limit + EXTENSION, so its crew deadline is that less its scheduled
   block, static as the schedule is; after it the crew may fly again only after REST, the 10 consecutive hours of rest
-  117.25(e) requires (`rest`).
+  117.25(e) requires (`rest`). v4 cuts the pairings legal on schedule instead (layers.crew, a build's crew Rule), the
+  records alike.
 """
 
 import math
@@ -105,14 +106,16 @@ def p5(values: Iterable[float]) -> int:
 
 def flights(day: pack.Day, sc: pack.Scope, x: pd.DataFrame, families: Mapping[str, str],
             tests: Callable[[str, str, int, int, int], tuple[str | None, str | None, bool]], dmax: int = DMAX,
-            cutoff: int = CUTOFF, bases: Collection[str] = ()) -> list[Flight]:
+            cutoff: int = CUTOFF, bases: Collection[str] = (),
+            cut: Callable[..., dict[Hashable, Crew]] | None = None) -> list[Flight]:
     """The scope's flights, ids in (scheduled departure, flight number, origin) order. `x` holds every carrier's rows
     around the date with local sd/sa/ad/aa and the repaired `lb`; `tests(orig, dest, sched_arr, departs, sched_dep)`
-    gives (controlled, gs_held, exempt); with crew `bases` each flight has its crew."""
+    gives (controlled, gs_held, exempt); with crew `bases` each flight has its crew, from `crews` or from `cut`, a
+    function of the same arguments (layers.crew.Rule.crews)."""
     crew = {}
     if bases:
         legs = day.cur[day.cur.Tail_Number.isin(sc.tails)]
-        crew = crews(legs, day.base, bases, {c: a["tz"] for c, a in pack.airports(set(legs.Origin)).items()})
+        crew = (cut or crews)(legs, day.base, bases, {c: a["tz"] for c, a in pack.airports(set(legs.Origin)).items()})
     dec = sc.dec.assign(num=sc.dec.Flight_Number_Reporting_Airline.astype(int)).sort_values(["sd", "num", "Origin"])
     seats = defaultdict(list)
     for t in sc.tails:

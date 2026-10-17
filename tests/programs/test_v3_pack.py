@@ -11,7 +11,7 @@ from program_helpers import CACHE, DERIVED, ROOT, needs_cache
 from agentenv_airops.build import fetch
 from agentenv_airops.programs import candidates, network, rbs, references, unseen
 from agentenv_airops.programs.candidates import Built
-from agentenv_airops.programs.layers import config
+from agentenv_airops.programs.layers import calibrate, config, crew
 from agentenv_airops.programs.model import LAYERED, Task
 
 sys.path.insert(0, str(ROOT / "scripts"))  # v3_pack imports world_check beside it, as a script run does
@@ -77,6 +77,53 @@ def test_the_pack_splits_and_fits_on_its_train_dates_and_a_quick_run_writes_the_
     quick = (tmp_path / "tasks.jsonl").read_text().splitlines()
     assert quick == [lines[sorted(split).index(d)] for d in sorted(chosen)]
     assert json.loads((tmp_path / "manifest.json").read_text())["constants"] == manifest["constants"]
+
+
+@needs_cache
+def test_a_v4_crewed_pack_fits_its_cut_on_a_train_sample_and_builds_every_date_at_it(tmp_path, monkeypatch):
+    """With `--crew v4 --max-segments 4` the buffer is fitted (the fit stubbed to pick 30): each buffer of the grid
+    builds the train sample at its cut, layered at the fitted rates with unlimited reserves; every date is then built
+    at the pick, its pools fitted there, and the manifest records the crew, its fit and its sample."""
+    storms, counts = network.storms(CACHE, MONTHS)
+    monkeypatch.setattr(network, "storms", lambda inputs: (storms, counts))
+    monkeypatch.setattr(network, "control_dates", lambda inputs, derived: dict([CONTROL]))
+    seen = {}
+
+    def fit(grid, plain, workers, cache):
+        seen.update(grid)
+        seen[None] = plain
+        assert cache == tmp_path / "crew-fit"
+        return crew.Rule("v4", 30, 4), [{"stub": True}]
+
+    monkeypatch.setattr(calibrate, "crew_fit", fit)
+    with pytest.raises(SystemExit):
+        v3_pack.main(["--out", str(tmp_path), "--crew", "v4"])
+    v3_pack.main(["--out", str(tmp_path), "--workers", "4", "--bases", "JFK,BOS,FLL,MCO", "--crew", "v4",
+                  "--max-segments", "4"])
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+    train = manifest["constants"]["dates"]
+    sample = list(calibrate.sample(train))
+    assert manifest["crew"] == {"crew": "v4", "buffer": 30, "max_segments": 4, "fitted": True,
+                                "fit": {"sample": sample, "seed": 0, "time_limit_s": 600.0, "rules": [{"stub": True}],
+                                        "chosen": {"crew": "v4", "buffer": 30, "max_segments": 4}}}
+    plain = seen.pop(None)
+    assert [t.date for t in plain] == sample and not any(t.bases or t.flights[0].crew for t in plain)
+    assert list(seen) == calibrate.grid(calibrate.BUFFERS, (4,))
+    for rule, tasks in seen.items():
+        assert [t.date for t in tasks] == sample and all(t.layers and not t.layers.reserves for t in tasks)
+        x = Task.from_dict(json.loads((tmp_path / v3_pack.folder_of(tmp_path, rule).name / f"{sample[0]}.json")
+                                      .read_text())["task"])
+        assert [f.crew for f in tasks[0].flights] == [f.crew for f in x.flights]
+        assert all(f.sched_dep + f.sched_block + rule.buffer <= f.crew.report + f.crew.fdp for f in x.flights)
+    assert seen[crew.Rule("v4", 0, 4)][0].flights != seen[crew.Rule("v4", 120, 4)][0].flights
+    tasks = [Task.from_dict(json.loads(line)) for line in (tmp_path / "tasks.jsonl").read_text().splitlines()]
+    at = {d: Task.from_dict(json.loads((tmp_path / "built-v4-30-4" / f"{d}.json").read_text())["task"])
+          for d in manifest["split"]}
+    for t in tasks:
+        if t.split != "control":
+            assert [f.crew for f in t.flights] == [f.crew for f in at[t.date].flights]
+    assert all(t.bases == ("JFK", "BOS", "FLL", "MCO") for t in tasks)
+    assert {t.layers.reserves.keys() <= set(t.bases) for t in tasks} == {True}
 
 
 def test_a_resumed_pack_keeps_each_dates_build_and_rebuilds_a_date_left_unbuilt_or_cut_short(tmp_path):

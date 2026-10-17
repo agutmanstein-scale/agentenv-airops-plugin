@@ -52,6 +52,7 @@ from ..build import bts, fetch, fleet, pack, windows
 from ..core.model import Airport
 from . import advisories, rbs, repairs, unseen
 from .advisories import HUBS, Run, Stop
+from .layers.crew import EDGAR, Rule
 from .model import Arrival, Flight, Programs, Task, coverage
 from .rbs import Covers
 
@@ -309,9 +310,11 @@ def airports_of(codes: Iterable[str]) -> dict[str, Airport]:
 
 def build_candidate(d: str, hub: str, inputs: Path, derived: Path, e_fit: Mapping[str, float],
                     e_median: Mapping[str, float], scale: Mapping[str, float], cutoff: int = repairs.CUTOFF,
-                    window: tuple[int, int] | None = None, split: str = "", bases: Sequence[str] = ()) -> Built:
+                    window: tuple[int, int] | None = None, split: str = "", bases: Sequence[str] = (),
+                    crew: Rule = EDGAR) -> Built:
     """The task of (d, hub) at its rule window (or at `window`, as for a control), or None and the reasons; `e_fit`
-    and `e_median` are unseen.table's at `scale`; crew `bases` turn the crew model on (repairs.crews)."""
+    and `e_median` are unseen.table's at `scale`; crew `bases` turn the crew model on, its pairings cut by `crew`
+    (Edgar's, repairs.crews, or v4's, layers.crew)."""
     ctx = context(inputs, derived, d, hub)
     row = {"date": d, "hub": hub, "p0": None, "window": None, "slide": None, "task_id": None, "reason": "",
            "tried": []}
@@ -331,7 +334,7 @@ def build_candidate(d: str, hub: str, inputs: Path, derived: Path, e_fit: Mappin
         if not sc.ok:
             row["tried"].append({"slide": slide, "window": list(w), "clauses": sc.clauses})
             continue
-        task = assemble(ctx, sc, d, hub, e_fit, e_median, scale, cutoff, slide, split, bases)
+        task = assemble(ctx, sc, d, hub, e_fit, e_median, scale, cutoff, slide, split, bases, crew)
         if window or task.clauses["program_in_window"]:
             return Built(task, {**row, "window": list(w), "slide": slide, "task_id": task.task_id,
                                 "clauses": task.clauses})
@@ -349,9 +352,9 @@ def span(day: pack.Day, h: int) -> tuple[int, int] | None:
 
 def assemble(ctx: Context, sc: pack.Scope, d: str, hub: str, e_fit: Mapping[str, float],
              e_median: Mapping[str, float], scale: Mapping[str, float], cutoff: int, slide: int, split: str,
-             bases: Sequence[str] = ()) -> Task:
+             bases: Sequence[str] = (), crew: Rule = EDGAR) -> Task:
     day = ctx.day
-    flights = repairs.flights(day, sc, ctx.x, ctx.families, tests(ctx), cutoff=cutoff, bases=bases)
+    flights = repairs.flights(day, sc, ctx.x, ctx.families, tests(ctx), cutoff=cutoff, bases=bases, cut=crew.crews)
     tails, closure = repairs.tails(day, sc, flights, ctx.families, day.turn)
     programs = hub_programs(ctx, flights, sc.start, e_fit, e_median, scale)
     codes = ({f.orig for f in flights} | {f.dest for f in flights} | set(HUBS)

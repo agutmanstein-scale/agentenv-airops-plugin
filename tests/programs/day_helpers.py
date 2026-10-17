@@ -4,11 +4,14 @@ every program covering every origin."""
 import random
 from dataclasses import replace
 
+import pandas as pd
 from program_helpers import EVERY, adv
 
 from agentenv_airops.core.model import Airport
-from agentenv_airops.programs import network
+from agentenv_airops.programs import network, repairs
 from agentenv_airops.programs.advisories import HUBS, Advisory, Stop
+from agentenv_airops.programs.candidates import midnight
+from agentenv_airops.programs.layers.crew import Rule
 from agentenv_airops.programs.model import (
     EXTENSION,
     Busy,
@@ -322,3 +325,26 @@ def with_crews(task: Task, rng: random.Random, pools: dict[str, int]) -> Task:
         d = f.sched_dep + rng.randrange(0, 150)
         flights.append(based(f, d) if f.orig in HUBS else crewed(f, d))
     return reserved(replace(task, flights=tuple(flights)), pools)
+
+
+CREW_DATE = "2024-07-01"
+BASE = midnight(CREW_DATE)
+ZONES = dict.fromkeys(("JFK", "BOS", "BUF", "DCA", "PWM", "MCO", "RDU"), "America/New_York")
+CHAIN = [("JFK", "BUF", 500, 100), ("BUF", "DCA", 660, 80), ("DCA", "PWM", 800, 90), ("PWM", "BUF", 950, 70),
+         ("BUF", "DCA", 1080, 80), ("DCA", "JFK", 1230, 70)]
+
+
+def legs(rows, tail_: str = "N1") -> pd.DataFrame:
+    """A tail's scheduled legs (origin, destination, departure, block) as repairs.crews reads them, labelled 0 on."""
+    return pd.DataFrame([(k, tail_, o, d, sd, b) for k, (o, d, sd, b) in enumerate(rows)],
+                        columns=["label", "Tail_Number", "Origin", "Dest", "sd", "CRSElapsedTime"]).set_index("label")
+
+
+def chain_day(rule: Rule, lb: int = 0, slack: int = 240) -> Task:
+    """One aircraft flying CHAIN out of JFK through four outstations and back on 1 July 2024, crewed by `rule`, its
+    first leg `lb` late, each deadline `slack` after its schedule: Edgar's one pairing runs past its limit on schedule
+    at the last leg, v4's crew changes at BUF."""
+    crews = rule.crews(legs(CHAIN), BASE, repairs.BASES, ZONES)
+    flights = [replace(flight(k, o, d, sd, b, lb=lb if k == 0 else 0, deadline=sd + slack), crew=crews[k])
+               for k, (o, d, sd, b) in enumerate(CHAIN)]
+    return replace(day(flights, [tail("N1", "JFK", end="JFK")]), date=CREW_DATE, base=BASE, bases=repairs.BASES)

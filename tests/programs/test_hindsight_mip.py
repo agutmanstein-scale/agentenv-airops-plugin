@@ -10,6 +10,7 @@ from day_helpers import (
     busy_day,
     capped,
     capped_day,
+    chain_day,
     closed,
     closed_day,
     crewed,
@@ -39,6 +40,7 @@ from agentenv_airops.programs import candidates, mip, references, sim
 from agentenv_airops.programs.advisories import HUBS
 from agentenv_airops.programs.cost import cancel_price
 from agentenv_airops.programs.layers import arrcaps, closures, depcaps
+from agentenv_airops.programs.layers.crew import Rule
 from agentenv_airops.programs.model import Task
 
 RANDOM = range(8)
@@ -78,6 +80,9 @@ def days() -> dict[str, Task]:
             "outcapped_closed_capped_network1": outcapped(closed(capped(network_day(random.Random(1)), TIGHT), SHUT),
                                                           OUT_TIGHT),
             "reserves": reserve_day(), "reserves_none": reserved(reserve_day(), {"JFK": 0}),
+            "edgar_chain": chain_day(Rule()), "v4_chain": chain_day(Rule("v4")),
+            "v4_chain_pooled": reserved(chain_day(Rule("v4")), {"JFK": 0}),
+            "v4_chain_late": reserved(chain_day(Rule("v4"), lb=450, slack=900), {"JFK": 0}),
             **{f"reserves_random{seed}": with_crews(random_day(random.Random(seed)), random.Random(seed), POOLS)
                for seed in CAPPED},
             **{f"reserves_network{seed}": with_crews(network_day(random.Random(seed)), random.Random(seed), POOLS)
@@ -127,10 +132,17 @@ def outcapped_task(task, slice_inputs, tmp_path_factory) -> Task:
                                                                 task.date), min_sched=1))
 
 
-@pytest.fixture(scope="module", params=["task", "crewed", "capped_task", "closed_task", "outcapped_task"])
+@pytest.fixture(scope="module")
+def v4pooled(v4crewed) -> Task:
+    """The fixture day with v4's crews and an empty reserve pool at every base."""
+    return reserved(v4crewed, dict.fromkeys(v4crewed.bases, 0))
+
+
+@pytest.fixture(scope="module", params=["task", "crewed", "v4crewed", "v4pooled", "capped_task", "closed_task",
+                                        "outcapped_task"])
 def fixture_day(request) -> Task:
-    """The fixture day, the same day with the crew model, under departure caps, with a ramp closure, and under
-    outstation arrival caps."""
+    """The fixture day, the same day with Edgar's crew model, with v4's (and empty pools), under departure caps, with a
+    ramp closure, and under outstation arrival caps."""
     return shortened(request.getfixturevalue(request.param))
 
 
