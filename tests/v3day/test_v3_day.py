@@ -4,6 +4,7 @@ import random
 from dataclasses import replace
 
 from day_helpers import (
+    based,
     capped,
     crewed,
     day,
@@ -213,6 +214,23 @@ def test_a_reserve_is_released_and_a_target_that_moves_it_to_another_flight_is_r
     assert d.confirm([{"flight": "f0", "action": "release_reserve"}])["confirmed"] == ["f0"]
     assert d.plan == {0: {"not_before": 220}} and d.confirm([{"flight": "f0", "action": "release_reserve"}])[
         "unchanged"] == ["f0"]
+
+
+def test_a_reserve_past_its_flights_crew_deadline_stands_and_a_cancellation_then_is_priced_at_the_clock():
+    f0 = based(flight(0, "JFK", "BUF", 100, 60, lb=400, deadline=700), 150)
+    task = reserved(day([f0, flight(1, "BOS", "DCA", 700, 60, deadline=1200)],
+                        [tail("N1", "JFK", end="BUF"), tail("N2", "BOS", end="DCA")]), {"JFK": 1})
+    d = Day(task)
+    d.confirm(call(0))
+    while d.t < 240:
+        d.advance()
+    assert changes_to(d, {}) == []
+    out = d.confirm([{"flight": "f0", "action": "release_reserve"}])
+    assert out["confirmed"] == []
+    assert "keeps its reserve: its crew deadline passed at 02:30" in out["refused"][0]["reason"]
+    assert d.plan == {0: {"reserve": True}} and d.project(d.plan).flights[0].dep == 500
+    at = d.clock
+    assert d.confirm(cancel(0))["confirmed"] == ["f0"] and sim.execute(task, d.plan).flights[0].decided == at
 
 
 def test_a_batch_counts_a_flights_last_reserve_row_and_a_cancellation_over_a_call_whatever_their_order():

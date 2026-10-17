@@ -16,7 +16,8 @@ prices (a flight gone on the truth by the clock), and a decision never reaches b
 Actions are v1's: cancel, hold (not_before) and restore, read by v1's `day.read_changes` and confirmed as plan entries
 `{"cancel": True, "decided": minute}` and `{"not_before": minute}`, and, with a finite reserve pool at a crew base
 (docs/v3/DESIGN.md §3.4), call_reserve: the plan entry gains `"reserve": True`, so the flight may leave its base past
-its crew deadline on a reserve crew, and release_reserve drops the call. A call is refused for a flight that doesn't
+its crew deadline on a reserve crew, and release_reserve drops the call, refused once the flight's crew deadline is past
+(it would auto-cancel back then, a decision reaching back past the clock). A call is refused for a flight that doesn't
 leave a base with a pool, a cancelled one, or one the pool has no crew left for (it would take one from a flight already
 holding it: sim.granted grants in flight-id order); a hold or a restore keeps the call, a cancellation drops it, and a
 call stands, like any change, once its flight is frozen or gone. In a batch, as in v1, a flight's last change of each
@@ -209,6 +210,9 @@ class Day:
                     continue
                 then[i] = {**old, "reserve": True}
             elif "reserve" in entry:
+                if why := self._unreleasable(i, at):
+                    refused.append({"flight": fid(i), "from": DESK, "reason": why})
+                    continue
                 if rest := {k: v for k, v in old.items() if k != "reserve"}:
                     then[i] = rest
             elif entry["cancel"]:
@@ -259,6 +263,15 @@ class Day:
             pool = task.layers.reserves[f.orig]
             return f"{name}: no reserve crew is left at {f.orig}: " + (
                 f"its pool of {pool} is on {on}; release one first." if on else "its pool is empty.")
+        return None
+
+    def _unreleasable(self, i: int, at: int) -> str | None:
+        """Why i's reserve can't be released at `at`, or None: past its crew deadline it would auto-cancel back then."""
+        f = self.task.flight(i)
+        if (lapse := self.task.auto_at(f)) < at:
+            return f"{fid(i)} ({f.flight} {f.orig}-{f.dest}) keeps its reserve: its crew deadline passed at " \
+                   f"{hhmm(lapse)}, before now ({hhmm(at)}), so without the reserve it would have auto-cancelled " \
+                   "then; cancel it instead."
         return None
 
     def _pinned_reason(self, i: int, r: sim.FlightRun, at: int) -> str:
@@ -320,7 +333,8 @@ def changes_to(day: Day, target: Mapping[int, Mapping]) -> list[dict]:
             rows.append({"flight": fid(i), "action": action, "not_before": _time(b["not_before"])})
         if i in calls and not _called(day.plan.get(i)):
             rows.append({"flight": fid(i), "action": CALL})
-        elif i not in calls and _called(day.plan.get(i)) and not b["cancel"]:
+        elif i not in calls and _called(day.plan.get(i)) and not b["cancel"] \
+                and day.task.auto_at(day.task.flight(i)) >= day.clock:
             rows.append({"flight": fid(i), "action": RELEASE})
     return rows
 
