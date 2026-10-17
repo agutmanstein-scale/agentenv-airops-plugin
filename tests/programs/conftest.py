@@ -8,6 +8,7 @@ from program_helpers import APT_BASE, DATE, HUB, SLICE, TAXI_OUT, WINDOW
 
 from agentenv_airops.build import bts, pack
 from agentenv_airops.programs import advisories, candidates, rbs, repairs, unseen
+from agentenv_airops.programs.layers.crew import EDGAR, Rule
 
 
 @pytest.fixture(scope="session")
@@ -53,9 +54,22 @@ def crewed(slice_inputs, fits, tmp_path_factory):
     return build(slice_inputs, fits, tmp_path_factory.mktemp("derived"), repairs.BASES).task
 
 
-def build(slice_inputs, fits, derived, bases=()):
+@pytest.fixture(scope="session")
+def v4crewed(slice_inputs, fits, tmp_path_factory):
+    """The same evening with the crew model at JetBlue's bases, its pairings cut legal on schedule (layers.crew)."""
+    return build(slice_inputs, fits, tmp_path_factory.mktemp("derived"), repairs.BASES, Rule("v4")).task
+
+
+@pytest.fixture(scope="session")
+def v4plain(slice_inputs, fits, tmp_path_factory):
+    """The evening built with v4's crew cut and no crew bases: no crew model at all."""
+    return build(slice_inputs, fits, tmp_path_factory.mktemp("derived"), (), Rule("v4")).task
+
+
+def build(slice_inputs, fits, derived, bases=(), crew=EDGAR):
     e_fit, e_median = unseen.table(fits, {"JFK": 1.0, "BOS": 1.0})
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(pack, "MIN_TAILS", 5)
         return candidates.build_candidate(DATE, HUB, slice_inputs, derived, e_fit, e_median,
-                                          {"JFK": 1.0, "BOS": 1.0}, window=WINDOW, split="train", bases=bases)
+                                          {"JFK": 1.0, "BOS": 1.0}, window=WINDOW, split="train", bases=bases,
+                                          crew=crew)
