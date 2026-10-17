@@ -118,8 +118,11 @@ Each section: what it is, how the sim applies it, how the MIP carries it, how it
   the calls are granted in flight-id order, as any plan's are.
 - **Desk:** `call_reserve` and `release_reserve`; a release is refused once the flight's crew deadline has passed
   (without the reserve it would auto-cancel back then, a decision before the clock).
-- **Calibration:** the pool per base, on train days, the smallest pool that keeps the replay's auto-cancels within
-  G1 (none is public).
+- **Calibration:** none is public, so the pool per base is fitted to G1's thresholds on the train dates: the
+  smallest pool at which, on every train date, the airline replay auto-cancels at most 1% and at most 2 of the
+  flights JetBlue flew by their deadline (a date already over that with unlimited reserves: no more than with them).
+  Per base with the others unlimited, the largest over the dates, then rechecked with every pool on
+  (`layers.calibrate`; DECISIONS 2026-10-17, U6 Q2).
 
 ### §3.5 Slot release (experiment)
 - **What:** a cancelled flight's RBS slot is released to compression (other carriers) at the cancellation's decision
