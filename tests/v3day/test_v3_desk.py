@@ -1,9 +1,9 @@
 import json
 from dataclasses import replace
 
-from day_helpers import closed_day, outcapped
+from day_helpers import closed, closed_day, day, flight, outcapped, tail
 
-from agentenv_airops.programs import references
+from agentenv_airops.programs import references, sim
 from agentenv_airops.programs.model import LAGS, Task
 from agentenv_airops.v3day import clock
 from agentenv_airops.v3day.day import Day
@@ -64,3 +64,15 @@ def test_a_day_without_layers_shows_no_caps_closures_or_weather():
     s = Day(task).situation()
     assert s["arr_caps"] == s["closures"] == s["weather"] == {} and s["news"] == []
     assert "None under way" not in Day(task).text() and "## Ramp closures" in Day(task).text()
+
+
+def test_a_closure_is_reported_over_only_once_its_end_has_come_even_when_the_guess_matches_it():
+    task = closed(day([flight(0, "JFK", "BUF", 400, 60)], [tail("N1", "JFK", end="BUF")]),
+                  {"JFK": ((120, 120 + sim.GUESS, 1, 1),)})
+    d = Day(task)
+    while d.t < 120:
+        d.advance()
+    assert d.situation()["closures"]["JFK"][0]["reported"] is False
+    d.advance()
+    assert d.t == 180 and d.situation()["closures"]["JFK"] == [
+        {"from": "02:00", "to": "02:30", "reported": True, "dep_cap": 1, "arr_cap": 1}]

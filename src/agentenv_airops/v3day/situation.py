@@ -34,7 +34,7 @@ def build(day: "Day") -> dict:
     return {"watch": day.watch, "time": hhmm(t), "clock": hhmm(day.clock), "freeze_line": _time(day.line),
             "frozen": len(day.frozen), "cost": run.cost.to_dict() | {"counts": run.counts},
             "programs": programs(task, world), "dep_caps": dep_caps(task, t), "arr_caps": arr_caps(task, t),
-            "closures": closures(task, world), "weather": weather(day),
+            "closures": closures(world, t), "weather": weather(day),
             "reserves": reserves(task, run.reserved),
             "flights": [flight_row(day, f.id, run.flights[f.id], run.reserved)
                         for f in sorted(task.flights, key=lambda f: (f.sched_dep, f.id))],
@@ -67,13 +67,11 @@ def _hours(caps: Mapping[str, Mapping[int, int]], t: int) -> dict[str, dict[str,
                 if 60 * h <= t + CAP_LOOK} for s, by in sorted(caps.items())}
 
 
-def closures(task: Task, world: sim.World) -> dict[str, list[dict]]:
-    """The ramp closures the day as known has per hub: from, to, whether that end is reported (else expected), and
-    JetBlue's departure and arrival caps over it."""
-    truth = task.layers.closures if task.layers else {}
-    return {s: [{"from": hhmm(a), "to": hhmm(b), "reported": (a, b) in {(x[0], x[1]) for x in truth.get(s, ())},
-                 "dep_cap": dep, "arr_cap": arr} for a, b, dep, arr in spans]
-            for s, spans in sorted(world.closures.items())}
+def closures(world: sim.World, t: int) -> dict[str, list[dict]]:
+    """The ramp closures the day as known at watch t has per hub: from, to, whether that end is reported (it has come
+    by t; else it is expected, sim.known), and JetBlue's departure and arrival caps over it."""
+    return {s: [{"from": hhmm(a), "to": hhmm(b), "reported": b <= t, "dep_cap": dep, "arr_cap": arr}
+                for a, b, dep, arr in spans] for s, spans in sorted(world.closures.items())}
 
 
 def weather(day: "Day") -> dict[str, dict]:
