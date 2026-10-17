@@ -1,10 +1,12 @@
-"""What the desk sees at a watch (docs/v3/DESIGN.md §5), as a JSON-able dict and as text in v1's style: the time and
-the freeze line, the programs as issued (sim.known's GDP segments, a proposed one included, and ground-stop pieces),
-the departure caps known so far (the truth's `layers.dep_caps` for the hours within CAP_LOOK), every flight on the day
-as known (status, known delay, the plan, where the plan has it leave and land, its slot or hold, its crew's deadline
-and rest, and for a departure from a base with a reserve pool whether the plan has a reserve crew on it), each such
-base's reserve pool and what the plan's calls leave of it (sim.granted), the aircraft as the plan has them now, and the
-news delivered so far."""
+"""What the desk sees at a watch (docs/v3/DESIGN.md §5), as a JSON-able dict and as text in v1's style: the time and the
+freeze line, the programs as issued (sim.known's GDP segments, a proposed one included, and ground-stop pieces), the
+departure caps and outstation arrival caps known so far (the truth's `layers.dep_caps` and `layers.arr_caps` for the
+hours within CAP_LOOK, as sim.known has them), the ramp closures under way or over (sim.known's: begun by the watch,
+each with its end once reported, else the end expected), the latest METAR or SPECI and TAF delivered per hub, every
+flight on the day as known (status, known delay, the plan, where the plan has it leave and land, its slot or hold, its
+crew's deadline and rest, and for a departure from a base with a reserve pool whether the plan has a reserve crew on
+it), each such base's reserve pool and what the plan's calls leave of it (sim.granted), the aircraft as the plan has
+them now, and the news delivered so far."""
 
 from collections import defaultdict
 from collections.abc import Mapping
@@ -18,19 +20,22 @@ from ..day import fid
 from ..programs import sim
 from ..programs.advisories import PROPOSED
 from ..programs.model import Task
+from .clock import WEATHER, News
 
 if TYPE_CHECKING:
     from .day import Day
 
-KEYS = ("watch", "time", "clock", "freeze_line", "frozen", "cost", "programs", "dep_caps", "reserves", "flights",
-        "aircraft", "news")
+KEYS = ("watch", "time", "clock", "freeze_line", "frozen", "cost", "programs", "dep_caps", "arr_caps", "closures",
+        "weather", "reserves", "flights", "aircraft", "news")
 
 
 def build(day: "Day") -> dict:
     task, t, run, world = day.task, day.t, day.project(day.plan), day.known()
     return {"watch": day.watch, "time": hhmm(t), "clock": hhmm(day.clock), "freeze_line": _time(day.line),
             "frozen": len(day.frozen), "cost": run.cost.to_dict() | {"counts": run.counts},
-            "programs": programs(task, world), "dep_caps": dep_caps(task, t), "reserves": reserves(task, run.reserved),
+            "programs": programs(task, world), "dep_caps": dep_caps(task, t), "arr_caps": arr_caps(task, t),
+            "closures": closures(world, t), "weather": weather(day),
+            "reserves": reserves(task, run.reserved),
             "flights": [flight_row(day, f.id, run.flights[f.id], run.reserved)
                         for f in sorted(task.flights, key=lambda f: (f.sched_dep, f.id))],
             "aircraft": aircraft(task, run, day.clock), "news": [day.items[n].to_dict() for n in day.delivered]}
@@ -49,9 +54,40 @@ def programs(task: Task, world: sim.World) -> dict:
 
 def dep_caps(task: Task, t: int) -> dict[str, dict[str, int]]:
     """JetBlue's departure caps per station and hour known at t: the hours starting within CAP_LOOK."""
-    caps = task.layers.dep_caps if task.layers else {}
+    return _hours(task.layers.dep_caps if task.layers else {}, t)
+
+
+def arr_caps(task: Task, t: int) -> dict[str, dict[str, int]]:
+    """JetBlue's arrival caps per outstation and hour known at t: the hours starting within CAP_LOOK."""
+    return _hours(task.layers.arr_caps if task.layers else {}, t)
+
+
+def _hours(caps: Mapping[str, Mapping[int, int]], t: int) -> dict[str, dict[str, int]]:
     return {s: {f"{h % 24:02d}" + (f"+{h // 24}" if h >= 24 else ""): c for h, c in sorted(by.items())
                 if 60 * h <= t + CAP_LOOK} for s, by in sorted(caps.items())}
+
+
+def closures(world: sim.World, t: int) -> dict[str, list[dict]]:
+    """The ramp closures the day as known at watch t has per hub: from, to, whether that end is reported (it has come
+    by t; else it is expected, sim.known), and JetBlue's departure and arrival caps over it."""
+    return {s: [{"from": hhmm(a), "to": hhmm(b), "reported": b <= t, "dep_cap": dep, "arr_cap": arr}
+                for a, b, dep, arr in spans] for s, spans in sorted(world.closures.items())}
+
+
+def weather(day: "Day") -> dict[str, dict]:
+    """Per hub the latest observation (METAR or SPECI) and the latest TAF delivered so far: the one observed or issued
+    last, of those observed or issued at one minute the last delivered (kinds' lags differ, so an older one can
+    arrive with or after a newer one)."""
+    latest: dict[tuple[str, str], News] = {}
+    for n in (day.items[i] for i in day.delivered):
+        if n.kind in WEATHER:
+            key = (n.hub, "taf" if n.kind == "taf" else "observation")
+            if key not in latest or n.at >= latest[key].at:
+                latest[key] = n
+    out: dict[str, dict] = {}
+    for (hub, kind), n in sorted(latest.items()):
+        out.setdefault(hub, {})[kind] = n.to_dict()
+    return out
 
 
 def reserves(task: Task, granted: frozenset[int]) -> dict[str, dict]:
@@ -125,7 +161,8 @@ def render(task: Task, s: Mapping) -> str:
              f"Your plan on the day as known costs {c['total']:,} (delay {c['delay']:,}, cancellations {c['cancel']:,},"
              f" notice {c['notice']:,}, ferries {c['ferry']:,}): {n[CANCELLED]} cancelled, {n[AUTO_CANCELLED]} "
              f"cancelled automatically, {n['slots']} on slots.",
-             _programs_text(s["programs"]), _caps_text(s["dep_caps"]), *_reserves_text(s["reserves"]),
+             _programs_text(s["programs"]), _caps_text(s["dep_caps"]), _arr_caps_text(s["arr_caps"]),
+             _closures_text(s["closures"]), _weather_text(s["weather"]), *_reserves_text(s["reserves"]),
              _flights_text(s["flights"]),
              _aircraft_text(s["aircraft"]), _news_text(s["news"])]
     return "\n\n".join(parts)
@@ -147,6 +184,23 @@ def _caps_text(caps: Mapping) -> str:
     lines = [f"{st}: " + " ".join(f"{h}h {c}" for h, c in by.items()) for st, by in caps.items() if by]
     return (f"## Departure caps: JetBlue departures per hour, known {CAP_LOOK} min ahead\n"
             + ("\n".join(lines) or "None known."))
+
+
+def _arr_caps_text(caps: Mapping) -> str:
+    lines = [f"{st}: " + " ".join(f"{h}h {c}" for h, c in by.items()) for st, by in caps.items() if by]
+    return (f"## Outstation arrival caps: JetBlue arrivals per hour, known {CAP_LOOK} min ahead\n"
+            + ("\n".join(lines) or "None known."))
+
+
+def _closures_text(shut: Mapping) -> str:
+    lines = [f"- {st} {c['from']}-{c['to']}{'' if c['reported'] else ' (end expected)'}: at most {c['dep_cap']} "
+             f"departures and {c['arr_cap']} arrivals" for st, spans in shut.items() for c in spans]
+    return ("## Ramp closures (lightning at the field; known once begun)\n" + ("\n".join(lines) or "None."))
+
+
+def _weather_text(wx: Mapping) -> str:
+    lines = [f"[{n['at']}] {n['text']}" for by in wx.values() for n in by.values()]
+    return "## Latest weather (METAR or SPECI, and TAF)\n" + ("\n".join(lines) or "None.")
 
 
 def _reserves_text(pools: Mapping) -> list[str]:

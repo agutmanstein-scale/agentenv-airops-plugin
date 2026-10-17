@@ -1,10 +1,12 @@
 """The playable day's clock (docs/v3/DESIGN.md §4, §5): the watches, the news each one delivers, and virtual time.
 
 The watches are the follower's (`references.watch_times`), so a desk playing the day and the follower decide at the
-same minutes; `watch_times` is the one place that list comes from, for the event-driven watches of §4 to replace. The
-news is the hubs' FAA advisories as the task carries them (`task.programs[hub].advisories`), each reaching the desk at
-the first watch at or after its signature: those signed before the first watch come with the opening briefing, those
-after the last never arrive. A tool call costs CALL_MIN minutes of the watch's virtual time, so thinking costs time
+same minutes, a layered task's waking on its events (an advisory or SPECI reaching the desk, a ramp closure starting).
+The news is the hubs' FAA advisories as the task carries them (`task.programs[hub].advisories`) and, on a layered task,
+their METARs, SPECIs and TAFs (`Layers.weather`). Each is due at its signature, observation or issue plus its kind's
+delivery lag (Task.lag: advisory 0, metar 5, speci 5, taf 10 by default) and reaches the desk at the first watch at or
+after that: those due before the first watch come with the opening briefing, those after the last never arrive. A tool
+call costs CALL_MIN minutes of the watch's virtual time, so thinking costs time
 without tying the score to the provider's speed; `virtual_time` is that minute as the UTC instant a gateway clock
 reads (v1's schedule.virtual_time)."""
 
@@ -23,18 +25,24 @@ KINDS = {GDP: "ground delay program", PROPOSED: "proposed ground delay program",
          GS: "ground stop", GS_CNX: "ground stop cancelled"}
 
 
+WEATHER = ("metar", "speci", "taf")
+
+
 @dataclass(frozen=True)
 class News:
-    """One advisory as the desk reads it: `at` its signature."""
+    """One advisory or weather product as the desk reads it: `at` its signature, observation or issue, `due` the
+    minute it reaches the desk (`at` plus its kind's lag)."""
 
     id: str
     hub: str
     kind: str
     at: int
     text: str
+    due: int
 
     def to_dict(self) -> dict:
-        return {"id": self.id, "hub": self.hub, "kind": self.kind, "at": hhmm(self.at), "text": self.text}
+        out = {"id": self.id, "hub": self.hub, "kind": self.kind, "at": hhmm(self.at), "text": self.text}
+        return out | ({"due": hhmm(self.due)} if self.due != self.at else {})
 
 
 @dataclass(frozen=True)
@@ -49,16 +57,26 @@ def watch_times(task: Task) -> list[int]:
 
 
 def news(task: Task) -> list[News]:
-    """Every hub's advisories in signature order."""
-    advs = sorted((a for p in task.programs.values() for a in p.advisories), key=lambda a: (a.issued, a.id))
-    return [News(a.id, a.hub, a.kind, a.issued, text(a)) for a in advs]
+    """Every hub's advisories and, on a layered task, its weather, in the order they reach the desk. A weather item's
+    id is its kind, hub and minute, the second of a kind at one hub and minute (an AUTO report beside the AO2 one, a
+    TAF COR beside its AMD) suffixed -2, and so on, so each reaches the desk once."""
+    lag = task.lag("advisory")
+    out = [News(a.id, a.hub, a.kind, a.issued, text(a), a.issued + lag)
+           for p in task.programs.values() for a in p.advisories]
+    seen: dict[str, int] = {}
+    for minute, kind, hub, body in task.layers.weather if task.layers else ():
+        key = f"{kind}-{hub.lower()}-{minute}"
+        seen[key] = seen.get(key, 0) + 1
+        out.append(News(key if seen[key] == 1 else f"{key}-{seen[key]}", hub, kind, minute, " ".join(body.split()),
+                        minute + task.lag(kind)))
+    return sorted(out, key=lambda n: (n.due, n.at, n.id))
 
 
 def timetable(task: Task) -> list[Watch]:
     times = watch_times(task)
     due: dict[int, list[str]] = {k: [] for k in range(len(times))}
     for n in news(task):
-        k = next((k for k, t in enumerate(times) if t >= n.at), None)
+        k = next((k for k, t in enumerate(times) if t >= n.due), None)
         if k is not None:
             due[k].append(n.id)
     return [Watch(k, t, tuple(due[k])) for k, t in enumerate(times)]

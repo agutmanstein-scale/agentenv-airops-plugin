@@ -26,7 +26,8 @@ reserve from one flight to another, and a flight both cancelled and called keeps
 situation, a check, a confirm) costs CALL_MIN minutes of the watch's virtual time and acts at the clock's minute when it
 starts, so a cancellation is priced from the minute it was confirmed; when the clock reaches the next watch, the watch
 ends by itself, and the last watch ends STEP minutes on with the day. advance() ends the watch at once. The news, the
-hubs' advisories, is queued at its watch (clock.timetable) for the desk to drain. The grade runs the final plan on the
+hubs' advisories and on a layered day their weather, is queued at its watch (clock.timetable: the first at or after the
+item's minute plus its delivery lag) for the desk to drain. The grade runs the final plan on the
 truth (grade.grade)."""
 
 import json

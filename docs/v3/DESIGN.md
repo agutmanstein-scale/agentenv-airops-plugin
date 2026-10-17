@@ -53,9 +53,11 @@ beyond Edgar's proxy, next-day schedules.
   same layers, for comparison with v2.
 - **Schema:** `Task.layers: Layers | None` (model version 4 when set), a frozen dataclass with `from_dict`/`to_dict`:
   `dep_caps: {station: {hour: cap}}`, `arr_caps: {station: {hour: cap}}` (outstations only), `closures: {station:
-  ((start, end, dep_cap, arr_cap), ...)}` (JetBlue's departure and arrival caps over [start, end); §3.2's `rate`
-  stays in the builder), `reserves: {base: pool}` and `release: bool`. Hours and minutes from the task's midnight, as
-  everywhere.
+  ((start, end, dep_cap, arr_cap), ...)}` (JetBlue's departure and arrival caps over [start, end)), `reserves: {base:
+  pool}`, `release: bool`, and for the desk's view (§4) `weather: ((minute, kind, station, text), ...)`, `lags: {kind:
+  minutes}` and `rates: {hub: rate}` (§3.2's `rate`, which the builder also writes here so the day as known can price
+  a closure under way; set by whoever builds the closures). The last three are written only when set. Hours and
+  minutes from the task's midnight, as everywhere.
 - **Inputs:** the 19 months' pinned BTS on-time (every carrier), IEM METARs (routine, `report_type=3`) and SPECIs
   (`report_type=4`, via `flow/sources.py`'s pins), and nothing new from the FAA. Every new input is sha256-pinned in
   the pack manifest.
@@ -130,12 +132,26 @@ Each section: what it is, how the sim applies it, how the MIP carries it, how it
 
 `sim.known(task, t)` carries the layers as a desk sees them; the follower and the playable day both read it.
 - **Caps** (departure, outstation arrival, closure rates): known `CAP_LOOK` (240 min) ahead, as v1's slot caps were.
-- **Closures:** known once begun (the METAR or SPECI reporting TS), expected to last `GUESS` more minutes (train-day
-  median of remaining duration) until its end is reported.
-- **News and its delivery lag:** advisories at signature + `lag.advisory`, METARs and SPECIs at observation +
-  `lag.metar`, TAFs at issue + `lag.taf`. Lags are per product type (default 0, 5, 10 min) and part of the task.
-- **Watches wake on events:** the next watch is the earliest of a news item, a freeze boundary and 60 min after the
-  last one. The follower uses the same watch times (`references.watch_times`), so its gap measures the same desk.
+  The watches run until every cap is known (as v1's `core.known.watch_times`; a closure's caps once it has ended),
+  while some flight can leave unfrozen.
+- **Closures:** known from their start minute (the onset the METAR or SPECI remarks give, TSBmm, with no report lag),
+  expected to end `GUESS` minutes after the watch (placeholder 30; the train-day median of remaining duration, fitted
+  with the pack) until its end comes. A closure under way is priced over that expected window at its hub's rate
+  (`Layers.rates`, `closures.fit_rate`'s), floored only at the pushbacks and arrivals before the watch
+  (`closures.caps`), so neither its true length nor what flew inside it later shows; an ended one has its true caps.
+- **News and its delivery lag:** advisories at signature + `lag.advisory`, METARs at observation + `lag.metar`,
+  SPECIs at observation + `lag.speci`, TAFs at issue + `lag.taf`. Lags are per product type (default 0, 5, 5, 10 min)
+  and part of the task (`Layers.lags`, over the defaults; whole minutes >= 0). The advisory lag stays 0 until the day
+  as known reads the programs as delivered rather than as signed (`advisories.issued_by`). News reaches the desk at the
+  first watch at or after it is due (watches are the playable day's only delivery points).
+- **Watches wake on events:** the hourly watches plus an event watch when an advisory or a SPECI reaches the desk and
+  when a closure starts or ends; one closer than `WATCH_MIN` (15) to the watch before moves to 15 after it (to the
+  last minute, deadline - FREEZE, if that is sooner, so every event by then reaches the desk), and a gap over 60 is
+  filled every 60, so watches are 15 to 60 min apart but for such a last one. Routine METARs and TAFs don't wake the desk (an hourly METAR
+  would double the watches with nothing new), and freeze boundaries aren't events. Without layers the watches are v2's.
+  The follower uses the same watch times (`references.watch_times`), so its gap measures the same desk.
+  (Amended in U7 from "the earliest of a news item, a freeze boundary and 60 min after the last one" and "known once
+  the METAR or SPECI reports TS".)
 
 ## §5 The playable day
 

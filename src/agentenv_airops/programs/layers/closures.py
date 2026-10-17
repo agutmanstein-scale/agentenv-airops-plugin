@@ -100,20 +100,29 @@ def build(task: Task, spans: Mapping[str, Sequence[Interval]],
     hi = 60 * (max(f.deadline for f in task.flights) // 60 + 2)
     out = {}
     for hub, xs in spans.items():
-        leave = [f.sched_dep for f in task.flights if f.orig == hub]
-        land = [f.sched_arr for f in task.flights if f.dest == hub]
-        pushed = [f.actual.dep for f in task.flights if f.orig == hub and f.actual.dep is not None]
-        landed = [f.actual.dep + f.block for f in task.flights if f.dest == hub and f.actual.dep is not None]
         shut = []
         for a, b in ((a - task.base, b - task.base) for a, b in xs):
             if b <= task.start or a >= hi:
                 continue
             if hub not in rate:
                 raise ValueError(f"{hub} closes {a}-{b} on {task.date} but has no fitted rate")
-            shut.append((a, b, _cap(rate[hub], leave, pushed, a, b), _cap(rate[hub], land, landed, a, b)))
+            shut.append((a, b, *caps(task, hub, rate[hub], a, b)))
         if shut:
             out[hub] = tuple(shut)
     return out
+
+
+def caps(task: Task, hub: str, rate: float, a: int, b: int, by: int | None = None) -> tuple[int, int]:
+    """JetBlue's departure and arrival caps over a closure of `hub` from a to b at `rate`, as `build` prices them; `by`
+    floors them only at the pushbacks and arrivals before it, which is all the desk has seen at watch `by`
+    (sim.known prices a closure under way over its expected end so)."""
+    seen = (lambda m: True) if by is None else (lambda m: m < by)
+    leave = [f.sched_dep for f in task.flights if f.orig == hub]
+    land = [f.sched_arr for f in task.flights if f.dest == hub]
+    pushed = [f.actual.dep for f in task.flights if f.orig == hub and f.actual.dep is not None and seen(f.actual.dep)]
+    landed = [m for m in (f.actual.dep + f.block for f in task.flights if f.dest == hub and f.actual.dep is not None)
+              if seen(m)]
+    return _cap(rate, leave, pushed, a, b), _cap(rate, land, landed, a, b)
 
 
 def _cap(rate: float, scheduled: Sequence[int], actual: Sequence[int], a: int, b: int) -> int:

@@ -42,6 +42,7 @@ VERSION = 3
 LAYERED = 4
 EXTENSION = 120
 REST = 600
+LAGS = {"advisory": 0, "metar": 5, "speci": 5, "taf": 10}
 
 
 @dataclass(frozen=True)
@@ -343,15 +344,38 @@ class Layers:
     ramp closures per station as (start, end, dep_cap, arr_cap): JetBlue's departures from the station leaving in
     [start, end) total at most dep_cap, and its arrivals there inside it at most arr_cap; the reserve crews per crew
     base, and whether a cancelled flight's slot is released to compression (`release`). A hub's arrivals answer to
-    its programs and nominal cap, so an arrival cap at a hub is a ValueError."""
+    its programs and nominal cap, so an arrival cap at a hub is a ValueError.
+
+    The desk's news beyond the advisories (docs/v3/DESIGN.md §4): the hubs' weather as (minute, kind, station, text),
+    kind "metar", "speci" or "taf", the minute its observation or issue (layers.weather), and the delivery lag per
+    product kind in minutes (`lags` over LAGS: advisory 0, metar 5, speci 5, taf 10, a kind it leaves out keeping
+    LAGS's; one LAGS doesn't have, a negative lag or an advisory lag other than 0 is a ValueError), each item
+    reaching the desk at its minute plus its kind's lag; and the closure rate per hub that priced its closures
+    (`rates`, closures.fit_rate's), with which the day as known prices a closure under way over its expected end, not
+    its true one (sim.known). All three are written only when set, so a task without them reads and writes as
+    before."""
 
     dep_caps: dict[str, dict[int, int]] = field(default_factory=dict)
     arr_caps: dict[str, dict[int, int]] = field(default_factory=dict)
     closures: dict[str, tuple[tuple[int, int, int, int], ...]] = field(default_factory=dict)
     reserves: dict[str, int] = field(default_factory=dict)
     release: bool = False
+    weather: tuple[tuple[int, str, str, str], ...] = ()
+    lags: dict[str, int] = field(default_factory=lambda: dict(LAGS))
+    rates: dict[str, float] = field(default_factory=dict)
 
     def __post_init__(self):
+        unknown = sorted(set(self.lags) - set(LAGS))
+        if unknown:
+            raise ValueError(f"lags for unknown kind(s) {', '.join(unknown)}: the kinds are {', '.join(LAGS)}")
+        bad = sorted(k for k, v in self.lags.items() if not isinstance(v, int) or isinstance(v, bool) or v < 0)
+        if bad:
+            raise ValueError(f"lags for {', '.join(bad)} not a whole number of minutes >= 0: news can't reach the desk "
+                             "before its minute")
+        if self.lags.get("advisory", 0):
+            raise ValueError("an advisory lag must be 0: the day as known reads the programs as signed by the watch "
+                             "(advisories.issued_by), so a later delivery would act on news the desk hasn't had")
+        object.__setattr__(self, "lags", LAGS | dict(self.lags))
         hubs = sorted(set(self.arr_caps) & set(HUBS))
         if hubs:
             raise ValueError(f"arrival caps at hub(s) {', '.join(hubs)}: a hub's arrivals answer to its programs "
@@ -362,13 +386,21 @@ class Layers:
         return cls({s: {int(h): c for h, c in by.items()} for s, by in d["dep_caps"].items()},
                    {s: {int(h): c for h, c in by.items()} for s, by in d["arr_caps"].items()},
                    {s: tuple((a, b, c, e) for a, b, c, e in spans) for s, spans in d["closures"].items()},
-                   dict(d["reserves"]), d["release"])
+                   dict(d["reserves"]), d["release"], tuple((m, k, s, x) for m, k, s, x in d.get("weather", ())),
+                   dict(d.get("lags", {})), dict(d.get("rates", {})))
 
     def to_dict(self) -> dict:
-        return {"dep_caps": {s: {str(h): c for h, c in sorted(by.items())} for s, by in self.dep_caps.items()},
-                "arr_caps": {s: {str(h): c for h, c in sorted(by.items())} for s, by in self.arr_caps.items()},
-                "closures": {s: [list(x) for x in spans] for s, spans in self.closures.items()},
-                "reserves": dict(self.reserves), "release": self.release}
+        out = {"dep_caps": {s: {str(h): c for h, c in sorted(by.items())} for s, by in self.dep_caps.items()},
+               "arr_caps": {s: {str(h): c for h, c in sorted(by.items())} for s, by in self.arr_caps.items()},
+               "closures": {s: [list(x) for x in spans] for s, spans in self.closures.items()},
+               "reserves": dict(self.reserves), "release": self.release}
+        if self.weather:
+            out["weather"] = [list(x) for x in self.weather]
+        if self.lags != LAGS:
+            out["lags"] = dict(self.lags)
+        if self.rates:
+            out["rates"] = dict(self.rates)
+        return out
 
 
 @dataclass(frozen=True)
@@ -416,7 +448,7 @@ class Task:
                    Layers.from_dict(d["layers"]) if "layers" in d else None)
 
     def to_dict(self) -> dict:
-        layered = self.layers is not None and self.layers != Layers()
+        layered = self.layered
         out = {"version": LAYERED if layered else self.version, "task_id": self.task_id,
                "split": self.split, "carrier": self.carrier,
                "hub": self.hub, "date": self.date, "tz": self.tz, "base": self.base, "window": list(self.window),
@@ -518,6 +550,15 @@ class Task:
         if self.needs:
             return Counter({(fam, s): n for fam, by in self.needs.items() for s, n in by.items()})
         return Counter((t.family, t.end_req) for t in self.tails)
+
+    @property
+    def layered(self) -> bool:
+        """Whether the task sets any of v3's layers (written as LAYERED)."""
+        return self.layers is not None and self.layers != Layers()
+
+    def lag(self, kind: str) -> int:
+        """The minutes a news item of `kind` takes to reach the desk (Layers.lags; LAGS without layers)."""
+        return (self.layers.lags if self.layers else LAGS)[kind]
 
     @property
     def storms(self) -> tuple[str, ...]:
