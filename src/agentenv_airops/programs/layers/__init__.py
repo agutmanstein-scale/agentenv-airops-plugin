@@ -6,4 +6,6 @@ a proven optimum. A builder returns its field of Layers; a task without layers i
 - arrcaps: JetBlue's arrival cap per hour at an outstation, from every carrier's BTS arrivals (§3.3).
 - closures: ramp closures at a hub from its METARs and SPECIs, a departure and an arrival cap over each (§3.2).
 - weather: the hubs' METARs, SPECIs and TAFs as the desk's news (§4), each delivered after its kind's lag.
+- config: the constants a pack fits, and every layer of a task at them (network.build's `layers`).
+- calibrate: the constants fitted on a pack's train dates: closure rates and reserve pools (§3.4, §6.1).
 """
