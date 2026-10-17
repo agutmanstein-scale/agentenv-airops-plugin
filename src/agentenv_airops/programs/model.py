@@ -156,9 +156,10 @@ class Move:
 
 @dataclass(frozen=True)
 class Busy:
-    """A long daytime same-station gap in a tail's schedule, which likely hides an international leg BTS lacks: the
-    aircraft that flies `leg` is busy after it lands until `ready`, or to the end of its turn if that is later. A
-    cancelled `leg` has no block, so nothing is taken or added."""
+    """A long daytime same-station gap in a tail's schedule, which likely hides an international leg BTS lacks, or a
+    gateway aircraft's flying abroad after its last leg (programs.network): the aircraft that flies `leg` is busy after
+    it lands until `ready`, or to the end of its turn if that is later. A cancelled `leg` has no block, so nothing is
+    taken or added."""
 
     leg: int
     ready: int

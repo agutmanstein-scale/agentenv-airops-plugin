@@ -105,7 +105,6 @@ def build(d: str, hubs: Sequence[str], inputs: Path, derived: Path, e_fit: Mappi
     return Built(task, {**row, "task_id": task.task_id})
 
 
-
 def assemble(ctx: candidates.Context, d: str, hub: str, hubs: tuple[str, ...], row: Mapping, e_fit: Mapping[str, float],
              e_median: Mapping[str, float], scale: Mapping[str, float], cutoff: int, split: str) -> Task:
     day = ctx.day
