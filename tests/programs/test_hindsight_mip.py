@@ -12,16 +12,19 @@ from day_helpers import (
     crewed,
     day,
     flight,
+    late_pin_day,
     moved_day,
     network_day,
     quick_day,
     random_day,
     segment,
+    shared_hour_day,
     shortened,
     stop,
     tail,
     three_into_a_program,
     turned_through_day,
+    two_from_jfk,
 )
 
 from agentenv_airops.programs import candidates, mip, references, sim
@@ -49,7 +52,7 @@ def days() -> dict[str, Task]:
             "crew": crew(), "turned_through": turned_through_day(),
             **{f"random{seed}": random_day(random.Random(seed)) for seed in RANDOM},
             **{f"network{seed}": network_day(random.Random(seed)) for seed in NETWORK},
-            "capped": capped_day(),
+            "capped": capped_day(), "shared_hour": shared_hour_day(),
             **{f"capped_random{seed}": capped(random_day(random.Random(seed)), TIGHT) for seed in CAPPED},
             **{f"capped_network{seed}": capped(network_day(random.Random(seed)), TIGHT) for seed in CAPPED}}
 
@@ -170,6 +173,23 @@ def test_a_day_with_its_history_pinned_is_a_solution_of_the_model_with_those_pin
     x = net.vector(run)
     assert x is not None and feasible(net, x)
     assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
+
+
+def test_a_day_with_a_departure_pinned_before_its_aircraft_is_ready_is_a_solution_pinned_where_it_left():
+    task = late_pin_day()
+    run = sim.execute(task, {1: {"left": 170}})
+    net = mip.Network(task, fixed={1: run.flights[1].dep})
+    x = net.vector(run)
+    assert x is not None and feasible(net, x)
+    assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
+
+
+def test_a_pinned_departure_leaves_the_others_only_the_rest_of_its_hours_cap():
+    task = two_from_jfk()
+    sol = mip.solve(task, fixed={1: 100})
+    run = sim.execute(task, {**sol.plan(task.start), 1: {"left": 100}})
+    assert sol.deps == {0: 120, 1: 100} == {i: r.dep for i, r in run.flights.items()}
+    assert run.cost.total == sol.objective
 
 
 def test_a_canonical_pass_out_of_time_keeps_the_proven_plan_flagged_as_not_canonical(monkeypatch):

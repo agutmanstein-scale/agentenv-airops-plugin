@@ -13,7 +13,8 @@ flight ready at minute t, in this order:
 - a ground stop at its destination hub covering its origin holds it to the stop's end; airborne flights fly on;
 - a departure in an hour its origin caps (Layers.dep_caps, docs/v3/DESIGN.md §3.1) needs room under the cap, else
   it tries again at the next hour's start; every flight that left in the hour counts, a pinned one ("left") from the
-  start of the day, so the others share the cap less the pinned ones;
+  start of the day, so the others share the cap less the pinned ones; a pinned flight whose aircraft is not ready by
+  its minute leaves when it is, and its count moves to the hour it leaves in, where the MIP pins it;
 - a flight governed at t by a GDP segment (the one in force when it departs, the departure-time lock; its origin in
   scope and its scheduled arrival in the period) needs one of JetBlue's slots in that segment's pool: its claimed slot
   if it can still make it, else the earliest free slot at or after its earliest arrival t + scheduled block. It leaves
@@ -261,6 +262,8 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
             continue
         waiting[(f.family, f.orig)].discard(i)
         if left:
+            if pre := rules.dep_hour(f, want[i]["left"]):
+                used[("dep", pre[0])] -= 1
             s, slot, counts = t, *_history(f, t, rules, taken)
         else:
             s, slot, counts = _leave(f, t, rules, claimed.get(i), bound, taken, used)
@@ -399,14 +402,16 @@ def _leave(f: Flight, t: int, rules: Rules, claim: SlotKey | None, bound: Mappin
 
 
 def _history(f: Flight, t: int, rules: Rules, taken: set[SlotKey]) -> tuple[SlotKey | None, tuple]:
-    """The slot or nominal hour a flight that left at t counts in (mip._place for a pinned copy); its departure hour
-    was counted before the day ran."""
+    """The slot or nominal hour a flight that left at t counts in (mip._place for a pinned copy), and its departure
+    hour when that is capped."""
+    dep = rules.dep_hour(f, t)
+    out = (("dep", dep[0]),) if dep else ()
     seg = rules.governs(f, t)
     if seg is not None and t + f.sched_block <= seg.end:
         key = (seg.id, t + f.sched_block)
-        return (key if t + f.sched_block in seg.slots and key not in taken else None), ()
+        return (key if t + f.sched_block in seg.slots and key not in taken else None), out
     cap = rules.hour(f, t)
-    return None, (cap[0],) if cap else ()
+    return None, out + ((cap[0],) if cap else ())
 
 
 def ferries(task: Task, ends: Mapping[str, str], family: Mapping[str, str]) -> tuple[Ferry, ...]:

@@ -9,12 +9,15 @@ from day_helpers import (
     crewed,
     day,
     flight,
+    late_pin_day,
     moved_day,
     quick_day,
+    shared_hour_day,
     stop,
     tail,
     three_into_a_program,
     turned_through_day,
+    two_from_jfk,
 )
 
 from agentenv_airops.programs import sim
@@ -207,7 +210,15 @@ def test_a_capped_hub_spreads_its_departures_over_the_hours_and_leaves_its_arriv
 
 
 def test_a_pinned_departure_uses_up_its_hour_before_the_others_leave():
-    task = capped(day([flight(0, "JFK", "BUF", 60, 60), flight(1, "JFK", "DCA", 65, 60)],
-                      [tail("N1", "JFK", end="BUF"), tail("N2", "JFK", end="DCA")]), {"JFK": {1: 1}})
-    run = sim.execute(task, {1: {"left": 100}})
+    run = sim.execute(two_from_jfk(), {1: {"left": 100}})
     assert (run.flights[0].dep, run.flights[1].dep) == (120, 100)
+
+
+def test_a_pinned_departure_its_aircraft_makes_late_counts_in_the_hour_it_leaves():
+    task = late_pin_day()
+    assert deps(sim.execute(task, {1: {"left": 170}})) == {0: 100, 1: 190, 2: 240, 3: 140}
+    assert deps(sim.execute(task, {})) == {0: 100, 1: 190, 2: 240, 3: 140}
+
+
+def test_a_slotted_departure_uses_up_its_hour_of_leaving():
+    assert slots(sim.execute(shared_hour_day(), {})) == {0: (70, 130), 1: (120, None)}

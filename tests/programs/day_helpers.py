@@ -102,6 +102,28 @@ def capped_day() -> Task:
                   {"JFK": {2: 1, 3: 2}})
 
 
+def shared_hour_day() -> Task:
+    """BOS into JFK's GDP (slots 130 and 200) and BOS to DCA, both ready in hour 1, which BOS caps at one departure:
+    the slotted one takes the hour."""
+    return capped(day([flight(0, "BOS", "JFK", 60, 60), flight(1, "BOS", "DCA", 75, 60)],
+                      [tail("N1", "BOS", end="JFK"), tail("N2", "BOS", end="DCA")],
+                      segments=(segment("g", 0, 1000, 100, 400, (130, 200)),)), {"BOS": {1: 1}})
+
+
+def late_pin_day() -> Task:
+    """N1 is ready at JFK at 190 for flight 1, which a plan may pin to have left at 170 (hour 2); N2 is ready there
+    at 230 for flight 2 at 235 (hour 3). JFK caps hours 2 and 3 at one departure each."""
+    flights = [flight(0, "BUF", "JFK", 100, 60), flight(1, "JFK", "DCA", 170, 60),
+               flight(2, "JFK", "BUF", 235, 60), flight(3, "DCA", "JFK", 140, 60)]
+    return capped(day(flights, [tail("N1", "BUF", end="DCA"), tail("N2", "DCA", end="BUF")]), {"JFK": {2: 1, 3: 1}})
+
+
+def two_from_jfk() -> Task:
+    """Two departures from JFK ready in hour 1, which JFK caps at one."""
+    return capped(day([flight(0, "JFK", "BUF", 60, 60), flight(1, "JFK", "DCA", 65, 60)],
+                      [tail("N1", "JFK", end="BUF"), tail("N2", "JFK", end="DCA")]), {"JFK": {1: 1}})
+
+
 def shortened(task: Task, slack: int = 150) -> Task:
     """The task with every deadline at most `slack` after the earliest departure, to keep a test's MIP small."""
     return replace(task, flights=tuple(replace(f, deadline=min(f.deadline, task.earliest(f, f.lb) + slack))
