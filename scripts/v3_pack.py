@@ -85,6 +85,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--resume", action="store_true", help="keep the builds already under DIR/built/")
     ap.add_argument("--refs", action="store_true", help="run the references on every task written")
+    ap.add_argument("--bases", default=",".join(repairs.BASES),
+                    help="crew bases for Edgar's crew model, comma-separated; 'none' builds without crews")
     ap.add_argument("--prove-s", type=float, default=PROVE_S, help="time limit of each anchor, flat or calm solve")
     ap.add_argument("--watch-s", type=float, default=WATCH_S, help="time limit of each follower watch solve")
     args = ap.parse_args(argv)
@@ -99,7 +101,8 @@ def main(argv: list[str] | None = None) -> None:
     clock.lap("storms", f"{len(storms)} storm dates, {len(controls)} control dates, {len(fits)} advisories fitted")
     jobs = {d: (d, hubs, None, "") for d, hubs in storms.items()}
     jobs |= {CONTROL + d: (d, tuple(h for h in HUBS if h in w), w, "control") for d, w in controls.items()}
-    built = build(out / "built", jobs, e_fit, e_median, args.workers, args.resume)
+    bases = () if args.bases.lower() == "none" else tuple(b for b in args.bases.split(",") if b)
+    built = build(out / "built", jobs, e_fit, e_median, args.workers, args.resume, bases)
     tasks = {d: b.task for d, b in built.items() if b.task and not d.startswith(CONTROL)}
     held = {d.removeprefix(CONTROL): b.task for d, b in built.items() if b.task and d.startswith(CONTROL)}
     clock.lap("build", f"{len(tasks)} of {len(storms)} storm dates built, {len(held)} of {len(controls)} controls")
@@ -131,7 +134,7 @@ def main(argv: list[str] | None = None) -> None:
     write_tasks(layered, out / "tasks.jsonl")
     clock.lap("layers", f"{len(layered)} tasks written")
 
-    manifest = {"code": revision(), "seed": args.seed, "months": list(candidates.MONTHS), "bases": list(repairs.BASES),
+    manifest = {"code": revision(), "seed": args.seed, "months": list(candidates.MONTHS), "bases": list(bases),
                 "only": only, "storm_dates": len(storms), "built": len(tasks), "candidates": counts,
                 "unbuilt": {d: b.row["reason"] for d, b in built.items() if not b.task},
                 "split": dict(sorted(drawn.items())), "unsplit": sorted(set(tasks) - set(drawn)),
@@ -165,14 +168,15 @@ class Clock:
 
 
 def build(folder: Path, jobs: Mapping[str, tuple[str, tuple[str, ...], network.Windows | None, str]],
-          e_fit: Mapping[str, float], e_median: Mapping[str, float], workers: int, resume: bool) -> dict[str, Built]:
+          e_fit: Mapping[str, float], e_median: Mapping[str, float], workers: int, resume: bool,
+          bases: Sequence[str] = repairs.BASES) -> dict[str, Built]:
     """Every job's whole-network task with crew, at scale 1, one JSON per job under `folder` as it finishes (a job
     keyed by its date, a control's by CONTROL + its date; each a (date, storm hubs, windows or None, split)); with
     `resume` the jobs built there already are read back (kept), the others built again."""
     folder.mkdir(parents=True, exist_ok=True)
     out = kept(folder, jobs) if resume else {}
     ones = dict.fromkeys(HUBS, 1.0)
-    args = {k: (d, hubs, INPUTS, DERIVED, dict(e_fit), dict(e_median), ones, repairs.CUTOFF, w, split, repairs.BASES,
+    args = {k: (d, hubs, INPUTS, DERIVED, dict(e_fit), dict(e_median), ones, repairs.CUTOFF, w, split, tuple(bases),
                 None) for k, (d, hubs, w, split) in jobs.items() if k not in out}
     with ProcessPoolExecutor(max(1, workers)) as pool:
         futures = {pool.submit(build_one, a): k for k, a in args.items()}
