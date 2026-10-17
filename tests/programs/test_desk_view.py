@@ -189,7 +189,7 @@ def test_the_follower_on_a_layered_day_wakes_on_events_and_its_plan_replays():
 
 
 def test_lags_left_out_keep_their_default_and_an_unknown_kind_is_refused():
-    layers = Layers.from_dict({"dep_caps": {}, "arr_caps": {}, "closures": {}, "reserves": {}, "release": False,
+    layers = Layers.from_dict({"dep_caps": {}, "arr_caps": {}, "closures": {}, "reserves": {},
                                "lags": {"speci": 7}})
     assert layers.lags == LAGS | {"speci": 7} and layers.to_dict()["lags"] == layers.lags
     assert replace(closed_day(), layers=layers).lag("taf") == 10

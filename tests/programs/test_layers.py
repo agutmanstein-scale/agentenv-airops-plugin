@@ -23,7 +23,7 @@ def test_a_task_without_layers_serialises_as_a_v2_task_byte_for_byte(name, reque
 
 def test_a_task_with_layers_round_trips_at_version_4():
     layers = Layers(dep_caps={"JFK": {17: 9, 18: 7}}, arr_caps={"PWM": {19: 2}},
-                    closures={"BOS": ((1000, 1045, 3, 2),)}, reserves={"JFK": 6}, release=True)
+                    closures={"BOS": ((1000, 1045, 3, 2),)}, reserves={"JFK": 6})
     task = replace(day([flight(0, "JFK", "BUF", 1000, 60)], [tail("N1", "JFK", end="BUF")]), layers=layers)
     d = json.loads(task.to_json())
     assert d["version"] == LAYERED == 4 and d["layers"]["dep_caps"] == {"JFK": {"17": 9, "18": 7}}

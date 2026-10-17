@@ -4,6 +4,7 @@ the clock (each call's minute, the re-arm at every new watch, before the Day mov
 news audit v1's verifier reads, the anchor solved at load, the end-day grade and the v3 prompts."""
 
 import asyncio
+import json
 import types
 from dataclasses import replace
 from importlib.resources import files
@@ -271,6 +272,24 @@ async def test_the_anchor_and_follower_given_at_load_are_graded_against_without_
             got = await data(http)
     assert solves == [] and got["grade"]["anchor"] == 0
     assert got["grade"]["references"]["follower"] == {"cost": 0, "reward": 1.0} and out["reward"] == got["reward"]
+
+
+async def test_the_load_takes_the_packs_stored_costs_for_the_task_they_ran_on_and_solves_a_stale_ones(monkeypatch,
+                                                                                                      tmp_path):
+    task, other, solves = two_flights(), replace(two_flights(), task_id="b6-jfk-20240102-0100"), []
+    solve = references.anchor
+    monkeypatch.setattr(references, "anchor", lambda t, *a, **k: solves.append(t.task_id) or solve(t, *a, **k))
+    stale = replace(other, cutoff=other.cutoff - 1)
+    (tmp_path / "refs.json").write_text(json.dumps({
+        task.task_id: {"anchor": 3, "follower": 4, "task": references.digest(task)},
+        other.task_id: {"anchor": 3, "follower": 4, "task": references.digest(stale)}}))
+    with served_v3(monkeypatch, tmp_path, [task, other]) as (url, env, _):
+        async with httpx.AsyncClient(base_url=url) as http:
+            await invoke(http, END_DAY_URI)
+            got = await data(http)
+    assert solves == [] and got["grade"]["anchor"] == 3 and got["grade"]["references"]["follower"]["cost"] == 4
+    with served_v3(monkeypatch, tmp_path, [task, other], task_id=other.task_id) as (url, env, _):
+        assert solves == [other.task_id] and (env.day.anchor, env.day.follower) == (solve(other)[1].cost.total, None)
 
 
 async def test_sync_time_reads_the_gateway_clock(monkeypatch, tmp_path):

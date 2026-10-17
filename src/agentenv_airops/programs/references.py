@@ -44,6 +44,7 @@ the pinned flights the pool granted one hold it in every later solve. No referen
 anchor (`below_anchor`).
 """
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
@@ -290,6 +291,12 @@ def past_midnight(task: Task, run: sim.Execution | None = None) -> int:
         out += dep is not None and dep >= 1440 and f.orig in HUBS
         out += arr is not None and arr >= 1440 and f.dest in HUBS
     return out
+
+
+def digest(task: Task) -> str:
+    """The task's sha256 (16 hex digits): what a pack's stored reference costs were run on (scripts/v3_pack.py
+    --refs), so a load can tell them from a stale file's."""
+    return hashlib.sha256(task.to_json().encode()).hexdigest()[:16]
 
 
 def _price(f: Flight, entry: Mapping, at: int) -> int:

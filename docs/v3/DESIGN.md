@@ -54,7 +54,7 @@ beyond Edgar's proxy, next-day schedules.
 - **Schema:** `Task.layers: Layers | None` (model version 4 when set), a frozen dataclass with `from_dict`/`to_dict`:
   `dep_caps: {station: {hour: cap}}`, `arr_caps: {station: {hour: cap}}` (outstations only), `closures: {station:
   ((start, end, dep_cap, arr_cap), ...)}` (JetBlue's departure and arrival caps over [start, end)), `reserves: {base:
-  pool}`, `release: bool`, and for the desk's view (§4) `weather: ((minute, kind, station, text), ...)`, `lags: {kind:
+  pool}`, and for the desk's view (§4) `weather: ((minute, kind, station, text), ...)`, `lags: {kind:
   minutes}` and `rates: {hub: rate}` (§3.2's `rate`, which the builder also writes here so the day as known can price
   a closure under way; set by whoever builds the closures). The last three are written only when set. Hours and
   minutes from the task's midnight, as everywhere.
@@ -140,8 +140,8 @@ Each section: what it is, how the sim applies it, how the MIP carries it, how it
   cancels nothing, so release only constrains the optimum); the optimum's cancellations 89 -> 87 (cancelling a
   holder no longer frees its slot for a fuller flight); the replay's auto-cancels 2 -> 2, flown flights unchanged.
   JetBlue's replay releases 136 of the 485 pool slots, but a restored cancellation takes back its own slot, so the
-  probe's idle slots are not what release removes. Release is not part of v3: `Layers.release` is in the schema but
-  no enforcer reads it. Patch and numbers: `~/handoff/v3-loop/units/U8/`.
+  probe's idle slots are not what release removes. Release is not part of v3: `Layers.release`, which no enforcer read,
+  was removed from the schema in U11. Patch and numbers: `~/handoff/v3-loop/units/U8/`.
 
 ## §4 What the desk knows, and when (the day as known)
 
