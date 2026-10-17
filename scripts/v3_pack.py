@@ -3,10 +3,11 @@ dates alone, and the control dates beside them (docs/v3/DESIGN.md §2, §6.1); w
 scripts/v3_check.py reads, and each task's anchor and follower costs for the playable day's load.
 
     python scripts/v3_pack.py --out DIR [--only DATE,...] [--workers 14] [--seed 0] [--resume]
-                              [--refs] [--prove-s 1800] [--watch-s 900]
+                              [--refs] [--prove-s 1800] [--watch-s 900] [--bases none|JFK,BOS,...]
 
-1. every storm date over the 19 cached months (network.storms) built as a whole-network task with Edgar's crew model at
-   JetBlue's bases (repairs.BASES), at scale 1 and the 03:00 cutoff, as world_check builds them, and so are the control
+1. every storm date over the 19 cached months (network.storms) built as a whole-network task, without crews by default
+   (v3: docs/v3/DESIGN.md §0 status; `--bases JFK,BOS,FLL,MCO` turns Edgar's crew model on at those bases), at scale 1
+   and the 03:00 cutoff, as world_check builds them, and so are the control
    dates (network.control_dates, each with its hubs' control windows, split 'control'); each date's build is written
    to DIR/built/ as it finishes (a control's as control-DATE.json), and `--resume` keeps those already built there (a
    date left unbuilt, or a file cut short, is built again). A date an input is missing for (say the FAA registry, for
@@ -85,8 +86,9 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--resume", action="store_true", help="keep the builds already under DIR/built/")
     ap.add_argument("--refs", action="store_true", help="run the references on every task written")
-    ap.add_argument("--bases", default=",".join(repairs.BASES),
-                    help="crew bases for Edgar's crew model, comma-separated; 'none' builds without crews")
+    ap.add_argument("--bases", default="none",
+                    help="crew bases for Edgar's crew model, comma-separated (JetBlue's: JFK,BOS,FLL,MCO); 'none', the "
+                         "v3 default, builds without crews (docs/v3/DESIGN.md §0 status)")
     ap.add_argument("--prove-s", type=float, default=PROVE_S, help="time limit of each anchor, flat or calm solve")
     ap.add_argument("--watch-s", type=float, default=WATCH_S, help="time limit of each follower watch solve")
     args = ap.parse_args(argv)
