@@ -1,10 +1,13 @@
 import json
+import random
 from dataclasses import replace
 
-from day_helpers import capped, crewed, day, flight, tail, three_into_a_program
+from day_helpers import capped, crewed, day, flight, network_day, random_day, tail, three_into_a_program
 from program_helpers import adv
-from test_reference_plays import committed_then_stopped, stopped_then_released
+from test_reference_plays import committed_then_stopped, delay_revealed_late, stopped_then_released
 
+from agentenv_airops.core.model import hhmm
+from agentenv_airops.core.sim import FLOWN
 from agentenv_airops.programs import references, sim
 from agentenv_airops.v3day import clock
 from agentenv_airops.v3day.day import Day
@@ -164,6 +167,7 @@ def test_grade_prices_the_plan_on_the_truth_against_naive_and_anchor():
     assert g["cost"]["total"] == sim.execute(task, plan).cost.total
     assert g["naive"] == references.naive(task).cost.total and g["anchor"] == references.anchor(task)[1].cost.total
     assert g["reward"] == round(reward(g["cost"]["total"], g["naive"], g["anchor"]), 6) < 1
+    assert g["references"] == {"rule": references.rule(task).cost, "follower": None}
     assert grade(task, {}, anchor=g["anchor"])["reward"] == reward(g["naive"], g["naive"], g["anchor"])
 
 
@@ -172,3 +176,105 @@ def test_the_hubs_advisories_are_the_news():
                advisories=(adv("a2", "gdp_proposed", 50, 200, 400, (30,) * 4), adv("a1", "gs", 10, 10, 90)))
     assert [(n.id, n.at) for n in clock.news(task)] == [("a1", 10), ("a2", 50)]
     assert "proposed ground delay program 03:20-06:40" in clock.news(task)[1].text
+
+
+def early_leaver():
+    """f0 JFK-BOS at 00:10, ten minutes into the first watch, and f1 back at 03:20, on one aircraft."""
+    return day([flight(0, "JFK", "BOS", 10, 60), flight(1, "BOS", "JFK", 200, 60)], [tail("N1", "JFK")])
+
+
+def test_a_flight_gone_by_the_clock_at_the_first_watch_stands():
+    d = Day(early_leaver())
+    for _ in range(40):
+        d.situation()
+    assert d.clock == 40 and d.situation()["flights"][0]["status"] == "airborne"
+    for change in (cancel(0), [{"flight": "f0", "action": "hold", "not_before": "00:50"}]):
+        out = d.confirm(change)
+        assert out["confirmed"] == [] and "is gone: it left at 00:10" in out["refused"][0]["reason"]
+    assert d.plan == {} and d.project(d.plan).flights[0].dep == 10
+
+
+def test_a_flight_restored_at_the_first_watch_leaves_no_earlier_than_the_clock():
+    d = Day(early_leaver())
+    d.confirm(cancel(0))
+    for _ in range(20):
+        d.situation()
+    out = d.confirm([{"flight": "f0", "action": "restore"}])
+    assert out["confirmed"] == ["f0"] and out["held_to_freeze_line"] == ["f0"]
+    assert d.plan == {0: {"not_before": 21}} and d.project(d.plan).flights[0].dep == 21
+
+
+def changes_keep_the_day_so_far(seed: int) -> list[tuple]:
+    """Random cancels, restores and holds at every watch after the first; what moved among the flights frozen or
+    gone by the clock (outcome, departure, aircraft), and the open flights left before the freeze line."""
+    rng = random.Random(seed)
+    task = network_day(rng) if seed % 2 else random_day(rng)
+    d, bad = Day(task, anchor=0), []
+    while not d.done:
+        if d.watch > 0:
+            before, at = d.project(d.plan).flights, d.clock
+            pinned = d.frozen | {i for i, r in before.items() if r.status == FLOWN and r.dep < at}
+            rows = [{"flight": f"f{i}", "action": (a := rng.choice(["cancel", "restore", "hold"])),
+                     "not_before": hhmm(task.flight(i).sched_dep + rng.randint(0, 200)) if a == "hold" else None}
+                    for i in rng.sample([f.id for f in task.flights], min(3, len(task.flights)))]
+            out = d.confirm(rows)
+            if d.done or "watch_over" in out:
+                continue
+            after = d.project(d.plan).flights
+            bad += [(seed, d.watch, i) for i in pinned if _kept(before[i]) != _kept(after[i])]
+            bad += [(seed, d.watch, i, "open") for i, r in after.items()
+                    if r.status == FLOWN and i not in d.frozen and at <= r.dep < d.line]
+        d.advance()
+    return bad
+
+
+def _kept(r) -> tuple:
+    return r.status, r.dep, r.tail
+
+
+def test_no_change_reaches_back_past_the_freeze_or_the_clock():
+    assert [b for seed in range(130) for b in changes_keep_the_day_so_far(seed)] == []
+
+
+def test_a_delay_shows_only_once_it_is_known():
+    d = Day(delay_revealed_late())
+    assert d.situation()["flights"][0]["known_delay"] is None
+    assert "B6 100 DCA-JFK".split()[-1] in d.text() and " ? " in d.text().split("## Flights")[1]
+    while d.t + 120 < 400:
+        d.advance()
+    assert d.situation()["flights"][0]["known_delay"] == 300 and " 300 " in d.text().split("## Flights")[1]
+
+
+def test_news_signed_on_a_watch_minute_arrives_at_that_watch():
+    task = replace(held_then_released(), programs=day(
+        [flight(0, "JFK", "BUF", 100, 60)], [tail("N1", "JFK")],
+        advisories=(adv("a1", "gs", 60, 60, 120),)).programs)
+    d = Day(task)
+    assert d.drain() == [] and d.advance()["news"] == ["a1"] and d.t == 60
+
+
+def test_each_flight_row_is_its_projection():
+    d = Day(three_into_a_program())
+    run, rows = d.project(d.plan).flights, d.situation()["flights"]
+    for row in rows:
+        r, f = run[int(row["id"][1:])], d.task.flight(int(row["id"][1:]))
+        assert (row["dep"], row["arr"], row["tail"]) == (r.dep and hhmm(r.dep), r.arr and hhmm(r.arr), r.tail)
+        assert row["late"] == (r.arr - f.sched_arr if r.status == FLOWN else None)
+        assert row["slot"] == (r.slot and {"program": r.program, "at": hhmm(r.slot)})
+    assert [(r["status"], r["dep"], r["arr"], r["late"], r["tail"]) for r in rows] == [
+        ("auto-cancel", None, None, None, None), ("auto-cancel", None, None, None, None),
+        ("open", "05:41", "06:41", 241, "N3")]
+
+
+def test_every_aircraft_is_somewhere_at_every_watch():
+    rng = random.Random(4)
+    for _ in range(6):
+        d = Day(network_day(rng), anchor=0)
+        while not d.done:
+            a = d.situation()["aircraft"]
+            if "watch_over" in a:
+                break
+            where = [x["tail"] for xs in a["stations"].values() for x in xs] + [x["tail"] for x in a["airborne"]]
+            assert sorted(where) == sorted(t.tail for t in d.task.tails)
+            assert all(x["lands"] > hhmm(d.clock - 1) for x in a["airborne"])
+            d.advance()

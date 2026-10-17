@@ -50,9 +50,7 @@ def test_airline_replay_through_the_day_costs_what_the_sim_says(name, request):
     d = play(task, airline, anchor=0)
     expected = airline_expected(task)
     assert d.refusals == [] and [c for c in d.changes if c["by"] == "freeze_line"] == []
-    assert d.plan == expected
-    assert d.result["cost"] == sim.execute(task, expected).cost.to_dict()
-    assert d.result["cost"]["total"] == sim.execute(task, d.plan).cost.total
+    assert d.plan == expected and d.result["cost"] == sim.execute(task, expected).cost.to_dict()
 
 
 def test_the_airline_replay_on_random_network_days_costs_what_the_sim_says():
@@ -61,7 +59,6 @@ def test_the_airline_replay_on_random_network_days_costs_what_the_sim_says():
         task = network_day(rng)
         d = play(task, airline, anchor=0)
         assert d.plan == airline_expected(task) and d.refusals == []
-        assert d.result["cost"]["total"] == sim.execute(task, airline_expected(task)).cost.total
 
 
 @pytest.mark.parametrize("name", ["task", "crewed"])
@@ -79,6 +76,17 @@ def test_doing_nothing_costs_the_naive_day_and_scores_zero():
 
 
 def test_the_rule_played_through_the_day_is_the_rule_reference():
-    for task in hand_and_random_days():
+    """Except on day 15, where the reference's cancellation of f12 at 08:00 reroutes N1 and auto-cancels f6, which
+    left at 03:38: the desk can't reach back past the day so far, so the Day refuses it."""
+    differ = []
+    for k, task in enumerate(hand_and_random_days()):
         d, ref = play(task, rule, anchor=0), references.rule(task)
-        assert d.plan == ref.plan and d.result["cost"]["total"] == ref.cost
+        if d.plan == ref.plan:
+            assert d.result["cost"]["total"] == ref.cost and d.refusals == []
+        else:
+            differ.append(k)
+            assert {r["flight"] for r in d.refusals} == {"f12"} and "move f6" in d.refusals[0]["reason"]
+            assert d.plan == {i: e for i, e in ref.plan.items() if i != 12}
+            assert sim.execute(task, ref.plan).flights[6].status == AUTO_CANCELLED
+            assert sim.execute(task, d.plan).flights[6].dep == 218
+    assert differ == [15]

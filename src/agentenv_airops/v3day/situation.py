@@ -31,7 +31,7 @@ def build(day: "Day") -> dict:
             "programs": programs(task, world), "dep_caps": dep_caps(task, t),
             "flights": [flight_row(day, f.id, run.flights[f.id]) for f in sorted(task.flights,
                                                                                 key=lambda f: (f.sched_dep, f.id))],
-            "aircraft": aircraft(task, run, t), "news": [day.items[n].to_dict() for n in day.delivered]}
+            "aircraft": aircraft(task, run, day.clock), "news": [day.items[n].to_dict() for n in day.delivered]}
 
 
 def programs(task: Task, world: sim.World) -> dict:
@@ -67,8 +67,8 @@ def flight_row(day: "Day", i: int, r: sim.FlightRun) -> dict:
 
 
 def status(day: "Day", i: int, r: sim.FlightRun) -> str:
-    if r.status == FLOWN and r.dep < day.t:
-        return "flown" if r.arr <= day.t else "airborne"
+    if r.status == FLOWN and r.dep < day.clock:
+        return "flown" if r.arr <= day.clock else "airborne"
     if i not in day.frozen:
         return {CANCELLED: "cancelled", AUTO_CANCELLED: "auto-cancel"}.get(r.status, "open")
     return "cancelled" if r.status == CANCELLED else "frozen"
