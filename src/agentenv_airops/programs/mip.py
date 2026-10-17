@@ -6,7 +6,8 @@ destination less its block, and at the end of its crew's rest) from its earliest
 included, less the minutes the world forbids: those a ground stop holds it, those at which a segment governs it with
 its slot time (the minute plus the scheduled block) inside the period but on none of JetBlue's slots, and those after
 its crew deadline before its crew's rest ends. A copy on a slot counts in that slot's row, at most one flight per slot;
-any other copy into a hub counts in the nominal row of its arrival hour (the minute plus the block); and any copy,
+any other copy into a hub, or into an outstation in an hour it caps (Layers.arr_caps, which join the nominal caps),
+counts in the nominal row of its arrival hour (the minute plus the block); and any copy,
 slotted or not, leaving in an hour its origin caps (Layers.dep_caps) counts in that hour's departure row, one leaving
 inside a ramp closure at its origin (Layers.closures) in that closure's departure row, and one arriving (the minute
 plus the block) inside a ramp closure at its destination in that closure's arrival row. A copy costs its pax x minutes

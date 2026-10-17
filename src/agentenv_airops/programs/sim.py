@@ -26,7 +26,8 @@ flight ready at minute t, in this order:
   at the slot less its scheduled block (its EDCT) and lands after its own block. With no free slot left before the
   period ends it arrives after the period;
 - any other arrival at a hub (exempt, uncontrolled, or past its period) needs room under the nominal cap of its
-  arrival hour (rbs.nominal); a slot holder does not count against it.
+  arrival hour (rbs.nominal), and an arrival at an outstation in an hour the station caps (Layers.arr_caps, §3.3)
+  under that cap, which joins the nominal caps; a slot holder does not count against it.
 Claims bind first, in (claim, flight id) order, each to the first unbound slot at or after it in the pool of the
 segment that would govern the flight leaving at its claim less its scheduled block. A flight that can't make its
 claimed slot loses it and the slot is wasted, as a missed EDCT is. Any other slot is taken when its flight leaves, so
@@ -53,7 +54,8 @@ a watch (M12: lb and the truth block once the scheduled departure is within LOOK
 programs as issued by then, proposed GDPs included, every stop to its as-issued end, every GDP too unless a base rate
 ends it earlier), or the calm day (no delay, scheduled blocks, no programs). Nominal caps, deadlines, the hub cutoff
 and the crew deadlines, which the schedule fixes and the desk knows from the start, are the same in all of them. The
-departure caps and ramp closures are the truth's alone: the day as known and the calm day carry none.
+departure caps, outstation arrival caps and ramp closures are the truth's alone: the day as known and the calm day
+carry none.
 """
 
 import bisect
@@ -89,7 +91,8 @@ def truth(task: Task) -> World:
     layers = task.layers
     return World(task.lb, {f.id: f.block for f in task.flights},
                  {h: p.segments for h, p in task.programs.items()},
-                 tuple(s for p in task.programs.values() for s in p.stops), nominal_caps(task),
+                 tuple(s for p in task.programs.values() for s in p.stops),
+                 nominal_caps(task) | (layers.arr_caps if layers else {}),
                  layers.dep_caps if layers else {}, layers.closures if layers else {})
 
 

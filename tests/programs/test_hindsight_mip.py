@@ -17,6 +17,8 @@ from day_helpers import (
     late_pin_day,
     moved_day,
     network_day,
+    outcapped,
+    outcapped_day,
     quick_day,
     random_day,
     segment,
@@ -30,6 +32,7 @@ from day_helpers import (
 )
 
 from agentenv_airops.programs import candidates, mip, references, sim
+from agentenv_airops.programs.advisories import HUBS
 from agentenv_airops.programs.cost import cancel_price
 from agentenv_airops.programs.layers import closures, depcaps
 from agentenv_airops.programs.model import Task
@@ -38,6 +41,7 @@ RANDOM = range(8)
 NETWORK = range(8)
 CAPPED = range(4)
 TIGHT = {c: {h: h % 3 for h in range(24)} for c in PLACES}
+OUT_TIGHT = {c: {h: h % 3 for h in range(24)} for c in PLACES if c not in HUBS}
 SHUT = {"JFK": ((80, 160, 1, 0), (220, 250, 0, 1)), "BOS": ((180, 230, 0, 1),), "BUF": ((290, 330, 1, 0),),
         "DCA": ((210, 280, 0, 0),)}
 
@@ -62,7 +66,12 @@ def days() -> dict[str, Task]:
             "closed": closed_day(1), "closed_shut": closed_day(0),
             **{f"closed_random{seed}": closed(random_day(random.Random(seed)), SHUT) for seed in CAPPED},
             **{f"closed_network{seed}": closed(network_day(random.Random(seed)), SHUT) for seed in CAPPED},
-            "closed_capped_network1": closed(capped(network_day(random.Random(1)), TIGHT), SHUT)}
+            "closed_capped_network1": closed(capped(network_day(random.Random(1)), TIGHT), SHUT),
+            "outcapped": outcapped_day(),
+            **{f"outcapped_random{seed}": outcapped(random_day(random.Random(seed)), OUT_TIGHT) for seed in CAPPED},
+            **{f"outcapped_network{seed}": outcapped(network_day(random.Random(seed)), OUT_TIGHT) for seed in CAPPED},
+            "outcapped_closed_capped_network1": outcapped(closed(capped(network_day(random.Random(1)), TIGHT), SHUT),
+                                                          OUT_TIGHT)}
 
 
 def crew() -> Task:
@@ -176,7 +185,8 @@ def test_a_day_with_legs_cancelled_on_either_side_of_its_breaks_is_a_solution_at
 
 @pytest.mark.parametrize("name", ["slots", "stop", "moved", "broken", "busy", "quick", "crew", "random3", "network2",
                                   "capped", "capped_random1", "capped_network2", "closed", "closed_shut",
-                                  "closed_random1", "closed_network0", "closed_capped_network1"])
+                                  "closed_random1", "closed_network0", "closed_capped_network1", "outcapped",
+                                  "outcapped_random1", "outcapped_network2", "outcapped_closed_capped_network1"])
 def test_a_day_with_its_history_pinned_is_a_solution_of_the_model_with_those_pins(name):
     task = days()[name]
     first = sim.execute(task, {})
@@ -325,6 +335,23 @@ def test_a_ramp_closure_raises_the_optimum_and_the_optimum_replays_under_it():
     assert sol.objective > mip.solve(closed_day()).objective > mip.solve(replace(task, layers=None)).objective
     assert sum(sol.deps[i] is not None and 120 <= sol.deps[i] < 180 for i in (0, 1, 2, 4, 6)) <= 1
     assert sum(sol.deps[i] is not None and 120 <= sol.deps[i] + 60 < 180 for i in (3, 5)) == 1
+
+
+def test_an_outstation_arrival_cap_raises_the_optimum_and_the_optimum_replays_under_it():
+    """BUF takes one arrival in hour 2: the optimum lands the 60-pax flight 1 at 180, at 60 x 50 minutes late, plus
+    its aircraft's 50 minutes."""
+    task = outcapped_day()
+    sol = mip.solve(task)
+    assert sol.proven and replays(task, sol)
+    assert sol.deps == {0: 60, 1: 120, 2: 55} and sol.objective > mip.solve(replace(task, layers=None)).objective == 0
+
+
+def test_a_pinned_arrival_at_an_outstation_leaves_the_others_the_rest_of_its_hour():
+    task = outcapped_day()
+    sol = mip.solve(task, fixed={1: 70})
+    run = sim.execute(task, {**sol.plan(task.start), 1: {"left": 70}})
+    assert sol.deps == {0: 120, 1: 70, 2: 55} == {i: r.dep for i, r in run.flights.items()}
+    assert run.cost.total == sol.objective
 
 
 def test_a_pinned_departure_inside_a_ramp_closure_leaves_the_others_the_rest_of_its_cap():

@@ -142,6 +142,20 @@ def closed_day(arr_cap: int = 2) -> Task:
     return closed(day(flights, tails), {"JFK": ((120, 180, 1, arr_cap),)})
 
 
+def outcapped(task: Task, caps: dict[str, dict[int, int]]) -> Task:
+    """The task with arrival caps per outstation and hour, added to any layer it carries."""
+    return replace(task, layers=replace(task.layers or Layers(), arr_caps=caps))
+
+
+def outcapped_day() -> Task:
+    """N1 lands at BUF from JFK at 120 and N2 from DCA at 130, both in hour 2, which BUF caps at one arrival; N3 lands
+    at PWM, uncapped, at 125."""
+    flights = [flight(0, "JFK", "BUF", 60, 60), flight(1, "DCA", "BUF", 70, 60, pax=60),
+               flight(2, "JFK", "PWM", 55, 70)]
+    tails = [tail("N1", "JFK", end="BUF"), tail("N2", "DCA", end="BUF"), tail("N3", "JFK", end="PWM")]
+    return outcapped(day(flights, tails), {"BUF": {2: 1}})
+
+
 def shortened(task: Task, slack: int = 150) -> Task:
     """The task with every deadline at most `slack` after the earliest departure, to keep a test's MIP small."""
     return replace(task, flights=tuple(replace(f, deadline=min(f.deadline, task.earliest(f, f.lb) + slack))
