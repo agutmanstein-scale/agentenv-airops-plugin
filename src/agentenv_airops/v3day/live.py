@@ -9,10 +9,11 @@ call that could end any watch but the last needs the clock synced, and a failed 
 (a call that fails after the re-arm arms the clock back at its watch). Planner calls run one at a time.
 The Day delivers each watch's advisories itself, in every tool result's messages, so there are no news triggers. A
 reply in which the day ends carries done, cost and reward. The grade needs the anchor's cost: the load takes it (and
-the follower's) when the pack has it and otherwise solves the hindsight MIP then, before the clock starts, so the
-day's last call never waits on a solve. urn:airops:v3-end-day/v1 grades the plan on the truth (v3day.grade) when the
-planner stopped early. data/get reports the Day with its reward and an audit of its news log, as v1's verifier reads
-a day, and never the truth the desk doesn't know yet."""
+the follower's) from its arguments, else from the pack's refs.json (scripts/v3_pack.py --refs: the costs per task
+with the digest of the task they ran on, used only while it matches), and otherwise solves the hindsight MIP then,
+before the clock starts, so the day's last call never waits on a solve. urn:airops:v3-end-day/v1 grades the plan on
+the truth (v3day.grade) when the planner stopped early. data/get reports the Day with its reward and an audit of its
+news log, as v1's verifier reads a day, and never the truth the desk doesn't know yet."""
 
 import asyncio
 import json
@@ -62,6 +63,7 @@ ENV = "airops-v3-day"
 LIVE_LOAD_URI = "urn:airops:v3-live-load/v1"
 END_DAY_URI = "urn:airops:v3-end-day/v1"
 TASKS_VAR = "AIROPS_V3_TASKS"
+REFS_FILE = "refs.json"
 TOOLS = ("get_situation", "check_plan", "confirm_changes", "advance")
 EMPTY = {"task_id": None, "watches": None, "watch": None, "t": None, "clock": None, "calls": 0, "done": False,
          "end_reason": None, "plan": [], "frozen": [], "notices": [], "freezes": [], "changes": [], "refusals": [],
@@ -72,6 +74,24 @@ def tasks_by_id() -> dict[str, Task]:
     """The programs tasks of AIROPS_V3_TASKS (pack folders or .jsonl files, separated by ':'); none when unset."""
     paths = os.environ.get(TASKS_VAR)
     return {t.task_id: t for p in paths.split(":") for t in load_tasks(Path(p))} if paths else {}
+
+
+def refs_by_id() -> dict[str, dict]:
+    """The stored reference costs beside AIROPS_V3_TASKS's tasks: the refs.json in each pack folder (or beside each
+    .jsonl), by task id; none where there is none."""
+    paths = os.environ.get(TASKS_VAR)
+    out = {}
+    for p in map(Path, paths.split(":") if paths else ()):
+        f = (p if p.is_dir() else p.parent) / REFS_FILE
+        if f.is_file():
+            out |= json.loads(f.read_text())
+    return out
+
+
+def stored(task: Task, refs: dict[str, dict]) -> dict[str, int]:
+    """The anchor's and the follower's stored costs of `task`, if they were run on this very task."""
+    r = refs.get(task.task_id, {})
+    return {k: r[k] for k in ("anchor", "follower") if k in r} if r.get("task") == references.digest(task) else {}
 
 
 def audit(day: Day) -> dict:
@@ -92,6 +112,7 @@ def _json(obj: Any) -> str:
 class AirOpsV3LiveEnv(AgentEnvEnvironment):
     def __init__(self):
         self.tasks = tasks_by_id()
+        self.refs = refs_by_id()
         self.set_time_url: str | None = None
         self.loaded = False
         self.playing = asyncio.Lock()
@@ -129,16 +150,19 @@ class AirOpsV3LiveEnv(AgentEnvEnvironment):
 
     @extension(LIVE_LOAD_URI, description="Start a live v3 day on the task with this id; an env plays one day.")
     def live_load(self, task_id: str, anchor: int | None = None, follower: int | None = None) -> dict:
-        """`anchor` and `follower` are those references' costs on the truth when the pack has them; without the anchor's
-        the load solves it (references.anchor, up to its time limit). Loading again would replay the day with its news
-        already seen; the news before the first watch is in the opening prompt (tasks.briefing), so it is not repeated
-        in the first reply."""
+        """`anchor` and `follower` are those references' costs on the truth, each taken from the pack's refs.json when
+        not given (`stored`); without the anchor's the load solves it (references.anchor, up to its time limit).
+        Loading again would replay the day with its news already seen; the news before the first watch is in the
+        opening prompt (tasks.briefing), so it is not repeated in the first reply."""
         if self.loaded:
             raise ValueError("a day was already loaded in this env: each live day needs a new deploy")
         if task_id not in self.tasks:
             raise ValueError(f"unknown task id {task_id!r}")
         self.reset()
         task = self.tasks[task_id]
+        kept = stored(task, self.refs)
+        anchor = kept.get("anchor") if anchor is None else anchor
+        follower = kept.get("follower") if follower is None else follower
         self.day = Day(task, references.anchor(task)[1].cost.total if anchor is None else anchor, follower)
         self.day.drain()
         self.loaded = True
