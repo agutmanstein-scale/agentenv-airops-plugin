@@ -53,7 +53,7 @@ import pandas as pd
 
 from ..build import fleet, pack
 from .advisories import HUBS
-from .model import Busy, Connection, Crew, Flight, Move, Outcome, Tail
+from .model import EXTENSION, REST, Busy, Connection, Crew, Flight, Move, Outcome, Tail
 
 FAMILIES = ("A320", "A321", "A321P", "A220", "E190")
 MIN_TURN = 25
@@ -69,8 +69,6 @@ DMAX = 900
 CUTOFF = 1440 + 180
 BASES = ("JFK", "BOS", "FLL", "MCO")
 REPORT = 45
-EXTENSION = 120
-REST = 600
 ECFR = "https://www.ecfr.gov/current/title-14/chapter-I/subchapter-G/part-117"
 TABLE_B = {0: (9, 9, 9, 9, 9, 9, 9), 4: (10, 10, 10, 10, 9, 9, 9), 5: (12, 12, 12, 12, 11.5, 11, 10.5),
            6: (13, 13, 12, 12, 11.5, 11, 10.5), 7: (14, 14, 13, 13, 12.5, 12, 11.5),

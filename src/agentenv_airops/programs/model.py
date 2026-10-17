@@ -19,13 +19,19 @@ everything the truth, the forecast and the references read, and nothing they wou
 A task may carry v3's realism `layers` (Layers, programs.layers builds them from pinned public inputs); a task that
 sets any is written as model version LAYERED, one without (None, or Layers() with nothing set) is v2's task byte
 for byte. `version` is the v2 model's: LAYERED is read back as VERSION and written from the layers alone.
+
+With a finite reserve pool at a crew base (`Layers.reserves`, docs/v3/DESIGN.md §3.4) a departure from that base gets
+its pairing's crew deadline as an outstation departure has it (the report + the FAR 117 limit + EXTENSION, less its
+scheduled block, its rest REST after it: `Task.crew`), and may fly past it only on a reserve crew the plan calls
+(`reserve`, granted while the base's pool lasts: sim.granted). A base the pool leaves out keeps Edgar's unlimited
+reserves.
 """
 
 import json
 import math
 from collections import Counter
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 from pathlib import Path
 
@@ -34,6 +40,8 @@ from .advisories import HUBS, Advisory, Scope, Stop, nm
 
 VERSION = 3
 LAYERED = 4
+EXTENSION = 120
+REST = 600
 
 
 @dataclass(frozen=True)
@@ -462,13 +470,43 @@ class Task:
         """Nothing in scope leaves before the first watch; an early departure (lb < 0) leaves before its schedule."""
         return max(f.sched_dep + lb, self.start)
 
-    def auto_at(self, f: Flight) -> int:
+    def auto_at(self, f: Flight, reserve: bool = False) -> int:
         """When f auto-cancels if it can't leave: at its crew deadline, never before the first watch, if its crew's
-        rest would end past its deadline, else at its deadline."""
-        c = f.crew
+        rest would end past its deadline, else at its deadline; on a `reserve` crew (one granted) at its deadline."""
+        c = f.crew if reserve else self.crew(f)
         if c and c.deadline is not None and c.deadline < f.deadline < c.rest:
             return max(c.deadline, self.start)
         return f.deadline
+
+    def reservable(self, f: Flight) -> bool:
+        """Whether f is a departure from a crew base with a finite reserve pool, past whose crew deadline it flies only
+        on a reserve crew."""
+        return (self.layers is not None and f.crew is not None and f.crew.deadline is None
+                and f.orig in self.layers.reserves)
+
+    def crew(self, f: Flight) -> Crew | None:
+        """f's crew as the world holds it without a reserve: a departure from a base with a finite pool gets its
+        pairing's crew deadline and rest as an outstation departure has them (repairs.crews)."""
+        return self._crews.get(f.id, f.crew)
+
+    @cached_property
+    def _crews(self) -> dict[int, Crew]:
+        out = {}
+        for f in self.flights:
+            if self.reservable(f):
+                d = f.crew.report + f.crew.fdp + EXTENSION - f.sched_block
+                out[f.id] = replace(f.crew, deadline=d, rest=d + REST)
+        return out
+
+    def legal(self, f: Flight, t: int, reserve: bool = False) -> int:
+        """Flight.legal with the crew the world holds without a reserve (Task.crew); on a `reserve` crew, f's own."""
+        c = f.crew if reserve else self.crew(f)
+        return c.rest if c and c.deadline is not None and c.deadline < t < c.rest else t
+
+    def late(self, f: Flight, t: int) -> bool:
+        """Whether f, leaving at t, flies on a reserve crew: a reservable flight past its crew deadline before its rest
+        ends."""
+        return self.reservable(f) and self.legal(f, t) != t
 
     @property
     def lb(self) -> dict[int, int]:
