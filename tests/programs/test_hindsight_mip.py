@@ -34,7 +34,7 @@ from day_helpers import (
 from agentenv_airops.programs import candidates, mip, references, sim
 from agentenv_airops.programs.advisories import HUBS
 from agentenv_airops.programs.cost import cancel_price
-from agentenv_airops.programs.layers import closures, depcaps
+from agentenv_airops.programs.layers import arrcaps, closures, depcaps
 from agentenv_airops.programs.model import Task
 
 RANDOM = range(8)
@@ -109,9 +109,18 @@ def closed_task(task) -> Task:
     return closed(task, closures.build(task, {"JFK": [(task.base + 1080, task.base + 1140)]}, {"JFK": 0.5}))
 
 
-@pytest.fixture(scope="module", params=["task", "crewed", "capped_task", "closed_task"])
+@pytest.fixture(scope="module")
+def outcapped_task(task, slice_inputs, tmp_path_factory) -> Task:
+    """The fixture day under the outstation arrival caps the slice's BTS arrivals give it, every hour with one
+    arrival scheduled counted (the slice holds few other carriers' flights)."""
+    return outcapped(task, arrcaps.build(task, candidates.frame(slice_inputs, tmp_path_factory.mktemp("derived"),
+                                                                task.date), min_sched=1))
+
+
+@pytest.fixture(scope="module", params=["task", "crewed", "capped_task", "closed_task", "outcapped_task"])
 def fixture_day(request) -> Task:
-    """The fixture day, the same day with the crew model, under departure caps, and with a ramp closure."""
+    """The fixture day, the same day with the crew model, under departure caps, with a ramp closure, and under
+    outstation arrival caps."""
     return shortened(request.getfixturevalue(request.param))
 
 
