@@ -2,7 +2,20 @@ import random
 from dataclasses import replace
 
 import pytest
-from day_helpers import GDP, crewed, day, flight, network_day, random_day, shortened, stop, tail
+from day_helpers import (
+    GDP,
+    based,
+    crewed,
+    day,
+    flight,
+    network_day,
+    random_day,
+    reserve_day,
+    reserved,
+    shortened,
+    stop,
+    tail,
+)
 from program_helpers import adv
 
 from agentenv_airops.programs import mip, references, sim
@@ -176,6 +189,47 @@ def test_the_airline_replay_counts_no_leg_whose_aircraft_came_on_a_leg_flown_pas
     replay = references.airline(task)
     assert [replay.run.flights[i].status for i in range(3)] == ["auto_cancelled", "auto_cancelled", "flown"]
     assert references.counted(task) == [2] and (replay.flew, replay.auto) == (1, 0)
+
+
+def test_the_airline_replay_calls_a_reserve_for_each_base_departure_flown_past_its_crew_deadline():
+    """JetBlue flew both JFK departures past their crew deadline (150): with two reserves the replay is the one with
+    unlimited reserves; with one the first by id flies on it and the other auto-cancels at its crew deadline."""
+    flights = [based(flight(0, "JFK", "BUF", 100, 60, deadline=700,
+                            actual=Outcome(False, False, "", 200, 260, "BUF", "N1")), 150),
+               based(flight(1, "JFK", "PWM", 105, 70, deadline=700,
+                            actual=Outcome(False, False, "", 205, 275, "PWM", "N2")), 150),
+               based(flight(2, "JFK", "DCA", 110, 60, actual=Outcome(False, False, "", 120, 180, "DCA", "N3")), 150)]
+    task = day(flights, [tail("N1", "JFK", end="BUF"), tail("N2", "JFK", end="PWM"), tail("N3", "JFK", end="DCA")])
+    v2 = references.airline(task).run
+    plan = references.airline_plan(reserved(task, {"JFK": 1}))
+    assert [plan[i].get("reserve", False) for i in range(3)] == [True, True, False]
+    assert "reserve" not in str(references.airline_plan(task))
+    assert references.airline(reserved(task, {"JFK": 2})).run.rows() == v2.rows()
+    one = references.airline(reserved(task, {"JFK": 1}))
+    assert [(r.status, r.dep, r.decided) for r in one.run.flights.values()] == [
+        ("flown", 200, None), ("auto_cancelled", None, 150), ("flown", 120, None)]
+    assert one.auto == 1 and references.airline(task).auto == 0
+
+
+def test_the_airline_replay_on_the_crewed_evening_with_empty_pools_is_its_v2_replay(crewed):
+    """JetBlue flew no departure from a base past its crew deadline on the fixture evening, so with every base's pool
+    empty the replay calls no reserve and flies as with unlimited reserves."""
+    task = reserved(crewed, {b: 0 for b in crewed.bases})
+    assert sum(task.reservable(f) for f in task.flights) > 0
+    assert not [f for f in task.flights if f.actual.dep is not None and task.late(f, f.actual.dep)]
+    assert "reserve" not in str(references.airline_plan(task))
+    assert references.airline(task).run.rows() == references.airline(crewed).run.rows()
+
+
+def test_the_follower_keeps_its_solves_reserve_calls_and_the_day_so_far_keeps_them_on_flights_gone():
+    task = reserve_day()
+    followed = references.follow(task)
+    assert followed.plan[1].get("reserve") and followed.run.reserved == {1}
+    assert followed.run.flights[1].status == "flown" and followed.run.flights[0].status != "flown"
+    assert followed.cost == references.anchor(task)[1].cost.total
+    past = references.so_far(task, followed.plan, followed.run.flights[1].dep + 1)
+    assert past[1] == {"left": followed.run.flights[1].dep, "reserve": True}
+    assert "reserve" not in str(references.follow(replace(task, layers=None)).plan)
 
 
 def test_no_reference_costs_less_than_the_anchor(fixture_day):
