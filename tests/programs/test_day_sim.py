@@ -342,7 +342,8 @@ def test_a_pinned_arrival_uses_up_its_outstation_hour_before_the_later_ones_arri
     assert times(run) == {0: (120, 180), 1: (70, 130), 2: (55, 125)}
 
 
-def test_outstation_arrival_caps_join_the_truths_nominal_caps_and_neither_the_known_nor_the_calm_day_carries_them():
+def test_outstation_arrival_caps_join_the_truths_nominal_caps_the_known_days_within_cap_look_and_not_the_calm_days():
     task = outcapped_day()
     assert sim.truth(task).nominal == sim.nominal_caps(task) | {"BUF": {2: 1}}
-    assert "BUF" not in sim.known(task, 0).nominal and "BUF" not in sim.calm(task).nominal
+    assert sim.known(task, 0).nominal == sim.truth(task).nominal and "BUF" not in sim.calm(task).nominal
+    assert "BUF" not in sim.known(outcapped(task, {"BUF": {9: 1}}), 0).nominal
