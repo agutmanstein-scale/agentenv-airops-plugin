@@ -1,5 +1,5 @@
-"""Ramp closures at JFK and BOS from the METARs, as a cut in JetBlue's departure rate and a gate hold
-(docs/v3/DESIGN.md §3.2).
+"""Ramp closures at JFK and BOS from the METARs, as a cut in JetBlue's departure and gate-in rates (docs/v3/DESIGN.md
+§3.2).
 
 An ASOS reports TS in present weather when it detects lightning within 5 nm of the field (VCTS is 5 to 10 nm, LTG DSNT
 beyond: neither closes the ramp), and the remarks carry the thunderstorm's begin and end minutes (TSBmm or TSBhhmm,
@@ -11,15 +11,17 @@ Overlapping or touching intervals merge. The SPECIs, when the cache holds them, 
 without them the routine reports alone, whose remarks carry the same minutes an hour later at most.
 
 Lightning doesn't stop the ramp: during such intervals every carrier together still pushed back at about 75% of its
-rate in the same minutes just before (the spike: JFK 411 vs 563, BOS 449 vs 584). `fit_rate` measures that ratio per
-hub on train dates, leaving out a closure whose minutes just before reach into another closure, as they hold no
-normal rate. `build` turns each closure over a task into JetBlue's cap there (§3.2): `rate` x JetBlue's normal hourly
+rate in the same minutes just before (the spike: JFK 411 vs 563, BOS 449 vs 584), and gated in at 70 to 74% (BTS over
+the 19 months: JFK 565 vs 807, BOS 732 vs 989). `fit_rate` measures the departure ratio per hub on train dates,
+leaving out a closure whose minutes just before reach into another closure, as they hold no normal rate. `build` turns
+each closure over a task into JetBlue's two caps there (§3.2), at the same rate: `rate` x JetBlue's normal hourly
 departures from the hub (the task's flights scheduled to leave it in the clock hours the closure touches, per hour) x
-the closure's length in hours, rounded to the nearest flight, and never below what those flights actually pushed back
-inside it. The floor keeps the recorded pushbacks inside a closure within its cap; the gate hold can still make a
-recorded turn inside a closure infeasible (an aircraft that landed inside and pushed back again before its end), so the
-recorded day is not feasible by construction. `intervals` are in UTC epoch minutes, closures in minutes from the
-task's midnight.
+the closure's length in hours, rounded to the nearest flight and never below what those flights actually pushed back
+inside it; and the same of its flights scheduled to arrive at the hub, never below those that gated in there inside it
+(a diversion gates in elsewhere). The floors keep the recorded pushbacks and gate-ins inside a closure within its
+caps; the sim times a recorded arrival at its pushback plus its truth block, a few minutes before its gate-in when the
+block leaves out a held taxi-out, so the recorded day is close to feasible, not feasible by construction. `intervals`
+are in UTC epoch minutes, closures in minutes from the task's midnight.
 """
 
 import csv
@@ -88,28 +90,36 @@ def _at(report: datetime, digits: str) -> datetime:
 
 
 def build(task: Task, spans: Mapping[str, Sequence[Interval]],
-          rate: Mapping[str, float]) -> dict[str, tuple[tuple[int, int, int], ...]]:
-    """The task's ramp closures per hub, (start, end, cap) from its midnight: each of `spans` (UTC epoch minutes, per
-    hub) that overlaps the task's span, from its first watch to the end of the hour after its last deadline. A hub
-    closed over the task without a `rate` (`fit_rate` gives none to a hub with nothing pushed back before its
-    closures) is a ValueError: its cap can't be priced, and dropping the closure would hide the gap."""
+          rate: Mapping[str, float]) -> dict[str, tuple[tuple[int, int, int, int], ...]]:
+    """The task's ramp closures per hub, (start, end, dep_cap, arr_cap) from its midnight: each of `spans` (UTC epoch
+    minutes, per hub) that overlaps the task's span, from its first watch to the end of the hour after its last
+    deadline. A hub closed over the task without a `rate` (`fit_rate` gives none to a hub with nothing pushed back
+    before its closures) is a ValueError: its caps can't be priced, and dropping the closure would hide the gap."""
     hi = 60 * (max(f.deadline for f in task.flights) // 60 + 2)
     out = {}
     for hub, xs in spans.items():
-        mine = [f for f in task.flights if f.orig == hub]
+        leave = [f.sched_dep for f in task.flights if f.orig == hub]
+        land = [f.sched_arr for f in task.flights if f.dest == hub]
+        pushed = [f.actual.dep for f in task.flights if f.orig == hub and f.actual.dep is not None]
+        gated = [f.actual.arr for f in task.flights if f.dest == f.actual.end == hub and f.actual.arr is not None]
         shut = []
         for a, b in ((a - task.base, b - task.base) for a, b in xs):
             if b <= task.start or a >= hi:
                 continue
             if hub not in rate:
                 raise ValueError(f"{hub} closes {a}-{b} on {task.date} but has no fitted rate")
-            lo, top = 60 * (a // 60), 60 * -(-b // 60)
-            hourly = sum(lo <= f.sched_dep < top for f in mine) * 60 / (top - lo)
-            flew = sum(f.actual.dep is not None and a <= f.actual.dep < b for f in mine)
-            shut.append((a, b, max(flew, math.floor(rate[hub] * hourly * (b - a) / 60 + 0.5))))
+            shut.append((a, b, _cap(rate[hub], leave, pushed, a, b), _cap(rate[hub], land, gated, a, b)))
         if shut:
             out[hub] = tuple(shut)
     return out
+
+
+def _cap(rate: float, scheduled: Sequence[int], actual: Sequence[int], a: int, b: int) -> int:
+    """`rate` x the normal hourly count of `scheduled` minutes (per hour over the clock hours [a, b) touches) x the
+    hours in [a, b), to the nearest flight, and never below the `actual` minutes inside [a, b)."""
+    lo, top = 60 * (a // 60), 60 * -(-b // 60)
+    hourly = sum(lo <= t < top for t in scheduled) * 60 / (top - lo)
+    return max(sum(a <= t < b for t in actual), math.floor(rate * hourly * (b - a) / 60 + 0.5))
 
 
 def fit_rate(dates: Iterable[str], frame: pd.DataFrame, spans: Mapping[str, Sequence[Interval]]) -> dict[str, float]:

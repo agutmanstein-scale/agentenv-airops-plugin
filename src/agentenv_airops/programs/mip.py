@@ -1,20 +1,20 @@
 """The hindsight MIP (HiGHS): v1's time-line network (refs.mip) by split family, inside the programs.
 
 Each flight gets a copy per departure minute (every `step` minutes, at the EDCT of every slot into its destination, the
-slot less its scheduled block, and at the end of its crew's rest) from its earliest to its deadline, the hub cutoff
-included, less the minutes the world forbids: those a ground stop holds it, those at which a segment governs it with its
-slot time (the minute plus the scheduled block) inside the period but on none of JetBlue's slots, and those after its
-crew deadline before its crew's rest ends; the end of every ramp closure at its origin is a minute too. A copy on a slot
-counts in that slot's row, at most one flight per slot; any other copy into a hub counts in the nominal row of its
-arrival hour (the minute plus the block); and any copy, slotted or not, leaving in an hour its origin caps
-(Layers.dep_caps) counts in that hour's departure row, and one leaving inside a ramp closure at its origin
-(Layers.closures) in that closure's row. A copy arrives at its gate (sim.gate: on landing, or at the end of a ramp
-closure it lands inside), precomputed, so the model stays linear; it costs its pax x minutes late at arrival and its
-aircraft's minutes (cost.flown_price: the minute's gate delay, and the world's block overrun, the same for every copy of
-a flight); a cancellation costs `price`, the notice price at the solve time, which keeps the model linear, or the flat
-price, either less the cancellation's saving, and a caller pins a cancellation the sim decides (an auto-cancel,
-`lapsed`) at the price the sim gives it (Task.auto_at). Pinned flights keep their minute, their cancellation or their
-auto-cancel, and use up the slots, nominal and departure room they take.
+slot less its scheduled block, at the end of every ramp closure at its origin, at the end of every one at its
+destination less its block, and at the end of its crew's rest) from its earliest to its deadline, the hub cutoff
+included, less the minutes the world forbids: those a ground stop holds it, those at which a segment governs it with
+its slot time (the minute plus the scheduled block) inside the period but on none of JetBlue's slots, and those after
+its crew deadline before its crew's rest ends. A copy on a slot counts in that slot's row, at most one flight per slot;
+any other copy into a hub counts in the nominal row of its arrival hour (the minute plus the block); and any copy,
+slotted or not, leaving in an hour its origin caps (Layers.dep_caps) counts in that hour's departure row, one leaving
+inside a ramp closure at its origin (Layers.closures) in that closure's departure row, and one arriving (the minute
+plus the block) inside a ramp closure at its destination in that closure's arrival row. A copy costs its pax x minutes
+late at arrival and its aircraft's minutes (cost.flown_price: the minute's gate delay, and the world's block overrun,
+the same for every copy of a flight); a cancellation costs `price`, the notice price at the solve time, which keeps the
+model linear, or the flat price, either less the cancellation's saving, and a caller pins a cancellation the sim
+decides (an auto-cancel, `lapsed`) at the price the sim gives it (Task.auto_at). Pinned flights keep their minute,
+their cancellation or their auto-cancel, and use up the slots, nominal, departure and closure room they take.
 
 Aircraft flow as in v1, over nodes per (family, station) at every event time; a copy of a leg with a busy block
 reaches its destination's node at the block's ready time when that is later than its turn. A leg JetBlue turned into
@@ -142,7 +142,8 @@ class Network:
             else:
                 lo = max(task.earliest(f, world.lb[f.id]), earliest or 0)
                 jumps = {s - f.sched_block for seg in world.segments.get(f.dest, ()) for s in seg.slots}
-                jumps |= {b for _, b, _ in world.closures.get(f.orig, ())}
+                jumps |= {b for _, b, _, _ in world.closures.get(f.orig, ())}
+                jumps |= {b - world.block[f.id] for _, b, _, _ in world.closures.get(f.dest, ())}
                 if f.crew and f.crew.rest is not None:
                     jumps.add(f.crew.rest)
                 minutes = set(range(lo, f.deadline + 1, step)) | {d for d in jumps if lo <= d <= f.deadline}
@@ -150,7 +151,7 @@ class Network:
                                 if rules.held(f, d) == d and f.legal(d) == d and (at := _place(f, d, rules, pools))]
             for d, _ in copies[f.id]:
                 events[(f.family, f.orig)].add(d)
-                events[(f.family, f.dest)].add(task.back(f, sim.arrival(world, f, d)))
+                events[(f.family, f.dest)].add(task.back(f, d + world.block[f.id]))
         for t in task.tails:
             events[(t.family, t.pos)].add(t.ready)
         self.lines = lines = [Line(t, t.legs, tuple(p for p, i in enumerate(t.legs) if i in task.moved))
@@ -159,7 +160,7 @@ class Network:
         lands: dict[int, dict[int, list[int]]] = {f.id: defaultdict(list) for f in task.flights}
         for f in task.flights:
             for d, _ in copies[f.id]:
-                lands[f.id][task.back(f, sim.arrival(world, f, d))].append(d)
+                lands[f.id][task.back(f, d + world.block[f.id])].append(d)
         transit: dict[tuple[str, int], list[int]] = {}
         for ln in lines:
             name, fam, last = ln.tail.tail, ln.tail.family, set()
@@ -183,8 +184,8 @@ class Network:
         for i, (j, _) in task.quick.items():
             f = task.flight(i)
             for d, _ in copies[i]:
-                t = task.turned(f, sim.arrival(world, f, d))
-                if t < task.back(f, sim.arrival(world, f, d)) and t <= last[j]:
+                t = task.turned(f, d + world.block[i])
+                if t < task.back(f, d + world.block[i]) and t <= last[j]:
                     quick[(i, d)] = t
         place = {i: (ln, p) for ln in lines for p, i in enumerate(ln.legs)}
         swift: dict[tuple[int, int, int], int] = {}
@@ -194,7 +195,7 @@ class Network:
             if e is None:
                 continue
             f, g = task.flight(i), task.flight(task.quick[i][0])
-            back, r = task.back(f, sim.arrival(world, f, d)), None
+            back, r = task.back(f, d + world.block[i]), None
             for k in ln.breaks[e:]:
                 move = task.moved[ln.legs[k]]
                 r = move.ready if r is None else max(r, move.ready)
@@ -226,7 +227,7 @@ class Network:
             w = _weight(task, f.id)
             r = {}
             for d, (kind, key) in copies[f.id]:
-                arr = sim.arrival(world, f, d)
+                arr = d + world.block[f.id]
                 c = m.col(flown_price(f, d, arr), 1, True, (d - f.sched_dep + 1) * w)
                 self.xs[(f.id, d)] = c
                 arc(gate.get((f.id, d), node[((f.family, f.orig), d)]),
@@ -254,7 +255,7 @@ class Network:
         for (i, d), t in quick.items():
             f = task.flight(i)
             self.landed[(i, d)] = c = m.col(0, 1, False)
-            arc(lane[(i, d)], node[((f.family, f.dest), task.back(f, sim.arrival(world, f, d)))], c)
+            arc(lane[(i, d)], node[((f.family, f.dest), task.back(f, d + world.block[i]))], c)
             self.turn[(i, d)] = c = m.col(0, 1, True)
             arc(lane[(i, d)], gate[(task.quick[i][0], t)], c)
         self.through: dict[tuple[int, int, int], int] = {}
@@ -359,10 +360,11 @@ class Network:
             m.row(flow[v], -supply[v], -supply[v])
         for r in cover:
             m.row(r, 1, 1)
-        shut = {(s, a): cap for s, spans in world.closures.items() for a, _, cap in spans}
+        shut = {(kind, (s, a)): cap for s, spans in world.closures.items() for a, _, dep, arr in spans
+                for kind, cap in (("closure_dep", dep), ("closure_arr", arr))}
         for (kind, key), r in rows.items():
             room = (1 if kind == "slot" else world.nominal[key[0]][key[1]] if kind == "hour"
-                    else world.dep_caps[key[0]][key[1]] if kind == "dep" else shut[key])
+                    else world.dep_caps[key[0]][key[1]] if kind == "dep" else shut[(kind, key)])
             m.row(r, -INF, max(0, room - pinned[(kind, key)]))
         self.copies = copies
 
@@ -396,7 +398,7 @@ class Network:
     def vector(self, run: sim.Execution) -> np.ndarray | None:
         """`run` (a day sim.execute ran in this world, holding every pin) as a solution of the model, or None if a
         departure has no copy here."""
-        task = self.task
+        task, world = self.task, self.world
         x = np.zeros(len(self.m.cost))
         delta: dict[tuple, Counter] = defaultdict(Counter)
         carried, _ = sim.routes(task, {i for i, r in run.flights.items() if r.status == CANCELLED})
@@ -415,14 +417,14 @@ class Network:
             swift = (*k, carried[f.id][1][-1].leg) if f.id in carried else None
             if swift in self.through and nxt.get(f.id) == j:
                 x[self.through[swift]] = 1
-                via[j] = max([task.turned(f, r.arr), *(m.ready for m in carried[f.id][1])])
+                via[j] = max([task.turned(f, r.dep + world.block[f.id]), *(m.ready for m in carried[f.id][1])])
                 fast.add(f.id)
             elif k in self.turn and f.id not in carried and nxt.get(f.id) == j:
                 x[self.turn[k]] = 1
-                via[j] = task.turned(f, r.arr)
+                via[j] = task.turned(f, r.dep + world.block[f.id])
             else:
                 x[self.landed[k]] = 1
-                delta[(f.family, f.dest)][task.back(f, r.arr)] += 1
+                delta[(f.family, f.dest)][task.back(f, r.dep + world.block[f.id])] += 1
         for f in task.flights:
             r = run.flights[f.id]
             if r.status != FLOWN:
@@ -460,7 +462,7 @@ class Network:
                fast: set[int]) -> None:
         """`run`'s aircraft through the breaks of `ln` into x, walking its legs as sim.routes does; a carrier in
         `fast` went to its next leg's gate instead."""
-        task = self.task
+        task, world = self.task, self.world
         name, fam = ln.tail.tail, ln.tail.family
         carrier, void, at = None, False, None
         for p, i in enumerate(ln.legs):
@@ -481,7 +483,7 @@ class Network:
                 at = (e, max(ln.tail.ready, r))
             elif not void and run.flights[carrier].status == FLOWN and carrier not in fast:
                 f = task.flight(carrier)
-                t = task.back(f, run.flights[carrier].arr)
+                t = task.back(f, run.flights[carrier].dep + world.block[carrier])
                 x[self.redirect[(carrier, t)]] = 1
                 delta[(fam, f.dest)][t] -= 1
                 at = (e, max(t, r))

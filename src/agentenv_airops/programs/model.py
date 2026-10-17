@@ -332,13 +332,13 @@ class Programs:
 class Layers:
     """The world's realism layers beyond the FAA's programs, hours and minutes from the task's midnight:
     JetBlue's departure cap per hour at a hub (`dep_caps`) and arrival cap per hour at an outstation (`arr_caps`),
-    ramp closures per station as (start, end, cap): JetBlue's departures from the station in [start, end) total at
-    most cap, and an aircraft landing there inside it reaches its gate at end; the reserve crews per crew base, and
-    whether a cancelled flight's slot is released to compression (`release`)."""
+    ramp closures per station as (start, end, dep_cap, arr_cap): JetBlue's departures from the station leaving in
+    [start, end) total at most dep_cap, and its arrivals there inside it at most arr_cap; the reserve crews per crew
+    base, and whether a cancelled flight's slot is released to compression (`release`)."""
 
     dep_caps: dict[str, dict[int, int]] = field(default_factory=dict)
     arr_caps: dict[str, dict[int, int]] = field(default_factory=dict)
-    closures: dict[str, tuple[tuple[int, int, int], ...]] = field(default_factory=dict)
+    closures: dict[str, tuple[tuple[int, int, int, int], ...]] = field(default_factory=dict)
     reserves: dict[str, int] = field(default_factory=dict)
     release: bool = False
 
@@ -346,7 +346,7 @@ class Layers:
     def from_dict(cls, d: Mapping) -> "Layers":
         return cls({s: {int(h): c for h, c in by.items()} for s, by in d["dep_caps"].items()},
                    {s: {int(h): c for h, c in by.items()} for s, by in d["arr_caps"].items()},
-                   {s: tuple((a, b, c) for a, b, c in spans) for s, spans in d["closures"].items()},
+                   {s: tuple((a, b, c, e) for a, b, c, e in spans) for s, spans in d["closures"].items()},
                    dict(d["reserves"]), d["release"])
 
     def to_dict(self) -> dict:

@@ -33,6 +33,11 @@ def slots(run):
     return {i: (r.dep, r.slot) for i, r in run.flights.items()}
 
 
+def arrivals(run):
+    """Departure and arrival of the flights into JFK on closed_day."""
+    return {i: (run.flights[i].dep, run.flights[i].arr) for i in (3, 5)}
+
+
 def test_controlled_flights_leave_at_the_edct_of_the_earliest_free_slot_and_a_cancellation_moves_the_queue_up():
     task = three_into_a_program()
     assert slots(sim.execute(task, {})) == {0: (120, 180), 1: (180, 240), 2: (240, 300)}
@@ -228,27 +233,35 @@ def test_a_slotted_departure_uses_up_its_hour_of_leaving():
 
 def test_a_ramp_closure_cuts_departures_to_its_cap_and_the_rest_leave_at_its_end():
     run = sim.execute(closed_day(), {})
-    assert deps(run) == {0: 120, 1: 180, 2: 180, 3: 100, 4: 210}
-    assert deps(sim.execute(replace(closed_day(), layers=None), {})) == {0: 120, 1: 130, 2: 140, 3: 100, 4: 200}
-    assert deps(sim.execute(closed_day(), {0: {"cancel": True}})) == {0: None, 1: 130, 2: 180, 3: 100, 4: 200}
+    assert deps(run) == {0: 120, 1: 180, 2: 180, 3: 100, 4: 200, 5: 110, 6: 210}
+    assert deps(sim.execute(replace(closed_day(), layers=None), {})) == {
+        0: 120, 1: 130, 2: 140, 3: 100, 4: 200, 5: 110, 6: 210}
+    assert deps(sim.execute(closed_day(), {0: {"cancel": True}})) == {
+        0: None, 1: 130, 2: 180, 3: 100, 4: 200, 5: 110, 6: 210}
 
 
-def test_an_aircraft_landing_inside_a_ramp_closure_reaches_its_gate_at_its_end_and_turns_from_there():
-    task = closed_day()
-    held, open_ = sim.execute(task, {}), sim.execute(replace(task, layers=None), {})
-    assert (held.flights[3].arr, open_.flights[3].arr) == (180, 160)
-    assert [sim.gate(sim.truth(task), "JFK", t) for t in (119, 120, 160, 179, 180)] == [119, 180, 180, 180, 180]
-    assert sim.gate(sim.truth(task), "BOS", 160) == 160
-    late = task.flight(3).pax * 20 + task.flight(4).pax * 10
-    assert held.cost.delay - open_.cost.delay >= late
+def test_a_full_ramp_closure_holds_an_arrival_so_that_it_arrives_at_its_end_and_its_aircraft_turns_from_there():
+    """Room for one arrival: flight 3 lands at 160, inside, and flight 5, which would land at 170, leaves DCA at 120
+    to arrive at 180. With none, both arrive at 180, and flight 4 waits for an aircraft until 210. An arrival inside a
+    closure with room reaches its gate on landing: no gate hold."""
+    room, one, none = (sim.execute(closed_day(n), {}) for n in (2, 1, 0))
+    assert arrivals(room) == {3: (100, 160), 5: (110, 170)}
+    assert arrivals(one) == {3: (100, 160), 5: (120, 180)}
+    assert arrivals(none) == {3: (120, 180), 5: (120, 180)}
+    assert (one.flights[4].dep, none.flights[4].dep) == (200, 210)
+    assert none.cost.total > one.cost.total > room.cost.total
+
+
+def test_a_pinned_arrival_uses_up_its_ramp_closure_before_the_others_arrive():
+    assert arrivals(sim.execute(closed_day(1), {5: {"left": 110}})) == {3: (120, 180), 5: (110, 170)}
 
 
 def test_a_pinned_departure_uses_up_its_ramp_closure_before_the_others_leave():
     run = sim.execute(closed_day(), {1: {"left": 125}})
-    assert deps(run) == {0: 180, 1: 125, 2: 180, 3: 100, 4: 210}
+    assert deps(run) == {0: 180, 1: 125, 2: 180, 3: 100, 4: 200, 5: 110, 6: 210}
 
 
 def test_a_ramp_closure_with_no_room_holds_its_stations_departures_to_its_end():
-    task = closed(closed_day(), {"JFK": ((120, 180, 0),), "BUF": ((0, 130, 0),)})
+    task = closed(closed_day(), {"JFK": ((120, 180, 0, 2),), "BUF": ((0, 130, 0, 2),)})
     run = sim.execute(task, {})
-    assert deps(run) == {0: 180, 1: 180, 2: 180, 3: 130, 4: 220} and run.flights[3].arr == 190
+    assert deps(run) == {0: 180, 1: 180, 2: 180, 3: 130, 4: 200, 5: 110, 6: 220} and run.flights[3].arr == 190

@@ -16,8 +16,7 @@ average, 321.943, over the mean of July 2022 to June 2023, 299.685, a factor of 
 passenger-minute in 2025 dollars (v1's core/cost.py) takes them to whole passenger-minutes per aircraft-minute
 (`RATES`):
 - each minute a flight leaves after its scheduled departure costs crew and fixed: 34 (165k lb or more), 32 (under);
-- each minute its block runs past its scheduled block, on the taxiway or in the air, costs the total: 95, 88; the
-  block runs to the gate, so an aircraft held off its gate by a ramp closure (v3, sim.gate) pays the same rate;
+- each minute its block runs past its scheduled block, on the taxiway or in the air, costs the total: 95, 88;
 - a cancellation, by the desk or at its deadline, saves fuel and oil and maintenance over the scheduled block, 61 and
   56 a minute, credited against its price; crew pay is taken as guaranteed, and fixed costs are not saved.
 A flight that left but never arrived (a diversion on the recorded day) cancels for its passengers and saves nothing.

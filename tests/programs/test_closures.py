@@ -81,9 +81,32 @@ def test_build_caps_each_closure_at_the_rate_of_jetblues_normal_hourly_departure
     spans = {"JFK": [(base + 100, base + 200), (base + 600, base + 660), (base + 700, base + 760),
                      (base + 5000, base + 5100)], "BOS": [(base + 650, base + 700)]}
     assert closures.build(task, spans, {"JFK": 0.5, "BOS": 0.75}) == {
-        "JFK": ((600, 660, 2), (700, 760, 2)), "BOS": ((650, 700, 1),)}
-    assert closures.build(task, spans, {"JFK": 1.0, "BOS": 0.75})["JFK"] == ((600, 660, 4), (700, 760, 2))
-    assert closures.build(task, spans, {"JFK": 1.0, "BOS": 0.25})["BOS"] == ((650, 700, 0),)
+        "JFK": ((600, 660, 2, 0), (700, 760, 2, 0)), "BOS": ((650, 700, 1, 0),)}
+    assert closures.build(task, spans, {"JFK": 1.0, "BOS": 0.75})["JFK"] == ((600, 660, 4, 0), (700, 760, 2, 0))
+    assert closures.build(task, spans, {"JFK": 1.0, "BOS": 0.25})["BOS"] == ((650, 700, 0, 0),)
+
+
+def landing(i: int, dest: str, arr: int, gated: int | None, end: str | None = None):
+    f = flight(i, "BUF", dest, arr - 60, 60)
+    return replace(f, actual=replace(f.actual, cancelled=gated is None, dep=None if gated is None else gated - 60,
+                                     arr=gated, end=None if gated is None else end or dest))
+
+
+def test_build_caps_each_closures_gate_ins_at_the_rate_of_jetblues_normal_hourly_arrivals_never_below_what_gated_in():
+    """JFK closed 600-660: 5 scheduled to arrive in hour 10 (flight 3 cancelled, flight 5 diverted to EWR), and 4
+    gated in inside (flight 4, scheduled at 580, late). At 0.5, 0.5 x 5/h x 1 h = 2.5, so 3, floored at 4; at 1.0, 5.
+    Flight 6, scheduled into BOS, diverted to JFK and gated in there inside: it counts in neither. BOS closes 650-680
+    with no arrival scheduled inside but 4 in hours 10-11: 0.75 x 2/h x 0.5 h = 0.75, so 1."""
+    base = 1_000_000
+    flights = [landing(0, "JFK", 600, 610), landing(1, "JFK", 620, 630), landing(2, "JFK", 640, 650),
+               landing(3, "JFK", 650, None), landing(4, "JFK", 580, 655), landing(5, "JFK", 630, 640, "EWR"),
+               landing(6, "BOS", 600, 620, "JFK"), landing(7, "BOS", 610, 610), landing(8, "BOS", 615, 615),
+               landing(9, "BOS", 620, 620)]
+    task = replace(day(flights, [tail("N1", "BUF")], start=300), base=base)
+    spans = {"JFK": [(base + 600, base + 660)], "BOS": [(base + 650, base + 680)]}
+    assert closures.build(task, spans, {"JFK": 0.5, "BOS": 0.75}) == {
+        "JFK": ((600, 660, 0, 4),), "BOS": ((650, 680, 0, 1),)}
+    assert closures.build(task, spans, {"JFK": 1.0, "BOS": 0.75})["JFK"] == ((600, 660, 0, 5),)
 
 
 def test_fit_rate_is_every_carriers_pushbacks_inside_over_the_same_minutes_before_on_the_dates_given():
@@ -142,4 +165,5 @@ def test_build_names_a_closed_hub_that_fit_rate_gave_no_rate():
     with pytest.raises(ValueError, match="BOS"):
         closures.build(task, spans, rate)
     assert closures.build(task, {"JFK": spans["JFK"], "BOS": [(m + 5000, m + 5100)]}, rate) == {
-        "JFK": ((100, 160, 1),)}
+        "JFK": ((100, 160, 1, 0),)}
+

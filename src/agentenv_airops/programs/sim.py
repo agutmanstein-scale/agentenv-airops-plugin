@@ -16,8 +16,10 @@ flight ready at minute t, in this order:
   start of the day, so the others share the cap less the pinned ones; a pinned flight whose aircraft is not ready by
   its minute leaves when it is, and its count moves to the hour it leaves in, where the MIP pins it;
 - a departure inside a ramp closure at its origin (Layers.closures, §3.2: lightning at the field cuts the ramp's
-  rate, it doesn't stop it) needs room under the closure's cap, counted the same way over the closure's minutes, else
-  it tries again at the closure's end;
+  rate, it doesn't stop it) needs room under the closure's departure cap, counted the same way over the closure's
+  minutes, else it tries again at the closure's end; an arrival inside a ramp closure at its destination (the minute
+  plus the block, as the nominal cap counts it) needs room under the closure's arrival cap, the pinned flights' arrivals
+  counted from the start of the day too, else it leaves so as to arrive at the closure's end;
 - a flight governed at t by a GDP segment (the one in force when it departs, the departure-time lock; its origin in
   scope and its scheduled arrival in the period) needs one of JetBlue's slots in that segment's pool: its claimed slot
   if it can still make it, else the earliest free slot at or after its earliest arrival t + scheduled block. It leaves
@@ -25,8 +27,6 @@ flight ready at minute t, in this order:
   period ends it arrives after the period;
 - any other arrival at a hub (exempt, uncontrolled, or past its period) needs room under the nominal cap of its
   arrival hour (rbs.nominal); a slot holder does not count against it.
-A flight lands after its block and reaches its gate then, or at the end of a ramp closure it lands inside at its
-destination (`gate`): its arrival, which its cost prices and its aircraft turns from.
 Claims bind first, in (claim, flight id) order, each to the first unbound slot at or after it in the pool of the
 segment that would govern the flight leaving at its claim less its scheduled block. A flight that can't make its
 claimed slot loses it and the slot is wasted, as a missed EDCT is. Any other slot is taken when its flight leaves, so
@@ -82,7 +82,7 @@ class World:
     stops: tuple
     nominal: Mapping[str, Mapping[int, int]]
     dep_caps: Mapping[str, Mapping[int, int]] = field(default_factory=dict)
-    closures: Mapping[str, tuple[tuple[int, int, int], ...]] = field(default_factory=dict)
+    closures: Mapping[str, tuple[tuple[int, int, int, int], ...]] = field(default_factory=dict)
 
 
 def truth(task: Task) -> World:
@@ -91,20 +91,6 @@ def truth(task: Task) -> World:
                  {h: p.segments for h, p in task.programs.items()},
                  tuple(s for p in task.programs.values() for s in p.stops), nominal_caps(task),
                  layers.dep_caps if layers else {}, layers.closures if layers else {})
-
-
-def gate(world: World, station: str, landed: int) -> int:
-    """When an aircraft landing at `station` at `landed` reaches its gate: at the end of a ramp closure it lands
-    inside, else on landing."""
-    for a, b, _ in world.closures.get(station, ()):
-        if a <= landed < b:
-            landed = b
-    return landed
-
-
-def arrival(world: World, f: Flight, t: int) -> int:
-    """When f, leaving at t, reaches its gate."""
-    return gate(world, f.dest, t + world.block[f.id])
 
 
 def known(task: Task, t: int, programs: bool = True, early: int = 0) -> World:
@@ -139,8 +125,8 @@ def with_cutoff(task: Task, cutoff: int) -> Task:
 
 class Rules:
     """What holds each flight at a minute in a world: the stops at its destination covering its origin, the segment
-    governing it (None when out of scope or outside the period), the nominal cap of its arrival hour, and the
-    departure cap of its hour of leaving and the ramp closure it leaves inside."""
+    governing it (None when out of scope or outside the period), the nominal cap of its arrival hour, the departure
+    cap of its hour of leaving, and the ramp closures it leaves and arrives inside."""
 
     def __init__(self, task: Task, world: World):
         self.world = world
@@ -179,17 +165,29 @@ class Rules:
         h = t // 60
         return ((f.orig, h), caps[h]) if caps is not None and h in caps else None
 
-    def closed(self, f: Flight, t: int) -> tuple[HourKey, int, int] | None:
-        """The ramp closure f, leaving at t, leaves inside at its origin: (origin, its start), its cap, its end."""
-        for a, b, cap in self.world.closures.get(f.orig, ()):
+    def closure_dep(self, f: Flight, t: int) -> tuple[HourKey, int, int] | None:
+        """The ramp closure f, leaving at t, leaves inside at its origin: (origin, its start), its departure cap, its
+        end."""
+        for a, b, cap, _ in self.world.closures.get(f.orig, ()):
             if a <= t < b:
                 return (f.orig, a), cap, b
         return None
 
+    def closure_arr(self, f: Flight, t: int) -> tuple[HourKey, int, int] | None:
+        """The ramp closure f, leaving at t, arrives inside at its destination (t plus the block): (destination, its
+        start), its arrival cap, its end."""
+        arr = t + self.world.block[f.id]
+        for a, b, _, cap in self.world.closures.get(f.dest, ()):
+            if a <= arr < b:
+                return (f.dest, a), cap, b
+        return None
+
     def leaving(self, f: Flight, t: int) -> tuple[tuple[str, HourKey], ...]:
-        """The departure rows f, leaving at t, counts in: ("dep", its capped hour), ("close", its closure)."""
-        dep, shut = self.dep_hour(f, t), self.closed(f, t)
-        return ((("dep", dep[0]),) if dep else ()) + ((("close", shut[0]),) if shut else ())
+        """The layers' rows f, leaving at t, counts in: ("dep", its capped hour), ("closure_dep", the closure it leaves
+        inside) and ("closure_arr", the closure it arrives inside)."""
+        rows = (("dep", self.dep_hour(f, t)), ("closure_dep", self.closure_dep(f, t)),
+                ("closure_arr", self.closure_arr(f, t)))
+        return tuple((kind, x[0]) for kind, x in rows if x is not None)
 
 
 @dataclass(frozen=True)
@@ -305,7 +303,7 @@ def execute(task: Task, plan: Plan, world: World | None = None) -> Execution:
             continue
         p = min(free, key=lambda p: (quick.get(p, (None,))[0] != i, ready[p], p))
         here.remove(p)
-        arr = arrival(world, f, t)
+        arr = t + world.block[i]
         back = task.back(f, arr)
         station, ready[p] = through(carried[i], back, moves) if i in carried else (f.dest, back)
         at[(f.family, station)].add(p)
@@ -399,7 +397,7 @@ def _claims(task: Task, want: Mapping[int, Mapping], runs: Mapping[int, FlightRu
 def _leave(f: Flight, t: int, rules: Rules, claim: SlotKey | None, bound: Mapping[SlotKey, int], taken: set[SlotKey],
            used: Counter) -> tuple[int, SlotKey | None, tuple]:
     """The first minute from t at which f may leave, with the slot it takes there and the caps it counts in: the
-    nominal hour it lands in without a slot, and its departure rows (Rules.leaving)."""
+    nominal hour it lands in without a slot, and its layers' rows (Rules.leaving)."""
     while True:
         held = rules.held(f, t)
         if held != t:
@@ -409,9 +407,13 @@ def _leave(f: Flight, t: int, rules: Rules, claim: SlotKey | None, bound: Mappin
         if dep is not None and used[("dep", dep[0])] >= dep[1]:
             t = 60 * (dep[0][1] + 1)
             continue
-        shut = rules.closed(f, t)
-        if shut is not None and used[("close", shut[0])] >= shut[1]:
+        shut = rules.closure_dep(f, t)
+        if shut is not None and used[("closure_dep", shut[0])] >= shut[1]:
             t = shut[2]
+            continue
+        shut = rules.closure_arr(f, t)
+        if shut is not None and used[("closure_arr", shut[0])] >= shut[1]:
+            t = shut[2] - rules.world.block[f.id]
             continue
         out = rules.leaving(f, t)
         seg = rules.governs(f, t)
@@ -438,7 +440,7 @@ def _leave(f: Flight, t: int, rules: Rules, claim: SlotKey | None, bound: Mappin
 
 
 def _history(f: Flight, t: int, rules: Rules, taken: set[SlotKey]) -> tuple[SlotKey | None, tuple]:
-    """The slot or nominal hour a flight that left at t counts in (mip._place for a pinned copy), and its departure
+    """The slot or nominal hour a flight that left at t counts in (mip._place for a pinned copy), and its layers'
     rows."""
     out = rules.leaving(f, t)
     seg = rules.governs(f, t)
