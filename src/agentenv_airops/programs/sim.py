@@ -59,8 +59,12 @@ a watch (M12: lb and the truth block once the scheduled departure is within LOOK
 programs as issued by then, proposed GDPs included, every stop to its as-issued end, every GDP too unless a base rate
 ends it earlier), or the calm day (no delay, scheduled blocks, no programs). Nominal caps, deadlines, the hub cutoff
 and the crew deadlines, which the schedule fixes and the desk knows from the start, are the same in all of them. The
-departure caps, outstation arrival caps and ramp closures are the truth's alone: the day as known and the calm day
-carry none.
+calm day carries no layer. The day as known carries the layers as the desk sees them (docs/v3/DESIGN.md §4): the
+departure caps and outstation arrival caps of the hours starting within CAP_LOOK of the watch, as v1's slot caps were
+known, the later hours uncapped; the ramp closures begun by the watch, with their end once it has come, else expected
+GUESS minutes after the watch (a placeholder for the train days' median remaining duration, to be fitted with the
+pack's calibration), at their caps as given; and the reserve pools as they are (Task.layers, which `granted` and the
+MIP read), whose sizes the desk knows. A task without layers knows the v2 day as before.
 """
 
 import bisect
@@ -69,7 +73,7 @@ from collections import Counter, defaultdict
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field, replace
 
-from ..core.known import LOOK
+from ..core.known import CAP_LOOK, LOOK
 from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN, Ferry, _assign
 from . import rbs, repairs
 from .cost import Cost, ferry_cost, priced
@@ -79,6 +83,7 @@ Plan = Mapping[int | str, Mapping]
 SlotKey = tuple[str, int]
 HourKey = tuple[str, int]
 Route = tuple[str, tuple[Move, ...]]
+GUESS = 30
 
 
 @dataclass(frozen=True)
@@ -112,7 +117,25 @@ def known(task: Task, t: int, programs: bool = True, early: int = 0) -> World:
         issued = {h: rbs.forecast(task, h, t, early) for h in task.programs}
         segments = {h: s for h, (s, _) in issued.items()}
         stops = tuple(p for _, ps in issued.values() for p in ps)
-    return World(lb, block, segments, stops, nominal_caps(task))
+    if not task.layered:
+        return World(lb, block, segments, stops, nominal_caps(task))
+    layers = task.layers
+    return World(lb, block, segments, stops, nominal_caps(task) | _ahead(layers.arr_caps, t),
+                 _ahead(layers.dep_caps, t), closures_known(layers.closures, t))
+
+
+def _ahead(caps: Mapping[str, Mapping[int, int]], t: int) -> dict[str, dict[int, int]]:
+    """The caps of the hours starting within CAP_LOOK of t, per station that has any."""
+    out = {s: {h: c for h, c in by.items() if 60 * h <= t + CAP_LOOK} for s, by in caps.items()}
+    return {s: by for s, by in out.items() if by}
+
+
+def closures_known(closures: Mapping[str, tuple[tuple[int, int, int, int], ...]],
+                   t: int) -> dict[str, tuple[tuple[int, int, int, int], ...]]:
+    """The ramp closures begun by t: those ended by t as they ran, the others expected to end GUESS after t."""
+    out = {s: tuple((a, b if b <= t else max(t, a) + GUESS, dep, arr) for a, b, dep, arr in spans if a <= t)
+           for s, spans in closures.items()}
+    return {s: spans for s, spans in out.items() if spans}
 
 
 def calm(task: Task) -> World:
