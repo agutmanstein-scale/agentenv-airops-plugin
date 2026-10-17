@@ -5,12 +5,14 @@ slot less its scheduled block, and at the end of its crew's rest) from its earli
 included, less the minutes the world forbids: those a ground stop holds it, those at which a segment governs it with
 its slot time (the minute plus the scheduled block) inside the period but on none of JetBlue's slots, and those after
 its crew deadline before its crew's rest ends. A copy on a slot counts in that slot's row, at most one flight per slot;
-any other copy into a hub counts in the nominal row of its arrival hour (the minute plus the block). A copy costs its
-pax x minutes late at arrival and its aircraft's minutes (cost.flown_price: the minute's gate delay, and the world's
+any other copy into a hub counts in the nominal row of its arrival hour (the minute plus the block); and any copy,
+slotted or not, leaving in an hour its origin caps (Layers.dep_caps) counts in that hour's departure row. A copy costs
+its pax x minutes late at arrival and its aircraft's minutes (cost.flown_price: the minute's gate delay, and the world's
 block overrun, the same for every copy of a flight); a cancellation costs `price`, the notice price at the solve time,
 which keeps the model linear, or the flat price, either less the cancellation's saving, and a caller pins a
 cancellation the sim decides (an auto-cancel, `lapsed`) at the price the sim gives it (Task.auto_at). Pinned flights
-keep their minute, their cancellation or their auto-cancel, and use up the slots and nominal room they take.
+keep their minute, their cancellation or their auto-cancel, and use up the slots, nominal and departure room they
+take.
 
 Aircraft flow as in v1, over nodes per (family, station) at every event time; a copy of a leg with a busy block
 reaches its destination's node at the block's ready time when that is later than its turn. A leg JetBlue turned into
@@ -227,11 +229,14 @@ class Network:
                 arc(gate.get((f.id, d), node[((f.family, f.orig), d)]),
                     lane.get((f.id, d), node[((f.family, f.dest), task.back(f, arr))]), c)
                 r[c] = 1
-                if kind != "free":
+                dep = rules.dep_hour(f, d)
+                for row in ((kind, key),) + ((("dep", dep[0]),) if dep else ()):
+                    if row[0] == "free":
+                        continue
                     if f.id in fixed:
-                        pinned[(kind, key)] += 1
+                        pinned[row] += 1
                     else:
-                        rows[(kind, key)][c] = 1
+                        rows[row][c] = 1
             ub = 0 if f.id in fixed and fixed[f.id] is not None else 1
             lapses = f.id in on_line and (f.id not in fixed or f.id in lapsed)
             self.cancel[f.id] = c = m.col(price[f.id], 0 if lapses and f.id in fixed else ub, True,
@@ -353,7 +358,8 @@ class Network:
         for r in cover:
             m.row(r, 1, 1)
         for (kind, key), r in rows.items():
-            room = 1 if kind == "slot" else world.nominal[key[0]][key[1]]
+            room = (1 if kind == "slot" else world.nominal[key[0]][key[1]] if kind == "hour"
+                    else world.dep_caps[key[0]][key[1]])
             m.row(r, -INF, max(0, room - pinned[(kind, key)]))
         self.copies = copies
 

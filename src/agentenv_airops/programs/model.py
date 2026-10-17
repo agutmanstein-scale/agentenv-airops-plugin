@@ -15,6 +15,10 @@ everything the truth, the forecast and the references read, and nothing they wou
   pieces, the VMC called arrival rate, and the demand: every BTS-scheduled arrival at the hub over the task, so the
   forecast RBS can run at any watch and the other carriers' controlled arrivals carry their BTS NAS delay for the
   fidelity clause.
+
+A task may carry v3's realism `layers` (Layers, programs.layers builds them from pinned public inputs); a task that
+sets any is written as model version LAYERED, one without (None, or Layers() with nothing set) is v2's task byte
+for byte. `version` is the v2 model's: LAYERED is read back as VERSION and written from the layers alone.
 """
 
 import json
@@ -29,6 +33,7 @@ from ..core.model import Airport
 from .advisories import Advisory, Scope, Stop, nm
 
 VERSION = 3
+LAYERED = 4
 
 
 @dataclass(frozen=True)
@@ -324,9 +329,37 @@ class Programs:
 
 
 @dataclass(frozen=True)
+class Layers:
+    """The world's realism layers beyond the FAA's programs, hours and minutes from the task's midnight:
+    JetBlue's departure cap per hour at a hub (`dep_caps`) and arrival cap per hour at an outstation (`arr_caps`),
+    ramp closures per station as (start, end, rate), the reserve crews per crew base, and whether a cancelled
+    flight's slot is released to compression (`release`)."""
+
+    dep_caps: dict[str, dict[int, int]] = field(default_factory=dict)
+    arr_caps: dict[str, dict[int, int]] = field(default_factory=dict)
+    closures: dict[str, tuple[tuple[int, int, float], ...]] = field(default_factory=dict)
+    reserves: dict[str, int] = field(default_factory=dict)
+    release: bool = False
+
+    @classmethod
+    def from_dict(cls, d: Mapping) -> "Layers":
+        return cls({s: {int(h): c for h, c in by.items()} for s, by in d["dep_caps"].items()},
+                   {s: {int(h): c for h, c in by.items()} for s, by in d["arr_caps"].items()},
+                   {s: tuple((a, b, r) for a, b, r in spans) for s, spans in d["closures"].items()},
+                   dict(d["reserves"]), d["release"])
+
+    def to_dict(self) -> dict:
+        return {"dep_caps": {s: {str(h): c for h, c in sorted(by.items())} for s, by in self.dep_caps.items()},
+                "arr_caps": {s: {str(h): c for h, c in sorted(by.items())} for s, by in self.arr_caps.items()},
+                "closures": {s: [list(x) for x in spans] for s, spans in self.closures.items()},
+                "reserves": dict(self.reserves), "release": self.release}
+
+
+@dataclass(frozen=True)
 class Task:
     """`hubs` are a whole-network task's storm hubs (`hub` the one whose window starts it), `needs` tomorrow's
-    aircraft per family and station; a hub window has neither, its needs being its tails' `end_req`."""
+    aircraft per family and station; a hub window has neither, its needs being its tails' `end_req`. `layers` None
+    (or Layers() with nothing set) is v2's world."""
 
     task_id: str
     split: str
@@ -352,6 +385,7 @@ class Task:
     bases: tuple[str, ...] = ()
     hubs: tuple[str, ...] = ()
     needs: dict[str, dict[str, int]] = field(default_factory=dict)
+    layers: Layers | None = None
 
     @classmethod
     def from_dict(cls, d: Mapping) -> "Task":
@@ -360,19 +394,24 @@ class Task:
                    {c: Airport.from_dict(c, a) for c, a in d["airports"].items()}, dict(d["artcc"]),
                    tuple(Tail.from_dict(t) for t in d["tails"]), tuple(Flight.from_dict(f) for f in d["flights"]),
                    {h: Programs.from_dict(p) for h, p in d["programs"].items()}, dict(d["clauses"]),
-                   dict(d["sources"]), d["version"], tuple(d.get("bases", ())), tuple(d.get("hubs", ())),
-                   {fam: dict(by) for fam, by in d.get("needs", {}).items()})
+                   dict(d["sources"]), VERSION if d["version"] == LAYERED else d["version"],
+                   tuple(d.get("bases", ())), tuple(d.get("hubs", ())),
+                   {fam: dict(by) for fam, by in d.get("needs", {}).items()},
+                   Layers.from_dict(d["layers"]) if "layers" in d else None)
 
     def to_dict(self) -> dict:
-        return {"version": self.version, "task_id": self.task_id, "split": self.split, "carrier": self.carrier,
-                "hub": self.hub, "date": self.date, "tz": self.tz, "base": self.base, "window": list(self.window),
-                "start": self.start, "slide": self.slide, "dmax": self.dmax, "cutoff": self.cutoff,
-                "turn": dict(self.turn), "airports": {c: a.to_dict() for c, a in self.airports.items()},
-                "artcc": dict(self.artcc), "tails": [t.to_dict() for t in self.tails],
-                "flights": [f.to_dict() for f in self.flights],
-                "programs": {h: p.to_dict() for h, p in self.programs.items()}, "clauses": self.clauses,
-                "sources": self.sources, "bases": list(self.bases), "hubs": list(self.hubs),
-                "needs": {fam: dict(by) for fam, by in self.needs.items()}}
+        layered = self.layers is not None and self.layers != Layers()
+        out = {"version": LAYERED if layered else self.version, "task_id": self.task_id,
+               "split": self.split, "carrier": self.carrier,
+               "hub": self.hub, "date": self.date, "tz": self.tz, "base": self.base, "window": list(self.window),
+               "start": self.start, "slide": self.slide, "dmax": self.dmax, "cutoff": self.cutoff,
+               "turn": dict(self.turn), "airports": {c: a.to_dict() for c, a in self.airports.items()},
+               "artcc": dict(self.artcc), "tails": [t.to_dict() for t in self.tails],
+               "flights": [f.to_dict() for f in self.flights],
+               "programs": {h: p.to_dict() for h, p in self.programs.items()}, "clauses": self.clauses,
+               "sources": self.sources, "bases": list(self.bases), "hubs": list(self.hubs),
+               "needs": {fam: dict(by) for fam, by in self.needs.items()}}
+        return out | {"layers": self.layers.to_dict()} if layered else out
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), separators=(",", ":"))

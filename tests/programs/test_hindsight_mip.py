@@ -4,29 +4,38 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from day_helpers import (
+    PLACES,
     broken_day,
     busy_day,
+    capped,
+    capped_day,
     crewed,
     day,
     flight,
+    late_pin_day,
     moved_day,
     network_day,
     quick_day,
     random_day,
     segment,
+    shared_hour_day,
     shortened,
     stop,
     tail,
     three_into_a_program,
     turned_through_day,
+    two_from_jfk,
 )
 
-from agentenv_airops.programs import mip, references, sim
+from agentenv_airops.programs import candidates, mip, references, sim
 from agentenv_airops.programs.cost import cancel_price
+from agentenv_airops.programs.layers import depcaps
 from agentenv_airops.programs.model import Task
 
 RANDOM = range(8)
 NETWORK = range(8)
+CAPPED = range(4)
+TIGHT = {c: {h: h % 3 for h in range(24)} for c in PLACES}
 
 
 def days() -> dict[str, Task]:
@@ -42,7 +51,10 @@ def days() -> dict[str, Task]:
             "lone_quick": replace(quick_day(), tails=quick_day().tails[:1]), "families": families(),
             "crew": crew(), "turned_through": turned_through_day(),
             **{f"random{seed}": random_day(random.Random(seed)) for seed in RANDOM},
-            **{f"network{seed}": network_day(random.Random(seed)) for seed in NETWORK}}
+            **{f"network{seed}": network_day(random.Random(seed)) for seed in NETWORK},
+            "capped": capped_day(), "shared_hour": shared_hour_day(),
+            **{f"capped_random{seed}": capped(random_day(random.Random(seed)), TIGHT) for seed in CAPPED},
+            **{f"capped_network{seed}": capped(network_day(random.Random(seed)), TIGHT) for seed in CAPPED}}
 
 
 def crew() -> Task:
@@ -67,9 +79,16 @@ def families() -> Task:
     return replace(day(flights, tails, stops=(stop(100, 160),)), turn={"A320": 30, "E190": 25})
 
 
-@pytest.fixture(scope="module", params=["task", "crewed"])
+@pytest.fixture(scope="module")
+def capped_task(task, slice_inputs, tmp_path_factory) -> Task:
+    """The fixture day under the departure caps the slice's BTS pushbacks give it."""
+    return capped(task, depcaps.build(task, candidates.frame(slice_inputs, tmp_path_factory.mktemp("derived"),
+                                                             task.date)))
+
+
+@pytest.fixture(scope="module", params=["task", "crewed", "capped_task"])
 def fixture_day(request) -> Task:
-    """The fixture day, and the same day with the crew model."""
+    """The fixture day, the same day with the crew model, and under departure caps."""
     return shortened(request.getfixturevalue(request.param))
 
 
@@ -141,7 +160,8 @@ def test_a_day_with_legs_cancelled_on_either_side_of_its_breaks_is_a_solution_at
     assert sol.deps[3] is None and replays(task, sol)
 
 
-@pytest.mark.parametrize("name", ["slots", "stop", "moved", "broken", "busy", "quick", "crew", "random3", "network2"])
+@pytest.mark.parametrize("name", ["slots", "stop", "moved", "broken", "busy", "quick", "crew", "random3", "network2",
+                                  "capped", "capped_random1", "capped_network2"])
 def test_a_day_with_its_history_pinned_is_a_solution_of_the_model_with_those_pins(name):
     task = days()[name]
     first = sim.execute(task, {})
@@ -153,6 +173,23 @@ def test_a_day_with_its_history_pinned_is_a_solution_of_the_model_with_those_pin
     x = net.vector(run)
     assert x is not None and feasible(net, x)
     assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
+
+
+def test_a_day_with_a_departure_pinned_before_its_aircraft_is_ready_is_a_solution_pinned_where_it_left():
+    task = late_pin_day()
+    run = sim.execute(task, {1: {"left": 170}})
+    net = mip.Network(task, fixed={1: run.flights[1].dep})
+    x = net.vector(run)
+    assert x is not None and feasible(net, x)
+    assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
+
+
+def test_a_pinned_departure_leaves_the_others_only_the_rest_of_its_hours_cap():
+    task = two_from_jfk()
+    sol = mip.solve(task, fixed={1: 100})
+    run = sim.execute(task, {**sol.plan(task.start), 1: {"left": 100}})
+    assert sol.deps == {0: 120, 1: 100} == {i: r.dep for i, r in run.flights.items()}
+    assert run.cost.total == sol.objective
 
 
 def test_a_canonical_pass_out_of_time_keeps_the_proven_plan_flagged_as_not_canonical(monkeypatch):

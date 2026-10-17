@@ -14,6 +14,7 @@ from agentenv_airops.programs.model import (
     Connection,
     Crew,
     Flight,
+    Layers,
     Move,
     Outcome,
     Programs,
@@ -81,6 +82,46 @@ def three_into_a_program(**kw) -> Task:
                flight(2, "MCO", "JFK", 100, 60, deadline=600, **kw)]
     return day(flights, [tail("N1", "BUF", end="JFK"), tail("N2", "DCA", end="JFK"), tail("N3", "MCO", end="JFK")],
                segments=(GDP,))
+
+
+def capped(task: Task, caps: dict[str, dict[int, int]]) -> Task:
+    """The task with departure caps per station and hour as its only layer."""
+    return replace(task, layers=Layers(dep_caps=caps))
+
+
+def capped_day() -> Task:
+    """Five departures from JFK, two of them on aircraft landing from a GDP with slots at 180, 200 and 260, under a
+    departure cap of one in hour 2 and two in hour 3."""
+    flights = [flight(0, "BUF", "JFK", 100, 60), flight(1, "DCA", "JFK", 110, 60, pax=60),
+               flight(2, "JFK", "MCO", 125, 150, pax=180), flight(3, "JFK", "BUF", 130, 60, pax=50),
+               flight(4, "JFK", "DCA", 150, 60, pax=120), flight(5, "JFK", "PWM", 200, 70),
+               flight(6, "JFK", "BUF", 215, 60, pax=90)]
+    tails = [tail("N1", "BUF", end="PWM"), tail("N2", "DCA", end="BUF"), tail("N3", "JFK", end="MCO"),
+             tail("N4", "JFK", end="BUF"), tail("N5", "JFK", end="DCA")]
+    return capped(day(flights, tails, segments=(segment("g", 0, 1000, 150, 400, (180, 200, 260)),)),
+                  {"JFK": {2: 1, 3: 2}})
+
+
+def shared_hour_day() -> Task:
+    """BOS into JFK's GDP (slots 130 and 200) and BOS to DCA, both ready in hour 1, which BOS caps at one departure:
+    the slotted one takes the hour."""
+    return capped(day([flight(0, "BOS", "JFK", 60, 60), flight(1, "BOS", "DCA", 75, 60)],
+                      [tail("N1", "BOS", end="JFK"), tail("N2", "BOS", end="DCA")],
+                      segments=(segment("g", 0, 1000, 100, 400, (130, 200)),)), {"BOS": {1: 1}})
+
+
+def late_pin_day() -> Task:
+    """N1 is ready at JFK at 190 for flight 1, which a plan may pin to have left at 170 (hour 2); N2 is ready there
+    at 230 for flight 2 at 235 (hour 3). JFK caps hours 2 and 3 at one departure each."""
+    flights = [flight(0, "BUF", "JFK", 100, 60), flight(1, "JFK", "DCA", 170, 60),
+               flight(2, "JFK", "BUF", 235, 60), flight(3, "DCA", "JFK", 140, 60)]
+    return capped(day(flights, [tail("N1", "BUF", end="DCA"), tail("N2", "DCA", end="BUF")]), {"JFK": {2: 1, 3: 1}})
+
+
+def two_from_jfk() -> Task:
+    """Two departures from JFK ready in hour 1, which JFK caps at one."""
+    return capped(day([flight(0, "JFK", "BUF", 60, 60), flight(1, "JFK", "DCA", 65, 60)],
+                      [tail("N1", "JFK", end="BUF"), tail("N2", "JFK", end="DCA")]), {"JFK": {1: 1}})
 
 
 def shortened(task: Task, slack: int = 150) -> Task:
