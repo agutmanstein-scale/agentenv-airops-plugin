@@ -3,4 +3,5 @@
 A layer is a rule sim.execute applies and the hindsight MIP carries alike (docs/v3/DESIGN.md §1), so the anchor stays
 a proven optimum. A builder returns its field of Layers; a task without layers is v2's world.
 - depcaps: JetBlue's departure cap per hour at a hub, from every carrier's BTS pushbacks (§3.1).
+- closures: ramp closures at a hub from its METARs and SPECIs, a departure cap over each and a gate hold (§3.2).
 """

@@ -31,7 +31,7 @@ from day_helpers import (
 
 from agentenv_airops.programs import candidates, mip, references, sim
 from agentenv_airops.programs.cost import cancel_price
-from agentenv_airops.programs.layers import depcaps
+from agentenv_airops.programs.layers import closures, depcaps
 from agentenv_airops.programs.model import Task
 
 RANDOM = range(8)
@@ -93,9 +93,15 @@ def capped_task(task, slice_inputs, tmp_path_factory) -> Task:
                                                              task.date)))
 
 
-@pytest.fixture(scope="module", params=["task", "crewed", "capped_task"])
+@pytest.fixture(scope="module")
+def closed_task(task) -> Task:
+    """The fixture day with JFK's ramp closed 18:00-19:00 at half its departure rate."""
+    return closed(task, closures.build(task, {"JFK": [(task.base + 1080, task.base + 1140)]}, {"JFK": 0.5}))
+
+
+@pytest.fixture(scope="module", params=["task", "crewed", "capped_task", "closed_task"])
 def fixture_day(request) -> Task:
-    """The fixture day, the same day with the crew model, and under departure caps."""
+    """The fixture day, the same day with the crew model, under departure caps, and with a ramp closure."""
     return shortened(request.getfixturevalue(request.param))
 
 
