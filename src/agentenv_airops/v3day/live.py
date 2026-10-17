@@ -3,14 +3,18 @@ as live.py plays v1's day, beside it.
 
 urn:airops:v3-live-load/v1 starts a day on a task of AIROPS_V3_TASKS (programs.model tasks, layered or not); the
 planner's tools are v1's (get_situation, check_plan, confirm_changes, advance, with v1's change lists) on v3day.Day.
-Every call costs the Day CALL_MIN minutes of its watch; whenever a call moves the Day to a new watch (advance, or a
+Every call costs the Day CALL_MIN minutes of its watch; before a call moves the Day to a new watch (advance, or a
 call that runs the watch's time out) the env re-arms the gateway clock frozen at that watch, as v1's advance does, so a
-call that could end any watch but the last needs the clock synced. The Day delivers each watch's advisories itself, in
-every tool result's messages, so there are no news triggers. A reply in which the day ends carries done, cost and
-reward. urn:airops:v3-end-day/v1 grades the plan on the truth (v3day.grade) when the planner stopped early. data/get
-reports the Day with its reward and an audit of its news log, as v1's verifier reads a day, and never the truth the
-desk doesn't know yet."""
+call that could end any watch but the last needs the clock synced, and a failed re-arm leaves the Day where it was
+(a call that fails after the re-arm arms the clock back at its watch). Planner calls run one at a time.
+The Day delivers each watch's advisories itself, in every tool result's messages, so there are no news triggers. A
+reply in which the day ends carries done, cost and reward. The grade needs the anchor's cost: the load takes it (and
+the follower's) when the pack has it and otherwise solves the hindsight MIP then, before the clock starts, so the
+day's last call never waits on a solve. urn:airops:v3-end-day/v1 grades the plan on the truth (v3day.grade) when the
+planner stopped early. data/get reports the Day with its reward and an audit of its news log, as v1's verifier reads
+a day, and never the truth the desk doesn't know yet."""
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -22,6 +26,7 @@ from fastmcp import FastMCP
 from fastmcp.server.middleware import Middleware
 
 from ..live import ChangesArg, _raw
+from ..programs import references
 from ..programs.model import Task, load_tasks
 from ..schedule import CLOCK_URI
 from . import situation as view
@@ -64,6 +69,7 @@ class AirOpsV3LiveEnv(AgentEnvEnvironment):
         self.tasks = tasks_by_id()
         self.set_time_url: str | None = None
         self.loaded = False
+        self.playing = asyncio.Lock()
         self.reset()
 
     def create_app(self) -> FastMCP:
@@ -97,15 +103,18 @@ class AirOpsV3LiveEnv(AgentEnvEnvironment):
         return await self._play(lambda day: day.advance(), ends=True)
 
     @extension(LIVE_LOAD_URI, description="Start a live v3 day on the task with this id; an env plays one day.")
-    def live_load(self, task_id: str) -> dict:
-        """Loading again would replay the day with its news already seen; the news before the first watch is in the
-        opening prompt (tasks.briefing), so it is not repeated in the first reply."""
+    def live_load(self, task_id: str, anchor: int | None = None, follower: int | None = None) -> dict:
+        """`anchor` and `follower` are those references' costs on the truth when the pack has them; without the anchor's
+        the load solves it (references.anchor, up to its time limit). Loading again would replay the day with its news
+        already seen; the news before the first watch is in the opening prompt (tasks.briefing), so it is not repeated
+        in the first reply."""
         if self.loaded:
             raise ValueError("a day was already loaded in this env: each live day needs a new deploy")
         if task_id not in self.tasks:
             raise ValueError(f"unknown task id {task_id!r}")
         self.reset()
-        self.day = Day(self.tasks[task_id])
+        task = self.tasks[task_id]
+        self.day = Day(task, references.anchor(task)[1].cost.total if anchor is None else anchor, follower)
         self.day.drain()
         self.loaded = True
         return {"task_id": task_id, "watches": len(self.day.watches)}
@@ -145,21 +154,32 @@ class AirOpsV3LiveEnv(AgentEnvEnvironment):
         return self.day
 
     async def _play(self, act, ends: bool = False) -> str:
-        """Runs a planner call on the Day; re-arms the gateway clock if it moved the Day to a new watch."""
-        day = self._day(open_only=True)
-        if not day.last and (ends or day.clock + CALL_MIN >= day.ends) and self.set_time_url is None:
+        """Runs a planner call on the Day, one at a time, first re-arming the gateway clock at the next watch if the
+        call will open it, and arming it back at this watch if the call then fails."""
+        async with self.playing:
+            day = self._day(open_only=True)
+            rearm = not day.last and (ends or day.clock + CALL_MIN >= day.ends)
+            if rearm:
+                await self._arm(day.ends)
+            try:
+                out = act(day)
+            except Exception:
+                if rearm:
+                    await self._arm(day.t)
+                raise
+            if day.done:
+                out |= {"done": True, "end_reason": day.end_reason, "cost": day.result["cost"]["total"],
+                        "reward": day.result["reward"]}
+            return _json({**out, "messages": day.drain()})
+
+    async def _arm(self, t: int) -> None:
+        """Freezes the gateway's clock at minute `t` of the day."""
+        if self.set_time_url is None:
             raise ValueError(f"the gateway clock is not synced: call {CLOCK_URI} sync_time first")
-        watch = day.watch
-        out = act(day)
-        if day.watch != watch and not day.done:
-            async with httpx.AsyncClient() as http:
-                response = await http.put(self.set_time_url, timeout=10, json={
-                    "virtual_time": virtual_time(day.task, day.t), "virtual_seconds_per_real_second": 0})
-                response.raise_for_status()
-        if day.done:
-            out |= {"done": True, "end_reason": day.end_reason, "cost": day.result["cost"]["total"],
-                    "reward": day.result["reward"]}
-        return _json({**out, "messages": day.drain()})
+        async with httpx.AsyncClient() as http:
+            response = await http.put(self.set_time_url, timeout=10, json={
+                "virtual_time": virtual_time(self.day.task, t), "virtual_seconds_per_real_second": 0})
+            response.raise_for_status()
 
 
 def _situation(day: Day) -> dict:

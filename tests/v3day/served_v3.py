@@ -15,12 +15,15 @@ from agentenv_airops.v3day.live import TASKS_VAR, AirOpsV3LiveEnv
 
 
 @contextmanager
-def served_v3(monkeypatch, tmp_path: Path, tasks: list[Task], task_id: str | None = None, synced: bool = True):
-    """A fresh env on `tasks`, the day `task_id` (default the first) loaded: (base url, env, the clock's PUTs)."""
+def served_v3(monkeypatch, tmp_path: Path, tasks: list[Task], task_id: str | None = None, synced: bool = True,
+              refuse: int = 0, **refs):
+    """A fresh env on `tasks`, the day `task_id` (default the first) loaded with `refs` (anchor, follower): (base
+    url, env, the clock's PUTs). The clock answers the first `refuse` PUTs with a 503, as a gateway hiccup."""
     monkeypatch.setenv(TASKS_VAR, str(write_tasks(tasks, tmp_path / "tasks.jsonl")))
     env = AirOpsV3LiveEnv()
     mcp = env.create_app()
     puts: list[dict] = []
+    refused: list[dict] = []
     task = next(t for t in tasks if t.task_id == (task_id or tasks[0].task_id))
 
     @mcp.custom_route("/clock/time", methods=["GET"])
@@ -29,10 +32,13 @@ def served_v3(monkeypatch, tmp_path: Path, tasks: list[Task], task_id: str | Non
 
     @mcp.custom_route("/clock/set-time", methods=["PUT"])
     async def set_time(request):
+        if len(refused) < refuse:
+            refused.append(await request.json())
+            return JSONResponse({"error": "gateway hiccup"}, status_code=503)
         puts.append(await request.json())
         return JSONResponse({"armed": True})
 
-    env.live_load(task.task_id)
+    env.live_load(task.task_id, **refs)
     with serve(mcp.http_app()) as url:
         if synced:
             env.set_time_url = f"{url}/clock/set-time"

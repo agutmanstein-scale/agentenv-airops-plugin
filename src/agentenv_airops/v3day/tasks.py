@@ -4,6 +4,7 @@ live on airops-v3-day with airops-llm and grade it with airops-verifier."""
 
 from ..core.known import CAP_LOOK, FREEZE, LOOK
 from ..core.model import hhmm
+from ..programs import references
 from ..programs.cost import NOTICE
 from ..programs.model import Task
 from ..schedule import AGENT, EXTRA_TURNS, TURNS_PER_WATCH, VERIFIER
@@ -11,6 +12,7 @@ from .clock import CALL_MIN, virtual_time
 from .day import Day
 from .live import END_DAY_URI, ENV, LIVE_LOAD_URI
 
+LOAD_SLACK = 120  # s past the anchor's time limit for a load that solves it: reading the day and building the MIP
 
 def rules(task: Task) -> str:
     """The system prompt: v1's desk on the programs world, with the crew paragraph when the task has crews."""
@@ -86,14 +88,17 @@ def max_turns(day: Day) -> int:
     return TURNS_PER_WATCH * len(day.watches) + EXTRA_TURNS
 
 
-def steps(task: Task) -> list[dict]:
-    """One task's bundle steps: deploy airops-v3-day, load the day, play it with airops-llm on the gateway's clock
-    frozen at the first watch, end the day and grade it."""
+def steps(task: Task, anchor: int | None = None, follower: int | None = None) -> list[dict]:
+    """One task's bundle steps: deploy airops-v3-day, load the day (with the anchor's and the follower's costs when
+    given, so the load needn't solve the anchor; without the anchor's the load step waits out the solve), play it
+    with airops-llm on the gateway's clock frozen at the first watch, end the day and grade it."""
     day = Day(task)
+    refs = {k: v for k, v in (("anchor", anchor), ("follower", follower)) if v is not None}
+    solve = {} if anchor is not None else {"timeout_seconds": int(references.TIME_LIMIT) + LOAD_SLACK}
     return [
         {"id": "deploy", "type": "deploy_env", "env_id": ENV},
         {"id": "load-task", "type": "apply_server_config", "env_id": ENV,
-         "directives": [{"service": ENV, "uri": LIVE_LOAD_URI, "args": {"task_id": task.task_id}}]},
+         "directives": [{"service": ENV, "uri": LIVE_LOAD_URI, "args": {"task_id": task.task_id, **refs}}], **solve},
         {"id": "deploy-agent", "type": "deploy_agent", "a2a_agent_id": AGENT, "env_ids": [ENV]},
         {"id": "clock", "type": "sync_env_clock", "env_id": ENV, "virtual_time": virtual_time(task, day.t),
          "virtual_seconds_per_real_second": 0, "tolerate_missing_sync_time": False},
