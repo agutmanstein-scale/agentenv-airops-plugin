@@ -450,7 +450,9 @@ def uncrewed_causes(p: Problem, sol: crewreplay.Solved) -> list[dict]:
             if kind in crewed.get(i, {}):
                 continue
             u = planned[i].get(kind)
-            row["missing"][kind] = "no planned unit" if u is None else reason(p, u, at[u.id], g)
+            row["missing"][kind] = reason(p, u, at[u.id], g) if u is not None else "no unit's plan has it" + "".join(
+                f"; {reason(p, v, at[v.id], g)}" for v in p.units if v.kind == kind and v.group == g.group
+                and here(at[v.id], g))
             row["could_alone"][kind] = alone(p, pricer, kind, g)
         out.append(row)
     return out
@@ -481,6 +483,10 @@ def whereabouts(p: Problem, u: Unit, c: Column | None) -> list[tuple[int, str, d
             state.update(flown=state["flown"] + 1, minutes=state["minutes"] + g.block)
         out.append((g.arr + crews.CONNECT, g.dest, dict(state)))
     return out
+
+
+def here(states: Sequence[tuple[int, str, dict]], g: Leg) -> bool:
+    return max(((t, st) for t, st, _ in states if t <= g.dep), default=(0, ""))[1] == g.orig
 
 
 def reason(p: Problem, u: Unit, states: Sequence[tuple[int, str, dict]], g: Leg) -> str:

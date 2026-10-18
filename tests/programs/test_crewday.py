@@ -90,3 +90,16 @@ def test_a_leg_cancelled_before_the_start_does_not_strand_the_morning():
     assert s.uncrewed == () and s.crews(p)[101] == {"pilot": "SP", "cabin": "SC"}
     at = {u.id: crewday.at_start(p, u, s.columns.get(u.id), 600) for u in p.units}
     assert (at["SP"].station, at["SP"].trip, at["P"].station, at["P"].trip) == ("BOS", (7,), "DCA", ())
+
+
+def test_a_flight_left_without_a_crew_names_the_crews_there_and_their_rule():
+    legs = [Leg(1, "B6 1", "BOS", "JFK", 1131, 1131 + 255, 255, "A32X", 20)]
+    tired = [unit(k, kind, "BOS", 540, hour=9, flown=1, minutes=295, landed=1084, ready=1104, end="BOS")
+             for k, kind in (("P", "pilot"), ("C", "cabin"))]
+    p = problem(legs, tired)
+    s = crewreplay.solve(p, time_limit=30, polish=5)
+    assert s.uncrewed == (1,)
+    cause = crewday.uncrewed_causes(p, s)[0]
+    assert cause["missing"] == {"pilot": "no unit's plan has it; P Table A: 295 + 255 > 540",
+                                "cabin": "no unit's plan has it; C 14 h duty from report 540"}
+    assert cause["could_alone"] == {"pilot": [], "cabin": []}
