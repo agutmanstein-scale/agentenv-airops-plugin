@@ -4,6 +4,7 @@ least relaxed cost, and costs at least the bound; the best day found replays exa
 bound."""
 
 import random
+import time
 from dataclasses import replace
 
 import numpy as np
@@ -207,3 +208,16 @@ def test_every_sim_days_crews_are_relaxed_days_at_their_cost(seed):
         assert {units[b].id for b, _ in days} == set(d.units)
         for b, relaxed in days:
             assert relaxed.cost == pytest.approx(cost[units[b].id])
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_the_best_days_departures_crewed_again_replay_at_their_claimed_cost(seed):
+    task, units = random_day(seed)
+    world = sim.truth(task)
+    air, _ = flights_of(task, world)
+    a, _ = air.optimum(air.notice, air.ub)
+    found = crewplan.search(task, world, units, local, task.airports, air, [("optimum", a)], time.monotonic() + 200,
+                            crew_limit=10, days=(("naive", {}),))
+    again = [t for t in found.attempts if t["try"] == "best day, crews again"]
+    assert found.exact and len(again) == 1
+    assert not again[0]["uncrewed"] and again[0]["claimed"] == pytest.approx(again[0]["replayed"], abs=0.5)

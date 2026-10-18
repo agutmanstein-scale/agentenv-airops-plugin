@@ -17,7 +17,8 @@ each):
   the start where it could not, or where it flew one at the minute it was already held to), crewed again;
 - then, one at a time while time remains, each flight the best plan cancels priced to fly (and no longer held
   cancelled), those whose crews cost most first, in case its crews cost more stranded than another flight's
-  cancellation does.
+  cancellation does;
+- with time left, the best day's departures crewed again, the crew solve taking what remains.
 Every plan is replayed in the crew sim and the cheapest replay wins. A plan's claimed cost is the aircraft MIP's plus
 the crew solve's, or the day the crew sim ran with fill on; it replays exactly when its replay costs that, with a legal
 crew on every flight it flies.
@@ -40,7 +41,7 @@ from dataclasses import dataclass, field
 import highspy
 import numpy as np
 
-from ..core.sim import FLOWN
+from ..core.sim import AUTO_CANCELLED, FLOWN
 from ..refs.mip import GAP
 from . import crewbound, crewday, crewreplay, crews, crewsim, mip, network, sim
 from .cost import flat_price
@@ -305,16 +306,17 @@ def search(task: Task, world: sim.World, units: Sequence[Unit], local: crews.Loc
         keep_best(named, day, worth(filled, flat))
         return filled
 
-    def consider(sol: mip.Solution, label: str) -> tuple[crewreplay.Solved, crewsim.CrewDay]:
+    def consider(sol: mip.Solution, label: str, limit: float | None = None) -> tuple[crewreplay.Solved,
+                                                                                 crewsim.CrewDay]:
         deps = {i: d for i, d in sol.deps.items() if d is not None}
         p = crewreplay.Problem(crewday.task_legs(task, deps, world.block), units, task.date, local, end,
                                call=task.start)
         filled = default(sol.plan(task.start), f"{label}, default crews")
         kept = [c for c, at in pool if all(i in p.leg and p.leg[i].dep == d for i, d in at)]
         starts = [plan for plan in (crewday.columns_of(p, filled), {c.unit: c for c in kept if c.key in last}) if plan]
-        crewed = crewreplay.solve(p, max(30.0, min(crew_limit, left())),
-                                  polish=max(10.0, min(crew_limit / 2, left() / 6)), starts=starts, pool=kept,
-                                  log=log)
+        span, polish = (min(crew_limit, left()), min(crew_limit / 2, left() / 6)) if limit is None else \
+            (limit / 2, limit / 3)
+        crewed = crewreplay.solve(p, max(30.0, span), polish=max(10.0, polish), starts=starts, pool=kept, log=log)
         pool[:] = [(c, tuple((i, p.leg[i].dep) for i, _ in c.steps)) for c in crewed.pool]
         last.clear()
         last.update(c.key for c in crewed.columns.values())
@@ -379,7 +381,18 @@ def search(task: Task, world: sim.World, units: Sequence[Unit], local: crews.Loc
         if best[0].value < before - 1e-6:
             fly.add(i)
             dropped.discard(i)
+    if left() > 60:
+        consider(as_solution(task, best[0].day, flat), "best day, crews again", left())
     return best[0]
+
+
+def as_solution(task: Task, day: crewsim.CrewDay, flat: bool) -> mip.Solution:
+    """A crew sim day's departures, cancellations and auto-cancels as an aircraft solution at its aircraft cost."""
+    run = day.run
+    deps = {i: r.dep if r.status == FLOWN else None for i, r in run.flights.items()}
+    lapsed = {i: task.flight(i).deadline + 1 for i, r in run.flights.items() if r.status == AUTO_CANCELLED}
+    cost = run.cost.flat if flat else run.cost.total
+    return mip.Solution("day", cost, cost, 0.0, 0.0, deps, 0, 0, 0, False, False, lapsed)
 
 
 def held_solve(task: Task, world: sim.World, air: Aircraft, cost: np.ndarray, held: Mapping[int, int],
