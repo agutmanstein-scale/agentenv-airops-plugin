@@ -58,3 +58,12 @@ def test_the_references_gate_counts_the_references_it_compared_with_each_anchor(
     gate = world_check.references_gate({"a": run, "b": {**run, "below_anchor": {"airline": 7}}}, {})
     assert gate["compared_with_anchor"] == {"naive": 2, "airline": 2} and gate["below_anchor"] == {"b": {"airline": 7}}
     assert not gate["pass"] and world_check.references_gate({"a": run}, {})["pass"]
+
+
+def test_a_control_needs_the_recorded_day_over_the_anchor_and_naive_within_three_percent_of_the_flat_anchor():
+    run = {"naive": {"flat": 103.0}, "recorded": {"total": 120.0, "delay": 1},
+           "anchor": {"objective": 100.0, "delay": 1}, "flat": {"objective": 100.0}}
+    assert world_check.CONTROL_MARGIN == 0.03 and world_check.control_checks(run, True)["ok"]
+    late = world_check.control_checks({**run, "naive": {"flat": 103.1}}, True)
+    assert not late["ok"] and not late["naive_within_margin"] and late["naive_flat_over_anchor"] == 0.031
+    assert not world_check.control_checks({**run, "recorded": {"total": 99.0, "delay": 1}}, True)["ok"]

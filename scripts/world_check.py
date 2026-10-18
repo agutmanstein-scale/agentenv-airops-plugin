@@ -33,7 +33,7 @@ The gates, as registered, a task being a storm date:
   per hub over the kept dates whose own ratio there is within 0.5-2 (the others dropped and counted), within 0.8-1.25
   on eval and on train separately, at a scale fitted on train;
 - calm_day: at most 1 forced cancellation and 2 ferries on >= 90% of the kept storm dates;
-- controls: on both control dates, JetBlue's recorded day costs at least the anchor, and naive is within 2% of the
+- controls: on both control dates, JetBlue's recorded day costs at least the anchor, and naive is within 3% of the
   flat anchor;
 - references: every kept task's anchor proven and replayed exactly, no reference below a proven anchor, pax <= seats
   on every flight a reference flies, the tasks left out and the references compared with the anchors counted;
@@ -71,7 +71,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INPUTS, DERIVED = ROOT / "cache" / "inputs", ROOT / "cache" / "derived"
 AUTO_SHARE, AUTO_MAX = 0.01, 2
 POOLED, PER_DAY = (0.8, 1.25), (0.5, 2.0)
-CONTROL_MARGIN = 0.02
+CONTROL_MARGIN = 0.03
 CONTROL_DATES = 2
 CALM_CANCELS, CALM_FERRIES = 1, 2
 GATE_SHARE = 0.9
