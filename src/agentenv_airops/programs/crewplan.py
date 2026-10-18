@@ -30,7 +30,7 @@ bound with the best plan's cost.
 
 The crew-aware calm day (`calm_day`) is the search on the calm world from the calm optimum without crews
 (references.calm's), the calm units where the schedule assumes them (crewday.calm_units); the calm optimum without
-crews bounds it below.
+crews bounds it below, and so does `joint`'s bound on the calm world, which may say more.
 """
 
 import time
@@ -160,11 +160,17 @@ class Aircraft:
 
 @dataclass
 class Calm:
-    """The crew-aware calm day: the calm optimum without crews, and the best crew-aware day found."""
+    """The crew-aware calm day: the calm optimum without crews, the best crew-aware day found, and the pieces of a
+    lower bound on the crew-aware calm optimum (`lower`)."""
 
     task: Task
     optimum: mip.Solution
     found: "Found"
+    pieces: dict[str, float | None] = field(default_factory=dict)
+
+    @property
+    def bound(self) -> float | None:
+        return max((v for v in self.pieces.values() if v is not None), default=None)
 
     @property
     def rise_pct(self) -> float | None:
@@ -183,7 +189,8 @@ def calm_optimum(w: crewday.World, time_limit: float = 1800.0) -> mip.Solution:
 
 def calm_day(w: crewday.World, units: Sequence[Unit], optimum: mip.Solution | None = None,
              budget: float = 3600.0, time_limit: float = 1800.0, crew_limit: float = 900.0, tries: int = 4,
-             log: Callable[[str], None] | None = None) -> Calm:
+             cover_limit: float = 0.0, width: int = crewbound.WIDTH, log: Callable[[str], None] | None = None) -> Calm:
+    """The best crew-aware calm day within `budget` seconds; with `cover_limit`, its lower bound too."""
     task = network.scheduled(w.task)
     calm = sim.calm(task)
     optimum = calm_optimum(w, time_limit) if optimum is None else optimum
@@ -191,7 +198,14 @@ def calm_day(w: crewday.World, units: Sequence[Unit], optimum: mip.Solution | No
     air = Aircraft(task, calm)
     found = search(task, calm, units, w.local, w.airports, air, [("optimum", optimum)], deadline,
                    crew_limit=crew_limit, air_limit=time_limit, tries=tries, log=log)
-    return Calm(task, optimum, found)
+    if cover_limit <= 0:
+        return Calm(task, optimum, found)
+    fl = crewbound.Flights.of(task, calm.block, air.net.copies)
+    reached = crewbound.reach(task, fl, units, w.local)
+    least = crewbound.least(task, fl, units, w.local, crewday.task_end(w), reached)
+    a, ar, lp, up, _ = optima(task, calm, air, air.notice, reached, time_limit)
+    pieces, _ = lower(task, units, w.local, w.airports, air, fl, least, a, ar, lp, up, found, cover_limit, width, log)
+    return Calm(task, optimum, found, pieces)
 
 
 @dataclass
@@ -249,20 +263,40 @@ def joint(task: Task, world: sim.World, units: Sequence[Unit], local: crews.Loca
     `flat`; `least` is each unit's least crew cost over `reached` (crewbound.least)."""
     t0 = time.monotonic()
     cost = air.cost(flat)
-    naive = sim.execute(task, {}, world)
-    a, lp = air.optimum(cost, air.ub, naive, air_limit)
-    keep = {i: set(v.tolist()) for i, v in reached.items()}
-    up = air.upper(keep=keep)
-    outside = sum(d is not None and d not in keep.get(i, ()) for i, d in a.deps.items())
-    try:
-        ar, lp = (a, air.relax(cost, up, air_limit)) if not outside else air.optimum(cost, up, None, air_limit)
-    except RuntimeError:
-        ar, up = a, air.ub
-    pieces: dict[str, float | None] = {"aircraft": a.bound, "restricted": ar.bound,
-                                       "restricted_least": ar.bound + float(least.sum()), "cover": None}
+    a, ar, lp, up, keep = optima(task, world, air, cost, reached, air_limit)
     found = search(task, world, units, local, airports, air, [("optimum", a), ("restricted optimum", ar)],
                    t0 + budget, keep=keep, flat=flat, crew_limit=crew_limit, air_limit=air_limit, tries=tries,
                    days=days, log=log)
+    pieces, covered = lower(task, units, local, airports, air, fl, least, a, ar, lp, up, found, cover_limit, width,
+                            log)
+    outside = sum(d is not None and d not in keep.get(i, ()) for i, d in a.deps.items())
+    stats = {"minutes": sum(len(v) for v in reached.values()), "of": sum(len(v) for v in fl.minutes.values()),
+             "flights_without": sum(not len(v) for v in reached.values()), "optimum_outside": outside}
+    return Joint(a, ar, found, pieces, covered, stats)
+
+
+def optima(task: Task, world: sim.World, air: Aircraft, cost: np.ndarray, reached: Mapping[int, np.ndarray],
+           air_limit: float) -> tuple:
+    """A*, the restricted A* (A* itself where it keeps to `reached`, or where the restricted MIP finds no plan in
+    time), the LP whose prices the covering bound reads, its column bounds, and `reached` as sets."""
+    a, lp = air.optimum(cost, air.ub, sim.execute(task, {}, world), air_limit)
+    keep = {i: set(v.tolist()) for i, v in reached.items()}
+    up = air.upper(keep=keep)
+    outside = any(d is not None and d not in keep.get(i, ()) for i, d in a.deps.items())
+    try:
+        ar, lp = air.optimum(cost, up, None, air_limit) if outside else (a, air.relax(cost, up, air_limit))
+    except RuntimeError:
+        ar, up = a, air.ub
+    return a, ar, lp, up, keep
+
+
+def lower(task: Task, units: Sequence[Unit], local: crews.Local, airports, air: Aircraft, fl: crewbound.Flights,
+          least: np.ndarray, a: mip.Solution, ar: mip.Solution, lp: mip.Relaxed | None, up: np.ndarray,
+          found: "Found", cover_limit: float, width: int, log: Callable[[str], None] | None = None
+          ) -> tuple[dict[str, float | None], crewbound.Covered | None]:
+    """The bound's pieces, the covering bound's taken with `found`'s cost and started from its crew days."""
+    pieces: dict[str, float | None] = {"aircraft": a.bound, "restricted": ar.bound,
+                                       "restricted_least": ar.bound + float(least.sum()), "cover": None}
     covered = None
     if lp is not None and cover_limit > 0:
         z = lp.objective - crewbound.TOL - 1e-7 * abs(lp.objective)
@@ -270,9 +304,7 @@ def joint(task: Task, world: sim.World, units: Sequence[Unit], local: crews.Loca
         end = lambda u, s: crews.reposition(u, s, airports, task.date)  # noqa: E731
         covered = crewbound.cover(task, fl, units, local, end, choices, cover_limit, width, found.day, log)
         pieces["cover"] = min(found.value, z + covered.bound)
-    stats = {"minutes": sum(len(v) for v in reached.values()), "of": sum(len(v) for v in fl.minutes.values()),
-             "flights_without": sum(not len(v) for v in reached.values()), "optimum_outside": outside}
-    return Joint(a, ar, found, pieces, covered, stats)
+    return pieces, covered
 
 
 def search(task: Task, world: sim.World, units: Sequence[Unit], local: crews.Local, airports, air: Aircraft,

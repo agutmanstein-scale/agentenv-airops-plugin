@@ -12,10 +12,12 @@ Per task of a world_check run (its storm dates and its controls, at its fitted s
    - the crew replay of JetBlue's real day: its flown flights at their recorded departures and blocks, crewed by those
      units, their reserves and every move, the fewest flights without a legal crew first (crewday.replay_record), the
      plan audited move by move against the crew sim's rules;
-   - the crew-aware calm day (crewplan.calm_day) against stage 1's calm optimum without crews;
-3. at the middle band, notice-priced and flat (crewplan.joint): the aircraft optimum A*, the restricted A*, the best
-   plan found by the search within its budget, replayed in the crew sim, and the lower bound (crewbound.py); the empty
-   plan (naive) and the airline replay played with crews; JetBlue's recorded day with the crew replay's crew cost.
+   - the crew-aware calm day (crewplan.calm_day) against stage 1's calm optimum without crews, at the middle band
+     with a lower bound on it (the least rise any crew-aware calm day could have);
+3. at the middle band (crewplan.joint), notice-priced, and flat-priced on eval dates and controls (elsewhere the flat
+   best is the best plan's flat cost): the aircraft optimum A*, the restricted A*, the best plan found by the search
+   within its budget, replayed in the crew sim, and the lower bound (crewbound.py); the empty plan (naive) and the
+   airline replay played with crews; JetBlue's recorded day with the crew replay's crew cost.
 Eval dates and controls get the larger budgets (BUDGETS). Writes dates/<date>.json and plans/<date>.json as each task
 finishes (`--resume` keeps those written), then guards.json and report.md.
 
@@ -62,10 +64,10 @@ LEVERAGE = 0.10
 GAPS = (0.01, 1.0, 5.0)
 RSS_UNIT = 1 << 30 if sys.platform == "darwin" else 1 << 20
 BUDGETS = {
-    "regular": {"morning": 240, "record": 360, "calm": 240, "search": 1200, "cover": 600, "end_morning": 120,
-                "end_record": 180, "end_calm": 120, "polish": 60},
-    "extra": {"morning": 480, "record": 720, "calm": 600, "search": 2000, "flat": 900, "cover": 1200,
-              "end_morning": 240, "end_record": 360, "end_calm": 240, "polish": 180},
+    "regular": {"morning": 240, "record": 360, "calm": 240, "calm_cover": 180, "search": 1200, "cover": 600,
+                "end_morning": 120, "end_record": 180, "end_calm": 120, "polish": 60},
+    "extra": {"morning": 480, "record": 720, "calm": 600, "calm_cover": 600, "search": 2000, "flat": 900,
+              "cover": 1200, "end_morning": 240, "end_record": 360, "end_calm": 240, "polish": 180},
 }
 WIDTH = {"regular": 60, "extra": 30}
 
@@ -154,7 +156,8 @@ def check(task: Task, bands: tuple[str, ...], refs: dict, scale: float, plans: d
         if mid:
             b["joint"] = joint(w, units, refs, budget, rec, plans, clock)
             plans["record"] = rec_plan
-        b["calm"] = calm(w, band, optimum, base, budget[pre + "calm"], budget["polish"], plans if mid else None)
+        b["calm"] = calm(w, band, optimum, base, budget[pre + "calm"], budget["calm_cover"] if mid else 0.0,
+                         budget["width"], plans if mid else None)
         clock(f"{band}_calm")
         row["bands"][band] = b
     return row
@@ -197,9 +200,12 @@ def replays(uncrewed: int, flown: int) -> bool:
     return uncrewed <= SHARE * flown and uncrewed <= MOST
 
 
-def calm(w: crewday.World, band: str, optimum, base: float, budget: float, polish: float, plans: dict | None) -> dict:
+def calm(w: crewday.World, band: str, optimum, base: float, budget: float, cover: float, width: int,
+         plans: dict | None) -> dict:
+    """The crew-aware calm day against the calm optimum, and with `cover` a lower bound on it: the least rise any
+    crew-aware calm day could have."""
     units = crewday.calm_units(w, band)
-    c = crewplan.calm_day(w, units, optimum, budget, crew_limit=max(60.0, budget / 3))
+    c = crewplan.calm_day(w, units, optimum, budget, crew_limit=max(60.0, budget / 3), cover_limit=cover, width=width)
     day, f = c.found.day, c.found
     deps = {i: r.dep for i, r in day.run.flights.items() if r.dep is not None}
     audit = crewsim.audit(c.task, units, f.plan, deps, {x.id: x.sched_block for x in c.task.flights}, w.local,
@@ -211,7 +217,10 @@ def calm(w: crewday.World, band: str, optimum, base: float, budget: float, polis
             "claimed": round(f.claimed, 1), "crew_cost": {k: round(v, 1) for k, v in day.cost.items()},
             "aircraft": day.run.cost.to_dict(), "cancelled": sum(r.dep is None for r in day.run.flights.values()),
             "uncrewed": len(day.uncrewed), "attempts": f.attempts, "audit": audit, "units": units_at(units),
-            "pending_crews": sum(u.id.endswith("p") for u in units)}
+            "pending_crews": sum(u.id.endswith("p") for u in units),
+            "bound": None if c.bound is None else round(c.bound, 1),
+            "rise_lower_pct": None if c.bound is None else rise(max(c.bound, base), base),
+            "pieces": {k: None if v is None else round(v, 1) for k, v in c.pieces.items()}}
 
 
 def rise(value: float, base: float) -> float | None:
@@ -380,6 +389,9 @@ def reported(ok: list[dict], storm: list[dict], bands: tuple[str, ...]) -> dict:
                               "uncrewed": dist([b["record"]["uncrewed"] for b in bs]),
                               "rise_pct": dist([b["calm"]["rise_pct"] for b in bs
                                                 if b["calm"]["rise_pct"] is not None])}
+    lows = [b["calm"]["rise_lower_pct"] for b in (r["bands"]["middle"] for r in storm)
+            if b["calm"].get("rise_lower_pct") is not None]
+    out["calm_rise_lower_pct"] = {**dist(lows), f"over_{RISE}": sum(v > RISE for v in lows)}
     js = [r["bands"]["middle"]["joint"] for r in storm]
     notice = [j["played"]["naive"]["notice"] / j["notice"]["best"] - 1 for j in js]
     flat = [j["played"]["naive"]["flat"] / j["flat"]["best"] - 1 for j in js]
