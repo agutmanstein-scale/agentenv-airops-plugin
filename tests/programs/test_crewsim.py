@@ -174,3 +174,14 @@ def test_a_flight_waiting_for_a_crew_is_woken_by_its_arrival():
     d = crewsim.execute(task, {}, units)
     assert [d.run.flights[i].dep for i in (0, 1, 2)] == [600, 520, 700]
     assert d.crews[0] == {"pilot": "P1", "cabin": "C1"} and d.crews[2] == {"pilot": "P2", "cabin": "C2"}
+
+
+def test_the_audit_follows_a_diversion_to_where_the_flight_ended():
+    task = day([flight(0, "JFK", "BOS", 600, 60), flight(1, "PWM", "JFK", 760, 70)],
+               [tail("N1", "JFK"), tail("N2", "PWM")])
+    crew = pair((0, 1))
+    plan = {i: {"crew": {"pilot": "P1", "cabin": "C1"}} for i in (0, 1)}
+    deps, blocks = {0: 600, 1: 760}, {0: 90, 1: 70}
+    assert crewsim.audit(task, crew, plan, deps, blocks, ends={0: "PWM"}) == []
+    assert crewsim.audit(task, crew, plan, deps, blocks) == ["B6 101 PWM-JFK at 760: pilot P1",
+                                                             "B6 101 PWM-JFK at 760: cabin C1"]

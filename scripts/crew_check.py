@@ -113,9 +113,9 @@ def record(w: crewday.World, band: str) -> dict:
     units, before = crewday.storm_units(w, band)
     pre = round(time.monotonic() - t, 1)
     p, sol = crewday.replay_record(w, units)
-    deps, blocks, _ = crewday.recorded(task)
+    deps, blocks, ends = crewday.recorded(task)
     plan = crewday.plan_of(p, sol)
-    audit = crewsim.audit(task, units, plan, deps, blocks, w.local, w.airports)
+    audit = crewsim.audit(task, units, plan, deps, blocks, w.local, w.airports, ends)
     flown = len(deps)
     n = len(sol.uncrewed)
     return {"flown": flown, "uncrewed": n, "pass": n <= min(MOST, math.floor(SHARE * flown)),

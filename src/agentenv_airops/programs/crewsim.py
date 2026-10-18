@@ -101,10 +101,11 @@ def execute(task: Task, plan: Mapping, units: Sequence[Unit], world: sim.World |
 
 
 def audit(task: Task, units: Sequence[Unit], plan: Mapping, deps: Mapping[int, int], blocks: Mapping[int, int],
-          local: crews.Local | None = None, airports: Mapping[str, Airport] | None = None) -> list[str]:
-    """A plan's crews and riders over fixed departures and blocks, checked move by move against the sim's rules in
-    departure order (no aircraft): the moves the sim would refuse."""
-    pool = Pool(task, units, local or (lambda s, m: m), plan, False, False, airports or task.airports)
+          local: crews.Local | None = None, airports: Mapping[str, Airport] | None = None,
+          ends: Mapping[int, str] | None = None) -> list[str]:
+    """A plan's crews and riders over fixed departures and blocks (and where each flight ended, for a diversion),
+    checked move by move against the sim's rules in departure order (no aircraft): the moves the sim would refuse."""
+    pool = Pool(task, units, local or (lambda s, m: m), plan, False, False, airports or task.airports, ends or {})
     out = []
     for i in sorted(deps, key=lambda i: (deps[i], i)):
         f, t = task.flight(i), deps[i]
@@ -125,9 +126,9 @@ def audit(task: Task, units: Sequence[Unit], plan: Mapping, deps: Mapping[int, i
 
 class Pool:
     def __init__(self, task: Task, units: Sequence[Unit], local: crews.Local, plan: Mapping, fill: bool, log: bool,
-                 airports: Mapping[str, Airport]):
+                 airports: Mapping[str, Airport], ends: Mapping[int, str] | None = None):
         self.task, self.local, self.fill, self.log = task, local, fill, log
-        self.airports = airports
+        self.airports, self.ends = airports, ends or {}
         self.reports = dict(plan.get("reports", {}))
         want = {int(k): v for k, v in plan.items() if k != "reports"}
         self.named = {(kind, int(i)): u for i, v in want.items() for kind, u in v.get("crew", {}).items()}
@@ -367,8 +368,9 @@ class Pool:
 
     def move(self, s: State, f: Flight, t: int, arr: int, op: bool) -> None:
         u = s.unit
+        dest = self.ends.get(f.id, f.dest)
         self.at[(u.kind, u.group, s.station)].discard(u.id)
-        s.station, s.ready, s.landed, s.moved = f.dest, arr + crews.CONNECT, arr, True
+        s.station, s.ready, s.landed, s.moved = dest, arr + crews.CONNECT, arr, True
         if op:
             s.flown, s.minutes = s.flown + 1, s.minutes + (arr - t)
         else:
@@ -378,8 +380,8 @@ class Pool:
             s.duties.append(duty(s.report, u.at or None, "on duty"))
         s.duties[-1]["legs" if op else "deadheads"].append((f.id, t, arr))
         s.duties[-1]["release"] = arr + crews.DEBRIEF
-        self.at[(u.kind, u.group, f.dest)].add(u.id)
-        for i in self.waiting.pop((u.kind, u.group, f.dest), ()):
+        self.at[(u.kind, u.group, dest)].add(u.id)
+        for i in self.waiting.pop((u.kind, u.group, dest), ()):
             self.wake.append((i, s.ready))
 
     def woken(self) -> list[tuple[int, int]]:
