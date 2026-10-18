@@ -41,7 +41,8 @@ the aircraft on tomorrow's needs (Task.needed).
 
 With a crew pool (crewsim.Pool) a flight ready to leave also needs its crews: the pool's `board` says whether
 they are there now, when to try again, or never (the flight then auto-cancels at its deadline unless a crew's arrival
-wakes it); a flight with "left" leaves whatever crews it finds. A plan for the crew sim may carry "reports".
+wakes it); a flight with "left" leaves whatever crews it finds. A flight the pool drops (its crew desk sure no crew
+can come) is cancelled, decided when the pool dropped it. A plan for the crew sim may carry "reports".
 
 A World is what a day runs on: the truth (the task's lb, truth blocks and programs as they ran), the day as known at
 a watch (what the desk could know then: lb and the truth block once the scheduled departure is within LOOK, else 0
@@ -235,6 +236,10 @@ def execute(task: Task, plan: Plan, world: World | None = None, crew=None) -> Ex
         if i in runs or when[i] != t:
             continue
         f = task.flight(i)
+        if crew is not None and i in crew.dropped:
+            runs[i] = FlightRun(i, CANCELLED, decided=crew.dropped[i])
+            crew.cancel(i, runs[i].decided)
+            continue
         left = want.get(i, {}).get("left") is not None
         s = t if left else f.legal(t)
         if s > f.deadline:
@@ -263,6 +268,10 @@ def execute(task: Task, plan: Plan, world: World | None = None, crew=None) -> Ex
             continue
         if crew is not None:
             go = crew.board(f, t, want.get(i, {}), left)
+            if i in crew.dropped:
+                runs[i] = FlightRun(i, CANCELLED, decided=crew.dropped[i])
+                crew.cancel(i, runs[i].decided)
+                continue
             if go != t:
                 when[i] = f.deadline + 1 if go is None else go
                 heapq.heappush(heap, (when[i], kind, c, i))

@@ -4,7 +4,7 @@ with its hotel, deadhead seats, swaps, (b)(14), named crews, the day so far, cos
 import pytest
 from day_helpers import day, flight, tail
 
-from agentenv_airops.core.sim import AUTO_CANCELLED, FLOWN
+from agentenv_airops.core.sim import AUTO_CANCELLED, CANCELLED, FLOWN
 from agentenv_airops.programs import crews, crewsim
 from agentenv_airops.programs.crews import Unit
 
@@ -271,3 +271,83 @@ def test_the_end_of_the_day_sends_a_bases_crews_to_its_trips_tonight_at_the_leas
     assert alone > 0 and shares["CA"] == shares["CB"] == 0.0
     assert ends.least(units[0], "BOS") == 0.0 and ends.least(units[0], "BUF") == pytest.approx(
         min(crews.reposition(units[0], "BUF", task.airports, task.date, to) for to in ("BOS", "DCA")))
+
+
+def standbys(until: int = 660, report: int = 300) -> list[Unit]:
+    return [unit(k, kind, report=report, reserve="standby", until=until) for k, kind in (("SP", "pilot"),
+                                                                                        ("SC", "cabin"))]
+
+
+def test_the_desk_keeps_the_planned_crew_and_waits_for_it_unless_a_cheaper_crew_is_there():
+    task = day([flight(0, "JFK", "BOS", 600, 60)], [tail("N1", "JFK")])
+    d = crewsim.execute(task, {}, pair((0,)) + standbys(), desk=True)
+    assert d.run.flights[0].dep == 600 and d.crews[0] == {"pilot": "P1", "cabin": "C1"}
+    d = crewsim.execute(task, {}, pair((0,), report=580), desk=True)
+    assert d.run.flights[0].dep == 580 + crews.BRIEF and d.crews[0] == {"pilot": "P1", "cabin": "C1"}
+    d = crewsim.execute(task, {}, pair((0,), report=580) + standbys(), desk=True)
+    assert d.run.flights[0].dep == 600 and d.crews[0] == {"pilot": "SP", "cabin": "SC"}
+
+
+def test_the_desk_gives_a_stranded_crews_trip_to_a_standby_else_calls_a_reserve_to_report_in_time():
+    task = day([flight(0, "JFK", "BOS", 600, 60), flight(1, "BOS", "JFK", 720, 60)], [tail("N1", "JFK")])
+    stranded = pair((0, 1), station="BUF")
+    d = crewsim.execute(task, {}, stranded + standbys(), desk=True)
+    assert [d.run.flights[i].dep for i in (0, 1)] == [600, 720]
+    assert d.crews[0] == d.crews[1] == {"pilot": "SP", "cabin": "SC"}
+    reserves = [unit(k, kind, report=None, hour=None, reserve="short", rap=0, until=720, lead=150)
+                for k, kind in (("RP", "pilot"), ("RC", "cabin"))]
+    d = crewsim.execute(task, {}, stranded + reserves, desk=True)
+    assert [d.run.flights[i].dep for i in (0, 1)] == [600, 720] and d.crews[1] == {"pilot": "RP", "cabin": "RC"}
+    assert d.units["RP"]["call"] == 540 - 150 and d.units["RP"]["duties"][0]["report"] == 540
+    assert crewsim.execute(task, {}, stranded + reserves).run.flights[0].dep == 780 + crews.BRIEF
+
+
+def test_the_desk_swaps_trips_with_a_crew_there_whose_trip_the_late_crew_can_fly():
+    flights = [flight(0, "JFK", "BOS", 600, 60), flight(1, "JFK", "DCA", 800, 60),
+               flight(2, "BUF", "JFK", 500, 100, sched_block=60)]
+    task = day(flights, [tail("N1", "JFK"), tail("N2", "JFK"), tail("N3", "BUF")])
+    late = [unit(k, kind, "BUF", 440, trip=(2, 0)) for k, kind in (("P1", "pilot"), ("C1", "cabin"))]
+    there = [unit(k, kind, report=540, trip=(1,)) for k, kind in (("P2", "pilot"), ("C2", "cabin"))]
+    d = crewsim.execute(task, {}, late + there, desk=True)
+    assert d.run.flights[0].dep == 600 and d.crews[0] == {"pilot": "P2", "cabin": "C2"}
+    assert d.run.flights[1].dep == 800 and d.crews[1] == {"pilot": "P1", "cabin": "C1"}
+    trip = crewsim.execute(task, {}, late + there)
+    assert trip.run.flights[0].dep == 600 + crews.CONNECT and trip.crews[0] == {"pilot": "P1", "cabin": "C1"}
+    task = day([flights[0], flights[2]], [tail("N1", "JFK"), tail("N3", "BUF")])
+    spare = [unit(k, kind, report=540) for k, kind in (("P3", "pilot"), ("C3", "cabin"))]
+    d = crewsim.execute(task, {}, late + spare, desk=True)
+    assert d.run.flights[0].dep == 600 and d.crews[0] == {"pilot": "P3", "cabin": "C3"}
+
+
+def test_the_desk_deadheads_the_first_crew_that_can_reach_a_stranded_crews_flight():
+    flights = [flight(0, "JFK", "BOS", 700, 60), flight(1, "BOS", "JFK", 560, 60), flight(3, "JFK", "DCA", 760, 60)]
+    task = day(flights, [tail("N1", "JFK"), tail("N2", "BOS")])
+    units = pair((0,), station="BUF") + [unit(k, kind, "BOS", 480, trip=(1, 3)) for k, kind in
+                                         (("P3", "pilot"), ("C3", "cabin"))] + \
+        [unit(k, kind, "BOS", 480) for k, kind in (("P2", "pilot"), ("C2", "cabin"))]
+    d = crewsim.execute(task, {}, units, desk=True)
+    assert d.run.flights[0].dep == 700 and d.crews[0] == {"pilot": "P2", "cabin": "C2"}
+    assert d.riders[1] == ("C2", "P2") and d.cost["deadhead"] > 0
+    assert crewsim.execute(task, {}, units).run.flights[0].status == AUTO_CANCELLED
+
+
+def test_the_desk_extends_a_pilots_duty_only_when_nothing_else_makes_the_flight_legal():
+    crew = pair((0,), report=300, hour=5, ready=1020, landed=1000)
+    task = day([flight(0, "JFK", "BOS", 1080, 60, deadline=1200)], [tail("N1", "JFK")])
+    assert 1080 + 60 > 300 + crews.fdp(5, 1) and 1080 + 60 <= crews.pilot_limit(300, 5, 1)
+    d = crewsim.execute(task, {}, crew, desk=True)
+    assert d.run.flights[0].dep == 1080 and d.crews[0] == {"pilot": "P1", "cabin": "C1"}
+    d = crewsim.execute(task, {}, crew + standbys(until=1260, report=900), desk=True)
+    assert d.run.flights[0].dep == 1080 and d.crews[0] == {"pilot": "SP", "cabin": "C1"}
+
+
+def test_the_desk_cancels_a_flight_no_crew_can_reach_as_soon_as_that_is_certain_at_that_notice():
+    task = day([flight(0, "JFK", "BOS", 600, 60)], [tail("N1", "JFK")])
+    d = crewsim.execute(task, {}, pair((0,), station="BUF"), desk=True)
+    trip = crewsim.execute(task, {}, pair((0,), station="BUF"))
+    assert (d.run.flights[0].status, d.run.flights[0].decided) == (CANCELLED, 0)
+    assert trip.run.flights[0].status == AUTO_CANCELLED and d.run.cost.total < trip.run.cost.total
+    flights = [flight(0, "JFK", "BOS", 400, 400, sched_block=300), flight(1, "BOS", "JFK", 900, 150)]
+    task = day(flights, [tail("N1", "JFK")])
+    d = crewsim.execute(task, {}, pair((0, 1), report=340, hour=5), desk=True)
+    assert (d.run.flights[1].status, d.run.flights[1].decided) == (CANCELLED, 400)

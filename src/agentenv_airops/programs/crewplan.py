@@ -5,8 +5,9 @@ cancellation to fly (FLY times its price), and close copies by column bounds: a 
 at the start, one kept to the minutes some crew could fly it (crewbound.reach). That is the same as building it again
 with those prices and lower bounds. The search (a local search over departures and cancellations, crews optimized at
 each):
-- an aircraft optimum's departures crewed by the crew sim's default rule (fill on), as are any plans given (naive,
-  the airline's), each then a plan naming everything its day did; and crews optimized at those departures
+- an aircraft optimum's departures crewed by the crew sim's default rule (fill on), as are any plans given (the
+  standard crew desk's day, the airline's), each then a plan naming everything its day did; and crews optimized at
+  those departures
   (crewreplay.solve, started from the default rule's crews where they flew every flight at its minute, and from the
   last crew solve's columns and plan where their legs leave at the same minutes), its plan
   naming each flight's crews, riders and reports, replayed in the crew sim, where a flight flies only with its named

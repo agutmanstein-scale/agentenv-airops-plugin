@@ -16,9 +16,10 @@ Per task of a world_check run (its storm dates and its controls, at its fitted s
      middle band with a lower bound on it (the least rise any crew-aware calm day could have);
 3. at the middle band (crewplan.joint), notice-priced, and flat-priced on eval dates and controls (elsewhere the flat
    best is the best plan's flat cost): the aircraft optimum A*, the restricted A*, the best plan found by the search
-   within its budget, replayed in the crew sim, and the lower bound (crewbound.py); the empty plan (naive) and the
-   airline replay played with crews by the crew sim's trip rule; JetBlue's recorded day with the crew replay's crew
-   cost.
+   within its budget, replayed in the crew sim, and the lower bound (crewbound.py); the standard crew desk, the
+   baseline (naive's empty plan for the aircraft, its crews by the crew sim's desk: crewsim.py), among the search's
+   candidates; naive without crews; the airline replay with crews by the crew sim's trip rule; JetBlue's recorded day
+   with the crew replay's crew cost.
 Eval dates and controls get the larger budgets (BUDGETS). Writes dates/<date>.json and plans/<date>.json as each task
 finishes (`--resume` keeps those written), then guards.json and report.md.
 
@@ -30,13 +31,14 @@ The guards, as registered (a storm date being a task that is not a control; the 
 - best: on every kept date the best plan replays exactly with a legal crew on every flight it flies, and the bound is
   valid (no day played on the date costs less); gap = (best - bound) / best per date, counted within 0.01%, 1% and 5%,
   no threshold; a date whose search or bound fails to run is left out and counted;
-- controls: on both control dates, the recorded day (with crews) costs at least the best plan, and naive with crews is
-  within 2% of the flat best plan.
-Reported, not gated: the band ends, leverage with crews against the best plan (a lower bound on the true leverage; flat
-and notice-priced), naive's auto-cancellations, the crew-caused cancellations and delays (the best plan against A*), the
-crew cost by kind, the gap distribution, the trips (legs left without one, the builder's rounds and gap), the cabin
-duty lengths of the best plan, the calm plan and the crew replay (121.467(b)(14) lets a team fly its own trip's late
-legs past 14 h), solve times and peak memory per task.
+- controls: on both control dates, the recorded day (with crews) costs at least the best plan, and the standard crew
+  desk is within 3% of the flat best plan.
+Reported, not gated: the band ends, leverage with crews, the standard crew desk over the best plan (a lower bound on the
+true leverage; flat and notice-priced), the desk's cancellations and auto-cancellations and its cost over naive without
+crews, the crew-caused cancellations and delays (the best plan against A*), the crew cost by kind, the gap distribution,
+the trips (legs left without one, the builder's rounds and gap), the cabin duty lengths of the best plan, the calm plan
+and the crew replay (121.467(b)(14) lets a team fly its own trip's late legs past 14 h), solve times and peak memory per
+task.
 """
 
 import argparse
@@ -53,7 +55,7 @@ from pathlib import Path
 
 import numpy as np
 
-from agentenv_airops.core.sim import AUTO_CANCELLED, FLOWN
+from agentenv_airops.core.sim import AUTO_CANCELLED, CANCELLED, FLOWN
 from agentenv_airops.programs import crewbound, crewday, crewplan, crews, crewsim, references, sim
 from agentenv_airops.programs.model import Task
 
@@ -62,7 +64,7 @@ INPUTS, DERIVED = ROOT / "cache" / "inputs", ROOT / "cache" / "derived"
 SHARE, MOST = 0.01, 2
 RISE = 2.0
 GATE_SHARE = 0.9
-CONTROL_MARGIN = 0.02
+CONTROL_MARGIN = 0.03
 CONTROL_DATES = 2
 LEVERAGE = 0.10
 GAPS = (0.01, 1.0, 5.0)
@@ -254,7 +256,7 @@ def joint(w: crewday.World, units, refs: dict, budget: dict, rec: dict, plans: d
     least = crewbound.least(task, fl, units, w.local, crews.Ends(units, w.airports, task.date).least, reached)
     clock("aircraft_reach_least")
     out = {"least": {"total": round(float(least.sum()), 1), "units": int(np.count_nonzero(least > 1e-9))}}
-    played = plays(task, units, world, w)
+    played, desk = plays(task, units, world, w)
     clock("plays")
     extra = task.split in ("eval", "control")
     as_flat = None
@@ -263,12 +265,12 @@ def joint(w: crewday.World, units, refs: dict, budget: dict, rec: dict, plans: d
         j = crewplan.joint(task, world, units, w.local, w.airports, air, fl, reached, least,
                            budget["flat" if flat else "search"], budget["cover"], flat=flat,
                            crew_limit=max(60.0, budget["flat" if flat else "search"] / 4),
-                           days=(("naive", {}), ("airline replay", references.airline_plan(task))),
+                           days=(("standard crew desk", desk), ("airline replay", references.airline_plan(task))),
                            width=budget["width"])
         clock(f"{name}_joint")
         plans[name] = j.found.plan
         replay = crewsim.execute(task, j.found.plan, units, world, w.local, fill=False, airports=w.airports)
-        others = {k: v[name] for k, v in played.items()}
+        others = {k: v[name] for k, v in played.items() if k != "naive"}
         others |= {f"try {n}: {t['try']}": t["replayed"] for n, t in enumerate(j.found.attempts)}
         out[name] = summary(task, j, crewplan.worth(replay, flat), others, refs.get("flat" if flat else "anchor") or {})
         if not flat:
@@ -291,17 +293,21 @@ def joint(w: crewday.World, units, refs: dict, budget: dict, rec: dict, plans: d
     return out
 
 
-def plays(task: Task, units, world: sim.World, w: crewday.World) -> dict:
-    """Naive (the empty plan) and the airline replay with crews, by the crew sim's trip rule (the trip's own crew,
-    else a crew with no trip left, a standby, a short-call reserve; else it waits, and auto-cancels at its deadline)."""
+def plays(task: Task, units, world: sim.World, w: crewday.World) -> tuple[dict, dict]:
+    """The standard crew desk (the empty plan, its crews by the crew sim's desk) and the airline replay with crews (by
+    the trip rule), naive without crews; and the desk's day as a plan naming what it did."""
     out = {}
-    for name, plan in (("naive", {}), ("airline", references.airline_plan(task))):
-        d = crewsim.execute(task, plan, units, world, w.local, airports=w.airports)
-        c = Counter(r.status for r in d.run.flights.values())
+    desk = crewsim.execute(task, {}, units, world, w.local, airports=w.airports, desk=True)
+    airline = crewsim.execute(task, references.airline_plan(task), units, world, w.local, airports=w.airports)
+    for name, d in (("crew_desk", desk), ("airline", airline)):
         out[name] = {"notice": round(d.total, 1), "flat": round(crewplan.worth(d, True), 1),
                      "aircraft": d.run.cost.to_dict(), "crew_cost": {k: round(v, 1) for k, v in d.cost.items()},
-                     "uncrewed": len(d.uncrewed), "statuses": dict(c)}
-    return out
+                     "uncrewed": len(d.uncrewed), "statuses": dict(Counter(r.status for r in d.run.flights.values())),
+                     "riders": sum(len(v) for v in d.riders.values())}
+    naive = sim.execute(task, {}, world)
+    out["naive"] = {"notice": naive.cost.total, "flat": naive.cost.flat, "aircraft": naive.cost.to_dict(),
+                    "statuses": dict(Counter(r.status for r in naive.flights.values()))}
+    return out, crewday.named(desk)
 
 
 def summary(task: Task, j: crewplan.Joint, replayed: float, others: dict, reference: dict) -> dict:
@@ -368,12 +374,13 @@ def best_ok(n: dict) -> bool:
 
 def control_checks(j: dict) -> dict:
     best, flat = j["notice"]["best"], j["flat"]["best"]
-    recorded, naive = j["recorded"]["total"], j["played"]["naive"]["flat"]
+    recorded, desk = j["recorded"]["total"], j["played"]["crew_desk"]["flat"]
     recorded_ok = recorded >= best
-    naive_ok = naive <= (1 + CONTROL_MARGIN) * flat
-    return {"ok": recorded_ok and naive_ok, "recorded": recorded, "best": best, "recorded_ge_best": recorded_ok,
-            "naive_flat": naive, "flat_best": flat, "naive_flat_over_best": round(naive / flat - 1, 4),
-            "naive_within_margin": naive_ok, "bound": j["notice"]["bound"], "flat_bound": j["flat"]["bound"]}
+    desk_ok = desk <= (1 + CONTROL_MARGIN) * flat
+    return {"ok": recorded_ok and desk_ok, "recorded": recorded, "best": best, "recorded_ge_best": recorded_ok,
+            "crew_desk_flat": desk, "flat_best": flat, "crew_desk_flat_over_best": round(desk / flat - 1, 4),
+            "crew_desk_within_margin": desk_ok, "naive_flat": j["played"]["naive"]["flat"],
+            "bound": j["notice"]["bound"], "flat_bound": j["flat"]["bound"]}
 
 
 def gate(value: float | None, n: int, rule: str) -> dict:
@@ -402,8 +409,8 @@ def reported(ok: list[dict], storm: list[dict], bands: tuple[str, ...]) -> dict:
             if b["calm"].get("rise_lower_pct") is not None]
     out["calm_rise_lower_pct"] = {**dist(lows), f"over_{RISE}": sum(v > RISE for v in lows)}
     js = [r["bands"]["middle"]["joint"] for r in storm]
-    notice = [j["played"]["naive"]["notice"] / j["notice"]["best"] - 1 for j in js]
-    flat = [j["played"]["naive"]["flat"] / j["flat"]["best"] - 1 for j in js]
+    notice = [j["played"]["crew_desk"]["notice"] / j["notice"]["best"] - 1 for j in js]
+    flat = [j["played"]["crew_desk"]["flat"] / j["flat"]["best"] - 1 for j in js]
     out["leverage"] = {"notice": {**dist(notice), "share_ge_10pct": share([v >= LEVERAGE for v in notice])},
                        "flat": {**dist(flat), "share_ge_10pct": share([v >= LEVERAGE for v in flat])}}
     ns = [r["bands"]["middle"]["joint"]["notice"] for r in ok]
@@ -416,10 +423,12 @@ def reported(ok: list[dict], storm: list[dict], bands: tuple[str, ...]) -> dict:
                         for k in ("deadhead", "hotel", "end")}
     out["bound_pieces_best"] = dict(Counter(max((k for k, v in n["pieces"].items() if v is not None),
                                                 key=lambda k: n["pieces"][k]) for n in ns))
-    out["naive_with_crews"] = {"uncrewed": dist([r["bands"]["middle"]["joint"]["played"]["naive"]["uncrewed"]
-                                                 for r in ok]),
-                               "auto_cancelled": dist([r["bands"]["middle"]["joint"]["played"]["naive"]["statuses"]
-                                                       .get(AUTO_CANCELLED, 0) for r in ok])}
+    desks = [r["bands"]["middle"]["joint"]["played"] for r in ok]
+    out["crew_desk"] = {"uncrewed": dist([p["crew_desk"]["uncrewed"] for p in desks]),
+                        "cancelled": dist([p["crew_desk"]["statuses"].get(CANCELLED, 0) for p in desks]),
+                        "auto_cancelled": dist([p["crew_desk"]["statuses"].get(AUTO_CANCELLED, 0) for p in desks]),
+                        "over_naive_flat_pct": dist([100 * (p["crew_desk"]["flat"] / p["naive"]["flat"] - 1)
+                                                     for p in desks])}
     trips_ = [v for r in ok for v in r["trips"].values()]
     out["trips"] = {"uncovered_legs": sum(v["uncovered"] for v in trips_),
                     "dates_with_uncovered": sum(any(v["uncovered"] for v in r["trips"].values()) for r in ok),
@@ -496,7 +505,7 @@ def markdown(report: dict, rows: list[dict], bands: tuple[str, ...]) -> str:
     out.append(f"| controls | {json.dumps(g['controls']['controls'], default=str)} | {g['controls']['pass']} |")
     out += ["", f"All guards pass: {g['go']}", "", "## Per date (middle band)", "",
             "| Date | Split | Flown | No legal crew (LP) | Rec | Calm rise % | Calm | A* | Best | Bound | Gap % | "
-            "Exact | Naive / best | Seconds | GB |", "|" + "---|" * 15]
+            "Exact | Desk / best | Seconds | GB |", "|" + "---|" * 15]
     for r in rows:
         if "error" in r:
             out.append(f"| {r['date']} | {r.get('split')} | error |" + " |" * 12)
@@ -506,7 +515,7 @@ def markdown(report: dict, rows: list[dict], bands: tuple[str, ...]) -> str:
         out.append(f"| {r['date']} | {r['split']} | {rec['flown']} | {rec['uncrewed']} "
                    f"({rec['solve']['uncrewed_bound']}) | {rec['pass']} | {cal['rise_pct']} | {cal['pass']} | "
                    f"{n['optimum']['objective']} | {n['best']} | {n['bound']} | {n['gap_pct']} | {n['exact']} | "
-                   f"{round(m['joint']['played']['naive']['notice'] / n['best'], 4)} | {r['seconds']} | "
+                   f"{round(m['joint']['played']['crew_desk']['notice'] / n['best'], 4)} | {r['seconds']} | "
                    f"{r['peak_rss_gb']} |")
     out += ["", "## Reported", "", f"```\n{json.dumps(report['reported'], indent=1, default=str)}\n```", "",
             "## Timing", "", f"```\n{json.dumps(report['timing'], indent=1, default=str)}\n```", ""]

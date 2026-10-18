@@ -145,17 +145,17 @@ def flight_time(hour: int) -> int:
     return band(TABLE_A, hour)
 
 
-def pilot_limit(report: int, hour: int, segments: int, rap: int | None = None) -> int:
-    """The latest block-in expected at takeoff for a period's `segments`-th segment, with the extension."""
+def pilot_limit(report: int, hour: int, segments: int, rap: int | None = None, extend: bool = True) -> int:
+    """The latest block-in expected at takeoff for a period's `segments`-th segment, with the extension if `extend`."""
     end = report + fdp(hour, segments)
     if rap is not None:
         end = min(end, rap + min(fdp(hour, segments) + SHORT_PLUS, SHORT_MAX))
-    return end + EXTENSION
+    return end + EXTENSION * extend
 
 
 def pilot_fits(report: int, hour: int, flown: int, minutes: int, dep: int, sched_block: int,
-               rap: int | None = None) -> bool:
-    return dep + sched_block <= pilot_limit(report, hour, flown + 1, rap) and minutes + sched_block <= \
+               rap: int | None = None, extend: bool = True) -> bool:
+    return dep + sched_block <= pilot_limit(report, hour, flown + 1, rap, extend) and minutes + sched_block <= \
         flight_time(hour)
 
 

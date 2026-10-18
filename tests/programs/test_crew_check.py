@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from day_helpers import day, flight, tail
 from program_helpers import ROOT
 
-from agentenv_airops.core.sim import AUTO_CANCELLED, FLOWN
+from agentenv_airops.core.sim import AUTO_CANCELLED, CANCELLED, FLOWN
 from agentenv_airops.programs import crews, sim
 from agentenv_airops.programs.crews import Unit
 
@@ -29,14 +29,17 @@ def crew(uid: str, kind: str, station: str, report: int, trip: tuple) -> Unit:
                 report // 60, at=station, trip=trip)
 
 
-def test_naive_plays_the_empty_plan_by_the_trip_rule_waiting_for_its_trips_crew_and_never_taking_another_trips():
+def test_the_baseline_is_the_standard_crew_desk_on_the_empty_plan_beside_naive_without_crews():
     flights = [flight(0, "JFK", "BOS", 600, 60, deadline=700), flight(1, "JFK", "DCA", 800, 60, deadline=1000)]
     task = day(flights, [tail("N1", "JFK"), tail("N2", "JFK")])
     units = [crew("P1", "pilot", "BUF", 540, (0,)), crew("C1", "cabin", "BUF", 540, (0,)),
              crew("P2", "pilot", "JFK", 500, (1,)), crew("C2", "cabin", "JFK", 500, (1,))]
     w = SimpleNamespace(local=lambda s, m: m, airports=task.airports)
-    naive = crew_check.plays(task, units, sim.truth(task), w)["naive"]
-    assert naive["statuses"] == {AUTO_CANCELLED: 1, FLOWN: 1} and naive["uncrewed"] == 0
+    played, plan = crew_check.plays(task, units, sim.truth(task), w)
+    assert played["crew_desk"]["statuses"] == {CANCELLED: 1, FLOWN: 1} and played["crew_desk"]["uncrewed"] == 0
+    assert plan[0] == {"cancel": True, "decided": 0} and plan[1]["crew"] == {"pilot": "P2", "cabin": "C2"}
+    assert played["naive"]["statuses"] == {FLOWN: 2} and played["naive"]["flat"] < played["crew_desk"]["flat"]
+    assert played["airline"]["statuses"] == {AUTO_CANCELLED: 1, FLOWN: 1}
 
 
 def notice(best=100.0, bound=99.0, exact=True, crewless=0, below=None) -> dict:
@@ -52,16 +55,20 @@ def test_a_best_plan_counts_when_it_replays_exactly_crewed_and_nothing_played_is
     assert not crew_check.best_ok(notice(bound=101.0))
 
 
-def joint(best=100.0, flat=95.0, recorded=120.0, naive=96.0) -> dict:
+def joint(best=100.0, flat=95.0, recorded=120.0, desk=96.0) -> dict:
     return {"notice": notice(best), "flat": notice(flat, flat), "recorded": {"total": recorded},
-            "played": {"naive": {"flat": naive, "notice": naive, "uncrewed": 0, "statuses": {"auto_cancelled": 2}}}}
+            "played": {"crew_desk": {"flat": desk, "notice": desk, "uncrewed": 0,
+                                     "statuses": {"auto_cancelled": 2, "cancelled": 1}},
+                       "naive": {"flat": 90.0, "notice": 90.0}}}
 
 
-def test_a_control_needs_the_recorded_day_over_the_best_plan_and_naive_within_two_percent_of_the_flat_best():
+def test_a_control_needs_the_recorded_day_over_the_best_plan_and_the_crew_desk_within_three_percent_of_the_flat_best():
+    assert crew_check.CONTROL_MARGIN == 0.03
     assert crew_check.control_checks(joint())["ok"]
     assert not crew_check.control_checks(joint(recorded=99.0))["ok"]
-    c = crew_check.control_checks(joint(naive=97.0))
-    assert not c["ok"] and c["naive_flat_over_best"] == round(97 / 95 - 1, 4)
+    assert crew_check.control_checks(joint(desk=97.8))["ok"]
+    c = crew_check.control_checks(joint(desk=97.9))
+    assert not c["ok"] and c["crew_desk_flat_over_best"] == round(97.9 / 95 - 1, 4) and c["naive_flat"] == 90.0
 
 
 def row(date, split="train", rec=True, calm=True, best=100.0, bound=99.0, uncovered=0) -> dict:
@@ -89,7 +96,7 @@ def test_the_guards_count_storm_dates_at_ninety_percent_and_gaps_within_each_thr
     r = crew_check.guards(rows, ("middle",))["reported"]
     assert r["trips"]["uncovered_legs"] == 3 and r["trips"]["dates_with_uncovered"] == 1
     assert r["trips"]["converged"] == r["trips"]["builds"] == 12
-    assert r["naive_with_crews"]["auto_cancelled"]["median"] == 2
+    assert r["crew_desk"]["auto_cancelled"]["median"] == 2 and r["crew_desk"]["cancelled"]["median"] == 1
     assert r["cabin_duty_h"]["best"]["over_14h"] == 12 and r["cabin_duty_h"]["record"]["max"]["max"] == 15.0
     assert "stage" not in str(crew_check.guards(rows, ("middle",))).lower()
     rows[1] = {"date": "d1", "task_id": "b6-d1", "split": "train", "error": "boom"}

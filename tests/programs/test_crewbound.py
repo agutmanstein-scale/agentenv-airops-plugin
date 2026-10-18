@@ -124,10 +124,10 @@ def random_day(seed: int):
 
 
 def played(task, units, rng, n=6):
-    """Crew sim days under random plans: holds, cancellations, none."""
+    """Crew sim days under random plans: holds, cancellations, none; crewed by the trip rule or the crew desk."""
     world = sim.truth(task)
-    days = [crewsim.execute(task, {}, units, world, local)]
-    for _ in range(n):
+    days = [crewsim.execute(task, {}, units, world, local, desk=desk) for desk in (False, True)]
+    for k in range(n):
         plan = {}
         for f in task.flights:
             r = rng.random()
@@ -135,7 +135,7 @@ def played(task, units, rng, n=6):
                 plan[f.id] = {"cancel": True}
             elif r < 0.5:
                 plan[f.id] = {"not_before": f.sched_dep + rng.randrange(0, 300, 10)}
-        days.append(crewsim.execute(task, plan, units, world, local))
+        days.append(crewsim.execute(task, plan, units, world, local, desk=k % 2 == 1))
     return days
 
 
@@ -272,3 +272,12 @@ def test_the_covering_bound_sends_each_bases_crews_to_its_trips_tonight_together
     both = sum(ends.move(u, "BOS", u.end) for u in units)
     assert covered.converged and covered.bound == pytest.approx(both)
     assert both > sum(ends.least(u, "BOS") for u in units)
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_a_crew_desk_day_named_replays_exactly(seed):
+    task, units = random_day(seed)
+    world = sim.truth(task)
+    d = crewsim.execute(task, {}, units, world, local, desk=True)
+    again = crewsim.execute(task, crewday.named(d), units, world, local, fill=False)
+    assert again.total == pytest.approx(d.total) and again.uncrewed == d.uncrewed == ()
