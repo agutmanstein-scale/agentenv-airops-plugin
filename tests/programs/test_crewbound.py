@@ -221,3 +221,25 @@ def test_the_best_days_departures_crewed_again_replay_at_their_claimed_cost(seed
     again = [t for t in found.attempts if t["try"] == "best day, crews again"]
     assert found.exact and len(again) == 1
     assert not again[0]["uncrewed"] and again[0]["claimed"] == pytest.approx(again[0]["replayed"], abs=0.5)
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_the_lagrangian_at_the_lps_duals_is_the_lp_plus_the_units_least_reduced_costs(seed):
+    task, units = random_day(seed)
+    world = sim.truth(task)
+    air, fl = flights_of(task, world)
+    reached = crewbound.reach(task, fl, units, local)
+    keep = {i: set(v.tolist()) for i, v in reached.items()}
+    up = air.upper(keep=keep)
+    lp = air.relax(air.notice, up)
+    choices = crewbound.prices(air, lp, up, 2e5)
+    legs = crewbound.Legs.of(fl, {i: c[0] for i, c in choices.items()}, {i: c[1] for i, c in choices.items()})
+    board = crewbound.Board(task, fl, legs, units, local, end_of(task))
+    m = crewbound.Cover(fl, units, choices, board)
+    for _ in range(3):
+        z, pi, mu = m.solve()
+        value, days = board.price({k: pi[k][legs.flight] - legs.price / 2 for k in crews.KINDS}, trace=True)
+        assert m.lagrangian(pi, value) == pytest.approx(z + np.minimum(value - mu, 0).sum(), rel=1e-6, abs=1e-3)
+        for b, best in enumerate(days):
+            assert m.reduced(b, best, pi, mu) == pytest.approx(value[b] - mu[b], abs=1e-6)
+            m.add(b, best)

@@ -62,12 +62,12 @@ LEVERAGE = 0.10
 GAPS = (0.01, 1.0, 5.0)
 RSS_UNIT = 1 << 30 if sys.platform == "darwin" else 1 << 20
 BUDGETS = {
-    "regular": {"morning": 240, "record": 360, "calm": 240, "search": 700, "cover": 240, "end_morning": 120,
+    "regular": {"morning": 240, "record": 360, "calm": 240, "search": 1200, "cover": 600, "end_morning": 120,
                 "end_record": 180, "end_calm": 120, "polish": 60},
-    "extra": {"morning": 480, "record": 720, "calm": 600, "search": 1400, "flat": 450, "cover": 450,
+    "extra": {"morning": 480, "record": 720, "calm": 600, "search": 2000, "flat": 900, "cover": 1200,
               "end_morning": 240, "end_record": 360, "end_calm": 240, "polish": 180},
 }
-WIDTH = {"regular": 30, "extra": 15}
+WIDTH = {"regular": 60, "extra": 30}
 
 
 def main() -> None:

@@ -15,9 +15,10 @@ on each leg alone against the period's flight time so far, a short-call reserve 
   bound with d < 0 counted on the other choices), the other columns' terms being at least zero. So the day costs at
   least z + the least, over flight choices and crew days covering every flown flight with a unit of each kind, of the
   choices' d+ and the crew cost: a covering problem where the two kinds may choose different minutes and each pays half
-  a minute's price, solved by column generation over `Board`'s relaxed days, its Lagrangian bound valid at every
-  round. With a plan of cost UB, a minute or a cancellation priced over UB - z can't be in a day cheaper than UB and is
-  left out (reduced-cost fixing); the bound is then min(UB, z + the covering bound).
+  a minute's price, solved by column generation over `Board`'s relaxed days, priced at duals smoothed toward those of
+  the best bound so far (at the LP's own when that finds no column), its Lagrangian bound valid at any duals. With a
+  plan of cost UB, a minute or a cancellation priced over UB - z can't be in a day cheaper than UB and is left out
+  (reduced-cost fixing); the bound is then min(UB, z + the covering bound).
 
 `Board`'s relaxed days run over buckets of each flight's minutes, at most a bucket's width apart, the width under the
 flight's block plus CONNECT: a unit takes a bucket ready at its origin by its last minute, lands as if it left at its
@@ -44,6 +45,7 @@ WIDTH = 30
 BATCH = 128
 EPS = 1e-6
 TOL = 1.0
+SMOOTH = 0.5
 
 
 def release(u: Unit, start: int) -> int | None:
@@ -595,21 +597,24 @@ def cover(task: Task, fl: Flights, units: Sequence[Unit], local: crews.Local, en
     rounds = 0
     converged = False
     lp = 0.0
+    center: dict[str, np.ndarray] | None = None
+    alpha = SMOOTH
     while time.monotonic() - t0 < time_limit:
         lp, pi, mu = m.solve()
         rounds += 1
-        gain = {k: pi[k][legs.flight] - legs.price / 2 for k in crews.KINDS}
-        value, days = board.price(gain, trace=True)
-        rc = value - mu
-        best = max(best, lp + float(np.minimum(rc, 0.0).sum()))
-        added = 0
-        for b in np.nonzero(rc < -EPS)[0]:
-            added += m.add(int(b), days[b])
+        center = pi if center is None else center
+        point = {k: alpha * center[k] + (1 - alpha) * pi[k] for k in crews.KINDS}
+        value, days = board.price({k: point[k][legs.flight] - legs.price / 2 for k in crews.KINDS}, trace=True)
+        if (got := m.lagrangian(point, value)) > best:
+            best, center = got, point
+        added = sum(m.add(b, day) for b, day in enumerate(days) if m.reduced(b, day, pi, mu) < -EPS)
         if log:
             log(f"cover round {rounds} lp {lp:.0f} bound {best:.0f} added {added} {time.monotonic() - t0:.0f}s")
-        if not added:
+        if not added and not alpha:
             converged = True
+            best = max(best, lp)
             break
+        alpha = SMOOTH if added else 0.0
     return Covered(best, lp, rounds, len(m.days), converged, len(legs),
                    sum(1 for c in choices.values() if not np.isfinite(c[2])), round(time.monotonic() - t0, 1))
 
@@ -629,7 +634,8 @@ class Cover:
         nr = 2 * nf + len(self.units)
         h.addRows(nr, np.ones(nr), np.ones(nr), 0, np.zeros(nr, dtype=np.int32), np.array([], dtype=np.int32),
                   np.array([]))
-        big = 1 + 2 * max([c[2] for c in choices.values() if np.isfinite(c[2])] + [1e6])
+        self.big = big = 1 + 2 * max([c[2] for c in choices.values() if np.isfinite(c[2])] + [1e6])
+        self.cancel = np.array([choices.get(int(i), (np.array([]), np.array([]), 0.0))[2] for i in fl.ids])
         for i in fl.ids:
             i = int(i)
             c = choices.get(i, (np.array([]), np.array([]), 0.0))[2]
@@ -651,18 +657,40 @@ class Cover:
         if key in self.seen:
             return 0
         self.seen.add(key)
-        u = self.units[b]
         coef: dict[int, float] = {self.urow[b]: 1.0}
-        price = 0.0
-        for k, how in (*day.first, *day.second):
-            if how == OP:
-                r = self.row[(u.kind, int(self.fl.ids[self.board.lflight[k]]))]
-                coef[r] = coef.get(r, 0.0) + 1.0
-                price += self.board.legs.price[k] / 2
-        self.h.addCol(float(day.cost + price), 0.0, INF, len(coef), np.array(list(coef), dtype=np.int32),
+        for r in self.ops(b, day):
+            coef[r] = coef.get(r, 0.0) + 1.0
+        self.h.addCol(float(self.cost(day)), 0.0, INF, len(coef), np.array(list(coef), dtype=np.int32),
                       np.array(list(coef.values())))
         self.days.append(day)
         return 1
+
+    def ops(self, b: int, day: Day) -> list[int]:
+        kind = self.units[b].kind
+        return [self.row[(kind, int(self.fl.ids[self.board.lflight[k]]))] for k, how in (*day.first, *day.second)
+                if how == OP]
+
+    def cost(self, day: Day) -> float:
+        """The day's crew cost plus half the prices of the legs it operates."""
+        return day.cost + sum(self.board.legs.price[k] / 2 for k, how in (*day.first, *day.second) if how == OP)
+
+    def reduced(self, b: int, day: Day | None, pi: Mapping[str, np.ndarray], mu: np.ndarray) -> float:
+        if day is None:
+            return INF
+        nf = len(self.fl.ids)
+        kind = self.units[b].kind
+        return self.cost(day) - mu[b] - sum(pi[kind][r % nf] for r in self.ops(b, day))
+
+    def lagrangian(self, pi: Mapping[str, np.ndarray], value: np.ndarray) -> float:
+        """The covering problem's Lagrangian bound at duals `pi` on the flight rows, `value` each unit's least day
+        less the duals of the flights it operates: the duals, each cancellation (or artificial) where it pays, and
+        the units' days."""
+        both = pi["pilot"] + pi["cabin"]
+        cancel = np.where(np.isfinite(self.cancel), np.minimum(0.0, np.where(np.isfinite(self.cancel), self.cancel,
+                                                                              0.0) - both), 0.0)
+        art = np.where(np.isfinite(self.cancel), 0.0,
+                       np.minimum(0.0, self.big - pi["pilot"]) + np.minimum(0.0, self.big - pi["cabin"]))
+        return float(both.sum() + cancel.sum() + art.sum() + value.sum())
 
     def solve(self) -> tuple[float, dict[str, np.ndarray], np.ndarray]:
         self.h.run()
