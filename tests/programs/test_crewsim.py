@@ -185,3 +185,89 @@ def test_the_audit_follows_a_diversion_to_where_the_flight_ended():
     assert crewsim.audit(task, crew, plan, deps, blocks, ends={0: "PWM"}) == []
     assert crewsim.audit(task, crew, plan, deps, blocks) == ["B6 101 PWM-JFK at 760: pilot P1",
                                                              "B6 101 PWM-JFK at 760: cabin C1"]
+
+
+def test_the_trip_rule_waits_for_the_trips_crew_and_never_takes_a_crew_off_its_trip():
+    flights = [flight(0, "JFK", "BOS", 600, 60, deadline=700), flight(1, "JFK", "DCA", 800, 60, deadline=1000)]
+    task = day(flights, [tail("N1", "JFK"), tail("N2", "JFK")])
+    busy = [unit("P2", report=500, trip=(1,)), unit("C2", "cabin", report=500, trip=(1,))]
+    d = crewsim.execute(task, {}, pair((0,), station="BUF") + busy)
+    assert d.run.flights[0].status == AUTO_CANCELLED and d.crews[1] == {"pilot": "P2", "cabin": "C2"}
+    assert d.status[0][-1] == (task.auto_at(task.flight(0)), "cancelled", None)
+    d = crewsim.execute(task, {}, pair((0,), report=580) + busy)
+    assert d.crews[0] == {"pilot": "P1", "cabin": "C1"} and d.run.flights[0].dep == 580 + crews.BRIEF
+    assert d.crews[1] == {"pilot": "P2", "cabin": "C2"} and d.run.flights[1].dep == 800
+    done = [unit("P6", report=400, ready=520, landed=500), unit("C6", "cabin", report=400, ready=520, landed=500)]
+    d = crewsim.execute(task, {}, pair((0,), station="BUF") + busy + done)
+    assert d.crews[0] == {"pilot": "P6", "cabin": "C6"} and d.crews[1] == {"pilot": "P2", "cabin": "C2"}
+
+
+def test_a_reserve_is_called_only_to_report_by_its_periods_end_plus_its_lead():
+    task = day([flight(0, "JFK", "DCA", 700, 60, deadline=1200)], [tail("N1", "JFK")])
+    late = [unit(k, kind, report=None, hour=None, reserve="short", rap=0, until=720, lead=150)
+            for k, kind in (("RP", "pilot"), ("RC", "cabin"))]
+    assert crews.on_hour(700 + 150) - 150 > 720
+    assert crewsim.execute(task, {}, late).run.flights[0].status == AUTO_CANCELLED
+
+
+def test_a_called_reserve_flies_on_from_where_its_flight_took_it():
+    flights = [flight(0, "JFK", "DCA", 600, 60, deadline=1200), flight(1, "DCA", "JFK", 950, 60, deadline=1400)]
+    task = day(flights, [tail("N1", "JFK")])
+    reserves = [unit(k, kind, report=None, hour=None, reserve="short", rap=0, until=720, lead=150)
+                for k, kind in (("RP", "pilot"), ("RC", "cabin"))]
+    d = crewsim.execute(task, {}, reserves)
+    assert d.run.flights[0].dep == 825 and d.crews[1] == {"pilot": "RP", "cabin": "RC"}
+
+
+def test_a_flight_holding_a_reserve_leaves_with_its_crew_on_arrival_and_frees_the_reserve():
+    flights = [flight(0, "BUF", "JFK", 700, 80), flight(1, "JFK", "BOS", 600, 60, deadline=1000),
+               flight(2, "JFK", "DCA", 810, 60, deadline=1300)]
+    task = day(flights, [tail("N0", "BUF"), tail("N1", "JFK"), tail("N2", "JFK")])
+    inbound = pair((0, 1), station="BUF", report=600)
+    reserves = [unit(k, kind, report=None, hour=None, reserve="short", rap=0, until=900, lead=150)
+                for k, kind in (("RP", "pilot"), ("RC", "cabin"))]
+    d = crewsim.execute(task, {}, inbound + reserves)
+    assert crews.on_hour(600 + 150) + crews.BRIEF > 780 + crews.CONNECT
+    assert d.run.flights[1].dep == 780 + crews.CONNECT and d.crews[1] == {"pilot": "P1", "cabin": "C1"}
+    assert d.crews[2] == {"pilot": "RP", "cabin": "RC"} and d.units["RP"]["call"] == 810
+    assert d.run.flights[2].dep == crews.on_hour(810 + 150) + crews.BRIEF
+
+
+def test_a_second_period_named_keeps_an_uncalled_reserves_short_call_cap():
+    reserve = unit("RP", "pilot", report=None, hour=None, reserve="short", rap=120, until=900, lead=150)
+    task = day([flight(0, "JFK", "DCA", 1005, 240, deadline=1200)], [tail("N1", "JFK")])
+    cabin = [unit("C1", "cabin", report=960, trip=(0,))]
+    assert 1005 + 240 > crews.pilot_limit(960, 16, 1, 120)
+    for reports in ({"RP": 960}, {"RP": 960, "RP#2": 1200}):
+        plan = {0: {"crew": {"pilot": "RP"}}, "reports": reports}
+        assert crewsim.execute(task, plan, [reserve] + cabin).run.flights[0].status == AUTO_CANCELLED
+        assert crewsim.audit(task, [reserve] + cabin, plan, {0: 1005}, {0: 240}) == ["B6 100 JFK-DCA at 1005: pilot RP"]
+
+
+def test_a_ride_a_full_rest_after_the_release_pays_a_night_away_from_base():
+    flights = [flight(0, "DCA", "JFK", 1100, 60, pax=100), flight(1, "DCA", "JFK", 1300, 60, pax=100)]
+    task = day(flights, [tail("N1", "DCA"), tail("N2", "DCA")])
+    crew = pair((0,), station="DCA", report=1000) + [unit("P2", station="DCA", report=1200, trip=(1,)),
+                                                     unit("C2", "cabin", station="DCA", report=1200, trip=(1,))]
+    rider = [unit("P9", station="DCA", report=400, ready=605, landed=585, flown=2, end="JFK")]
+    for i, hotels in ((0, []), (1, [{"station": "DCA", "from": 600, "to": 1200}])):
+        d = crewsim.execute(task, {i: {"deadhead": ["P9"]}}, crew + rider)
+        assert d.riders[i] == ("P9",) and d.units["P9"]["hotels"] == hotels
+        assert d.units["P9"]["cost"]["hotel"] == pytest.approx(2 * crews.hotel("DCA", task.date) if hotels else 0)
+
+
+def test_the_end_of_the_day_sends_a_bases_crews_to_its_trips_tonight_at_the_least_cost():
+    task = day([flight(0, "JFK", "BOS", 600, 60), flight(1, "JFK", "DCA", 600, 60)],
+               [tail("N1", "JFK"), tail("N2", "JFK")])
+    units = [unit("PA", trip=(0,), end="DCA"), unit("PB", trip=(1,), end="BOS"),
+             unit("CA", "cabin", trip=(0,), end="BOS"), unit("CB", "cabin", trip=(1,), end="DCA")]
+    d = crewsim.execute(task, {}, units)
+    assert d.cost["end"] == 0.0
+    ends = crews.Ends(units, task.airports, task.date)
+    alone = crews.reposition(units[0], "BOS", task.airports, task.date)
+    shares = ends.cost({"PA": "BOS", "PB": "BOS", "CA": "BOS", "CB": "DCA"})
+    assert sorted([shares["PA"], shares["PB"]]) == [0.0, pytest.approx(crews.reposition(units[0], "BOS", task.airports,
+                                                                                         task.date, "DCA"))]
+    assert alone > 0 and shares["CA"] == shares["CB"] == 0.0
+    assert ends.least(units[0], "BOS") == 0.0 and ends.least(units[0], "BUF") == pytest.approx(
+        min(crews.reposition(units[0], "BUF", task.airports, task.date, to) for to in ("BOS", "DCA")))

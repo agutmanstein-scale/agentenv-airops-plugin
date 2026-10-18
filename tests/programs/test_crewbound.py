@@ -1,7 +1,7 @@
 """The lower bounds by hand (a unit's reach, its least crew cost, the covering bound's prices) and on random small days:
 every crew-aware sim day, under any plan, flies each flight at a minute `reach` keeps, costs each unit at least its
-least relaxed cost, and costs at least the bound; the best day found replays exactly and is no cheaper than the
-bound."""
+least relaxed cost (its end of the day at its least share of its base's), and costs at least the bound; the best day
+found replays exactly and is no cheaper than the bound."""
 
 import random
 import time
@@ -29,6 +29,10 @@ def local(s: str, m: int) -> int:
 
 def end_of(task):
     return lambda u, s: crews.reposition(u, s, task.airports, task.date)
+
+
+def least_end(task, units):
+    return crews.Ends(units, task.airports, task.date).least
 
 
 def flights_of(task, world=None):
@@ -136,8 +140,12 @@ def played(task, units, rng, n=6):
 
 
 def spent(task, units, d: crewsim.CrewDay) -> dict[str, float]:
-    out = {u.id: crews.reposition(u, u.station, task.airports, task.date) for u in units}
-    out.update({uid: sum(r["cost"].values()) for uid, r in d.units.items()})
+    """Each unit's crew cost in the day, its end of the day its share of its base's."""
+    at = {u.id: d.units[u.id]["station"] if u.id in d.units else u.station for u in units}
+    out = crews.Ends(units, task.airports, task.date).cost(at)
+    for uid, r in d.units.items():
+        out[uid] += r["cost"]["deadhead"] + r["cost"]["hotel"]
+        assert r["cost"]["end"] == pytest.approx(out[uid] - r["cost"]["deadhead"] - r["cost"]["hotel"])
     return out
 
 
@@ -146,7 +154,7 @@ def test_every_sim_day_flies_where_reach_keeps_and_costs_each_unit_its_least_at_
     task, units = random_day(seed)
     air, fl = flights_of(task)
     reached = crewbound.reach(task, fl, units, local)
-    least = crewbound.least(task, fl, units, local, end_of(task), reached)
+    least = crewbound.least(task, fl, units, local, least_end(task, units), reached)
     for d in played(task, units, random.Random(seed)):
         for i, r in d.run.flights.items():
             if r.status == FLOWN and i not in d.uncrewed:
@@ -163,7 +171,7 @@ def test_no_sim_day_costs_less_than_the_bound_and_the_best_day_replays_exactly(s
     world = sim.truth(task)
     air, fl = flights_of(task, world)
     reached = crewbound.reach(task, fl, units, local)
-    least = crewbound.least(task, fl, units, local, end_of(task), reached)
+    least = crewbound.least(task, fl, units, local, least_end(task, units), reached)
     j = crewplan.joint(task, world, units, local, task.airports, air, fl, reached, least, 60, 60, flat=flat,
                        crew_limit=20, days=(("naive", {}),))
     assert j.found.exact and j.cover.converged
@@ -179,12 +187,13 @@ def test_a_sim_days_crews_are_crew_replay_columns_at_their_cost_and_start_it(see
     d = crewsim.execute(task, {}, units, world, local)
     deps = {i: r.dep for i, r in d.run.flights.items() if r.status == FLOWN}
     p = crewreplay.Problem(crewday.task_legs(task, deps, world.block), units, task.date, local, end_of(task),
-                           call=task.start)
+                           call=task.start, ends=crews.Ends(units, task.airports, task.date))
     cols = crewday.columns_of(p, d)
-    cost = sum(p.priced(u, cols[u.id]).cost if u.id in cols else p.idle(u).cost for u in units)
+    cost = p.crew_cost({u.id: p.priced(u, cols[u.id]) if u.id in cols else p.idles(u)[0] for u in units})
     assert cost == pytest.approx(d.crew_cost)
     s = crewreplay.solve(p, time_limit=20, polish=5, starts=[cols])
-    assert s.uncrewed == () and s.objective <= d.crew_cost + 1e-6
+    started = sum(p.priced(u, cols[u.id]).cost if u.id in cols else p.idles(u)[0].cost for u in units)
+    assert s.uncrewed == () and s.objective <= started + 1e-6
 
 
 def test_a_pilot_out_of_flight_time_reaches_the_flight_only_after_rest():
@@ -201,13 +210,17 @@ def test_every_sim_days_crews_are_relaxed_days_at_their_cost(seed):
     task, units = random_day(seed)
     air, fl = flights_of(task)
     reached = crewbound.reach(task, fl, units, local)
-    board = crewbound.Board(task, fl, crewbound.Legs.of(fl, reached), units, local, end_of(task))
+    least = least_end(task, units)
+    board = crewbound.Board(task, fl, crewbound.Legs.of(fl, reached), units, local, least)
     for d in played(task, units, random.Random(seed)):
         cost = spent(task, units, d)
         days = board.days_of(d)
         assert {units[b].id for b, _ in days} == set(d.units)
         for b, relaxed in days:
-            assert relaxed.cost == pytest.approx(cost[units[b].id])
+            r = d.units[units[b].id]
+            assert relaxed.cost == pytest.approx(r["cost"]["deadhead"] + r["cost"]["hotel"]
+                                                 + least(units[b], r["station"]))
+            assert relaxed.cost <= cost[units[b].id] + 1e-6
 
 
 @pytest.mark.parametrize("seed", range(4))
@@ -234,12 +247,28 @@ def test_the_lagrangian_at_the_lps_duals_is_the_lp_plus_the_units_least_reduced_
     lp = air.relax(air.notice, up)
     choices = crewbound.prices(air, lp, up, 2e5)
     legs = crewbound.Legs.of(fl, {i: c[0] for i, c in choices.items()}, {i: c[1] for i, c in choices.items()})
-    board = crewbound.Board(task, fl, legs, units, local, end_of(task))
-    m = crewbound.Cover(fl, units, choices, board)
+    board = crewbound.Board(task, fl, legs, units, local, lambda u, s: 0.0)
+    m = crewbound.Cover(fl, units, choices, board, crews.Ends(units, task.airports, task.date))
     for _ in range(3):
-        z, pi, mu = m.solve()
-        value, days = board.price({k: pi[k][legs.flight] - legs.price / 2 for k in crews.KINDS}, trace=True)
-        assert m.lagrangian(pi, value) == pytest.approx(z + np.minimum(value - mu, 0).sum(), rel=1e-6, abs=1e-3)
+        z, pi, mu, sigma = m.solve()
+        value, days = board.price({k: pi[k][legs.flight] - legs.price / 2 for k in crews.KINDS}, trace=True,
+                                  ends=m.ends_at(sigma))
+        assert m.lagrangian(pi, sigma, value) == pytest.approx(z + np.minimum(value - mu, 0).sum(), rel=1e-6,
+                                                               abs=1e-3)
         for b, best in enumerate(days):
-            assert m.reduced(b, best, pi, mu) == pytest.approx(value[b] - mu[b], abs=1e-6)
+            assert m.reduced(b, best, pi, mu, sigma) == pytest.approx(value[b] - mu[b], abs=1e-6)
             m.add(b, best)
+
+
+def test_the_covering_bound_sends_each_bases_crews_to_its_trips_tonight_together():
+    task = day([flight(0, "JFK", "BOS", 600, 60, deadline=700), flight(1, "JFK", "BOS", 610, 60, deadline=700)],
+               [tail("N1", "JFK"), tail("N2", "JFK")])
+    _, fl = flights_of(task)
+    units = [unit(f"{k}{n}", kind, trip=(n,), end=end) for n, end in ((0, "JFK"), (1, "DCA"))
+             for k, kind in (("P", "pilot"), ("C", "cabin"))]
+    ends = crews.Ends(units, task.airports, task.date)
+    choices = {f.id: (np.array([f.sched_dep]), np.array([0.0]), np.inf) for f in task.flights}
+    covered = crewbound.cover(task, fl, units, local, ends, choices, time_limit=30)
+    both = sum(ends.move(u, "BOS", u.end) for u in units)
+    assert covered.converged and covered.bound == pytest.approx(both)
+    assert both > sum(ends.least(u, "BOS") for u in units)

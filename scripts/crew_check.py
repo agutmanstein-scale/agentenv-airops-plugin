@@ -2,7 +2,7 @@
 best plan over aircraft and crews to a proven bound? Its guards were set before the run. Only the crew and aircraft
 solvers run (HiGHS, one thread each); no LLM is called.
 
-    python scripts/crew_check.py --out cache/<run> [--tasks cache/stage1/full] [--only DATE|TASK_ID,...]
+    python scripts/crew_check.py --out cache/<run> --tasks cache/<world_check run> [--only DATE|TASK_ID,...]
                                  [--bands middle,low,high] [--workers 4] [--resume] [--scale 1.0]
 
 Per task of a world_check run (its storm dates and its controls, at its fitted scale), in its own process:
@@ -12,27 +12,31 @@ Per task of a world_check run (its storm dates and its controls, at its fitted s
    - the crew replay of JetBlue's real day: its flown flights at their recorded departures and blocks, crewed by those
      units, their reserves and every move, the fewest flights without a legal crew first (crewday.replay_record), the
      plan audited move by move against the crew sim's rules;
-   - the crew-aware calm day (crewplan.calm_day) against stage 1's calm optimum without crews, at the middle band
-     with a lower bound on it (the least rise any crew-aware calm day could have);
+   - the crew-aware calm day (crewplan.calm_day) against the world_check run's calm optimum without crews, at the
+     middle band with a lower bound on it (the least rise any crew-aware calm day could have);
 3. at the middle band (crewplan.joint), notice-priced, and flat-priced on eval dates and controls (elsewhere the flat
    best is the best plan's flat cost): the aircraft optimum A*, the restricted A*, the best plan found by the search
    within its budget, replayed in the crew sim, and the lower bound (crewbound.py); the empty plan (naive) and the
-   airline replay played with crews; JetBlue's recorded day with the crew replay's crew cost.
+   airline replay played with crews by the crew sim's trip rule; JetBlue's recorded day with the crew replay's crew
+   cost.
 Eval dates and controls get the larger budgets (BUDGETS). Writes dates/<date>.json and plans/<date>.json as each task
 finishes (`--resume` keeps those written), then guards.json and report.md.
 
 The guards, as registered (a storm date being a task that is not a control; the middle band):
 - record: flights without a legal crew in the crew replay <= 1% of the date's flown flights and <= 2, on >= 90% of
   storm dates;
-- calm: the crew-aware calm day rises over stage 1's calm optimum by <= 2% (from 0, stays 0), on >= 90% of storm dates;
+- calm: the crew-aware calm day rises over the calm optimum without crews by <= 2% (from 0, stays 0), on >= 90% of
+  storm dates;
 - best: on every kept date the best plan replays exactly with a legal crew on every flight it flies, and the bound is
   valid (no day played on the date costs less); gap = (best - bound) / best per date, counted within 0.01%, 1% and 5%,
   no threshold; a date whose search or bound fails to run is left out and counted;
 - controls: on both control dates, the recorded day (with crews) costs at least the best plan, and naive with crews is
   within 2% of the flat best plan.
 Reported, not gated: the band ends, leverage with crews against the best plan (a lower bound on the true leverage; flat
-and notice-priced), the crew-caused cancellations and delays (the best plan against A*), the crew cost by kind, the gap
-distribution, solve times and peak memory per task.
+and notice-priced), naive's auto-cancellations, the crew-caused cancellations and delays (the best plan against A*), the
+crew cost by kind, the gap distribution, the trips (legs left without one, the builder's rounds and gap), the cabin
+duty lengths of the best plan, the calm plan and the crew replay (121.467(b)(14) lets a team fly its own trip's late
+legs past 14 h), solve times and peak memory per task.
 """
 
 import argparse
@@ -49,7 +53,7 @@ from pathlib import Path
 
 import numpy as np
 
-from agentenv_airops.core.sim import FLOWN
+from agentenv_airops.core.sim import AUTO_CANCELLED, FLOWN
 from agentenv_airops.programs import crewbound, crewday, crewplan, crews, crewsim, references, sim
 from agentenv_airops.programs.model import Task
 
@@ -75,7 +79,7 @@ WIDTH = {"regular": 60, "extra": 30}
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--tasks", type=Path, default=ROOT / "cache" / "stage1" / "full")
+    ap.add_argument("--tasks", type=Path, required=True, help="a world_check run's out directory")
     ap.add_argument("--only", default="", help="comma-separated dates or task ids (default: all)")
     ap.add_argument("--bands", default="middle,low,high")
     ap.add_argument("--workers", type=int, default=4)
@@ -140,10 +144,10 @@ def check(task: Task, bands: tuple[str, ...], refs: dict, scale: float, plans: d
            "flights": len(task.flights), "budget": budget, "trips": trips(w), "laps": laps, "bands": {}}
     optimum = crewplan.calm_optimum(w)
     clock("calm_optimum")
-    stage1 = (refs.get("calm") or {}).get("objective")
+    reference = (refs.get("calm") or {}).get("objective")
     row["calm_optimum"] = {"objective": optimum.objective, "status": optimum.status, "gap_pct": optimum.gap_pct,
-                           "stage1": stage1}
-    base = optimum.objective if stage1 is None else stage1
+                           "reference": reference}
+    base = optimum.objective if reference is None else reference
     for band in bands:
         mid = band == "middle"
         pre = "" if mid else "end_"
@@ -174,8 +178,12 @@ class Laps:
 
 
 def trips(w: crewday.World) -> dict:
-    return {f"{k}/{g}": {"duties": len(b.duties), "uncovered": len(b.uncovered), "gap_pct": round(b.gap_pct, 3),
-                         "columns": b.columns, "rounds": b.rounds, "seconds": b.seconds,
+    by = {g.key: g for g in w.legs}
+    return {f"{k}/{g}": {"duties": len(b.duties), "uncovered": len(b.uncovered),
+                         "uncovered_legs": [f"{by[x].flight} {by[x].orig}-{by[x].dest} at {by[x].sd}"
+                                            for x in b.uncovered],
+                         "gap_pct": round(b.gap_pct, 3), "converged": b.converged, "columns": b.columns,
+                         "rounds": b.rounds, "seconds": b.seconds,
                          "legs_per_duty": round(sum(len(d.legs) for d in b.duties) / max(1, len(b.duties)), 2),
                          "outstation_starts": sum(d.start not in crews.bases(k, w.task.date) for d in b.duties)}
             for (k, g), b in w.built.items()}
@@ -191,7 +199,7 @@ def record(w: crewday.World, units, limit: float, polish: float) -> tuple[dict, 
     n = len(sol.uncrewed)
     return {"flown": flown, "uncrewed": n, "pass": replays(n, flown), "solve": sol.summary(),
             "causes": crewday.uncrewed_causes(p, sol), "crew_cost": round(sol.crew_cost, 1), "audit": audit,
-            "units": units_at(units)}, plan
+            "units": units_at(units), "cabin_duty_h": duty_hours(column_duties(p, sol))}, plan
 
 
 def replays(uncrewed: int, flown: int) -> bool:
@@ -217,6 +225,7 @@ def calm(w: crewday.World, band: str, optimum, base: float, budget: float, cover
             "claimed": round(f.claimed, 1), "crew_cost": {k: round(v, 1) for k, v in day.cost.items()},
             "aircraft": day.run.cost.to_dict(), "cancelled": sum(r.dep is None for r in day.run.flights.values()),
             "uncrewed": len(day.uncrewed), "attempts": f.attempts, "audit": audit, "units": units_at(units),
+            "cabin_duty_h": duty_hours(day_duties(day)),
             "pending_crews": sum(u.id.endswith("p") for u in units),
             "bound": None if c.bound is None else round(c.bound, 1),
             "rise_lower_pct": None if c.bound is None else rise(max(c.bound, base), base),
@@ -242,8 +251,7 @@ def joint(w: crewday.World, units, refs: dict, budget: dict, rec: dict, plans: d
     air = crewplan.Aircraft(task, world)
     fl = crewbound.Flights.of(task, world.block, air.net.copies)
     reached = crewbound.reach(task, fl, units, w.local)
-    end = crewday.task_end(w)
-    least = crewbound.least(task, fl, units, w.local, end, reached)
+    least = crewbound.least(task, fl, units, w.local, crews.Ends(units, w.airports, task.date).least, reached)
     clock("aircraft_reach_least")
     out = {"least": {"total": round(float(least.sum()), 1), "units": int(np.count_nonzero(least > 1e-9))}}
     played = plays(task, units, world, w)
@@ -284,7 +292,8 @@ def joint(w: crewday.World, units, refs: dict, budget: dict, rec: dict, plans: d
 
 
 def plays(task: Task, units, world: sim.World, w: crewday.World) -> dict:
-    """Naive (the empty plan) and the airline replay with crews, by the crew sim's default rule."""
+    """Naive (the empty plan) and the airline replay with crews, by the crew sim's trip rule (the trip's own crew,
+    else a crew with no trip left, a standby, a short-call reserve; else it waits, and auto-cancels at its deadline)."""
     out = {}
     for name, plan in (("naive", {}), ("airline", references.airline_plan(task))):
         d = crewsim.execute(task, plan, units, world, w.local, airports=w.airports)
@@ -295,7 +304,7 @@ def plays(task: Task, units, world: sim.World, w: crewday.World) -> dict:
     return out
 
 
-def summary(task: Task, j: crewplan.Joint, replayed: float, others: dict, stage1: dict) -> dict:
+def summary(task: Task, j: crewplan.Joint, replayed: float, others: dict, reference: dict) -> dict:
     f, a = j.found, j.optimum
     day = f.day
     lb = j.bound
@@ -309,7 +318,7 @@ def summary(task: Task, j: crewplan.Joint, replayed: float, others: dict, stage1
             "exact": f.exact and abs(replayed - f.value) <= 0.5, "flown_without_crew": len(day.uncrewed),
             "bound": round(lb, 1), "gap_pct": round(j.gap_pct, 4), "pieces": {k: None if v is None else round(v, 1)
                                                                            for k, v in j.pieces.items()},
-            "below_bound": below, "optimum": {**a.to_dict(), "stage1": stage1.get("objective")},
+            "below_bound": below, "optimum": {**a.to_dict(), "reference": reference.get("objective")},
             "restricted": j.restricted.to_dict(), "reach": j.reach,
             "cover": None if cv is None else {k: round(v, 1) if isinstance(v, float) else v
                                                for k, v in cv.__dict__.items()},
@@ -317,7 +326,7 @@ def summary(task: Task, j: crewplan.Joint, replayed: float, others: dict, stage1
             "cancelled": len(cancelled), "crew_cancelled": len(crew_cancels),
             "crew_delayed": {"flights": len(later), "minutes": sum(m for _, m in later)},
             "optimum_cancelled": sum(d is None for d in a.deps.values()),
-            "attempts": f.attempts}
+            "cabin_duty_h": duty_hours(day_duties(day)), "attempts": f.attempts}
 
 
 def guards(rows: list[dict], bands: tuple[str, ...]) -> dict:
@@ -336,8 +345,8 @@ def guards(rows: list[dict], bands: tuple[str, ...]) -> dict:
     out = {
         "record": gate(share(rec), len(rec), f"flights without a legal crew <= {SHARE:.0%} of those flown and "
                        f"<= {MOST}, per storm date"),
-        "calm": gate(share(cal), len(cal), f"crew-aware calm day rises <= {RISE}% over stage 1's calm optimum, per "
-                     "storm date"),
+        "calm": gate(share(cal), len(cal), f"crew-aware calm day rises <= {RISE}% over the calm optimum without "
+                     "crews, per storm date"),
         "best": {"kept": len(kept), "left_out": len(left) + len(rows) - len(ok),
                  "left_out_tasks": sorted([r["task_id"] for r in left] + [r.get("task_id", r["date"])
                                                                          for r in rows if "error" in r]),
@@ -408,7 +417,19 @@ def reported(ok: list[dict], storm: list[dict], bands: tuple[str, ...]) -> dict:
     out["bound_pieces_best"] = dict(Counter(max((k for k, v in n["pieces"].items() if v is not None),
                                                 key=lambda k: n["pieces"][k]) for n in ns))
     out["naive_with_crews"] = {"uncrewed": dist([r["bands"]["middle"]["joint"]["played"]["naive"]["uncrewed"]
-                                                 for r in ok])}
+                                                 for r in ok]),
+                               "auto_cancelled": dist([r["bands"]["middle"]["joint"]["played"]["naive"]["statuses"]
+                                                       .get(AUTO_CANCELLED, 0) for r in ok])}
+    trips_ = [v for r in ok for v in r["trips"].values()]
+    out["trips"] = {"uncovered_legs": sum(v["uncovered"] for v in trips_),
+                    "dates_with_uncovered": sum(any(v["uncovered"] for v in r["trips"].values()) for r in ok),
+                    "builds": len(trips_), "converged": sum(v["converged"] for v in trips_),
+                    "rounds": dist([v["rounds"] for v in trips_]), "gap_pct": dist([v["gap_pct"] for v in trips_])}
+    out["cabin_duty_h"] = {name: {"max": dist([x["max"] for x in hs if "max" in x]),
+                                  "over_14h": sum(x["over_14h"] for x in hs)}
+                           for name, hs in (("best", [n["cabin_duty_h"] for n in ns]),
+                                            ("calm", [r["bands"]["middle"]["calm"]["cabin_duty_h"] for r in ok]),
+                                            ("record", [r["bands"]["middle"]["record"]["cabin_duty_h"] for r in ok]))}
     return out
 
 
@@ -433,6 +454,30 @@ def dist(values: list[float]) -> dict:
 
 def pct(v: list[float], p: float) -> float:
     return v[min(len(v) - 1, math.ceil(p / 100 * len(v)) - 1)]
+
+
+def day_duties(day: crewsim.CrewDay) -> list[float]:
+    """A crew sim day's cabin duty periods, report to release, in hours."""
+    return [(d["release"] - d["report"]) / 60 for r in day.units.values() if r["kind"] == "cabin" for d in r["duties"]
+            if d["report"] is not None and d["release"] is not None]
+
+
+def column_duties(p, sol) -> list[float]:
+    """A crew replay's cabin duty periods, report to release, in hours."""
+    out = []
+    for c in sol.columns.values():
+        u = p.unit[c.unit]
+        if u.kind != "cabin":
+            continue
+        for report, steps in ((c.report if c.report is not None else u.report, c.first),
+                              (c.rest[1] if c.rest else None, c.second)):
+            if report is not None and steps:
+                out.append((p.leg[steps[-1][0]].arr + crews.DEBRIEF - report) / 60)
+    return out
+
+
+def duty_hours(hours: list[float]) -> dict:
+    return {**dist(hours), "over_14h": sum(h > crews.CABIN_DUTY / 60 for h in hours)}
 
 
 def units_at(units) -> dict:

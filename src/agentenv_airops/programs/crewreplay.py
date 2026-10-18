@@ -3,17 +3,19 @@
 The legs fly at given minutes (JetBlue's recorded day, the record before the start, a plan's departures). Every leg that
 needs a crew takes one unit of each kind of its type group or goes without a legal crew, at UNCREWED, counted once per
 flight; each unit takes one column: its day as a path of legs it operates or deadheads on, at most two duty periods (the
-second after rest, a hotel away from its base, flying at least one leg), and where it ends, at its marginal crew cost
-(crews.py): deadheads off its trip, a night away from base, and the end-of-day position `end` prices. Deadheads carry
-their people within each leg's free seats; Table A is a row per pilot unit and period: the period's worst takeoff (the
-actual blocks so far plus the leg's scheduled block) over its limit, at most zero.
+second after rest, a hotel away from its base), and where it ends, at its marginal crew cost (crews.py): deadheads off
+its trip, a night away from base, and the end-of-day position `end` prices. Deadheads carry their people within each
+leg's free seats; Table A is a row per pilot unit and period: the period's worst takeoff (the actual blocks so far plus
+the leg's scheduled block) over its limit, at most zero.
 
 Pricing is exact for Table B, the short-call cap, the attendants' duty, standby, reports and rests, and relaxes Table A
-(each leg counts the lesser of its actual and scheduled block), so the Lagrangian bound z_LP + the units' least reduced
-costs is valid at every round. It runs per unit as one pass over the legs in departure order: every arrival comes after
-its departure, so the best way to be at a station by a departure is known when that departure comes up. A short-call
-reserve reports, and a second duty period reports, on the last whole hour that leaves BRIEF before its first departure
-(a world rule the sim follows too). Identical units are priced once.
+(each leg counts the lesser of its actual and scheduled block) and the first period's sits, so the Lagrangian bound z_LP
+plus the units' least reduced costs is valid at every round: a day whose first period deadheads a full rest after a
+release is left out of the columns, as the crew sim starts the second period there (a hotel away from base). It runs per
+unit as one pass over the legs in departure order: every arrival comes after its departure, so the best way to be at a
+station by a departure is known when that departure comes up. A short-call reserve reports, and a second duty period
+reports, on the last whole hour that leaves BRIEF before its first departure (a world rule the sim follows too).
+Identical units are priced once.
 
 The column pool starts with each unit's day following its trip as far as it legally can (priced like any other). Column
 generation to the LP optimum (or half the time limit), then a dive: fix the columns the LP has above SURE (the largest
@@ -21,6 +23,10 @@ if none, or a few of the largest), price again the units not yet fixed, repeat u
 feasible integer plan; then the integer program over every column generated, started from the dive's plan or the
 trip-following one, whichever is cheaper (every unit idle if neither is a plan). The LP and the Lagrangian bound give
 how far from the fewest uncrewed flights the plan can be.
+
+A unit may have other places to start from (`starts`, each with a preference added to its day's cost, as the morning
+replay prefers real layovers). Each unit's day is priced with its end of the day against its own trip's night station;
+the plan's crew cost then takes the end of the day per base (crews.Ends), which costs no more.
 """
 
 import bisect
@@ -71,7 +77,8 @@ class Leg:
 @dataclass(frozen=True)
 class Column:
     """A unit's day: its first duty period's steps (leg, OP or DH), a second period's after rest at `rest` (station,
-    report), a short-call reserve's `report`, where it ends, its crew cost and its Table A excess per period."""
+    report), a short-call reserve's `report`, where it ends, its crew cost and its Table A excess per period, and where
+    it starts when not at its own station."""
 
     unit: str
     first: tuple[tuple[int, int], ...] = ()
@@ -81,6 +88,7 @@ class Column:
     end: str = ""
     cost: float = 0.0
     over: tuple[float, float] = (0.0, 0.0)
+    start: str = ""
 
     @property
     def steps(self) -> tuple[tuple[int, int], ...]:
@@ -96,7 +104,7 @@ class Column:
 
     @property
     def key(self) -> tuple:
-        return self.unit, self.first, self.second, self.report, self.rest, self.end
+        return self.unit, self.first, self.second, self.report, self.rest, self.end, self.start
 
 
 EndCost = Callable[[Unit, str], float]
@@ -105,18 +113,22 @@ EndCost = Callable[[Unit, str], float]
 class Problem:
     """Legs at fixed departures, the units, and what a day costs: `end(unit, station)` the cost of ending there,
     `call` the first minute a short-call reserve may be called (its availability period's start when None), `foreign`
-    each leg a unit flies off its trip (a preference for the published trips, not a cost of the world)."""
+    each leg a unit flies off its trip (a preference for the published trips, not a cost of the world), `starts` the
+    stations a unit may start from with the preference each adds (its own station alone, at none, when absent), and
+    `ends` the end of the day per base the plan's crew cost takes."""
 
     def __init__(self, legs: Sequence[Leg], units: Sequence[Unit], d: str, local: crews.Local, end: EndCost,
-                 call: int | None = None, rests: bool = True, foreign: float = 0.0):
+                 call: int | None = None, rests: bool = True, foreign: float = 0.0,
+                 starts: Mapping[str, Sequence[tuple[str, float]]] | None = None, ends: crews.Ends | None = None):
         self.legs = sorted(legs, key=lambda g: (g.dep, g.id))
         self.units, self.d, self.local, self.end, self.call, self.rests = list(units), d, local, end, call, rests
-        self.foreign = foreign
+        self.foreign, self.starts, self.ends = foreign, dict(starts or {}), ends
         self.unit = {u.id: u for u in units}
         self.leg = {g.id: g for g in self.legs}
         self.pos = {g.id: k for k, g in enumerate(self.legs)}
         self.stations = sorted({g.orig for g in legs} | {g.dest for g in legs} | {u.station for u in units}
-                               | {u.home for u in units} | {u.end for u in units})
+                               | {u.home for u in units} | {u.end for u in units}
+                               | {st for v in self.starts.values() for st, _ in v})
         self.si = {s: k for k, s in enumerate(self.stations)}
         self.deps = [g.dep for g in self.legs]
         self.dep = np.array(self.deps, dtype=np.int64)
@@ -153,8 +165,46 @@ class Problem:
     def first_call(self, u: Unit) -> int:
         return u.rap if self.call is None else max(u.rap, self.call)
 
-    def idle(self, u: Unit) -> Column:
-        return Column(u.id, end=u.station, cost=self.end(u, u.station))
+    def origins(self, u: Unit) -> list[tuple[str, float]]:
+        """Where u may start, and the preference each adds."""
+        return list(self.starts.get(u.id, ((u.station, 0.0),)))
+
+    def idles(self, u: Unit) -> list[Column]:
+        """u's days doing nothing, from each place it may start, cheapest first."""
+        out = [Column(u.id, end=st, cost=self.end(u, st) + pref, start=self.tag(u, st)) for st, pref in self.origins(u)]
+        return sorted(out, key=lambda c: (c.cost, c.end))
+
+    def tag(self, u: Unit, station: str) -> str:
+        return "" if station == u.station and u.id not in self.starts else station
+
+    def began(self, u: Unit, c: Column) -> str:
+        return c.start or u.station
+
+    def preference(self, u: Unit, station: str) -> float:
+        return next((pref for st, pref in self.origins(u) if st == station), 0.0)
+
+    def sat_out(self, u: Unit, c: Column) -> bool:
+        """Whether c's first period deadheads a full rest after a release, where the crew sim would start the
+        second period."""
+        release = u.landed + crews.DEBRIEF if u.landed is not None else (
+            u.until if u.reserve == "standby" and u.until is not None else
+            None if u.report is None else max(u.report, self.call or u.report))
+        if c.report is not None:
+            release = c.report
+        for i, how in c.first:
+            g = self.leg[i]
+            if how == DH and release is not None and (g.dep - crews.BRIEF) // 60 * 60 >= release + crews.rest(u.kind):
+                return True
+            release = g.arr + crews.DEBRIEF
+        return False
+
+    def crew_cost(self, cols: Mapping[str, Column]) -> float:
+        """The plan's crew cost: each day's, its end of the day taken per base when `ends` is given."""
+        cost = sum(c.cost for c in cols.values())
+        if self.ends is None:
+            return cost
+        own = sum(self.end(self.unit[uid], c.end) for uid, c in cols.items())
+        return cost - own + self.ends.total({uid: c.end for uid, c in cols.items()})
 
     def priced(self, u: Unit, c: Column) -> Column:
         """c with its crew cost and Table A excess worked out from its steps."""
@@ -169,7 +219,7 @@ class Problem:
             first = self.excess(c.first, 0 if c.report is not None else u.minutes,
                                 self.hour(u.home, c.report) if c.report is not None else u.hour)
             over = (first, self.excess(c.second, 0, self.hour(*c.rest)) if c.rest else 0.0)
-        return replace(c, cost=dh + night + self.end(u, c.end), over=over)
+        return replace(c, cost=dh + night + self.end(u, c.end) + self.preference(u, self.began(u, c)), over=over)
 
     def excess(self, steps: Sequence[tuple[int, int]], minutes: int, hour: int | None) -> float:
         """A period's worst takeoff: the flight time so far plus the leg's scheduled block, over Table A (0: none)."""
@@ -218,8 +268,7 @@ class Pricer:
 
     def price(self, u: Unit, y: Duals, keep: int = 3) -> tuple[float, list[Column]]:
         p = self.p
-        idle = p.idle(u)
-        best, found = idle.cost - y.mu[u.id], []
+        best, found = p.idles(u)[0].cost - y.mu[u.id], []
         for period in self.periods(u):
             rc, cols = self.run(u, period, y, keep)
             best = min(best, rc)
@@ -245,8 +294,11 @@ class Pricer:
             return out
         hi = u.until if u.reserve == "standby" and u.flown == 0 and u.until is not None else np.inf
         layer = min(u.flown, 7) if u.kind == "pilot" else 0
-        return [Period(u.report, u.hour, u.rap if u.reserve == "short" else None,
-                       ((s0, u.ready, hi, layer, 0.0),))]
+        rap = u.rap if u.reserve == "short" else None
+        if u.id not in p.starts:
+            return [Period(u.report, u.hour, rap, ((s0, u.ready, hi, layer, 0.0),))]
+        return [Period(u.report, p.hour(st, u.report), rap, ((p.si[st], u.ready, hi, layer, pref),))
+                for st, pref in p.origins(u)]
 
     def layers(self, u: Unit) -> int:
         return 8 if u.kind == "pilot" else 2
@@ -314,7 +366,7 @@ class Pricer:
         mu = y.mu[u.id]
         cands = [(v - mu, e, None) for v, e in best_ends(p, one, endc, const)]
         if not period.called:
-            cands.append((endc[period.sources[0][0]] - mu, None, None))
+            cands.append((endc[period.sources[0][0]] + period.sources[0][4] - mu, None, None))
         if p.rests:
             cands += self.second(u, one, const, y, nu2, endc, period)
         if not cands:
@@ -324,10 +376,13 @@ class Pricer:
         for rc, e, two in cands[:ENDS]:
             if rc > -EPS:
                 break
-            col = self.trace(u, one, e, two, period.report if period.called else None)
+            col = self.trace(u, one, e, two, period.report if period.called else None,
+                             p.stations[period.sources[0][0]])
             if col is None:
                 continue
             col = p.priced(u, col)
+            if p.sat_out(u, col):
+                continue
             exact = self.reduced(u, col, y)
             if exact < -EPS:
                 out.append((exact, col))
@@ -352,7 +407,7 @@ class Pricer:
         if u.reserve == "standby" and u.landed is None and u.until is not None:
             idle = u.until
         if not period.called:
-            released[period.sources[0][0]].append((idle, 0.0, None))
+            released[period.sources[0][0]].append((idle, period.sources[0][4], None))
         prefix = {}
         for s, rs in released.items():
             rs.sort(key=lambda r: r[0])
@@ -389,17 +444,19 @@ class Pricer:
                 if u.kind == "pilot":
                     const2[1:] = nu2 * crews.flight_time(h2)
                 for v, e in best_ends(p, two, endc, const2):
-                    if e[2] > 0:
-                        out.append((v - y.mu[u.id], e, (two, r2, {s: o for s, (_, o) in at.items()})))
+                    out.append((v - y.mu[u.id], e, (two, r2, {s: o for s, (_, o) in at.items()})))
         return out
 
-    def trace(self, u: Unit, one: dict, e: tuple | None, two: tuple | None, report: int | None) -> Column | None:
+    def trace(self, u: Unit, one: dict, e: tuple | None, two: tuple | None, report: int | None,
+              station: str) -> Column | None:
         p = self.p
+        tag = p.tag(u, station)
         if two is None:
             if e is None:
-                return Column(u.id, end=u.station)
+                return Column(u.id, end=station, start=tag)
             steps = back(p, one, *e)
-            return None if steps is None else Column(u.id, steps, report=report, end=p.legs[p.pos[steps[-1][0]]].dest)
+            return None if steps is None else Column(u.id, steps, report=report, end=p.legs[p.pos[steps[-1][0]]].dest,
+                                                     start=tag)
         w2, r2, origin = two
         steps2 = back(p, w2, *e)
         if not steps2:
@@ -409,7 +466,8 @@ class Pricer:
         steps1 = () if start is None else back(p, one, *start)
         if steps1 is None:
             return None
-        return Column(u.id, tuple(steps1), tuple(steps2), report, (p.stations[s], r2), p.leg[steps2[-1][0]].dest)
+        return Column(u.id, tuple(steps1), tuple(steps2), report, (p.stations[s], r2), p.leg[steps2[-1][0]].dest,
+                      start=tag)
 
     def own(self, u: Unit) -> Column | None:
         """The unit's day following its trip as far as it legally can: its own legs rewarded, no other leg flown."""
@@ -550,8 +608,11 @@ class Master:
         self.seat_row: dict[int, int] = {}
         self.columns: list[Column] = []
         self.seen: set[tuple] = set()
+        self.idle: dict[str, int] = {}
         for u in p.units:
-            self.add(p.idle(u))
+            for c in p.idles(u):
+                self.add(c)
+                self.idle.setdefault(u.id, len(self.columns) - 1)
 
     def add(self, c: Column) -> bool:
         if c.key in self.seen:
@@ -601,8 +662,8 @@ class Master:
         p = self.p
         x = np.zeros(self.h.getNumCol())
         kinds = {}
-        for j, u in enumerate(p.units):
-            c = chosen.get(u.id, j)
+        for u in p.units:
+            c = chosen.get(u.id, self.idle[u.id])
             x[self.first + c] = 1.0
             for i in self.columns[c].ops:
                 kinds.setdefault(p.pos[i], set()).add(u.kind)
@@ -624,14 +685,14 @@ class Master:
         x = np.zeros(self.h.getNumCol())
         x[:len(self.cover)] = 1.0
         x[list(self.z.values())] = 1.0
-        x[self.first:self.first + len(self.p.units)] = 1.0
+        x[[self.first + j for j in self.idle.values()]] = 1.0
         return x
 
 
 @dataclass(frozen=True)
 class Solved:
-    """The integer plan (a column per unit), the legs it leaves without a legal crew, its crew cost, and the LP and
-    Lagrangian bounds on its objective (each uncrewed leg's price plus crew cost)."""
+    """The integer plan (a column per unit), the legs it leaves without a legal crew, its objective (each uncrewed
+    leg's price plus each day's cost) with the LP and Lagrangian bounds on it, and its crew cost (Problem.crew_cost)."""
 
     columns: dict[str, Column]
     uncrewed: tuple[int, ...]
@@ -776,7 +837,7 @@ def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int 
             crewed[i].add(p.unit[c.unit].kind)
     uncrewed = tuple(sorted(g.id for g in p.legs if not set(g.need) <= crewed[g.id]))
     cost = sum(c.cost for c in cols.values())
-    return Solved(cols, uncrewed, sum(p.leg[i].price for i in uncrewed) + cost, cost, lp, bound, converged,
+    return Solved(cols, uncrewed, sum(p.leg[i].price for i in uncrewed) + cost, p.crew_cost(cols), lp, bound, converged,
                   root_rounds, dives, len(master.columns), round(time.monotonic() - t0, 1), integral, polished,
                   tuple(master.columns))
 

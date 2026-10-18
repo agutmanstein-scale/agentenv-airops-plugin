@@ -2,17 +2,22 @@
 unit follows its column up to the start (actual blocks, its report if a reserve was called) and takes the column's
 legs from the start as its trip; the replay looks ahead, so a crew too near its limits is not sent where the day goes
 on; a crew that a cancellation before the start would strand is replaced; crews released before the start with
-nothing left, and reserves whose period is over, are off."""
+nothing left, and reserves whose period is over, are off; a crew laid over where the record has no aircraft may start
+where the record has it instead."""
+
+from types import SimpleNamespace
+
+import pandas as pd
 
 from agentenv_airops.core.model import Airport
-from agentenv_airops.programs import crewday, crewreplay, crews
+from agentenv_airops.programs import crewday, crewreplay, crews, pairings
 from agentenv_airops.programs.crewday import ahead
 from agentenv_airops.programs.crewreplay import DH, OP, Column, Leg, Problem
 from agentenv_airops.programs.crews import Unit
 
 AIRPORTS = {c: Airport(c, c, lat, lon, "America/New_York") for c, (lat, lon) in
             {"JFK": (40.64, -73.78), "BOS": (42.36, -71.01), "DCA": (38.85, -77.04),
-             "BUF": (42.94, -78.73)}.items()}
+             "BUF": (42.94, -78.73), "SYR": (43.11, -76.11)}.items()}
 DATE = "2024-01-01"
 
 
@@ -103,3 +108,45 @@ def test_a_flight_left_without_a_crew_names_the_crews_there_and_their_rule():
     assert cause["missing"] == {"pilot": "no unit's plan has it; P Table A: 295 + 255 > 540",
                                 "cabin": "no unit's plan has it; C 14 h duty from report 540"}
     assert cause["could_alone"] == {"pilot": [], "cabin": []}
+
+
+def sched(key, orig, dest, sd, block, after=None) -> pairings.Leg:
+    return pairings.Leg(key, f"B6 {key}", "A32X", orig, dest, sd, sd + block, block, "A320", 0, after)
+
+
+def world_of(legs, rows, duties) -> crewday.World:
+    built = {("pilot", "A32X"): pairings.Built("pilot", "A32X", duties, [], 0.0, 0.0, 0, 0, True, 0.0)}
+    day = SimpleNamespace(prev=pd.DataFrame(rows), cur=pd.DataFrame(columns=list(rows[0])),
+                          fleet={"N1": 1, "N2": 1, "N3": 1})
+    ctx = SimpleNamespace(day=day, families={"N1": "A320", "N2": "A320", "N3": "A320"})
+    return crewday.World(SimpleNamespace(date=DATE), ctx, built, AIRPORTS, legs)
+
+
+def test_a_crew_laid_over_where_the_record_has_no_aircraft_may_start_where_it_has_one():
+    legs = [sched(1, "JFK", "SYR", 1200 - 1440, 80, after=2), sched(2, "SYR", "JFK", 360, 75),
+            sched(3, "BOS", "DCA", 400, 90)]
+    rows = [{"Cancelled": 0, "sd": 0 - 1440, "ad": 20 - 1440, "Tail_Number": "N1", "end": "BOS", "Origin": "JFK"},
+            {"Cancelled": 1, "sd": 1200 - 1440, "ad": None, "Tail_Number": "N1", "end": "SYR", "Origin": "JFK"},
+            {"Cancelled": 0, "sd": 400, "ad": 420, "Tail_Number": "N1", "end": "DCA", "Origin": "BOS"},
+            {"Cancelled": 0, "sd": 360, "ad": 380, "Tail_Number": "N2", "end": "JFK", "Origin": "SYR"},
+            {"Cancelled": 0, "sd": -900, "ad": -890, "Tail_Number": "N3", "end": "BUF", "Origin": "JFK"}]
+    duty = pairings.Duty("pilot", "A32X", (2,), (), "SYR", "JFK", 300, 450, 5, 0.0)
+    w = world_of(legs, rows, [duty])
+    assert crewday.NIGHT <= 300
+    assert crewday.rotations_at(legs, crewday.NIGHT) == {("A32X", "SYR"): 1, ("A32X", "BOS"): 1}
+    assert crewday.aircraft_at(w, crewday.NIGHT) == {("A32X", "BOS"): 1, ("A32X", "SYR"): 1}
+    laid = unit("P", station="SYR", report=300, trip=(2,))
+    assert crewday.layovers(w, [laid]) == {}
+    rows[3]["Origin"] = rows[3]["end"] = "BOS"
+    assert crewday.layovers(world_of(legs, rows, [duty]), [laid]) == {"P": (("BOS", 0.0), ("SYR", crewday.LAYOVER))}
+
+
+def test_a_crew_starting_elsewhere_stands_there_at_the_start_on_that_station_s_clock():
+    legs = [Leg(101, "B6 1", "BOS", "DCA", 400, 490, 90, "A32X", 20, need=("pilot",))]
+    u = unit("P", station="SYR", report=300, trip=(102,))
+    p = Problem(legs, [u], DATE, lambda s, m: m + (60 if s == "BOS" else 0),
+                lambda u, s: crews.reposition(u, s, AIRPORTS, DATE), starts={"P": (("BOS", 0.0), ("SYR", 1e5))})
+    s = crewreplay.solve(p, time_limit=30, polish=5)
+    assert s.columns["P"].start == "BOS" and s.columns["P"].first == ((101, OP),)
+    b = crewday.at_start(p, u, Column("P", start="BOS", end="BOS"), 350)
+    assert (b.station, b.at, b.hour, b.report) == ("BOS", "BOS", 6, 300)

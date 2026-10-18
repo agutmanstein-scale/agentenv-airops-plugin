@@ -2001,7 +2001,7 @@
     }
    ],
    "confidence": "low",
-   "note": "A crew may leave from 45 min after its report (the pilots' report time in the source). A trip reporting 60 min before its scheduled departure may so leave 15 min early, as the truth's earliest departures do."
+   "note": "A called short-call reserve, an airport-standby reserve and a crew starting its second duty period may leave from 45 min after their report (the pilots' report time in the source). A trip's crew may leave as soon as it reports, up to 60 min before its scheduled departure, as the record's early departures do."
   },
   "crew_connection_min": {
    "value": 20,

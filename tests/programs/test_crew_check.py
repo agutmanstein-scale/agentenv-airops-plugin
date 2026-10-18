@@ -1,6 +1,12 @@
 import importlib.util
+from types import SimpleNamespace
 
+from day_helpers import day, flight, tail
 from program_helpers import ROOT
+
+from agentenv_airops.core.sim import AUTO_CANCELLED, FLOWN
+from agentenv_airops.programs import crews, sim
+from agentenv_airops.programs.crews import Unit
 
 SPEC = importlib.util.spec_from_file_location("crew_check", ROOT / "scripts" / "crew_check.py")
 crew_check = importlib.util.module_from_spec(SPEC)
@@ -18,6 +24,21 @@ def test_the_calm_guard_allows_two_percent_and_from_zero_only_zero():
     assert crew_check.calm_pass(0.0, 0.0) and crew_check.rise(5.0, 0.0) is None and not crew_check.calm_pass(5.0, 0.0)
 
 
+def crew(uid: str, kind: str, station: str, report: int, trip: tuple) -> Unit:
+    return Unit(uid, kind, "A32X", crews.size(kind, "A32X"), "JFK", station, station, report + crews.BRIEF, report,
+                report // 60, at=station, trip=trip)
+
+
+def test_naive_plays_the_empty_plan_by_the_trip_rule_waiting_for_its_trips_crew_and_never_taking_another_trips():
+    flights = [flight(0, "JFK", "BOS", 600, 60, deadline=700), flight(1, "JFK", "DCA", 800, 60, deadline=1000)]
+    task = day(flights, [tail("N1", "JFK"), tail("N2", "JFK")])
+    units = [crew("P1", "pilot", "BUF", 540, (0,)), crew("C1", "cabin", "BUF", 540, (0,)),
+             crew("P2", "pilot", "JFK", 500, (1,)), crew("C2", "cabin", "JFK", 500, (1,))]
+    w = SimpleNamespace(local=lambda s, m: m, airports=task.airports)
+    naive = crew_check.plays(task, units, sim.truth(task), w)["naive"]
+    assert naive["statuses"] == {AUTO_CANCELLED: 1, FLOWN: 1} and naive["uncrewed"] == 0
+
+
 def notice(best=100.0, bound=99.0, exact=True, crewless=0, below=None) -> dict:
     return {"best": best, "bound": bound, "exact": exact, "flown_without_crew": crewless, "below_bound": below or {},
             "gap_pct": round(100 * (best - bound) / best, 4)}
@@ -33,7 +54,7 @@ def test_a_best_plan_counts_when_it_replays_exactly_crewed_and_nothing_played_is
 
 def joint(best=100.0, flat=95.0, recorded=120.0, naive=96.0) -> dict:
     return {"notice": notice(best), "flat": notice(flat, flat), "recorded": {"total": recorded},
-            "played": {"naive": {"flat": naive, "notice": naive, "uncrewed": 0}}}
+            "played": {"naive": {"flat": naive, "notice": naive, "uncrewed": 0, "statuses": {"auto_cancelled": 2}}}}
 
 
 def test_a_control_needs_the_recorded_day_over_the_best_plan_and_naive_within_two_percent_of_the_flat_best():
@@ -43,13 +64,17 @@ def test_a_control_needs_the_recorded_day_over_the_best_plan_and_naive_within_tw
     assert not c["ok"] and c["naive_flat_over_best"] == round(97 / 95 - 1, 4)
 
 
-def row(date, split="train", rec=True, calm=True, best=100.0, bound=99.0) -> dict:
-    band = {"record": {"pass": rec, "uncrewed": 0}, "calm": {"pass": calm, "rise_pct": 0.0},
+def row(date, split="train", rec=True, calm=True, best=100.0, bound=99.0, uncovered=0) -> dict:
+    hours = crew_check.duty_hours([9.0, 15.0])
+    band = {"record": {"pass": rec, "uncrewed": 0, "cabin_duty_h": hours},
+            "calm": {"pass": calm, "rise_pct": 0.0, "cabin_duty_h": hours},
             "joint": {**joint(best), "notice": {**notice(best, bound), "crew_cancelled": 0, "optimum": {
                 "objective": 99.0}, "crew_delayed": {"flights": 0, "minutes": 0}, "crew_cost": {
-                "deadhead": 0.0, "hotel": 0.0, "end": 1.0}, "pieces": {"aircraft": bound, "cover": None}}}}
+                "deadhead": 0.0, "hotel": 0.0, "end": 1.0}, "pieces": {"aircraft": bound, "cover": None},
+                "cabin_duty_h": hours}}}
+    trips = {"pilot/A32X": {"uncovered": uncovered, "converged": True, "rounds": 8, "gap_pct": 0.1}}
     return {"date": date, "task_id": f"b6-{date}", "split": split, "seconds": 1.0, "peak_rss_gb": 1.0,
-            "bands": {"middle": band}}
+            "bands": {"middle": band}, "trips": trips}
 
 
 def test_the_guards_count_storm_dates_at_ninety_percent_and_gaps_within_each_threshold():
@@ -60,6 +85,22 @@ def test_the_guards_count_storm_dates_at_ninety_percent_and_gaps_within_each_thr
     assert g["calm"]["value"] == 0.9 and g["calm"]["pass"]
     assert g["best"]["kept"] == 12 and g["best"]["gap_within"] == {"0.01%": 0, "1.0%": 11, "5.0%": 11}
     assert g["controls"]["pass"] and g["go"]
+    rows[2] = row("d2", uncovered=3)
+    r = crew_check.guards(rows, ("middle",))["reported"]
+    assert r["trips"]["uncovered_legs"] == 3 and r["trips"]["dates_with_uncovered"] == 1
+    assert r["trips"]["converged"] == r["trips"]["builds"] == 12
+    assert r["naive_with_crews"]["auto_cancelled"]["median"] == 2
+    assert r["cabin_duty_h"]["best"]["over_14h"] == 12 and r["cabin_duty_h"]["record"]["max"]["max"] == 15.0
+    assert "stage" not in str(crew_check.guards(rows, ("middle",))).lower()
     rows[1] = {"date": "d1", "task_id": "b6-d1", "split": "train", "error": "boom"}
     g = crew_check.guards(rows, ("middle",))["guards"]
     assert g["best"]["left_out"] == 1 and g["record"]["n"] == 9 and not g["record"]["pass"]
+
+
+def test_cabin_duties_count_report_to_release_and_those_past_fourteen_hours():
+    day = SimpleNamespace(units={"C1": {"kind": "cabin", "duties": [{"report": 300, "release": 1260},
+                                                                    {"report": 1900, "release": None}]},
+                                 "P1": {"kind": "pilot", "duties": [{"report": 0, "release": 1200}]}})
+    assert crew_check.day_duties(day) == [16.0]
+    h = crew_check.duty_hours([16.0, 14.0, 9.5])
+    assert h["over_14h"] == 1 and h["max"] == 16.0 and h["n"] == 3

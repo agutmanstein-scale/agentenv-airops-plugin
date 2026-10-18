@@ -9,10 +9,14 @@ day and the crew-aware calm day.
   record so far; every duty of the date from its report and the reserves from their periods; the fewest legs flown
   before the start without a legal crew first, then the fewest of the rest of the day (AHEAD each), then crew cost with
   SWAP for each leg flown off a crew's own trip (the airline keeps its trips unless one breaks; a reserve's every leg
-  counts). Each unit stands at the start where that replay has it, and its trip from the start is the replay's plan for
-  it. So a leg cancelled before the start strands no crew it need not, a crew a recorded overrun timed out hands its
-  legs to another, and no crew is sent where the day goes on that could not go on. A unit is off when it was released
-  before the start with nothing left, and so is a reserve whose period or shift is over unused.
+  counts). It prefers real layovers: crews sit where the aircraft overnighted. Where the record has fewer aircraft of a
+  type group at a station at NIGHT than the planned rotations put there, as many of the crews starting there from NIGHT
+  on (the earliest first) may start where the record has the group's aircraft beyond the planned ones instead (the
+  nearest, by an assignment), and staying costs LAYOVER, a preference under any leg's crew. Each unit stands at the
+  start where that replay has it, and its trip from the start is the replay's plan for it. So a leg cancelled before the
+  start strands no crew it need not, a crew a recorded overrun timed out hands its legs to another, and no crew is sent
+  where the day goes on that could not go on. A unit is off when it was released before the start with nothing left, and
+  so is a reserve whose period or shift is over unused.
 - The calm day's units stand where the schedule assumes them, as network.scheduled stands its aircraft: every leg
   scheduled before the start flown on schedule. A leg scheduled before the start that left after it in the record leaves
   at the start in the calm world; its duty is split there (labelled): a crew flies those legs from their origin at the
@@ -42,16 +46,20 @@ from .model import Task
 
 AHEAD = crewreplay.UNCREWED / 100
 SWAP = 1000
+LAYOVER = AHEAD / 2
+NIGHT = 240
 
 
 @dataclass
 class World:
-    """A date's crew world: the task, its BTS context, its trips and the airports any crew can reach."""
+    """A date's crew world: the task, its BTS context, its trips, the airports any crew can reach and the scheduled
+    legs the trips cover, with their planned rotations."""
 
     task: Task
     ctx: candidates.Context
     built: dict[tuple[str, str], pairings.Built]
     airports: dict[str, Airport]
+    legs: list[pairings.Leg]
 
     @property
     def duties(self) -> list[pairings.Duty]:
@@ -81,7 +89,7 @@ def world(task: Task, inputs, derived, time_limit: float = 600.0) -> World:
     built = pairings.build_all(legs, task.date, time_limit)
     codes = {g.orig for g in legs} | {g.dest for g in legs} | set(task.airports) | \
         {b for k in crews.KINDS for b, _ in crews.BASES[k]}
-    return World(task, ctx, built, candidates.airports_of(codes))
+    return World(task, ctx, built, candidates.airports_of(codes), legs)
 
 
 def home(d: pairings.Duty, date: str, airports: Mapping[str, Airport]) -> str:
@@ -164,16 +172,75 @@ def storm_units(w: World, share: str = "middle", time_limit: float = 900.0, poli
     later = [replace(g, id=ahead(g.id), price=AHEAD) for g in
              task_legs(task, {f.id: max(f.sched_dep, task.start) for f in task.flights},
                        {f.id: f.sched_block for f in task.flights})]
-    p = Problem(recorded_legs(w) + later, keyed, task.date, w.local, task_end(w), foreign=SWAP)
+    real = layovers(w, keyed)
+    p = Problem(recorded_legs(w) + later, keyed, task.date, w.local, task_end(w), foreign=SWAP, starts=real,
+                ends=crews.Ends(keyed, w.airports, task.date))
     t0 = time.monotonic()
     sol = crewreplay.solve(p, time_limit, polish=polish, log=log)
     out = [s for u in keyed if (s := at_start(p, u, sol.columns.get(u.id), task.start)) is not None]
     before = [i for i in sol.uncrewed if i >= 0]
-    return out, {**sol.summary(), "legs": sum(g.id >= 0 for g in p.legs),
+    taken = sum(c.start == real[uid][0][0] for uid, c in sol.columns.items() if uid in real)
+    return out, {**sol.summary(), "real_layovers": {"offered": len(real), "taken": taken},
+                 "legs": sum(g.id >= 0 for g in p.legs),
                  "needed": sum(bool(g.need) for g in p.legs if g.id >= 0), "units": len(units),
                  "uncrewed_before": len(before), "uncrewed_after_as_scheduled": len(sol.uncrewed) - len(before),
                  "seconds_total": round(time.monotonic() - t0, 1),
                  "causes": [c for c in uncrewed_causes(p, sol) if c["id"] >= 0]}
+
+
+def layovers(w: World, units: Sequence[Unit]) -> dict[str, tuple[tuple[str, float], ...]]:
+    """The units that may start where the record has the aircraft instead (see the module doc): each with that station
+    first, preferred, and its own at LAYOVER."""
+    planned, real = rotations_at(w.legs, NIGHT), aircraft_at(w, NIGHT)
+    out = {}
+    for kind in crews.KINDS:
+        for g in crews.GROUPS:
+            short = {s: n for (k, s), n in (planned - real).items() if k == g}
+            spare = {s: n for (k, s), n in (real - planned).items() if k == g}
+            sent = crews.transport(short, spare, lambda a, b: miles(w.airports[a], w.airports[b]), most=True)
+            laid = defaultdict(list)
+            for u in sorted(units, key=lambda u: (u.ready, u.id)):
+                if u.kind == kind and u.group == g and not u.reserve and u.station in short and \
+                        u.report >= NIGHT - crews.REPORT:
+                    laid[u.station].append(u)
+            for (a, b), n in sorted(sent.items()):
+                for u in laid[a][:n]:
+                    out[u.id] = ((b, 0.0), (a, LAYOVER))
+                laid[a] = laid[a][n:]
+    return out
+
+
+def rotations_at(legs: Sequence[pairings.Leg], t: int) -> Counter:
+    """Per (type group, station), the planned rotations flying from minute t on, where each has its aircraft at t: the
+    destination of its last leg leaving before t, else its first leg's origin."""
+    by = {g.key: g for g in legs}
+    turned = {g.after for g in legs if g.after is not None}
+    out: Counter = Counter()
+    for head in (g for g in legs if g.key not in turned):
+        chain = [head]
+        while chain[-1].after is not None:
+            chain.append(by[chain[-1].after])
+        if chain[-1].sd < t:
+            continue
+        before = [g for g in chain if g.sd < t]
+        out[(head.group, before[-1].dest if before else chain[0].orig)] += 1
+    return out
+
+
+def aircraft_at(w: World, t: int) -> Counter:
+    """Per (type group, station), the typed aircraft the record has there at minute t, of those with a leg from t on
+    (flown or not): where its last leg flown before t ended, else its first flown leg's origin, else its first leg's."""
+    rows = w.rows()
+    rows = rows[rows.Tail_Number.isin(w.ctx.families) & rows.Tail_Number.isin(w.ctx.day.fleet)]
+    out: Counter = Counter()
+    for tail, x in rows.groupby("Tail_Number"):
+        if not ((x.sd >= t) | (x.ad >= t)).any():
+            continue
+        flown = x[(x.Cancelled == 0) & x.ad.notna()].sort_values("ad")
+        before = flown[flown.ad < t]
+        at = before.iloc[-1].end if len(before) else (flown if len(flown) else x.sort_values("sd")).iloc[0].Origin
+        out[(crews.TYPE[w.ctx.families[tail]], at)] += 1
+    return out
 
 
 def ahead(i: int) -> int:
@@ -188,8 +255,11 @@ def at_start(p: Problem, u: Unit, c: Column | None, start: int) -> Unit | None:
     steps = () if c is None else c.steps
     trip = tuple(ahead(i) for i, how in steps if i < 0 and how == OP)
     deadheads = tuple(ahead(i) for i, how in steps if i < 0 and how == DH)
-    s = {"station": u.station, "ready": u.ready, "report": u.report, "hour": u.hour, "flown": u.flown,
+    began = u.station if c is None else p.began(u, c)
+    s = {"station": began, "ready": u.ready, "report": u.report, "hour": u.hour, "flown": u.flown,
          "minutes": u.minutes, "landed": u.landed, "at": u.at, "until": u.until}
+    if began != u.station:
+        s.update(hour=p.hour(began, u.report), at=began)
     moved = False
     for n, (i, how) in enumerate(steps):
         if i < 0:
@@ -269,7 +339,8 @@ def replay_record(w: World, units: Sequence[Unit], time_limit: float = 1800.0, p
     """JetBlue's real day crewed: its flown flights at their recorded departures and blocks."""
     task = w.task
     deps, blocks, ends = recorded(task)
-    p = Problem(task_legs(task, deps, blocks, ends), units, task.date, w.local, task_end(w), call=task.start)
+    p = Problem(task_legs(task, deps, blocks, ends), units, task.date, w.local, task_end(w), call=task.start,
+                ends=crews.Ends(units, w.airports, task.date))
     return p, crewreplay.solve(p, time_limit, polish=polish, log=log)
 
 
@@ -389,7 +460,7 @@ def alone(p: Problem, pricer: crewreplay.Pricer, kind: str, g: Leg) -> list[str]
 def whereabouts(p: Problem, u: Unit, c: Column | None) -> list[tuple[int, str, dict]]:
     """The unit's state after each step of its plan: (minute, station, duty so far)."""
     state = {"report": u.report, "hour": u.hour, "flown": u.flown, "minutes": u.minutes}
-    out = [(u.ready, u.station, dict(state))]
+    out = [(u.ready, u.station if c is None else p.began(u, c), dict(state))]
     if c is None:
         return out
     if c.report is not None:

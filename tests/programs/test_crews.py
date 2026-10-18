@@ -135,3 +135,13 @@ def test_reposition_tomorrow_with_a_hotel_away_from_base():
                                                              + 2 * crews.hotel("DCA", d))
     assert crews.reposition(u, "JFK", a, d) == pytest.approx(
         crews.deadhead("pilot", "A32X", round(crews.ferry_block(a["JFK"], a["BOS"])), d))
+
+
+def test_a_month_bls_skipped_takes_the_latest_cpi_before_it():
+    assert crews.CPI["2025-10"] is None and crews._cpi("2025-10-14") == crews.CPI["2025-09"]
+    assert crews.hotel("JFK", "2025-10-14") > 0 and crews.seat("2025-10-14") > 0
+
+
+def test_the_earliest_departure_note_says_what_the_crews_do():
+    note = crews.params()["duty_conventions"]["earliest_departure_after_report_min"]["note"]
+    assert crews.BRIEF == 45 and "as soon as it reports" in note and "second duty period" in note

@@ -202,7 +202,7 @@ def calm_day(w: crewday.World, units: Sequence[Unit], optimum: mip.Solution | No
         return Calm(task, optimum, found)
     fl = crewbound.Flights.of(task, calm.block, air.net.copies)
     reached = crewbound.reach(task, fl, units, w.local)
-    least = crewbound.least(task, fl, units, w.local, crewday.task_end(w), reached)
+    least = crewbound.least(task, fl, units, w.local, crews.Ends(units, w.airports, task.date).least, reached)
     a, ar, lp, up, _ = optima(task, calm, air, air.notice, reached, time_limit)
     pieces, _ = lower(task, units, w.local, w.airports, air, fl, least, a, ar, lp, up, found, cover_limit, width, log)
     return Calm(task, optimum, found, pieces)
@@ -301,8 +301,8 @@ def lower(task: Task, units: Sequence[Unit], local: crews.Local, airports, air: 
     if lp is not None and cover_limit > 0:
         z = lp.objective - crewbound.TOL - 1e-7 * abs(lp.objective)
         choices = crewbound.prices(air, lp, up, found.value - z)
-        end = lambda u, s: crews.reposition(u, s, airports, task.date)  # noqa: E731
-        covered = crewbound.cover(task, fl, units, local, end, choices, cover_limit, width, found.day, log)
+        covered = crewbound.cover(task, fl, units, local, crews.Ends(units, airports, task.date), choices, cover_limit,
+                                  width, found.day, log)
         pieces["cover"] = min(found.value, z + covered.bound)
     return pieces, covered
 
@@ -316,6 +316,7 @@ def search(task: Task, world: sim.World, units: Sequence[Unit], local: crews.Loc
     crewed by the crew sim's default rule) by the time `deadline` (monotonic), the aircraft MIP kept to `keep` once
     flights are held."""
     end = lambda u, s: crews.reposition(u, s, airports, task.date)  # noqa: E731
+    ends = crews.Ends(units, airports, task.date)
     best: list[Found] = []
     attempts: list[dict] = []
     pool: list[tuple[crewreplay.Column, tuple[tuple[int, int], ...]]] = []
@@ -342,7 +343,7 @@ def search(task: Task, world: sim.World, units: Sequence[Unit], local: crews.Loc
                                                                                  crewsim.CrewDay]:
         deps = {i: d for i, d in sol.deps.items() if d is not None}
         p = crewreplay.Problem(crewday.task_legs(task, deps, world.block), units, task.date, local, end,
-                               call=task.start)
+                               call=task.start, ends=ends)
         filled = default(sol.plan(task.start), f"{label}, default crews")
         kept = [c for c, at in pool if all(i in p.leg and p.leg[i].dep == d for i, d in at)]
         starts = [plan for plan in (crewday.columns_of(p, filled), {c.unit: c for c in kept if c.key in last}) if plan]

@@ -4,25 +4,30 @@ legal cabin unit of its type group at its origin, and the crew event log.
 A plan entry may name its crews ({"crew": {"pilot": id, "cabin": id}}) and the units that deadhead on it ({"deadhead":
 [id, ...]}); plan["reports"] maps a short-call reserve to its report and "id#2" to a unit's second duty period's report.
 A named unit flies its flight: the flight waits until the unit is at its origin, free and legal, and auto-cancels at its
-deadline if it never is. With `fill`, a flight with a kind unnamed takes, in order, the unit whose trip has it, a unit
-with no trip left, an airport-standby reserve, each there, free and legal, the last two named nowhere in the plan; else
-it waits for its trip's unit if that unit is there and will be legal sooner than a short-call reserve of the base could
-report, else calls that reserve; else it waits for a crew to arrive. A flight with "left" (the day so far) leaves at its
-minute with the crews it finds, and one without a legal crew of a kind is logged so. A rider rides if it is at the
-origin, free, legal for the deadhead and the flight has its seats free (the family's smallest seats less the
-passengers); with `fill` a unit named nowhere also rides its trip's planned deadheads.
+deadline if it never is. With `fill` (the default rule, the trip rule), a flight with a kind unnamed takes the unit
+whose trip has it if that unit is there, free and legal, else the first one ready of the other units of the kind and
+group there, free and legal and named nowhere in the plan with no trip left (a crew done with its trip, an
+airport-standby reserve, a called reserve) or the short-call reserve called for it; no crew leaves its trip. With none,
+the flight waits for the first of them to be free or legal again, or for a crew to arrive, or calls a short-call reserve
+of the base if one could report sooner, held for it until it reports (if another crew takes the flight, the reserve is
+as if never called); else it waits for a crew to arrive. A flight with "left" (the day so far) leaves at its minute with
+the crews it finds, and one without a legal crew of a kind is logged so. A rider rides if it is at the origin, free,
+legal for the deadhead and the flight has its seats free (the family's smallest seats less the passengers); with `fill`
+a unit named nowhere also rides its trip's planned deadheads.
 
 The rules are crews.py's, judged at takeoff (crewreplay.py prices the same ones): a unit's period continues while the
 leg fits it; an uncalled short-call reserve reports, and a rested unit starts its second period, on the last whole hour
 that leaves BRIEF before the departure, the reserve no earlier than LEAD after the start or its period's start and
-called by its period's end, the second period at least the rest after release, a hotel away from base. A unit connects
-in CONNECT, is released DEBRIEF after its last block-in, and its flight time counts actual blocks.
+called by its period's end, the second period at least the rest after release, a hotel away from base. A ride in the
+first period that leaves a full rest after the release starts the second period that way (its night away is a hotel).
+A unit connects in CONNECT, is released DEBRIEF after its last block-in, and its flight time counts actual blocks.
 
-Costs, in passenger-minutes: deadheads off a unit's trip, nights away from base, and each unit's end-of-day position
-(crews.reposition). The log has per unit each period's report time and place, its legs and deadheads with their times,
-its release, hotels, and a reserve's call and report; per flight its crew status over time: "legal", "times out" at a
-minute (its crew's last legal departure), or "no crew" (no unit assigned, or its unit stranded or out of time), then
-"flown", "flown without a legal crew" or "cancelled".
+Costs, in passenger-minutes: deadheads off a unit's trip, nights away from base, and the end of the day: per kind, type
+group and base, the units where the day leaves them sent to where their trips have them tonight at the least cost
+(crews.Ends: a unit may take any of its base's trips tomorrow). The log has per unit each period's report time and
+place, its legs and deadheads with their times, its release, hotels, and a reserve's call and report; per flight its
+crew status over time: "legal", "times out" at a minute (its crew's last legal departure), or "no crew" (no unit
+assigned, or its unit stranded or out of time), then "flown", "flown without a legal crew" or "cancelled".
 """
 
 from collections import defaultdict
@@ -96,8 +101,10 @@ def execute(task: Task, plan: Mapping, units: Sequence[Unit], world: sim.World |
     world = sim.truth(task) if world is None else world
     pool = Pool(task, units, local or (lambda s, m: m), plan, fill, log, airports or task.airports)
     run = sim.execute(task, plan, world, pool)
+    spent = pool.spent()
     return CrewDay(run, dict(pool.crewed), {i: tuple(v) for i, v in pool.riders.items()}, tuple(sorted(pool.uncrewed)),
-                   pool.costs(), pool.unit_log(), pool.status)
+                   {k: sum(v[k] for v in spent.values()) for k in ("deadhead", "hotel", "end")}, pool.unit_log(spent),
+                   pool.status)
 
 
 def audit(task: Task, units: Sequence[Unit], plan: Mapping, deps: Mapping[int, int], blocks: Mapping[int, int],
@@ -128,8 +135,10 @@ class Pool:
     def __init__(self, task: Task, units: Sequence[Unit], local: crews.Local, plan: Mapping, fill: bool, log: bool,
                  airports: Mapping[str, Airport], ends: Mapping[int, str] | None = None):
         self.task, self.local, self.fill, self.log = task, local, fill, log
-        self.airports, self.ends = airports, ends or {}
+        self.airports, self.diverted = airports, ends or {}
         self.reports = dict(plan.get("reports", {}))
+        self.uncalled: dict[str, tuple[int, int]] = {}
+        self.held: dict[int, list[str]] = defaultdict(list)
         want = {int(k): v for k, v in plan.items() if k != "reports"}
         self.named = {(kind, int(i)): u for i, v in want.items() for kind, u in v.get("crew", {}).items()}
         self.scripted = set(self.named.values()) | {u for v in want.values() for u in v.get("deadhead", ())} | \
@@ -140,6 +149,7 @@ class Pool:
                       u.minutes, u.landed, list(u.trip), list(u.deadheads), moved=u.landed is not None)
             if u.reserve == "short" and u.report is None:
                 s.earliest = crews.on_hour(max(u.rap, task.start) + u.lead)
+                self.uncalled[u.id] = (s.earliest, s.ready)
             if u.report is not None:
                 s.duties.append(duty(u.report, u.at or None, "on duty"))
             self.state[u.id] = s
@@ -155,6 +165,7 @@ class Pool:
             seats[t.family] = min(seats.get(t.family, t.seats), t.seats)
         self.free = {f.id: max(0, seats[f.family] - f.pax) for f in task.flights}
         self.picks: dict[int, dict[str, tuple]] = {}
+        self.ends = crews.Ends(units, airports, task.date)
         self.waiting: dict[tuple, set[int]] = defaultdict(set)
         self.wake: list[tuple[int, int]] = []
         self.crewed: dict[int, dict[str, str]] = defaultdict(dict)
@@ -169,20 +180,19 @@ class Pool:
     def board(self, f: Flight, t: int, entry: Mapping, left: bool) -> int | None:
         """t if f's crews are there now (held for `fly`), else the minute to try again (None: when woken)."""
         group = crews.TYPE[f.family]
-        picks, later, unknown = {}, [], []
+        picks, later = {}, []
         for kind in crews.KINDS:
             got, retry = self.choose(kind, group, f, t, entry.get("crew", {}).get(kind))
             if got is not None:
                 picks[kind] = got
-            elif retry is None:
-                unknown.append(kind)
-            else:
+            elif retry is not None:
                 later.append(retry)
         if left or len(picks) == len(crews.KINDS):
             self.picks[f.id] = picks
             return t
-        for kind in unknown:
-            self.waiting[(kind, group, f.orig)].add(f.id)
+        for kind in crews.KINDS:
+            if kind not in picks:
+                self.waiting[(kind, group, f.orig)].add(f.id)
         return max(later) if later else None
 
     def choose(self, kind: str, group: str, f: Flight, t: int, name: str | None) -> tuple:
@@ -198,26 +208,32 @@ class Pool:
         if not self.fill:
             return None, None
         everyone = self.at[(kind, group, f.orig)]
-        here = everyone - self.scripted
         mine = self.planned.get((kind, f.id))
-        idle = sorted(u for u in here if not self.state[u].trip and not self.state[u].unit.reserve
-                      and u != mine)
-        standby = sorted(u for u in here if self.state[u].unit.reserve == "standby")
-        claimed = sorted(u for u in here if self.state[u].claim == f.id)
-        here = here | ({mine} & everyone)
-        for u in ([mine] if mine in here else []) + idle + standby + claimed:
+        spare = [u for u in everyone - self.scripted if u != mine and not self.state[u].trip
+                 and self.available(self.state[u], f)]
+        spare.sort(key=lambda u: (self.state[u].ready, u))
+        if mine in everyone and self.available(self.state[mine], f):
+            spare.insert(0, mine)
+        for u in spare:
             s = self.state[u]
-            if s.ready <= t and (s.claim is None or s.claim == f.id) and (how := self.operate(s, f, t)):
+            if s.ready <= t and (how := self.operate(s, f, t)):
                 return (u, how), None
-        waits = [self.later(self.state[u], f, t) for u in [mine, *claimed] if u in here]
-        waits = [w for w in waits if w is not None]
+        waits = [w for u in spare if (w := self.later(self.state[u], f, t)) is not None]
         reserve = self.reserve(kind, group, f, t)
         if reserve is not None and (not waits or reserve[1] < min(waits)):
             s = self.state[reserve[0]]
             s.claim, s.call, s.earliest = f.id, max(t, s.unit.rap, self.task.start), reserve[1] - crews.BRIEF
             s.ready = reserve[1]
+            self.held[f.id].append(reserve[0])
             return None, reserve[1]
         return None, min(waits) if waits else None
+
+    def available(self, s: State, f: Flight) -> bool:
+        """Whether the default rule may give s flight f: not held for another flight, and no uncalled short-call
+        reserve unless held for f."""
+        if s.claim is not None:
+            return s.claim == f.id
+        return not (s.unit.reserve == "short" and s.report is None)
 
     def reserve(self, kind: str, group: str, f: Flight, t: int) -> tuple[str, int] | None:
         """An uncalled short-call reserve of the base, unnamed, and the earliest it could leave if called now."""
@@ -227,9 +243,10 @@ class Pool:
             if s.unit.reserve != "short" or s.report is not None or s.claim is not None:
                 continue
             call = max(t, s.unit.rap, self.task.start)
-            if call > s.unit.until:
+            report = crews.on_hour(call + s.unit.lead)
+            if report - s.unit.lead > s.unit.until:
                 continue
-            go = crews.on_hour(call + s.unit.lead) + crews.BRIEF
+            go = report + crews.BRIEF
             if best is None or go < best[1]:
                 best = (u, go)
         return best
@@ -242,7 +259,7 @@ class Pool:
             return None
         own = s.period == 1 and f.id in u.trip
         if u.id + "#2" in self.reports and s.period == 1 and (start := self.begin(s, t)) is not None:
-            return start[:3] if self.fits(u, start[1], start[2], 0, 0, f, t, False, None) else None
+            return start[:3] if self.fits(u, start[1], start[2], 0, 0, f, t, False, start[3]) else None
         if s.report is not None and not self.over(s, t) and \
                 self.fits(u, s.report, s.hour, s.flown, s.minutes, f, t, own, s.rap):
             return ("on",)
@@ -298,16 +315,13 @@ class Pool:
         u = s.unit
         if s.station != f.orig or s.ready > t:
             return None
-        if u.id + "#2" in self.reports and s.period == 1 and (start := self.begin(s, t)) is not None:
-            return start[:3]
-        if s.report is None:
-            start = self.begin(s, t)
+        start = self.begin(s, t)
+        if s.report is None or (start is not None and start[0] == "rest"):
             return start[:3] if start is not None else None
         if not self.over(s, t) and (u.kind == "pilot" or (s.period == 1 and f.id in u.deadheads)
                                     or crews.cabin_fits(s.report, t, f.sched_block)):
             return ("on",)
-        start = self.begin(s, t)
-        return start[:3] if start is not None and crews.cabin_fits(start[1], t, f.sched_block) else None
+        return None
 
     def fly(self, f: Flight, t: int, arr: int, entry: Mapping) -> None:
         picks = self.picks.pop(f.id, {})
@@ -342,11 +356,26 @@ class Pool:
             if uid is not None and f.id in self.state[uid].trip:
                 self.state[uid].trip.remove(f.id)
                 touched.add(uid)
+        self.release(f.id, t)
         self.done.add(f.id)
         if self.log:
             self.status[f.id].append((t, "flown" if f.id not in self.uncrewed else "flown without a legal crew",
                                       None))
             self.rejudge(touched, t)
+
+    def release(self, i: int, t: int | None = None) -> None:
+        """The short-call reserves held for flight i, which flew (at t) or was cancelled: one that never reported is as
+        if never called, and a flight waiting at its base tries again at t."""
+        for uid in self.held.pop(i, ()):
+            s = self.state[uid]
+            if s.claim == i:
+                s.claim = None
+                if s.report is None:
+                    s.call = None
+                    s.earliest, s.ready = self.uncalled[s.unit.id]
+                    u = s.unit
+                    for j in self.waiting.pop((u.kind, u.group, s.station), ()) if t is not None else ():
+                        self.wake.append((j, t))
 
     def start(self, s: State, how: tuple, station: str) -> None:
         if how[0] == "on":
@@ -368,7 +397,7 @@ class Pool:
 
     def move(self, s: State, f: Flight, t: int, arr: int, op: bool) -> None:
         u = s.unit
-        dest = self.ends.get(f.id, f.dest)
+        dest = self.diverted.get(f.id, f.dest)
         self.at[(u.kind, u.group, s.station)].discard(u.id)
         s.station, s.ready, s.landed, s.moved = dest, arr + crews.CONNECT, arr, True
         if op:
@@ -395,9 +424,7 @@ class Pool:
             if uid is not None and i in self.state[uid].trip:
                 self.state[uid].trip.remove(i)
                 touched.add(uid)
-        for s in self.state.values():
-            if s.claim == i:
-                s.claim = None
+        self.release(i)
         self.done.add(i)
         if self.log:
             self.status[i].append((decided, "cancelled", None))
@@ -455,30 +482,29 @@ class Pool:
             return NO_CREW, None
         return TIMES_OUT, last
 
-    def costs(self) -> dict[str, float]:
-        out = {"deadhead": 0.0, "hotel": 0.0, "end": 0.0}
-        for s in self.state.values():
-            for k, v in self.spent(s).items():
-                out[k] += v
+    def spent(self) -> dict[str, dict[str, float]]:
+        """Each unit's crew cost: its deadheads off its trip, its nights away from base, its share of the end of the
+        day."""
+        d = self.task.date
+        end = self.ends.cost({uid: s.station for uid, s in self.state.items()})
+        out = {}
+        for uid, s in self.state.items():
+            u = s.unit
+            planned = set(u.deadheads)
+            dh = sum(crews.deadhead(u.kind, u.group, arr - t, d) for duty in s.duties for i, t, arr in
+                     duty["deadheads"] if i not in planned)
+            out[uid] = {"deadhead": dh, "hotel": sum(crews.hotel(h["station"], d) * u.size for h in s.hotels),
+                        "end": end[uid]}
         return out
 
-    def spent(self, s: State) -> dict[str, float]:
-        """A unit's crew cost: its deadheads off its trip, its nights away from base, its end-of-day position."""
-        u, d = s.unit, self.task.date
-        planned = set(u.deadheads)
-        dh = sum(crews.deadhead(u.kind, u.group, arr - t, d) for duty in s.duties for i, t, arr in duty["deadheads"]
-                 if i not in planned)
-        return {"deadhead": dh, "hotel": sum(crews.hotel(h["station"], d) * u.size for h in s.hotels),
-                "end": crews.reposition(u, s.station, self.airports, d)}
-
-    def unit_log(self) -> dict[str, dict]:
+    def unit_log(self, spent: Mapping[str, dict[str, float]]) -> dict[str, dict]:
         out = {}
         for uid, s in self.state.items():
             if not s.duties and s.call is None:
                 continue
             out[uid] = {"kind": s.unit.kind, "group": s.unit.group, "home": s.unit.home, "reserve": s.unit.reserve,
                         "call": s.call, "duties": s.duties, "hotels": s.hotels, "station": s.station,
-                        "cost": self.spent(s)}
+                        "cost": spent[uid]}
         return out
 
 

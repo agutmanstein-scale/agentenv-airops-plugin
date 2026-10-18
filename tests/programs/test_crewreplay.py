@@ -20,11 +20,12 @@ def unit(uid: str, kind: str = "pilot", station: str = "JFK", report: int | None
                 ready, report, hour, at=station, **kw)
 
 
-def problem(task, units, deps=None, blocks=None) -> Problem:
+def problem(task, units, deps=None, blocks=None, **kw) -> Problem:
     deps = deps or {f.id: f.sched_dep for f in task.flights}
     blocks = blocks or {f.id: f.block for f in task.flights}
     return Problem(crewday.task_legs(task, deps, blocks), units, task.date, lambda s, m: m,
-                   lambda u, s: crews.reposition(u, s, task.airports, task.date), call=task.start)
+                   lambda u, s: crews.reposition(u, s, task.airports, task.date), call=task.start,
+                   ends=crews.Ends(units, task.airports, task.date), **kw)
 
 
 def solve(task, units, **kw) -> tuple[Problem, crewreplay.Solved]:
@@ -97,6 +98,42 @@ def test_rest_move_flies_next_morning_with_a_hotel():
     assert solve(early, units)[1].uncrewed == (0,)
 
 
+def test_a_crew_takes_the_start_it_prefers_unless_only_the_other_crews_a_leg():
+    task = day([flight(0, "BOS", "JFK", 600, 60), flight(1, "DCA", "JFK", 620, 70)],
+               [tail("N1", "BOS"), tail("N2", "DCA")])
+    units = [unit("P1", station="DCA", trip=(1,), end="JFK"), unit("C1", "cabin", station="DCA", trip=(1,), end="JFK")]
+    starts = {u.id: (("BOS", 0.0), ("DCA", 5000.0)) for u in units}
+    p, s = problem(task, units, starts=starts), None
+    s = crewreplay.solve(p, time_limit=30, polish=5)
+    assert s.columns["P1"].first == ((0, OP),) and s.columns["P1"].start == "BOS" and s.uncrewed == (1,)
+    assert [c.end for c in p.idles(units[0])] == ["BOS", "DCA"]
+    only = day([flight(1, "DCA", "JFK", 620, 70)], [tail("N2", "DCA")])
+    p = problem(only, units, starts=starts)
+    s = crewreplay.solve(p, time_limit=30, polish=5)
+    assert s.uncrewed == () and s.columns["P1"].start == "DCA"
+    assert s.crew_cost == pytest.approx(2 * 5000.0)
+
+
+def test_a_ride_a_full_rest_after_the_release_starts_the_second_period_with_a_hotel():
+    task = day([flight(0, "DCA", "JFK", 1300, 45, pax=100)], [tail("N1", "DCA")])
+    assert 45 < crews.ferry_block(task.airports["DCA"], task.airports["JFK"])
+    units = [unit("P1", station="DCA", report=400, ready=605, landed=585, flown=2, end="JFK"),
+             unit("P2", station="DCA", report=1200, trip=(0,), end="JFK"),
+             unit("C2", "cabin", station="DCA", report=1200, trip=(0,), end="JFK")]
+    late = crewreplay.Column("P1", ((0, DH),), end="JFK")
+    p = problem(task, units)
+    assert p.sat_out(units[0], late)
+    assert not p.sat_out(units[0], crewreplay.Column("P1", second=((0, DH),), rest=("DCA", 1200), end="JFK"))
+    s = crewreplay.solve(p, time_limit=30, polish=5)
+    c = s.columns["P1"]
+    assert c.first == () and c.second == ((0, DH),) and c.rest == ("DCA", 1200)
+    assert s.crew_cost == pytest.approx(crews.hotel("DCA", task.date) * 2 + crews.deadhead("pilot", "A32X", 45,
+                                                                                            task.date))
+    d = crewsim.execute(task, crewday.plan_of(p, s), units, fill=False)
+    assert d.crew_cost == pytest.approx(s.crew_cost) and d.units["P1"]["hotels"] == [
+        {"station": "DCA", "from": 600, "to": 1200}]
+
+
 STATIONS = ("JFK", "BOS", "DCA", "MCO", "BUF")
 
 
@@ -139,8 +176,7 @@ def test_every_plan_obeys_the_sim_and_replays_there_at_its_cost(seed):
     d = crewsim.execute(task, held, units, fill=False)
     assert all(d.run.flights[i].dep == deps[i] for i in deps if i not in s.uncrewed)
     assert d.crews == {i: v for i, v in s.crews(p).items() if i not in s.uncrewed}
-    flown_crew = d.crew_cost
-    assert flown_crew == pytest.approx(s.crew_cost, abs=1e-6) or s.uncrewed
+    assert d.crew_cost == pytest.approx(s.crew_cost, abs=1e-6)
 
 
 @pytest.mark.parametrize("seed", range(6))

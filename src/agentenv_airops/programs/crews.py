@@ -27,17 +27,21 @@ a whole hour (labelled), LEAD after the call. Marginal costs, in passenger-minut
 minutes at the crew's rate (the FAA's Table 4-7 crew rate for a pilot pair, BLS pay with its benefits load per
 attendant-minute), each deadhead seat as a lost average fare, a night away from base at GSA's (CONUS) or DoD's (Puerto
 Rico, the Virgin Islands) lodging and M&IE for the station and date (GSA's standard rate where neither lists the
-station).
+station), and the end of the day per base (Ends).
 """
 
 import functools
 import json
 import re
-from collections.abc import Callable, Mapping
+from collections import Counter, defaultdict
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date as Date
 from datetime import datetime
 from pathlib import Path
+
+import highspy
+import numpy as np
 
 from ..core.cost import FERRY_BASE_MIN, FERRY_MILES_PER_MIN, miles
 from ..core.model import Airport
@@ -182,7 +186,8 @@ def rate(kind: str, group: str) -> float:
 
 
 def _cpi(d: str) -> float:
-    return CPI.get(d[:7]) or CPI[max(k for k in CPI if k <= d[:7])]
+    """CPI-U for d's month, else the latest published before it (BLS skipped October 2025)."""
+    return CPI[max(k for k, v in CPI.items() if k <= d[:7] and v is not None)]
 
 
 @functools.cache
@@ -311,3 +316,80 @@ def reposition(u: Unit, station: str, airports: Mapping[str, Airport], d: str, t
         return 0.0
     out = deadhead(u.kind, u.group, round(ferry_block(airports[station], airports[to])), d)
     return out + (hotel(station, d) * u.size if station != u.home else 0.0)
+
+
+class Ends:
+    """The end of the day per kind, type group and base: tomorrow the base's units take its trips again, so the units
+    where the day leaves them go to where those trips have them tonight (each unit's `end`, the base's units together)
+    at the least cost of `reposition`s (a transport problem); `least` is a unit's cheapest such move alone, a lower
+    bound on its share."""
+
+    def __init__(self, units: Sequence[Unit], airports: Mapping[str, Airport], d: str):
+        self.airports, self.d = airports, d
+        self.of = {u.id: (u.kind, u.group, u.home) for u in units}
+        self.unit = {u.id: u for u in units}
+        self.wanted: dict[tuple, Counter] = defaultdict(Counter)
+        for u in units:
+            self.wanted[self.of[u.id]][u.end] += 1
+        self.memo: dict[tuple, float] = {}
+
+    def move(self, u: Unit, station: str, to: str) -> float:
+        key = (self.of[u.id], station, to)
+        if key not in self.memo:
+            self.memo[key] = reposition(u, station, self.airports, self.d, to)
+        return self.memo[key]
+
+    def least(self, u: Unit, station: str) -> float:
+        return min(self.move(u, station, t) for t in self.wanted[self.of[u.id]])
+
+    def cost(self, at: Mapping[str, str]) -> dict[str, float]:
+        """Each unit's share of the end of the day with the units at `at` (unit id: station)."""
+        out = {}
+        by: dict[tuple, list[str]] = defaultdict(list)
+        for uid in sorted(at):
+            by[self.of[uid]].append(uid)
+        for key, uids in by.items():
+            have = Counter(at[uid] for uid in uids)
+            need = Counter(self.wanted[key])
+            stay = {s: min(have[s], need[s]) for s in have}
+            have, need = have - Counter(stay), need - Counter(stay)
+            u0 = self.unit[uids[0]]
+            sent = transport(have, need, lambda s, t, u0=u0: self.move(u0, s, t))
+            for uid in uids:
+                s = at[uid]
+                if stay.get(s, 0):
+                    stay[s] -= 1
+                    out[uid] = 0.0
+                    continue
+                t = next(t for (a, t), n in sent.items() if a == s and n > 0)
+                sent[(s, t)] -= 1
+                out[uid] = self.move(u0, s, t)
+        return out
+
+    def total(self, at: Mapping[str, str]) -> float:
+        return sum(self.cost(at).values())
+
+
+def transport(have: Mapping[str, int], need: Mapping[str, int], cost: Callable[[str, str], float],
+              most: bool = False) -> dict[tuple[str, str], int]:
+    """The least-cost flows from `have` to `need` (equal totals), by HiGHS; with `most`, totals may differ and the
+    flows are the most there can be, then the least cost."""
+    pairs = [(s, t) for s in sorted(have) for t in sorted(need)]
+    if not pairs:
+        return {}
+    rows = {("s", s): n for n, s in enumerate(sorted(have))}
+    rows |= {("t", t): len(rows) + n for n, t in enumerate(sorted(need))}
+    level = np.array([have[s] for s in sorted(have)] + [need[t] for t in sorted(need)], dtype=float)
+    costs = [cost(s, t) for s, t in pairs]
+    big = 1 + 2 * max(map(abs, costs)) if most else 0.0
+    h = highspy.Highs()
+    h.setOptionValue("output_flag", False)
+    h.setOptionValue("threads", 1)
+    h.addRows(len(level), np.zeros(len(level)) if most else level, level, 0, np.zeros(len(level), dtype=np.int32),
+              np.array([], dtype=np.int32), np.array([]))
+    for (s, t), c in zip(pairs, costs, strict=True):
+        h.addCol(c - big, 0.0, highspy.kHighsInf, 2, np.array([rows[("s", s)], rows[("t", t)]], dtype=np.int32),
+                 np.ones(2))
+    h.run()
+    x = h.getSolution().col_value
+    return {p: int(round(v)) for p, v in zip(pairs, x, strict=True) if v > 0.5}

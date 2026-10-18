@@ -1,24 +1,29 @@
 """Lower bounds on the best day over aircraft and crews. Every one holds for every day the crew sim can run, whatever
 the plan: each relaxes the crew rules (crewsim.py) to a superset of the days a unit can have, and crew costs are never
-below zero. The relaxed rules: Table B read for the fewest segments the unit could have flown in the period, Table A
-on each leg alone against the period's flight time so far, a short-call reserve reporting at any whole hour it could
-(its limits at the latest), the second duty period after rest reporting at any minute and with no limit, seats free.
+below zero. The relaxed rules: Table B read for the fewest
+segments the unit could have flown in the period, Table A on each leg alone against the period's flight time so far, a
+short-call reserve reporting at any whole hour it could (its limits at the latest), the second duty period after rest
+reporting at any minute and with no limit, a deadhead in the first period at any time without a night (the sim starts
+the second period, a hotel, after a full rest), seats free.
 
 - `reach`: per flight, the departure minutes at which some unit of each kind could operate it, every unit on its own
   (an earliest-arrival search per unit over every departure minute of every flight). A day flies each flight at one
   of these.
 - A*: the aircraft optimum (its MIP's dual bound). The restricted A*: the aircraft optimum with every flight kept to
   its minutes in `reach`, every flight with none cancelled.
-- L(0): an aircraft bound plus each unit's least crew cost on its own (`least`, `Board` at no duals).
-- The covering bound: for any day, its aircraft cost is at least the aircraft LP's optimum z plus the reduced cost d+
-  of each flight's choice (its departure minute, its cancellation; at least zero, and a choice the LP has at its upper
+- L(0): an aircraft bound plus each unit's least crew cost on its own (`least`, `Board` at no duals), its end of the
+  day at its least share of its base's (crews.Ends.least: its cheapest move to any of the base's trips tonight).
+- The covering bound: for any day, its aircraft cost is at least the aircraft LP's optimum z plus the reduced cost d+ of
+  each flight's choice (its departure minute, its cancellation; at least zero, and a choice the LP has at its upper
   bound with d < 0 counted on the other choices), the other columns' terms being at least zero. So the day costs at
   least z + the least, over flight choices and crew days covering every flown flight with a unit of each kind, of the
   choices' d+ and the crew cost: a covering problem where the two kinds may choose different minutes and each pays half
-  a minute's price, solved by column generation over `Board`'s relaxed days, priced at duals smoothed toward those of
-  the best bound so far (at the LP's own when that finds no column), its Lagrangian bound valid at any duals. With a
-  plan of cost UB, a minute or a cancellation priced over UB - z can't be in a day cheaper than UB and is left out
-  (reduced-cost fixing); the bound is then min(UB, z + the covering bound).
+  a minute's price, and the end of the day per base a transport from where the days end to the base's trips tonight (as
+  the sim prices it), solved by column generation over `Board`'s relaxed days, priced at duals smoothed toward those of
+  the best bound so far (at the LP's own when that finds no column), its Lagrangian bound valid at any duals (each
+  base's trips tonight taken at their cheapest station at the stations' duals). With a plan of cost UB, a minute or a
+  cancellation priced over UB - z can't be in a day cheaper than UB and is left out (reduced-cost fixing); the bound is
+  then min(UB, z + the covering bound).
 
 `Board`'s relaxed days run over buckets of each flight's minutes, at most a bucket's width apart, the width under the
 flight's block plus CONNECT: a unit takes a bucket ready at its origin by its last minute, lands as if it left at its
@@ -306,10 +311,11 @@ class Board:
     def layers(self, kind: str) -> int:
         return 9 if kind == "pilot" else 2
 
-    def price(self, gain: Mapping[str, np.ndarray], trace: bool = False, members: Sequence[int] | None = None
-              ) -> tuple[np.ndarray, list[Day | None]]:
+    def price(self, gain: Mapping[str, np.ndarray], trace: bool = False, members: Sequence[int] | None = None,
+              ends: tuple[np.ndarray, np.ndarray] | None = None) -> tuple[np.ndarray, list[Day | None]]:
         """Each unit's least relaxed day value (crew cost less the gains of the legs it operates), and with `trace`
-        its day; `members` limits it to those units (the others' values are left at inf)."""
+        its day; `members` limits it to those units (the others' values are left at inf); `ends` values each unit's
+        end at each station and at its own (instead of its end of the day)."""
         idx = list(range(len(self.units))) if members is None else list(members)
         value = np.full(len(self.units), INF)
         days: list[Day | None] = [None] * len(self.units)
@@ -317,13 +323,14 @@ class Board:
             mine = [b for b in idx if self.units[b].kind == kind]
             for n in range(0, len(mine), BATCH):
                 batch = mine[n:n + BATCH]
-                v, ds = self.walk(kind, np.array(batch), gain[kind], trace)
+                v, ds = self.walk(kind, np.array(batch), gain[kind], trace, ends)
                 value[batch] = v
                 for b, day in zip(batch, ds, strict=True):
                     days[b] = day
         return value, days
 
-    def walk(self, kind: str, batch: np.ndarray, gain: np.ndarray, trace: bool) -> tuple[np.ndarray, list]:
+    def walk(self, kind: str, batch: np.ndarray, gain: np.ndarray, trace: bool,
+             ends: tuple[np.ndarray, np.ndarray] | None = None) -> tuple[np.ndarray, list]:
         L = self.layers(kind)
         R = L - 1
         B = len(batch)
@@ -347,7 +354,7 @@ class Board:
                 l0[j] = min(units[j].flown, 7)
             else:
                 cab[j] = clim
-        endc = self.endc[batch]
+        endc = (self.endc if ends is None else ends[0])[batch]
         hotel = self.hotel[batch]
         rate, seats, group = self.rate[batch], self.seats[batch], self.group[batch]
         local = {int(b): j for j, b in enumerate(batch)}
@@ -371,7 +378,7 @@ class Board:
         restfrom = np.zeros((n, B), dtype=np.int16) if trace else None
         best_v: dict[int, np.ndarray] = {}
         best_p: dict[int, np.ndarray] = {}
-        best_end = self.idle[batch].copy()
+        best_end = (self.idle if ends is None else ends[1])[batch].copy()
         best_at = [None] * B
         rows = np.arange(B)
         for k in range(n):
@@ -580,34 +587,36 @@ class Covered:
     seconds: float
 
 
-def cover(task: Task, fl: Flights, units: Sequence[Unit], local: crews.Local, end: Callable[[Unit, str], float],
+def cover(task: Task, fl: Flights, units: Sequence[Unit], local: crews.Local, ends: crews.Ends,
           choices: Mapping[int, tuple[np.ndarray, np.ndarray, float]], time_limit: float = 600.0,
           width: int = WIDTH, start: crewsim.CrewDay | None = None,
           log: Callable[[str], None] | None = None) -> Covered:
     """The covering bound's crew part: `choices[i]` is flight i's kept minutes, their prices and its cancellation's
-    price (inf: it must fly), over buckets at most `width` minutes wide; the master starts with the days of `start`'s
-    units (a crew sim day)."""
+    price (inf: it must fly), over buckets at most `width` minutes wide; the end of the day per base as `ends` prices
+    it; the master starts with the days of `start`'s units (a crew sim day)."""
     t0 = time.monotonic()
     legs = Legs.of(fl, {i: c[0] for i, c in choices.items()}, {i: c[1] for i, c in choices.items()}, width)
-    board = Board(task, fl, legs, units, local, end)
-    m = Cover(fl, units, choices, board)
+    board = Board(task, fl, legs, units, local, lambda u, s: 0.0)
+    m = Cover(fl, units, choices, board, ends)
     for b, day in board.days_of(start) if start is not None else ():
         m.add(b, day)
     best = -INF
     rounds = 0
     converged = False
     lp = 0.0
-    center: dict[str, np.ndarray] | None = None
+    center: tuple | None = None
     alpha = SMOOTH
     while time.monotonic() - t0 < time_limit:
-        lp, pi, mu = m.solve()
+        lp, pi, mu, sigma = m.solve()
         rounds += 1
-        center = pi if center is None else center
-        point = {k: alpha * center[k] + (1 - alpha) * pi[k] for k in crews.KINDS}
-        value, days = board.price({k: point[k][legs.flight] - legs.price / 2 for k in crews.KINDS}, trace=True)
-        if (got := m.lagrangian(point, value)) > best:
+        center = (pi, sigma) if center is None else center
+        point = ({k: alpha * center[0][k] + (1 - alpha) * pi[k] for k in crews.KINDS},
+                 alpha * center[1] + (1 - alpha) * sigma)
+        value, days = board.price({k: point[0][k][legs.flight] - legs.price / 2 for k in crews.KINDS}, trace=True,
+                                  ends=m.ends_at(point[1]))
+        if (got := m.lagrangian(point[0], point[1], value)) > best:
             best, center = got, point
-        added = sum(m.add(b, day) for b, day in enumerate(days) if m.reduced(b, day, pi, mu) < -EPS)
+        added = sum(m.add(b, day) for b, day in enumerate(days) if m.reduced(b, day, pi, mu, sigma) < -EPS)
         if log:
             log(f"cover round {rounds} lp {lp:.0f} bound {best:.0f} added {added} {time.monotonic() - t0:.0f}s")
         if not added and not alpha:
@@ -621,9 +630,13 @@ def cover(task: Task, fl: Flights, units: Sequence[Unit], local: crews.Local, en
 
 class Cover:
     """Per flight and kind, the units operating it plus the flight's cancellation (or, where it must fly, an
-    artificial at BIG) equal one; per unit one day. A day costs its crew cost plus half its legs' prices."""
+    artificial at BIG) equal one; per unit one day; and the end of the day per base, a transport problem: per kind,
+    type group and base, the days ending at each station supply it, the base's units' trips tonight (crews.Ends) demand
+    it, a move costing what Ends prices. A day costs its crew cost before the end of the day plus half its legs'
+    prices."""
 
-    def __init__(self, fl: Flights, units: Sequence[Unit], choices: Mapping[int, tuple], board: Board):
+    def __init__(self, fl: Flights, units: Sequence[Unit], choices: Mapping[int, tuple], board: Board,
+                 ends: crews.Ends):
         self.fl, self.units, self.board = fl, list(units), board
         self.h = h = highspy.Highs()
         h.setOptionValue("output_flag", False)
@@ -631,9 +644,22 @@ class Cover:
         nf = len(fl.ids)
         self.row = {(kind, int(i)): r for r, (kind, i) in enumerate((k, i) for k in crews.KINDS for i in fl.ids)}
         self.urow = {b: 2 * nf + b for b in range(len(self.units))}
-        nr = 2 * nf + len(self.units)
-        h.addRows(nr, np.ones(nr), np.ones(nr), 0, np.zeros(nr, dtype=np.int32), np.array([], dtype=np.int32),
-                  np.array([]))
+        self.places = list(fl.stations) + sorted({u.station for u in self.units} - set(fl.stations))
+        self.at = {s: k for k, s in enumerate(self.places)}
+        keys = sorted({ends.of[u.id] for u in self.units})
+        self.cls = np.array([keys.index(ends.of[u.id]) for u in self.units])
+        first = {c: next(u for u in self.units if ends.of[u.id] == key) for c, key in enumerate(keys)}
+        self.wanted = [sorted(ends.wanted[key]) for key in keys]
+        self.need = [np.array([ends.wanted[key][t] for t in ts], dtype=float) for key, ts in zip(keys, self.wanted,
+                                                                                                strict=True)]
+        self.move = [np.array([[ends.move(first[c], p, t) for t in self.wanted[c]] for p in self.places])
+                     for c in range(len(keys))]
+        n = len(self.places)
+        self.srow = 2 * nf + len(self.units)
+        self.trow = [self.srow + len(keys) * n + sum(len(w) for w in self.wanted[:c]) for c in range(len(keys))]
+        nr = self.trow[-1] + len(self.wanted[-1]) if keys else self.srow
+        lo = np.concatenate([np.ones(self.srow), np.zeros(len(keys) * n), *self.need])
+        h.addRows(nr, lo, lo, 0, np.zeros(nr, dtype=np.int32), np.array([], dtype=np.int32), np.array([]))
         self.big = big = 1 + 2 * max([c[2] for c in choices.values() if np.isfinite(c[2])] + [1e6])
         self.cancel = np.array([choices.get(int(i), (np.array([]), np.array([]), 0.0))[2] for i in fl.ids])
         for i in fl.ids:
@@ -645,10 +671,22 @@ class Cover:
             else:
                 for r in rows:
                     h.addCol(float(big), 0.0, 1.0, 1, np.array([r], dtype=np.int32), np.ones(1))
+        for c in range(len(keys)):
+            k = len(self.wanted[c])
+            src = np.repeat(self.srow + c * n + np.arange(n), k)
+            dst = np.tile(self.trow[c] + np.arange(k), n)
+            index = np.stack([src, dst], axis=1).ravel().astype(np.int32)
+            h.addCols(n * k, self.move[c].ravel(), np.zeros(n * k), np.full(n * k, highspy.kHighsInf), 2 * n * k,
+                      np.arange(0, 2 * n * k, 2, dtype=np.int32), index, np.tile([-1.0, 1.0], n * k))
         self.days: list = []
         self.seen: set = set()
         for b, u in enumerate(self.units):
             self.add(b, board.day(u, (), (), None))
+
+    def place(self, b: int, day: Day) -> int:
+        """Where the day ends, among `places`."""
+        steps = (*day.first, *day.second)
+        return int(self.fl.dest[self.board.lflight[steps[-1][0]]]) if steps else self.at[self.units[b].station]
 
     def add(self, b: int, day: Day | None) -> int:
         if day is None:
@@ -657,7 +695,8 @@ class Cover:
         if key in self.seen:
             return 0
         self.seen.add(key)
-        coef: dict[int, float] = {self.urow[b]: 1.0}
+        end = self.srow + int(self.cls[b]) * len(self.places) + self.place(b, day)
+        coef: dict[int, float] = {self.urow[b]: 1.0, end: 1.0}
         for r in self.ops(b, day):
             coef[r] = coef.get(r, 0.0) + 1.0
         self.h.addCol(float(self.cost(day)), 0.0, INF, len(coef), np.array(list(coef), dtype=np.int32),
@@ -671,33 +710,44 @@ class Cover:
                 if how == OP]
 
     def cost(self, day: Day) -> float:
-        """The day's crew cost plus half the prices of the legs it operates."""
+        """The day's crew cost before the end of the day plus half the prices of the legs it operates."""
         return day.cost + sum(self.board.legs.price[k] / 2 for k, how in (*day.first, *day.second) if how == OP)
 
-    def reduced(self, b: int, day: Day | None, pi: Mapping[str, np.ndarray], mu: np.ndarray) -> float:
+    def reduced(self, b: int, day: Day | None, pi: Mapping[str, np.ndarray], mu: np.ndarray,
+                sigma: np.ndarray) -> float:
         if day is None:
             return INF
         nf = len(self.fl.ids)
         kind = self.units[b].kind
-        return self.cost(day) - mu[b] - sum(pi[kind][r % nf] for r in self.ops(b, day))
+        return self.cost(day) - mu[b] - sum(pi[kind][r % nf] for r in self.ops(b, day)) - \
+            sigma[self.cls[b], self.place(b, day)]
 
-    def lagrangian(self, pi: Mapping[str, np.ndarray], value: np.ndarray) -> float:
-        """The covering problem's Lagrangian bound at duals `pi` on the flight rows, `value` each unit's least day
-        less the duals of the flights it operates: the duals, each cancellation (or artificial) where it pays, and
-        the units' days."""
+    def ends_at(self, sigma: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Each unit's value of ending at each flight station and at its own station, at the transport duals."""
+        own = np.array([self.at[u.station] for u in self.units])
+        return -sigma[self.cls][:, :len(self.fl.stations)], -sigma[self.cls, own]
+
+    def lagrangian(self, pi: Mapping[str, np.ndarray], sigma: np.ndarray, value: np.ndarray) -> float:
+        """The covering problem's Lagrangian bound at duals `pi` on the flight rows and `sigma` on the stations each
+        base's days end at, `value` each unit's least day less those duals: the duals, each cancellation (or
+        artificial) where it pays, each base's trips tonight at their cheapest station, and the units' days."""
         both = pi["pilot"] + pi["cabin"]
         cancel = np.where(np.isfinite(self.cancel), np.minimum(0.0, np.where(np.isfinite(self.cancel), self.cancel,
                                                                               0.0) - both), 0.0)
         art = np.where(np.isfinite(self.cancel), 0.0,
                        np.minimum(0.0, self.big - pi["pilot"]) + np.minimum(0.0, self.big - pi["cabin"]))
-        return float(both.sum() + cancel.sum() + art.sum() + value.sum())
+        tonight = sum(float(need @ (move + sigma[c][:, None]).min(axis=0))
+                      for c, (need, move) in enumerate(zip(self.need, self.move, strict=True)))
+        return float(both.sum() + cancel.sum() + art.sum() + tonight + value.sum())
 
-    def solve(self) -> tuple[float, dict[str, np.ndarray], np.ndarray]:
+    def solve(self) -> tuple[float, dict[str, np.ndarray], np.ndarray, np.ndarray]:
         self.h.run()
         y = np.asarray(self.h.getSolution().row_dual)
         nf = len(self.fl.ids)
         pi = {kind: y[n * nf:(n + 1) * nf] for n, kind in enumerate(crews.KINDS)}
-        return self.h.getInfo().objective_function_value, pi, y[2 * nf:]
+        n = len(self.places)
+        sigma = y[self.srow:self.srow + len(self.need) * n].reshape(len(self.need), n)
+        return self.h.getInfo().objective_function_value, pi, y[2 * nf:self.srow], sigma
 
 
 def prices(air, lp: mip.Relaxed, upper: np.ndarray, cap: float) -> dict[int, tuple[np.ndarray, np.ndarray, float]]:
