@@ -17,9 +17,10 @@ reserve reports, and a second duty period reports, on the last whole hour that l
 
 The column pool starts with each unit's day following its trip as far as it legally can (priced like any other). Column
 generation to the LP optimum (or half the time limit), then a dive: fix the columns the LP has above SURE (the largest
-if none), price again, repeat until the LP is integral, which is a feasible integer plan; then the integer program over
-every column generated, started from the dive's plan or the trip-following one, whichever is cheaper (every unit idle if
-neither is a plan). The LP and the Lagrangian bound give how far from the fewest uncrewed flights the plan can be.
+if none), price again the units not yet fixed, repeat until the LP is integral, which is a feasible integer plan; then
+the integer program over every column generated, started from the dive's plan or the trip-following one, whichever is
+cheaper (every unit idle if neither is a plan). The LP and the Lagrangian bound give how far from the fewest uncrewed
+flights the plan can be.
 """
 
 import bisect
@@ -128,6 +129,7 @@ class Problem:
         self.dh_base = {(k, grp): np.array([crews.deadhead(k, grp, g.block, d) for g in self.legs])
                         for k in crews.KINDS for grp in crews.GROUPS}
         self.hours: dict[tuple[str, int], int] = {}
+        self.offsets: dict[tuple[str, int], int] = {}
         self.whole = sorted({(t - crews.BRIEF) // 60 * 60 for t in self.deps})
 
     def hour(self, station: str, minute: int) -> int:
@@ -137,7 +139,10 @@ class Problem:
         return self.hours[k]
 
     def offset(self, station: str, minute: int) -> int:
-        return self.local(station, minute) - minute
+        k = (station, minute)
+        if k not in self.offsets:
+            self.offsets[k] = self.local(station, minute) - minute
+        return self.offsets[k]
 
     def window(self, report: int) -> range:
         """The legs whose last whole hour before them, less BRIEF, is `report`."""
@@ -202,6 +207,13 @@ class Pricer:
     def __init__(self, p: Problem):
         self.p = p
         self.cache: dict[tuple, object] = {}
+        self.kinds: dict[str, Unit] = {}
+
+    def kind(self, u: Unit) -> Unit:
+        """The unit without its id: identical units share their legality and end costs."""
+        if u.id not in self.kinds:
+            self.kinds[u.id] = replace(u, id="")
+        return self.kinds[u.id]
 
     def price(self, u: Unit, y: Duals, keep: int = 3) -> tuple[float, list[Column]]:
         p = self.p
@@ -240,7 +252,7 @@ class Pricer:
 
     def legal(self, u: Unit, report: int, hour: int, rap: int | None, minutes: int, own: bool) -> np.ndarray:
         """ops[k, l]: the unit may operate leg k as its period's l-th segment (attendants: 1, any leg flown)."""
-        key = ("legal", replace(u, id=""), report, hour, rap, minutes, own)
+        key = ("legal", self.kind(u), report, hour, rap, minutes, own)
         if key in self.cache:
             return self.cache[key]
         p = self.p
@@ -258,7 +270,7 @@ class Pricer:
         return out
 
     def dh_legal(self, u: Unit, report: int, own: bool = True) -> np.ndarray:
-        key = ("dh", replace(u, id=""), report, own)
+        key = ("dh", self.kind(u), report, own)
         if key not in self.cache:
             p = self.p
             planned = set(u.deadheads) if own else set()
@@ -268,7 +280,7 @@ class Pricer:
         return self.cache[key]
 
     def ends(self, u: Unit) -> np.ndarray:
-        key = ("ends", replace(u, id=""))
+        key = ("ends", self.kind(u))
         if key not in self.cache:
             self.cache[key] = np.array([self.p.end(u, s) for s in self.p.stations])
         return self.cache[key]
@@ -651,7 +663,8 @@ class Solved:
 
 
 def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int = 3, polish: float = 300.0,
-          log: Callable[[str], None] | None = None) -> Solved:
+          start: Mapping[str, Column] | None = None, log: Callable[[str], None] | None = None) -> Solved:
+    """`start` is a plan to start from too: a column per unit that moves (crewday.columns_of)."""
     t0 = time.monotonic()
     master = Master(p)
     pricer = Pricer(p)
@@ -667,6 +680,11 @@ def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int 
         for u in members if c is not None else ():
             if master.add(replace(c, unit=u.id)):
                 seeds[u.id] = len(master.columns) - 1
+    given = {}
+    for uid, c in (start or {}).items():
+        c = p.priced(p.unit[uid], c)
+        master.add(c)
+        given[uid] = next(j for j in range(len(master.columns) - 1, -1, -1) if master.columns[j].key == c.key)
 
     def generate(limit: int, deadline: float) -> tuple[float, bool]:
         nonlocal bound, count
@@ -677,7 +695,11 @@ def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int 
                 raise RuntimeError(f"crew master {status}")
             y = master.duals()
             total, added = 0.0, 0
+            done = {master.columns[j].unit for j in fixed}
             for members in classes.values():
+                members = [u for u in members if u.id not in done]
+                if not members:
+                    continue
                 rc, cols = pricer.price(members[0], y, keep)
                 for u in members:
                     total += min(0.0, rc + y.mu[members[0].id] - y.mu[u.id])
@@ -728,8 +750,9 @@ def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int 
     integral = bool(np.all(np.abs(tail - np.round(tail)) <= 1e-6))
     cost = np.asarray(master.h.getLp().col_cost_)
     starts = [np.round(x)] if integral else [master.trivial()]
-    if (follow := master.plan(seeds)) is not None:
-        starts.append(follow)
+    for chosen in (seeds, given):
+        if chosen and (plan := master.plan(chosen)) is not None:
+            starts.append(plan)
     start = min(starts, key=lambda v: float(cost @ v))
     for j in fixed:
         master.h.changeColBounds(master.first + j, 0.0, INF)

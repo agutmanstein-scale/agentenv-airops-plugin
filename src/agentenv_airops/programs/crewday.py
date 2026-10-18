@@ -21,9 +21,7 @@ day and the crew-aware calm day.
 - The crew replay of JetBlue's real day: its flown flights at their recorded departures and blocks (its cancellations
   out), crewed by the units at the start, their reserves and every move, the fewest flights without a legal crew first
   (crewreplay.solve: a dive that always ends in an integer plan, with its LP and Lagrangian bounds).
-- The crew-aware calm day (calm_day): the calm optimum without crews (references.calm) crewed by the calm units at its
-  departures, then the aircraft MIP again around the flights crews can't take there and around each flight it cancels;
-  the cheapest day the crew sim replays is the crew-aware calm plan, and the calm optimum without crews bounds it below.
+- The crew-aware calm day is crewplan.calm_day's.
 """
 
 import time
@@ -37,15 +35,13 @@ import pandas as pd
 from ..build import fleet, pack
 from ..core.cost import miles
 from ..core.model import Airport
-from . import candidates, crewreplay, crews, crewsim, mip, network, pairings, sim
-from .cost import cancel_price
+from . import candidates, crewreplay, crews, crewsim, network, pairings
 from .crewreplay import DH, OP, Column, Leg, Problem
 from .crews import Unit
 from .model import Task
 
 AHEAD = crewreplay.UNCREWED / 100
 SWAP = 1000
-FLY = 10
 
 
 @dataclass
@@ -154,7 +150,8 @@ def task_legs(task: Task, deps: Mapping[int, int], blocks: Mapping[int, int], en
             if (d := deps.get(f.id)) is not None]
 
 
-def storm_units(w: World, share: str = "middle", time_limit: float = 900.0, log=None) -> tuple[list[Unit], dict]:
+def storm_units(w: World, share: str = "middle", time_limit: float = 900.0, polish: float = 300.0,
+                log=None) -> tuple[list[Unit], dict]:
     """The units at the start from a crew replay of the record before it with the rest of the day as scheduled, and
     that replay's summary."""
     task = w.task
@@ -169,7 +166,7 @@ def storm_units(w: World, share: str = "middle", time_limit: float = 900.0, log=
                        {f.id: f.sched_block for f in task.flights})]
     p = Problem(recorded_legs(w) + later, keyed, task.date, w.local, task_end(w), foreign=SWAP)
     t0 = time.monotonic()
-    sol = crewreplay.solve(p, time_limit, log=log)
+    sol = crewreplay.solve(p, time_limit, polish=polish, log=log)
     out = [s for u in keyed if (s := at_start(p, u, sol.columns.get(u.id), task.start)) is not None]
     before = [i for i in sol.uncrewed if i >= 0]
     return out, {**sol.summary(), "legs": sum(g.id >= 0 for g in p.legs),
@@ -267,13 +264,13 @@ def task_end(w: World) -> Callable[[Unit, str], float]:
     return lambda u, station: crews.reposition(u, station, w.airports, w.task.date)
 
 
-def replay_record(w: World, units: Sequence[Unit], time_limit: float = 1800.0, log=None) -> tuple[Problem,
-                                                                                                    crewreplay.Solved]:
+def replay_record(w: World, units: Sequence[Unit], time_limit: float = 1800.0, polish: float = 300.0,
+                  log=None) -> tuple[Problem, crewreplay.Solved]:
     """JetBlue's real day crewed: its flown flights at their recorded departures and blocks."""
     task = w.task
     deps, blocks, ends = recorded(task)
     p = Problem(task_legs(task, deps, blocks, ends), units, task.date, w.local, task_end(w), call=task.start)
-    return p, crewreplay.solve(p, time_limit, log=log)
+    return p, crewreplay.solve(p, time_limit, polish=polish, log=log)
 
 
 def recorded(task: Task) -> tuple[dict[int, int], dict[int, int], dict[int, str]]:
@@ -308,103 +305,25 @@ def plan_of(p: Problem, sol: crewreplay.Solved, base: Mapping[int, Mapping] | No
     return out
 
 
-@dataclass
-class Calm:
-    """The crew-aware calm day: the calm optimum without crews, the best crew-aware plan found and its crew sim
-    replay."""
-
-    task: Task
-    optimum: mip.Solution
-    plan: dict
-    day: crewsim.CrewDay
-    attempts: list[dict]
-
-    @property
-    def rise_pct(self) -> float | None:
-        base = self.optimum.objective
-        if abs(self.day.total - base) < 1e-6:
-            return 0.0
-        return None if base <= 0 else 100 * (self.day.total - base) / base
-
-
-def calm_optimum(w: World, time_limit: float = 1800.0) -> mip.Solution:
-    """The calm day's optimum without crews, as references.calm solves it."""
-    task = network.scheduled(w.task)
-    calm = sim.calm(task)
-    return mip.solve(task, calm, time_limit=time_limit, canonical=False, start=sim.execute(task, {}, calm))
-
-
-def calm_day(w: World, units: Sequence[Unit], optimum: mip.Solution | None = None, time_limit: float = 1800.0,
-             crew_limit: float = 900.0, tries: int = 4, log=None) -> Calm:
-    """The best crew-aware calm day found: the calm optimum without crews crewed at its departures; while flights go
-    without a legal crew there, the aircraft MIP again with them held to the minute the crew sim flew them (or
-    cancelled at the start where it could not); then, one at a time, each flight the best plan cancels priced to fly
-    (its cancellation at FLY times its price), in case its crews cost more stranded than another flight's cancellation
-    does. Every plan is crewed by crewreplay.solve and replayed in the crew sim; the cheapest replay wins."""
-    task = network.scheduled(w.task)
-    calm = sim.calm(task)
-    optimum = calm_optimum(w, time_limit) if optimum is None else optimum
-    attempts: list[dict] = []
-    best: list = []
-
-    def consider(aircraft: mip.Solution, label: str) -> tuple[crewreplay.Solved, crewsim.CrewDay]:
-        deps = {i: d for i, d in aircraft.deps.items() if d is not None}
-        p = Problem(task_legs(task, deps, {f.id: f.sched_block for f in task.flights}), units, task.date, w.local,
-                    task_end(w), call=task.start)
-        crewed = crewreplay.solve(p, crew_limit, log=log)
-        plan = plan_of(p, crewed, aircraft.plan(task.start))
-        exact = crewsim.execute(task, plan, units, calm, w.local, fill=False, airports=w.airports)
-        day = exact
-        if crewed.uncrewed:
-            plan = named(crewsim.execute(task, plan, units, calm, w.local, airports=w.airports))
-            day = crewsim.execute(task, plan, units, calm, w.local, fill=False, airports=w.airports)
-        attempts.append({"try": label, "aircraft": aircraft.objective, "aircraft_status": aircraft.status,
-                         "crew": crewed.summary(), "crew_cost": round(crewed.crew_cost, 1),
-                         "planned": round(aircraft.objective + crewed.crew_cost, 1), "exact": round(exact.total, 1),
-                         "replayed": round(day.total, 1), "sim_uncrewed": len(day.uncrewed),
-                         "causes": uncrewed_causes(p, crewed)})
-        if not best or day.total < best[1].total - 1e-6:
-            best[:] = [plan, day, crewed]
-        return crewed, day
-
-    crewed, day = consider(optimum, "optimum")
-    held, dropped, fly = {}, set(), set()
-    for n in range(tries):
-        if not crewed.uncrewed:
-            break
-        for i in crewed.uncrewed:
-            r = day.run.flights[i]
-            if r.dep is None:
-                dropped.add(i)
-            else:
-                held[i] = max(held.get(i, 0), r.dep)
-        crewed, day = consider(hold(task, calm, held, dropped, fly, time_limit), f"held {n + 1}")
-    tried: set[int] = set()
-    for _ in range(tries):
-        out = [i for i, r in best[1].run.flights.items() if r.dep is None and i not in dropped and i not in tried]
-        if not out:
-            break
-        i = out[0]
-        tried.add(i)
-        before = best[1].total
-        consider(hold(task, calm, held, dropped, fly | {i}, time_limit), f"fly {task.flight(i).flight}")
-        if best[1].total < before - 1e-6:
-            fly.add(i)
-    return Calm(task, optimum, best[0], best[1], attempts)
-
-
-def hold(task: Task, calm: sim.World, held: Mapping[int, int], dropped: set[int], fly: set[int],
-         time_limit: float) -> mip.Solution:
-    """The calm aircraft optimum with each flight in `held` leaving no earlier than its minute there, those in
-    `dropped` cancelled at the start, and those in `fly` cancelled only at FLY times the price."""
-    lb = dict(calm.lb)
-    for i, d in held.items():
-        lb[i] = max(lb[i], d - task.flight(i).sched_dep)
-    world_ = replace(calm, lb=lb)
-    price = {f.id: cancel_price(f, task.start) * (FLY if f.id in fly else 1) for f in task.flights}
-    cancels = {i: {"cancel": True} for i in dropped}
-    return mip.solve(task, world_, price, fixed=dict.fromkeys(dropped), time_limit=time_limit, canonical=False,
-                     start=sim.execute(task, cancels, world_))
+def columns_of(p: Problem, day: crewsim.CrewDay) -> dict[str, Column] | None:
+    """A crew sim day's crews as the replay's columns over `p`'s legs (each unit that moved, its duty periods, a
+    called reserve's report, its rest), or None if it flew a leg at a minute `p` lacks."""
+    out = {}
+    for uid, rec in day.units.items():
+        periods = [[], []]
+        report = rest = None
+        for d in rec["duties"]:
+            if d["begins"] == "call":
+                report = d["report"]
+            if d["begins"] == "rest":
+                rest = (d["at"], d["report"])
+            steps = [(t, i, OP) for i, t, _ in d["legs"]] + [(t, i, DH) for i, t, _ in d["deadheads"]]
+            if any(i not in p.leg or p.leg[i].dep != t for t, i, _ in steps):
+                return None
+            periods[d["begins"] == "rest"] += [(i, how) for _, i, how in sorted(steps)]
+        if periods[0] or periods[1] or report is not None:
+            out[uid] = Column(uid, tuple(periods[0]), tuple(periods[1]), report, rest, rec["station"])
+    return out
 
 
 def named(day: crewsim.CrewDay) -> dict:
