@@ -3,30 +3,30 @@ airline's control center runs it.
 
 A date qualifies when the per-hub candidate rule (candidates.candidates) holds at JFK or BOS, those hubs being its storm
 hubs, and the programs control or hold at least MIN_CONTROLLED of the task's JetBlue flights; a control date is one the
-control rule (candidates.controls) picks, with the windows it picks there. The task starts an hour before the earliest
-storm hub window (candidates.build_candidate's rule window, or the control's) or the earliest storm hub's first program
-hour, whichever comes first; where no storm hub has a window that passes the hub window's data clauses, the windows are
-taken from the first hour a hub program is in force (`fallback`). Its flights are every JetBlue leg of the date from the
-start, flown and cancelled, and any aircraft of a leg's family may fly it: aircraft are pooled by family at each
-station. Every typed tail with a leg that day is an aircraft of the task, unless it flew none that day nor the day
-before: that one is out of service, and its cancelled legs stay for any aircraft. An aircraft starts where the record
-has it: after the last leg it flew before its first leg of the task (one of the date's that left before the start, or
-one of the day before's, delayed past the start or not), ready after its turn. A tail's legs are the legs it flew from
-the start, in the order it flew them; a station gap between two of them is a repositioning the record lacks
-(model.Move, bound to the aircraft of the leg before it), and one before the first moves the start to that leg's
-origin, ready at its scheduled departure less the turn or after its arrival there, whichever is later. With no record
-before the start the tail starts at its first flown leg's origin, ready at its scheduled departure less the turn. A long
-daytime same-station gap before or between flown legs is a busy block, as repairs.tails reads one on the scheduled
-chain: none where the tail's recorded ground time there is shorter, or where a cancelled leg BTS leaves on the tail was
-scheduled to leave inside it. A tail whose last flown leg of the date lands at one of JetBlue's international gateways
-(GATEWAYS) before DAYTIME station-local, no cancelled leg left on the tail after it, is away on flying abroad that BTS
-lacks: busy past the task's last deadline (a busy block on that leg, or from the start if it landed before). Over the
-19 months, before 18:00 at least 64% of every half hour's last landings at the gateways are more than other stations'
-ordinary end of day explains (84% of them in all), from 18:00 to 19:30 about half, later a minority. A turn JetBlue
-flew between flown legs may be as fast (repairs.connections). Swaps and the stale tails BTS leaves on cancelled legs
-make no Move. Tomorrow's needs are pooled: per family and station, where flying the whole schedule and its Moves from
-the start positions leaves the aircraft; a count the schedule would leave below zero is zero, and the stations with the
-most aircraft of the family give up the difference, one at a time.
+control rule (candidates.controls) picks, with the windows it picks there. The storm hub windows are
+candidates.build_candidate's rule windows, or the control's; where no storm hub has a window that passes the hub
+window's data clauses, they are taken from the first hour a hub program is in force (`fallback`). Every task starts at
+START, 04:00 on the hub's clock (Eastern at JFK and BOS), and runs the whole day: its flights are every JetBlue leg of
+the date from the start, flown and cancelled, and any aircraft of a leg's family may fly it: aircraft are pooled by
+family at each station. Every typed tail with a leg that day is an aircraft of the task, unless it flew none that day
+nor the day before: that one is out of service, and its cancelled legs stay for any aircraft. An aircraft starts where
+the record has it: after the last leg it flew before its first leg of the task (one of the date's that left before the
+start, or one of the day before's, delayed past the start or not), ready after its turn. A tail's legs are the legs it
+flew from the start, in the order it flew them; a station gap between two of them is a repositioning the record lacks
+(model.Move, bound to the aircraft of the leg before it), and one before the first moves the start to that leg's origin,
+ready at its scheduled departure less the turn or after its arrival there, whichever is later. With no record before the
+start the tail starts at its first flown leg's origin, ready at its scheduled departure less the turn. A long daytime
+same-station gap before or between flown legs is a busy block, as repairs.tails reads one on the scheduled chain: none
+where the tail's recorded ground time there is shorter, or where a cancelled leg BTS leaves on the tail was scheduled to
+leave inside it. A tail whose last flown leg of the date lands at one of JetBlue's international gateways (GATEWAYS)
+before DAYTIME station-local, no cancelled leg left on the tail after it, is away on flying abroad that BTS lacks: busy
+past the task's last deadline (a busy block on that leg, or from the start if it landed before). Over the 19 months,
+before 18:00 at least 64% of every half hour's last landings at the gateways are more than other stations' ordinary end
+of day explains (84% of them in all), from 18:00 to 19:30 about half, later a minority. A turn JetBlue flew between
+flown legs may be as fast (repairs.connections). Swaps and the stale tails BTS leaves on cancelled legs make no Move.
+Tomorrow's needs are pooled: per family and station, where flying the whole schedule and its Moves from the start
+positions leaves the aircraft; a count the schedule would leave below zero is zero, and the stations with the most
+aircraft of the family give up the difference, one at a time.
 
 The calm day starts from the positions the schedule assumes (`scheduled`), the storm day from the record's; the record's
 morning against the schedule's is a finding (`shortfall`).
@@ -53,6 +53,7 @@ from .candidates import CARRIER, EVAL_PER_HUB, EVAL_WINTER, EVAL_WINTER_SHORT, M
 from .model import Busy, Flight, Move, Tail, Task
 
 Windows = dict[str, tuple[int, int]]
+START = 4 * 60
 GATEWAYS = ("JFK", "BOS", "FLL", "MCO", "SJU")
 DAYTIME = 18 * 60
 
@@ -108,8 +109,7 @@ def build(d: str, hubs: Sequence[str], inputs: Path, derived: Path, e_fit: Mappi
 def assemble(ctx: candidates.Context, d: str, hub: str, hubs: tuple[str, ...], row: Mapping, e_fit: Mapping[str, float],
              e_median: Mapping[str, float], scale: Mapping[str, float], cutoff: int, split: str) -> Task:
     day = ctx.day
-    sc = scope(day, (min(w[0] for w in row["windows"].values()), max(w[1] for w in row["windows"].values())),
-               begins(row))
+    sc = scope(day, (min(w[0] for w in row["windows"].values()), max(w[1] for w in row["windows"].values())), START)
     flights = repairs.flights(day, sc, ctx.x, ctx.families, candidates.tests(ctx), cutoff=cutoff)
     tails, counts = network_tails(day, sc, flights, ctx.families, day.turn)
     need, short = needs(tails, flights)
@@ -131,12 +131,6 @@ def assemble(ctx: candidates.Context, d: str, hub: str, hubs: tuple[str, ...], r
                 flights=tuple(flights), programs=programs, clauses=clauses, sources=candidates.pins(ctx, sc),
                 hubs=hubs, needs=need)
     return rbs.rescale(task, scale, e_fit, e_median)
-
-
-def begins(row: Mapping) -> int:
-    """An hour before the earliest storm hub window or storm hub's first program hour."""
-    return min([w[0] for w in row["windows"].values()]
-               + [60 * h for h in row["first_hours"].values() if h is not None]) - 60
 
 
 def scope(day: pack.Day, window: tuple[int, int], start: int) -> pack.Scope:

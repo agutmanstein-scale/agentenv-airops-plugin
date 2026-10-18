@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pandas as pd
 
 from agentenv_airops.core.model import Airport
-from agentenv_airops.programs import crewday, crewreplay, crews, pairings
+from agentenv_airops.programs import crewday, crewreplay, crews, network, pairings
 from agentenv_airops.programs.crewday import ahead
 from agentenv_airops.programs.crewreplay import DH, OP, Column, Leg, Problem
 from agentenv_airops.programs.crews import Unit
@@ -55,6 +55,24 @@ def test_a_reserve_is_called_before_the_start_only_if_it_flew_before_it():
     assert (s.report, s.hour, s.rap, s.station, s.flown) == (300, 5, 120, "BOS", 1)
     s = crewday.at_start(p, r, Column("R", ((ahead(7), OP),), report=660, end="DCA"), 600)
     assert (s.report, s.station, s.trip) == (None, "JFK", (7,))
+
+
+def test_at_four_a_red_eye_crew_carries_its_duty_so_far_and_the_others_start_rested_where_their_trips_report():
+    legs = [Leg(101, "B6 1", "BUF", "JFK", 90, 300, 150, "A32X", 20), later(7, "JFK", "BOS", 420, 60),
+            later(8, "BOS", "DCA", 405, 90)]
+    eye = [unit(k, kind, "BUF", -30, hour=23, trip=(101, ahead(7)), end="BOS") for k, kind in
+           (("PR", "pilot"), ("CR", "cabin"))]
+    rested = [unit(k, kind, "BOS", 345, trip=(ahead(8),), end="DCA") for k, kind in (("PM", "pilot"), ("CM", "cabin"))]
+    p = problem(legs, eye + rested)
+    s = crewreplay.solve(p, time_limit=30, polish=5)
+    assert s.uncrewed == () and s.crews(p)[101] == {"pilot": "PR", "cabin": "CR"}
+    at = {u.id: crewday.at_start(p, u, s.columns.get(u.id), network.START) for u in p.units}
+    r = at["PR"]
+    assert (r.station, r.ready, r.report, r.flown, r.minutes, r.landed, r.trip) == (
+        "JFK", 300 + crews.CONNECT, -30, 1, 210, 300, (7,))
+    m = at["PM"]
+    assert (m.station, m.ready, m.report, m.flown, m.minutes, m.landed, m.trip) == (
+        "BOS", 345 + crews.BRIEF, 345, 0, 0, None, (8,))
 
 
 def test_crews_done_before_the_start_and_spent_reserves_are_off():

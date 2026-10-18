@@ -16,7 +16,9 @@ day and the crew-aware calm day.
   start where that replay has it, and its trip from the start is the replay's plan for it. So a leg cancelled before the
   start strands no crew it need not, a crew a recorded overrun timed out hands its legs to another, and no crew is sent
   where the day goes on that could not go on. A unit is off when it was released before the start with nothing left, and
-  so is a reserve whose period or shift is over unused.
+  so is a reserve whose period or shift is over unused. At the tasks' 04:00 start (network.START) the record before it
+  is the few legs flown by then, red-eyes and the first departures: a crew on one carries its duty so far, and every
+  other crew starts rested where its trip reports.
 - The calm day's units stand where the schedule assumes them, as network.scheduled stands its aircraft: every leg
   scheduled before the start flown on schedule. A leg scheduled before the start that left after it in the record leaves
   at the start in the calm world; its duty is split there (labelled): a crew flies those legs from their origin at the

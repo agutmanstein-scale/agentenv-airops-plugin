@@ -173,13 +173,14 @@ def test_a_storm_date_holds_every_jetblue_leg_from_the_start_and_every_typed_tai
     b = network.build(DATE, ("JFK",), slice_inputs, derived, e_fit, e_median, ones, windows={"JFK": WINDOW},
                       split="control")
     task = b.task
-    assert (task.task_id, task.start, task.hub, task.hubs, task.version) == ("b6-20230626-1600", 960, "JFK",
+    assert (task.task_id, task.start, task.hub, task.hubs, task.version) == ("b6-20230626-0400", 240, "JFK",
                                                                              ("JFK",), 3)
     day = candidates.context(slice_inputs, derived, DATE, "JFK").day
     cur, prev = day.cur, day.prev
-    decided = cur[((cur.Cancelled == 0) & (cur.ad >= 960)) | ((cur.Cancelled == 1) & (cur.sd >= 960))]
+    decided = cur[((cur.Cancelled == 0) & (cur.ad >= 240)) | ((cur.Cancelled == 1) & (cur.sd >= 240))]
     idle = set(cur.Tail_Number) - set(cur[cur.Cancelled == 0].Tail_Number) - set(prev[prev.Cancelled == 0].Tail_Number)
-    assert len(task.flights) == len(decided) == 20 and len(idle) == task.clauses["network"]["out of service"] == 1
+    assert len(task.flights) == len(decided) == len(cur) == 39
+    assert len(idle) == task.clauses["network"]["out of service"] == 1
     assert {t.tail for t in task.tails} == set(cur.Tail_Number) - idle
     for t in task.tails:
         mine = sorted((f for f in task.flights if f.actual.tail == t.tail and f.actual.dep is not None),
@@ -188,7 +189,7 @@ def test_a_storm_date_holds_every_jetblue_leg_from_the_start_and_every_typed_tai
     assert not any(t.repositions for t in task.tails)
     families = Counter(t.family for t in task.tails)
     assert {fam: sum(by.values()) for fam, by in task.needs.items()} == families
-    assert task.clauses["short"] == {"E190 LGA": 1, "E190 RDU": 1}
+    assert task.clauses["short"] == {"E190 ACK": 1, "E190 RDU": 1, "E190 ROC": 1}
     assert task.needed == Counter({(fam, s): n for fam, by in task.needs.items() for s, n in by.items()})
     again = Task.from_dict(json.loads(task.to_json()))
     assert again == task and again.to_json() == task.to_json()
@@ -196,27 +197,39 @@ def test_a_storm_date_holds_every_jetblue_leg_from_the_start_and_every_typed_tai
     assert replay.auto == 0 and replay.flew == sum(f.actual.dep is not None for f in task.flights)
 
 
-def test_a_storm_date_starts_by_an_hour_before_its_first_program_hour_and_needs_five_flights_its_programs_hold(
+def test_a_storm_date_starts_at_four_its_windows_from_its_first_program_hour_and_needs_five_flights_held(
         slice_inputs, fits, tmp_path_factory, monkeypatch):
     derived = tmp_path_factory.mktemp("derived")
     ones = {"JFK": 1.0, "BOS": 1.0}
     e_fit, e_median = unseen.table(fits, ones)
     b = network.build(DATE, ("JFK",), slice_inputs, derived, e_fit, e_median, ones)
-    assert b.task.start == 60 * b.row["first_hours"]["JFK"] - 60 == 660
+    assert b.task.start == network.START == 240 and b.task.task_id == "b6-20230626-0400"
+    assert b.row["fallback"] and b.task.window == (60 * b.row["first_hours"]["JFK"], 900)
     assert b.task.clauses["controlled_or_held"] == 10 >= network.MIN_CONTROLLED == 5
     monkeypatch.setattr(network, "MIN_CONTROLLED", 11)
     b = network.build(DATE, ("JFK",), slice_inputs, derived, e_fit, e_median, ones)
     assert b.task is None and b.row["reason"] == "fewer than 11 JetBlue flights controlled or held"
     control = network.build(DATE, ("JFK",), slice_inputs, derived, e_fit, e_median, ones, windows={"JFK": WINDOW},
                             split="control")
-    assert control.task.clauses["controlled_or_held"] == 6
+    assert control.task.start == network.START and control.task.clauses["controlled_or_held"] == 10
 
 
-def test_a_date_starts_an_hour_before_its_first_storm_hub_window_or_first_program_hour():
-    row = {"windows": {"JFK": [780, 1140], "BOS": [900, 1200]}, "first_hours": {"JFK": 11, "BOS": 15}}
-    assert network.begins(row) == 600
-    assert network.begins({**row, "first_hours": {"JFK": 13, "BOS": None}}) == 720
-    assert network.begins({"windows": {"JFK": [1080, 1320], "BOS": [420, 660]}, "first_hours": {}}) == 360
+def test_the_aircraft_start_at_four_where_the_record_has_them(slice_inputs, fits, tmp_path_factory):
+    derived = tmp_path_factory.mktemp("derived")
+    ones = {"JFK": 1.0, "BOS": 1.0}
+    e_fit, e_median = unseen.table(fits, ones)
+    task = network.build(DATE, ("JFK",), slice_inputs, derived, e_fit, e_median, ones, windows={"JFK": WINDOW},
+                         split="control").task
+    day = candidates.context(slice_inputs, derived, DATE, "JFK").day
+    prev = day.prev[day.prev.Cancelled == 0]
+    airborne = prev[(prev.ad < task.start) & (prev.aa > task.start)]
+    assert sorted(airborne.Tail_Number) == ["N729JB", "N763JB", "N976JT"]
+    at = {t.tail: (t.pos, t.ready) for t in task.tails}
+    for r in airborne.itertuples():
+        t = next(t for t in task.tails if t.tail == r.Tail_Number)
+        assert at[t.tail] == (r.Dest, r.aa + day.turn[t.family]) and t.ready > task.start
+    assert at["N972JT"] == ("JFK", 115 + day.turn["A321"]) and at["N249JB"] == ("RIC", 0)
+    assert not len(day.cur[(day.cur.Cancelled == 0) & (day.cur.ad < task.start)])
 
 
 def dates(first: str, n: int, gap: int) -> list[str]:

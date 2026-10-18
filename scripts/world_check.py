@@ -41,7 +41,7 @@ The gates, as registered, a task being a storm date:
 Reported beside them: per date the record's morning against the schedule's positions (the aircraft out of position,
 the departures they leave without an aircraft on time) and the tails away from a gateway or out of service.
 
---only takes dates (2024-08-19) or task ids (b6-20240819-0600), storm and control dates alike.
+--only takes dates (2024-08-19) or task ids (b6-20240819-0400), storm and control dates alike.
 """
 
 import argparse
@@ -516,7 +516,7 @@ def days_report(tasks: Mapping[str, Task], drawn: Mapping[str, str], split: Mapp
 
     eval_drawn = [i for i, t in tasks.items() if drawn.get(t.date) == "eval"]
     return {"candidates": counts["candidates"], "dates_run": sum(not j[3] for j in jobs), "built": len(tasks),
-            "built_by": by(tasks), "fallback_start": sum(t.clauses["fallback"] for t in tasks.values()),
+            "built_by": by(tasks), "fallback_windows": sum(t.clauses["fallback"] for t in tasks.values()),
             "kept": len(kept & set(tasks)),
             "drawn": {"eval": by(eval_drawn), "train": sum(v == "train" for v in drawn.values()),
                       "neither": len(tasks) - len(drawn)},
@@ -551,8 +551,7 @@ def diagnostics(tasks: Mapping[str, Task], results: Mapping[str, dict], pool: Ma
         "calm_cancels": {"total": len(calms), "by_cause": dict(Counter(c["cause"] for c in calms)),
                          "jetblue_cancelled": sum(c["jetblue"] == "cancelled" for c in calms),
                          "next_to_a_move": sum(c["moved"] for c in calms),
-                         "ferries": sum(r.get("calm", {}).get("ferries", 0) for r in pool.values()),
-                         "by_start_hour": calm_by_start(tasks, pool)},
+                         "ferries": sum(r.get("calm", {}).get("ferries", 0) for r in pool.values())},
         "connections": {"flown": sum(len(x.connections) for t in shipped.values() for x in t.tails),
                         "faster_than_rule": sum(len(t.quick) for t in shipped.values())},
         "construction": construction(shipped),
@@ -597,22 +596,9 @@ def findings(tasks: Mapping[str, Task], results: Mapping[str, dict]) -> dict:
                       for k in ("gateway", "out_of_service")}}
 
 
-def calm_by_start(tasks: Mapping[str, Task], pool: Mapping[str, dict]) -> dict:
-    """The calm-day gate's passes by the hour the task starts."""
-    out = defaultdict(lambda: [0, 0])
-    for i, r in pool.items():
-        if "cancelled" not in r.get("calm", {}):
-            continue
-        h = tasks[i].start // 60
-        k = "04-09" if h < 10 else "10-13" if h < 14 else "14-23"
-        out[k][0] += r["calm"]["cancelled"] <= CALM_CANCELS and r["calm"]["ferries"] <= CALM_FERRIES
-        out[k][1] += 1
-    return {k: f"{a}/{n}" for k, (a, n) in sorted(out.items())}
-
-
 def construction(shipped: Mapping[str, Task]) -> dict:
     """Over every task: where the starts came from, the Moves and busy blocks, the short stations of tomorrow's
-    needs, the starts that fell back to the first program hour."""
+    needs, the tasks whose windows fell back to the first program hour."""
     net: Counter = Counter()
     for t in shipped.values():
         net.update(t.clauses.get("network", {}))
