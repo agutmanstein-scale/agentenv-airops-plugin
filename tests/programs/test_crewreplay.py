@@ -55,11 +55,11 @@ def test_a_deadhead_needs_free_seats_and_costs_its_pay_and_seats():
     a220 = [replace(u, group="A220", size=crews.size(u.kind, "A220")) for u in a220]
     riders = [unit("P1", report=400, end="DCA"), unit("C1", "cabin", report=400, end="DCA")]
     tails = [replace(tail("N1", "JFK"), family="A220", seats=140), tail("N2", "BOS")]
-    for pax, uncrewed in ((134, ()), (135, (1,))):
+    for pax, uncrewed, rides in ((134, (), ((0, DH), (1, OP))), (135, (1,), ())):
         task = day([replace(flight(0, "JFK", "BOS", 500, 30, pax=pax), family="A220"),
                     flight(1, "BOS", "DCA", 700, 60)], tails)
         p, s = solve(task, a220 + riders)
-        assert s.uncrewed == uncrewed and s.columns["P1"].first == ((0, DH), (1, OP))
+        assert s.uncrewed == uncrewed and s.columns["P1"].first == rides
     p, s = solve(day([replace(flight(0, "JFK", "BOS", 500, 30, pax=134), family="A220"),
                       flight(1, "BOS", "DCA", 700, 60)], tails), a220 + riders)
     assert s.crew_cost == pytest.approx(crews.deadhead("pilot", "A32X", 30, "2024-01-01")

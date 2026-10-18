@@ -15,17 +15,18 @@ its departure, so the best way to be at a station by a departure is known when t
 reserve reports, and a second duty period reports, on the last whole hour that leaves BRIEF before its first departure
 (a world rule the sim follows too). Identical units are priced once.
 
-Column generation to the LP optimum (or half the time limit), then a dive: fix the columns the LP has at SURE or more
-(the largest if none), price again, repeat until the LP is integral, which is a feasible integer plan; then the integer
-program over every column generated, started from it (from every unit idle if the dive ran out of time). The LP and the
-Lagrangian bound give how far from the fewest uncrewed flights the plan can be.
+The column pool starts with each unit's day following its trip as far as it legally can (priced like any other). Column
+generation to the LP optimum (or half the time limit), then a dive: fix the columns the LP has above SURE (the largest
+if none), price again, repeat until the LP is integral, which is a feasible integer plan; then the integer program over
+every column generated, started from the dive's plan or the trip-following one, whichever is cheaper (every unit idle if
+neither is a plan). The LP and the Lagrangian bound give how far from the fewest uncrewed flights the plan can be.
 """
 
 import bisect
 import heapq
 import time
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 
 import highspy
@@ -38,7 +39,8 @@ INF = highspy.kHighsInf
 UNCREWED = 1_000_000
 EPS = 1e-6
 ENDS = 24
-SURE = 0.9
+SURE = 0.5
+OWN = 1e5
 OP, DH = 0, 1
 
 
@@ -389,6 +391,16 @@ class Pricer:
             return None
         return Column(u.id, tuple(steps1), tuple(steps2), report, (p.stations[s], r2), p.leg[steps2[-1][0]].dest)
 
+    def own(self, u: Unit) -> Column | None:
+        """The unit's day following its trip as far as it legally can: its own legs rewarded, no other leg flown."""
+        p = self.p
+        trip = set(u.trip)
+        pi = {k: np.zeros(len(p.legs)) for k in crews.KINDS}
+        pi[u.kind][:] = [OWN if g.id in trip else -OWN * 10 for g in p.legs]
+        y = Duals(pi, np.zeros(len(p.legs)), {u.id: 0.0}, {})
+        cols = self.price(u, y, 1)[1] if trip & set(p.leg) else []
+        return cols[0] if cols and max(cols[0].over) <= 0 and set(cols[0].ops) <= trip else None
+
     def reduced(self, u: Unit, c: Column, y: Duals) -> float:
         p = self.p
         nu1, nu2 = y.nu.get(u.id, (0.0, 0.0))
@@ -564,6 +576,29 @@ class Master:
     def x(self) -> np.ndarray:
         return np.asarray(self.h.getSolution().col_value)
 
+    def plan(self, chosen: Mapping[str, int]) -> np.ndarray | None:
+        """The solution taking column `chosen[unit]` for each unit (idle otherwise), or None if it breaks a row."""
+        p = self.p
+        x = np.zeros(self.h.getNumCol())
+        kinds = {}
+        for j, u in enumerate(p.units):
+            c = chosen.get(u.id, j)
+            x[self.first + c] = 1.0
+            for i in self.columns[c].ops:
+                kinds.setdefault(p.pos[i], set()).add(u.kind)
+        for (kind, k), n in self.cover.items():
+            x[n] = 0.0 if kind in kinds.get(k, ()) else 1.0
+        for k, c in self.z.items():
+            x[c] = float(any(kind not in kinds.get(k, ()) for kind in p.legs[k].need))
+        lp = self.h.getLp()
+        a = lp.a_matrix_
+        start, index, value = np.asarray(a.start_), np.asarray(a.index_), np.asarray(a.value_)
+        act = np.zeros(self.h.getNumRow())
+        for j in np.nonzero(x)[0]:
+            act[index[start[j]:start[j + 1]]] += value[start[j]:start[j + 1]] * x[j]
+        ok = np.all(act >= np.asarray(lp.row_lower_) - 1e-6) and np.all(act <= np.asarray(lp.row_upper_) + 1e-6)
+        return x if ok else None
+
     def trivial(self) -> np.ndarray:
         """Every unit idle and every needed leg uncrewed."""
         x = np.zeros(self.h.getNumCol())
@@ -619,6 +654,12 @@ def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int 
     fixed: set[int] = set()
     bound = -np.inf
     count = 0
+    seeds = {}
+    for members in classes.values():
+        c = pricer.own(members[0])
+        for u in members if c is not None else ():
+            if master.add(replace(c, unit=u.id)):
+                seeds[u.id] = len(master.columns) - 1
 
     def generate(limit: int, deadline: float) -> tuple[float, bool]:
         nonlocal bound, count
@@ -678,7 +719,11 @@ def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int 
     x = master.x()
     tail = np.concatenate([x[list(master.z.values())], x[master.first:]])
     integral = bool(np.all(np.abs(tail - np.round(tail)) <= 1e-6))
-    start = np.round(x) if integral else master.trivial()
+    cost = np.asarray(master.h.getLp().col_cost_)
+    starts = [np.round(x)] if integral else [master.trivial()]
+    if (follow := master.plan(seeds)) is not None:
+        starts.append(follow)
+    start = min(starts, key=lambda v: float(cost @ v))
     for j in fixed:
         master.h.changeColBounds(master.first + j, 0.0, INF)
     chosen, polished = integer(master, start, polish)
