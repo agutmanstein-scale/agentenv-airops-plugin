@@ -16,9 +16,10 @@ day and the crew-aware calm day.
   start where that replay has it, and its trip from the start is the replay's plan for it. So a leg cancelled before the
   start strands no crew it need not, a crew a recorded overrun timed out hands its legs to another, and no crew is sent
   where the day goes on that could not go on. A unit is off when it was released before the start with nothing left, and
-  so is a reserve whose period or shift is over unused. At the tasks' 04:00 start (network.START) the record before it
-  is the few legs flown by then, red-eyes and the first departures: a crew on one carries its duty so far, and every
-  other crew starts rested where its trip reports.
+  so is a reserve whose period or shift is over unused. A short-call reserve the replay plans to call after the start
+  for its legs from then reports when it calls it, so those legs keep a crew that comes. At the tasks' 04:00 start
+  (network.START) the record before it is the few legs flown by then, red-eyes and the first departures: a crew on one
+  carries its duty so far, and every other crew starts rested where its trip reports.
 - The calm day's units stand where the schedule assumes them, as network.scheduled stands its aircraft: every leg
   scheduled before the start flown on schedule. A leg scheduled before the start that left after it in the record leaves
   at the start in the calm world; its duty is split there (labelled): a crew flies those legs from their origin at the
@@ -252,8 +253,9 @@ def ahead(i: int) -> int:
 
 def at_start(p: Problem, u: Unit, c: Column | None, start: int) -> Unit | None:
     """Unit u after the steps of its column before the start, its trip from the start the column's legs from then (the
-    replay's plan for the rest of the day); None when it is off: released before the start with nothing left, or a
-    reserve whose period or shift ended unused."""
+    replay's plan for the rest of the day), a short-call reserve the plan calls after the start reporting when it calls
+    it; None when it is off: released before the start with nothing left, or a reserve whose period or shift ended
+    unused."""
     steps = () if c is None else c.steps
     trip = tuple(ahead(i) for i, how in steps if i < 0 and how == OP)
     deadheads = tuple(ahead(i) for i, how in steps if i < 0 and how == DH)
@@ -277,6 +279,8 @@ def at_start(p: Problem, u: Unit, c: Column | None, start: int) -> Unit | None:
         moved = True
     if moved and u.reserve == "standby":
         s["until"] = None
+    if u.reserve == "short" and not moved and trip and c.report is not None:
+        s.update(report=c.report, hour=p.hour(u.home, c.report), ready=c.report + crews.BRIEF, at=u.home)
     if u.reserve and not moved and (u.until is None or u.until < start):
         return None
     if not u.reserve and not trip and not deadheads and s["landed"] is not None and \

@@ -5,12 +5,14 @@ on; a crew that a cancellation before the start would strand is replaced; crews 
 nothing left, and reserves whose period is over, are off; a crew laid over where the record has no aircraft may start
 where the record has it instead."""
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pandas as pd
+from day_helpers import day, flight, tail
 
 from agentenv_airops.core.model import Airport
-from agentenv_airops.programs import crewday, crewreplay, crews, network, pairings
+from agentenv_airops.programs import crewday, crewreplay, crews, crewsim, network, pairings
 from agentenv_airops.programs.crewday import ahead
 from agentenv_airops.programs.crewreplay import DH, OP, Column, Leg, Problem
 from agentenv_airops.programs.crews import Unit
@@ -47,14 +49,20 @@ def test_a_unit_follows_its_column_and_takes_its_trip_from_the_plan():
     assert (s.trip, s.deadheads, s.report) == ((7,), (8,), 240)
 
 
-def test_a_reserve_is_called_before_the_start_only_if_it_flew_before_it():
+def test_a_reserve_reports_when_the_replay_calls_it_before_or_after_the_start_and_flies_its_legs():
     legs = [Leg(101, "B6 1", "JFK", "BOS", 345, 405, 60, "A32X", 20), later(7, "JFK", "DCA", 705, 60)]
     r = unit("R", report=None, hour=None, reserve="short", rap=120, until=840, lead=150)
     p = problem(legs, [r])
     s = crewday.at_start(p, r, Column("R", ((101, OP),), report=300, end="BOS"), 600)
     assert (s.report, s.hour, s.rap, s.station, s.flown) == (300, 5, 120, "BOS", 1)
     s = crewday.at_start(p, r, Column("R", ((ahead(7), OP),), report=660, end="DCA"), 600)
-    assert (s.report, s.station, s.trip) == (None, "JFK", (7,))
+    assert (s.report, s.hour, s.ready, s.station, s.trip) == (660, 11, 660 + crews.BRIEF, "JFK", (7,))
+    assert crewday.at_start(p, r, None, 600).report is None
+    task = day([flight(7, "JFK", "DCA", 705, 60)], [tail("N1", "JFK")], start=600)
+    called = [replace(s, id=k, kind=kind, size=crews.size(kind, "A32X")) for k, kind in (("RP", "pilot"),
+                                                                                         ("RC", "cabin"))]
+    d = crewsim.execute(task, {}, called)
+    assert d.run.flights[7].dep == 705 and d.crews[7] == {"pilot": "RP", "cabin": "RC"}
 
 
 def test_at_four_a_red_eye_crew_carries_its_duty_so_far_and_the_others_start_rested_where_their_trips_report():
