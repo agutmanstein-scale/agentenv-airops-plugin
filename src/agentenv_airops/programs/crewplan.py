@@ -7,12 +7,14 @@ with those prices and lower bounds. The search (a local search over departures a
 each):
 - an aircraft optimum's departures crewed by the crew sim's default rule (fill on), as are any plans given (naive,
   the airline's), each then a plan naming everything its day did; and crews optimized at those departures
-  (crewreplay.solve, started from the default rule's crews where they flew every flight at its minute), its plan
+  (crewreplay.solve, started from the default rule's crews where they flew every flight at its minute, and from the
+  last crew solve's columns and plan where their legs leave at the same minutes), its plan
   naming each flight's crews, riders and reports, replayed in the crew sim, where a flight flies only with its named
   crews (fill off);
 - while flights go without a legal crew there, the crew sim decides them by its default rule (fill on), and the day
-  it runs is a plan naming everything it did; the aircraft MIP again with those flights held to the minute the crew
-  sim flew them (or cancelled at the start where it could not), crewed again;
+  it runs is a plan naming everything it did (and so is the day with them cancelled at the start, crewed by the
+  default rule); the aircraft MIP again with those flights held to the minute the crew sim flew them (or cancelled at
+  the start where it could not, or where it flew one at the minute it was already held to), crewed again;
 - then, one at a time while time remains, each flight the best plan cancels priced to fly (and no longer held
   cancelled), those whose crews cost most first, in case its crews cost more stranded than another flight's
   cancellation does.
@@ -21,8 +23,9 @@ the crew solve's, or the day the crew sim ran with fill on; it replays exactly w
 crew on every flight it flies.
 
 `joint` finds a day's best plan and its lower bound (crewbound.py): the aircraft optimum A* and the restricted A*
-(every flight kept to the minutes some crew could fly it) start the search; the bound is the best of A*'s, the
-restricted A*'s, the restricted A* plus each unit's least crew cost, and the covering bound with the best plan's cost.
+(every flight kept to the minutes some crew could fly it; A* itself when it keeps to them) start the search; the
+bound is the best of A*'s, the restricted A*'s, the restricted A* plus each unit's least crew cost, and the covering
+bound with the best plan's cost.
 
 The crew-aware calm day (`calm_day`) is the search on the calm world from the calm optimum without crews
 (references.calm's), the calm units where the schedule assumes them (crewday.calm_units); the calm optimum without
@@ -246,10 +249,14 @@ def joint(task: Task, world: sim.World, units: Sequence[Unit], local: crews.Loca
     t0 = time.monotonic()
     cost = air.cost(flat)
     naive = sim.execute(task, {}, world)
-    a, _ = air.optimum(cost, air.ub, naive, air_limit)
+    a, lp = air.optimum(cost, air.ub, naive, air_limit)
     keep = {i: set(v.tolist()) for i, v in reached.items()}
     up = air.upper(keep=keep)
-    ar, lp = air.optimum(cost, up, None, air_limit)
+    outside = sum(d is not None and d not in keep.get(i, ()) for i, d in a.deps.items())
+    try:
+        ar, lp = (a, air.relax(cost, up, air_limit)) if not outside else air.optimum(cost, up, None, air_limit)
+    except RuntimeError:
+        ar, up = a, air.ub
     pieces: dict[str, float | None] = {"aircraft": a.bound, "restricted": ar.bound,
                                        "restricted_least": ar.bound + float(least.sum()), "cover": None}
     found = search(task, world, units, local, airports, air, [("optimum", a), ("restricted optimum", ar)],
@@ -260,9 +267,8 @@ def joint(task: Task, world: sim.World, units: Sequence[Unit], local: crews.Loca
         z = lp.objective - crewbound.TOL - 1e-7 * abs(lp.objective)
         choices = crewbound.prices(air, lp, up, found.value - z)
         end = lambda u, s: crews.reposition(u, s, airports, task.date)  # noqa: E731
-        covered = crewbound.cover(task, fl, units, local, end, choices, cover_limit, width, log)
+        covered = crewbound.cover(task, fl, units, local, end, choices, cover_limit, width, found.day, log)
         pieces["cover"] = min(found.value, z + covered.bound)
-    outside = sum(d is not None and d not in keep.get(i, ()) for i, d in a.deps.items())
     stats = {"minutes": sum(len(v) for v in reached.values()), "of": sum(len(v) for v in fl.minutes.values()),
              "flights_without": sum(not len(v) for v in reached.values()), "optimum_outside": outside}
     return Joint(a, ar, found, pieces, covered, stats)
@@ -279,6 +285,8 @@ def search(task: Task, world: sim.World, units: Sequence[Unit], local: crews.Loc
     end = lambda u, s: crews.reposition(u, s, airports, task.date)  # noqa: E731
     best: list[Found] = []
     attempts: list[dict] = []
+    pool: list[tuple[crewreplay.Column, tuple[tuple[int, int], ...]]] = []
+    last: set[tuple] = set()
 
     def left() -> float:
         return deadline - time.monotonic()
@@ -302,8 +310,14 @@ def search(task: Task, world: sim.World, units: Sequence[Unit], local: crews.Loc
         p = crewreplay.Problem(crewday.task_legs(task, deps, world.block), units, task.date, local, end,
                                call=task.start)
         filled = default(sol.plan(task.start), f"{label}, default crews")
-        crewed = crewreplay.solve(p, max(30.0, min(crew_limit, left())), polish=max(10.0, min(300.0, left() / 4)),
-                                  start=crewday.columns_of(p, filled), log=log)
+        kept = [c for c, at in pool if all(i in p.leg and p.leg[i].dep == d for i, d in at)]
+        starts = [plan for plan in (crewday.columns_of(p, filled), {c.unit: c for c in kept if c.key in last}) if plan]
+        crewed = crewreplay.solve(p, max(30.0, min(crew_limit, left())),
+                                  polish=max(10.0, min(crew_limit / 2, left() / 6)), starts=starts, pool=kept,
+                                  log=log)
+        pool[:] = [(c, tuple((i, p.leg[i].dep) for i, _ in c.steps)) for c in crewed.pool]
+        last.clear()
+        last.update(c.key for c in crewed.columns.values())
         plan = crewday.plan_of(p, crewed, sol.plan(task.start))
         claimed = sol.objective + crewed.crew_cost
         day = crewsim.execute(task, plan, units, world, local, fill=False, airports=airports)
@@ -321,6 +335,9 @@ def search(task: Task, world: sim.World, units: Sequence[Unit], local: crews.Loc
             log(f"{label}: aircraft {sol.objective} crew {crewed.crew_cost:.0f} uncrewed {len(crewed.uncrewed)} "
                 f"replayed {worth(day, flat):.0f}")
         keep_best(plan, day, claimed)
+        if crewed.uncrewed:
+            cancel = {i: {"cancel": True, "decided": task.start} for i in crewed.uncrewed}
+            default(sol.plan(task.start) | cancel, f"{label}, its uncrewed cancelled, default crews")
         return crewed, day
 
     for label, plan in days:
@@ -340,8 +357,9 @@ def search(task: Task, world: sim.World, units: Sequence[Unit], local: crews.Loc
             break
         for i in crewed.uncrewed:
             r = day.run.flights[i]
-            if r.dep is None:
+            if r.dep is None or held.get(i) == r.dep:
                 dropped.add(i)
+                held.pop(i, None)
             else:
                 held[i] = max(held.get(i, 0), r.dep)
         sol = held_solve(task, world, air, cost, held, dropped, set(), keep, min(air_limit, max(30.0, left())))
@@ -368,10 +386,14 @@ def held_solve(task: Task, world: sim.World, air: Aircraft, cost: np.ndarray, he
                dropped: Collection[int], fly: Collection[int], keep: Mapping[int, Collection[int]] | None,
                time_limit: float, value: np.ndarray | None = None) -> mip.Solution:
     """The aircraft optimum with flights held, dropped, kept to their minutes in `keep` and priced to fly, started
-    from the day those holds give where it keeps to them."""
+    from the day those holds give where it keeps to them; without `keep` if no plan is found in time with it (the
+    start then holds)."""
     plan = {i: {"not_before": d} for i, d in held.items()} | {i: {"cancel": True} for i in dropped}
     start = sim.execute(task, plan, world)
-    sol, _ = air.solve(cost, air.upper(held, dropped, keep), start, time_limit, value)
+    try:
+        sol, _ = air.solve(cost, air.upper(held, dropped, keep), start, time_limit, value)
+    except RuntimeError:
+        sol, _ = air.solve(cost, air.upper(held, dropped), start, time_limit, value)
     return sol
 
 

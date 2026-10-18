@@ -35,7 +35,7 @@ from dataclasses import dataclass
 import highspy
 import numpy as np
 
-from . import crews, mip
+from . import crews, crewsim, mip
 from .crews import Unit
 from .model import Task
 
@@ -288,6 +288,9 @@ class Board:
         self.lgroup = fl.group[legs.flight]
         self.fpos = {int(i): k for k, i in enumerate(fl.ids)}
         self.pos = {u.id: b for b, u in enumerate(self.units)}
+        self.buckets: dict[int, list[tuple[int, int, int]]] = defaultdict(list)
+        for k in range(len(legs)):
+            self.buckets[int(fl.ids[legs.flight[k]])].append((int(legs.lo[k]), int(legs.hi[k]), k))
         self.own = defaultdict(list)
         self.planned = defaultdict(list)
         for b, u in enumerate(self.units):
@@ -538,6 +541,27 @@ class Board:
         return Day(u.id, first, second, rested, end, cost,
                    tuple(int(self.fl.ids[self.lflight[k]]) for k, how in steps if how == OP))
 
+    def days_of(self, day: crewsim.CrewDay) -> list[tuple[int, Day]]:
+        """A crew sim day's units' days as relaxed days, each step in the bucket holding its minute; a unit with a step
+        no bucket holds is left out."""
+        out = []
+        for uid, rec in day.units.items():
+            periods: list[list[tuple[int, int]]] = [[], []]
+            rested = None
+            for d in rec["duties"]:
+                second = d["begins"] == "rest"
+                if second:
+                    rested = self.fl.index.get(d["at"])
+                steps = sorted([(t, i, OP) for i, t, _ in d["legs"]] + [(t, i, DH) for i, t, _ in d["deadheads"]])
+                periods[second] += [(self.bucket(i, t), how) for t, i, how in steps]
+            if all(k is not None for k, _ in periods[0] + periods[1]) and (rested is not None or not periods[1]):
+                out.append((self.pos[uid], self.day(self.units[self.pos[uid]], tuple(periods[0]),
+                                                    tuple(periods[1]), rested)))
+        return out
+
+    def bucket(self, i: int, t: int) -> int | None:
+        return next((k for lo, hi, k in self.buckets.get(i, ()) if lo <= t <= hi), None)
+
 
 @dataclass
 class Covered:
@@ -556,13 +580,17 @@ class Covered:
 
 def cover(task: Task, fl: Flights, units: Sequence[Unit], local: crews.Local, end: Callable[[Unit, str], float],
           choices: Mapping[int, tuple[np.ndarray, np.ndarray, float]], time_limit: float = 600.0,
-          width: int = WIDTH, log: Callable[[str], None] | None = None) -> Covered:
+          width: int = WIDTH, start: crewsim.CrewDay | None = None,
+          log: Callable[[str], None] | None = None) -> Covered:
     """The covering bound's crew part: `choices[i]` is flight i's kept minutes, their prices and its cancellation's
-    price (inf: it must fly), over buckets at most `width` minutes wide."""
+    price (inf: it must fly), over buckets at most `width` minutes wide; the master starts with the days of `start`'s
+    units (a crew sim day)."""
     t0 = time.monotonic()
     legs = Legs.of(fl, {i: c[0] for i, c in choices.items()}, {i: c[1] for i, c in choices.items()}, width)
     board = Board(task, fl, legs, units, local, end)
     m = Cover(fl, units, choices, board)
+    for b, day in board.days_of(start) if start is not None else ():
+        m.add(b, day)
     best = -INF
     rounds = 0
     converged = False

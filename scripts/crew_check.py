@@ -62,10 +62,10 @@ LEVERAGE = 0.10
 GAPS = (0.01, 1.0, 5.0)
 RSS_UNIT = 1 << 30 if sys.platform == "darwin" else 1 << 20
 BUDGETS = {
-    "regular": {"morning": 300, "record": 450, "calm": 300, "search": 450, "cover": 180, "end_morning": 150,
-                "end_record": 240, "end_calm": 150, "polish": 60},
-    "extra": {"morning": 600, "record": 900, "calm": 900, "search": 1800, "flat": 600, "cover": 600,
-              "end_morning": 300, "end_record": 450, "end_calm": 300, "polish": 300},
+    "regular": {"morning": 240, "record": 360, "calm": 240, "search": 700, "cover": 240, "end_morning": 120,
+                "end_record": 180, "end_calm": 120, "polish": 60},
+    "extra": {"morning": 480, "record": 720, "calm": 600, "search": 1400, "flat": 450, "cover": 450,
+              "end_morning": 240, "end_record": 360, "end_calm": 240, "polish": 180},
 }
 WIDTH = {"regular": 30, "extra": 15}
 
@@ -199,7 +199,7 @@ def replays(uncrewed: int, flown: int) -> bool:
 
 def calm(w: crewday.World, band: str, optimum, base: float, budget: float, polish: float, plans: dict | None) -> dict:
     units = crewday.calm_units(w, band)
-    c = crewplan.calm_day(w, units, optimum, budget, crew_limit=max(60.0, budget / 2))
+    c = crewplan.calm_day(w, units, optimum, budget, crew_limit=max(60.0, budget / 3))
     day, f = c.found.day, c.found
     deps = {i: r.dep for i, r in day.run.flights.items() if r.dep is not None}
     audit = crewsim.audit(c.task, units, f.plan, deps, {x.id: x.sched_block for x in c.task.flights}, w.local,
@@ -245,7 +245,7 @@ def joint(w: crewday.World, units, refs: dict, budget: dict, rec: dict, plans: d
         name = "flat" if flat else "notice"
         j = crewplan.joint(task, world, units, w.local, w.airports, air, fl, reached, least,
                            budget["flat" if flat else "search"], budget["cover"], flat=flat,
-                           crew_limit=max(60.0, budget["flat" if flat else "search"] / 2),
+                           crew_limit=max(60.0, budget["flat" if flat else "search"] / 4),
                            days=(("naive", {}), ("airline replay", references.airline_plan(task))),
                            width=budget["width"])
         clock(f"{name}_joint")

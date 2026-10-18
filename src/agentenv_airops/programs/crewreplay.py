@@ -17,10 +17,10 @@ reserve reports, and a second duty period reports, on the last whole hour that l
 
 The column pool starts with each unit's day following its trip as far as it legally can (priced like any other). Column
 generation to the LP optimum (or half the time limit), then a dive: fix the columns the LP has above SURE (the largest
-if none), price again the units not yet fixed, repeat until the LP is integral, which is a feasible integer plan; then
-the integer program over every column generated, started from the dive's plan or the trip-following one, whichever is
-cheaper (every unit idle if neither is a plan). The LP and the Lagrangian bound give how far from the fewest uncrewed
-flights the plan can be.
+if none, or a few of the largest), price again the units not yet fixed, repeat until the LP is integral, which is a
+feasible integer plan; then the integer program over every column generated, started from the dive's plan or the
+trip-following one, whichever is cheaper (every unit idle if neither is a plan). The LP and the Lagrangian bound give
+how far from the fewest uncrewed flights the plan can be.
 """
 
 import bisect
@@ -28,7 +28,7 @@ import heapq
 import time
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 import highspy
 import numpy as np
@@ -41,6 +41,7 @@ UNCREWED = 1_000_000
 EPS = 1e-6
 ENDS = 24
 SURE = 0.5
+GREEDY = 10
 OWN = 1e5
 OP, DH = 0, 1
 
@@ -645,6 +646,7 @@ class Solved:
     seconds: float
     dive_integral: bool
     polished: bool
+    pool: tuple[Column, ...] = field(default=(), repr=False)
 
     def crews(self, p: Problem) -> dict[int, dict[str, str]]:
         out: dict[int, dict[str, str]] = defaultdict(dict)
@@ -663,8 +665,11 @@ class Solved:
 
 
 def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int = 3, polish: float = 300.0,
-          start: Mapping[str, Column] | None = None, log: Callable[[str], None] | None = None) -> Solved:
-    """`start` is a plan to start from too: a column per unit that moves (crewday.columns_of)."""
+          starts: Sequence[Mapping[str, Column]] = (), pool: Sequence[Column] = (), greedy: int = GREEDY,
+          log: Callable[[str], None] | None = None) -> Solved:
+    """`starts` are plans to start from too, a column per unit that moves (crewday.columns_of); `pool` columns go in
+    the master from the first round. Each step of theirs must be a leg of `p`. The dive fixes with the columns at SURE
+    or more the largest others up to `greedy` in all, of different units flying different legs."""
     t0 = time.monotonic()
     master = Master(p)
     pricer = Pricer(p)
@@ -680,11 +685,18 @@ def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int 
         for u in members if c is not None else ():
             if master.add(replace(c, unit=u.id)):
                 seeds[u.id] = len(master.columns) - 1
-    given = {}
-    for uid, c in (start or {}).items():
-        c = p.priced(p.unit[uid], c)
-        master.add(c)
-        given[uid] = next(j for j in range(len(master.columns) - 1, -1, -1) if master.columns[j].key == c.key)
+    for c in pool:
+        master.add(p.priced(p.unit[c.unit], c))
+    index = {c.key: j for j, c in enumerate(master.columns)}
+    given = []
+    for plan in starts:
+        chosen = {}
+        for uid, c in plan.items():
+            c = p.priced(p.unit[uid], c)
+            if master.add(c):
+                index[c.key] = len(master.columns) - 1
+            chosen[uid] = index[c.key]
+        given.append(chosen)
 
     def generate(limit: int, deadline: float) -> tuple[float, bool]:
         nonlocal bound, count
@@ -730,7 +742,7 @@ def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int 
         if not frac:
             break
         top = max(frac)[1]
-        for batch in ([j for v, j in frac if v >= SURE] or [top], [top]):
+        for batch in (apart(master, frac, greedy), [top]):
             for j in batch:
                 master.h.changeColBounds(master.first + j, 1.0, INF)
             if master.solve()[0] == "Optimal":
@@ -749,11 +761,11 @@ def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int 
     tail = np.concatenate([x[list(master.z.values())], x[master.first:]])
     integral = bool(np.all(np.abs(tail - np.round(tail)) <= 1e-6))
     cost = np.asarray(master.h.getLp().col_cost_)
-    starts = [np.round(x)] if integral else [master.trivial()]
-    for chosen in (seeds, given):
+    begin = [np.round(x)] if integral else [master.trivial()]
+    for chosen in (seeds, *given):
         if chosen and (plan := master.plan(chosen)) is not None:
-            starts.append(plan)
-    start = min(starts, key=lambda v: float(cost @ v))
+            begin.append(plan)
+    start = min(begin, key=lambda v: float(cost @ v))
     for j in fixed:
         master.h.changeColBounds(master.first + j, 0.0, INF)
     chosen, polished = integer(master, start, polish)
@@ -765,8 +777,22 @@ def solve(p: Problem, time_limit: float = 1800.0, rounds: int = 1000, keep: int 
     uncrewed = tuple(sorted(g.id for g in p.legs if not set(g.need) <= crewed[g.id]))
     cost = sum(c.cost for c in cols.values())
     return Solved(cols, uncrewed, sum(p.leg[i].price for i in uncrewed) + cost, cost, lp, bound, converged,
-                  root_rounds, dives,
-                  len(master.columns), round(time.monotonic() - t0, 1), integral, polished)
+                  root_rounds, dives, len(master.columns), round(time.monotonic() - t0, 1), integral, polished,
+                  tuple(master.columns))
+
+
+def apart(master: Master, frac: Sequence[tuple[float, int]], n: int) -> list[int]:
+    """The fractional columns at SURE or more, else the largest; then more of the largest up to n in all, no two of
+    one unit or flying one leg."""
+    out, units, legs = [], set(), set()
+    for v, j in sorted(frac, reverse=True):
+        c = master.columns[j]
+        if out and ((v < SURE and len(out) >= n) or c.unit in units or legs & set(c.ops)):
+            continue
+        out.append(j)
+        units.add(c.unit)
+        legs |= set(c.ops)
+    return out
 
 
 def integer(master: Master, start: np.ndarray, time_limit: float) -> tuple[list[int], bool]:

@@ -182,7 +182,7 @@ def test_a_sim_days_crews_are_crew_replay_columns_at_their_cost_and_start_it(see
     cols = crewday.columns_of(p, d)
     cost = sum(p.priced(u, cols[u.id]).cost if u.id in cols else p.idle(u).cost for u in units)
     assert cost == pytest.approx(d.crew_cost)
-    s = crewreplay.solve(p, time_limit=20, polish=5, start=cols)
+    s = crewreplay.solve(p, time_limit=20, polish=5, starts=[cols])
     assert s.uncrewed == () and s.objective <= d.crew_cost + 1e-6
 
 
@@ -193,3 +193,17 @@ def test_a_pilot_out_of_flight_time_reaches_the_flight_only_after_rest():
     ds = crewbound.reach(task, fl, [tired, unit("C", "cabin")], local)[0]
     assert ds.min() == 560 + crews.DEBRIEF + crews.REST + crews.BRIEF
     assert crewbound.reach(task, fl, [replace(tired, minutes=0), unit("C", "cabin")], local)[0].min() == 600
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_every_sim_days_crews_are_relaxed_days_at_their_cost(seed):
+    task, units = random_day(seed)
+    air, fl = flights_of(task)
+    reached = crewbound.reach(task, fl, units, local)
+    board = crewbound.Board(task, fl, crewbound.Legs.of(fl, reached), units, local, end_of(task))
+    for d in played(task, units, random.Random(seed)):
+        cost = spent(task, units, d)
+        days = board.days_of(d)
+        assert {units[b].id for b, _ in days} == set(d.units)
+        for b, relaxed in days:
+            assert relaxed.cost == pytest.approx(cost[units[b].id])
