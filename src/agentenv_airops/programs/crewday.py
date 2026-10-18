@@ -7,11 +7,12 @@ day and the crew-aware calm day.
   scheduled (crewreplay.py): the legs JetBlue flew before the start at their recorded times and blocks, and the task's
   flights at their scheduled departures (no earlier than the start) and blocks, as the airline planned the day from the
   record so far; every duty of the date from its report and the reserves from their periods; the fewest legs flown
-  before the start without a legal crew first, then the fewest of the rest of the day (AHEAD each), then crew cost. Each
-  unit stands at the start where that replay has it, and its trip from the start is the replay's plan for it. So a leg
-  cancelled before the start strands no crew it need not, a crew a recorded overrun timed out hands its legs to another,
-  and no crew is sent where the day goes on that could not go on. A unit is off when it was released before the start
-  with nothing left, and so is a reserve whose period or shift is over unused.
+  before the start without a legal crew first, then the fewest of the rest of the day (AHEAD each), then crew cost with
+  SWAP for each leg flown off a crew's own trip (the airline keeps its trips unless one breaks; a reserve's every leg
+  counts). Each unit stands at the start where that replay has it, and its trip from the start is the replay's plan for
+  it. So a leg cancelled before the start strands no crew it need not, a crew a recorded overrun timed out hands its
+  legs to another, and no crew is sent where the day goes on that could not go on. A unit is off when it was released
+  before the start with nothing left, and so is a reserve whose period or shift is over unused.
 - The calm day's units stand where the schedule assumes them, as network.scheduled stands its aircraft: every leg
   scheduled before the start flown on schedule. A leg scheduled before the start that left after it in the record leaves
   at the start in the calm world; its duty is split there (labelled): a crew flies those legs from their origin at the
@@ -43,6 +44,7 @@ from .crews import Unit
 from .model import Task
 
 AHEAD = crewreplay.UNCREWED / 100
+SWAP = 1000
 FLY = 10
 
 
@@ -96,11 +98,12 @@ def home(d: pairings.Duty, date: str, airports: Mapping[str, Airport]) -> str:
 
 
 def day_units(w: World) -> list[Unit]:
-    """Every duty of the date as a unit at its report, keyed by BTS rows."""
+    """Every duty of the date as a unit at its report, keyed by BTS rows, free to leave once reported (the record's
+    early departures included)."""
     out = []
     for n, d in enumerate(sorted(w.duties, key=lambda d: (d.kind, crews.GROUPS.index(d.group), d.report, d.legs))):
         out.append(Unit(f"{d.kind[0].upper()}-{d.group}-{n:04d}", d.kind, d.group, crews.size(d.kind, d.group),
-                        home(d, w.task.date, w.airports), d.end, d.start, d.report + crews.BRIEF, d.report, d.hour,
+                        home(d, w.task.date, w.airports), d.end, d.start, d.report, d.report, d.hour,
                         at=d.start, trip=d.legs, deadheads=d.deadheads))
     return out
 
@@ -164,7 +167,7 @@ def storm_units(w: World, share: str = "middle", time_limit: float = 900.0, log=
     later = [replace(g, id=ahead(g.id), price=AHEAD) for g in
              task_legs(task, {f.id: max(f.sched_dep, task.start) for f in task.flights},
                        {f.id: f.sched_block for f in task.flights})]
-    p = Problem(recorded_legs(w) + later, keyed, task.date, w.local, task_end(w))
+    p = Problem(recorded_legs(w) + later, keyed, task.date, w.local, task_end(w), foreign=SWAP)
     t0 = time.monotonic()
     sol = crewreplay.solve(p, time_limit, log=log)
     out = [s for u in keyed if (s := at_start(p, u, sol.columns.get(u.id), task.start)) is not None]

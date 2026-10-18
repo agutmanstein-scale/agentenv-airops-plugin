@@ -164,3 +164,13 @@ def test_cancelled_flights_leave_their_crews_and_log_it():
     d = crewsim.execute(task, {0: {"cancel": True}}, pair((0, 1)))
     assert d.crews[1] == {"pilot": "P1", "cabin": "C1"}
     assert d.status[0][-1] == (0, "cancelled", None)
+
+
+def test_a_flight_waiting_for_a_crew_is_woken_by_its_arrival():
+    flights = [flight(0, "JFK", "DCA", 500, 60), flight(1, "BOS", "JFK", 520, 60), flight(2, "JFK", "MCO", 700, 120)]
+    task = day(flights, [tail("N1", "JFK"), tail("N2", "BOS"), tail("N3", "JFK")])
+    units = [unit(k, kind, "BOS", 400, trip=(1, 0)) for k, kind in (("P1", "pilot"), ("C1", "cabin"))] + \
+        [unit(k, kind, "JFK", 600, trip=(2,)) for k, kind in (("P2", "pilot"), ("C2", "cabin"))]
+    d = crewsim.execute(task, {}, units)
+    assert [d.run.flights[i].dep for i in (0, 1, 2)] == [600, 520, 700]
+    assert d.crews[0] == {"pilot": "P1", "cabin": "C1"} and d.crews[2] == {"pilot": "P2", "cabin": "C2"}

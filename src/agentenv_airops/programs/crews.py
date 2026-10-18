@@ -20,12 +20,14 @@ Pilots fly under 14 CFR 117, unaugmented, starting the day rested (cumulative an
   beyond the airline's control); any other leg or deadhead must be expected, at its departure, to release the team
   within 14 h of its report; 10 h of rest.
 
-A duty reports REPORT before its first departure and may leave from BRIEF after its report; a crew is released DEBRIEF
-after block-in and connects in CONNECT. Short-call reserves report on a whole hour (labelled), LEAD after the call.
-Marginal costs, in passenger-minutes as cost.py converts dollars: deadhead minutes at the crew's rate (the FAA's Table
-4-7 crew rate for a pilot pair, BLS pay with its benefits load per attendant-minute), each deadhead seat as a lost
-average fare, a night away from base at GSA's (CONUS) or DoD's (Puerto Rico, the Virgin Islands) lodging and M&IE for
-the station and date (GSA's standard rate where neither lists the station).
+A trip reports REPORT before its first scheduled departure and its crew may leave once reported (the record's early
+departures included); a called reserve, an airport-standby reserve and a crew starting a second period may leave from
+BRIEF after reporting. A crew is released DEBRIEF after block-in and connects in CONNECT. Short-call reserves report on
+a whole hour (labelled), LEAD after the call. Marginal costs, in passenger-minutes as cost.py converts dollars: deadhead
+minutes at the crew's rate (the FAA's Table 4-7 crew rate for a pilot pair, BLS pay with its benefits load per
+attendant-minute), each deadhead seat as a lost average fare, a night away from base at GSA's (CONUS) or DoD's (Puerto
+Rico, the Virgin Islands) lodging and M&IE for the station and date (GSA's standard rate where neither lists the
+station).
 """
 
 import functools

@@ -102,12 +102,14 @@ EndCost = Callable[[Unit, str], float]
 
 class Problem:
     """Legs at fixed departures, the units, and what a day costs: `end(unit, station)` the cost of ending there,
-    `call` the first minute a short-call reserve may be called (its availability period's start when None)."""
+    `call` the first minute a short-call reserve may be called (its availability period's start when None), `foreign`
+    each leg a unit flies off its trip (a preference for the published trips, not a cost of the world)."""
 
     def __init__(self, legs: Sequence[Leg], units: Sequence[Unit], d: str, local: crews.Local, end: EndCost,
-                 call: int | None = None, rests: bool = True):
+                 call: int | None = None, rests: bool = True, foreign: float = 0.0):
         self.legs = sorted(legs, key=lambda g: (g.dep, g.id))
         self.units, self.d, self.local, self.end, self.call, self.rests = list(units), d, local, end, call, rests
+        self.foreign = foreign
         self.unit = {u.id: u for u in units}
         self.leg = {g.id: g for g in self.legs}
         self.pos = {g.id: k for k, g in enumerate(self.legs)}
@@ -154,6 +156,8 @@ class Problem:
         dh = sum(crews.deadhead(u.kind, u.group, self.leg[i].block, self.d) for i, how in c.steps
                  if how == DH and i not in planned)
         night = crews.hotel(c.rest[0], self.d) * u.size if c.rest and c.rest[0] != u.home else 0.0
+        trip = set(u.trip)
+        dh += self.foreign * sum(how == OP and i not in trip for i, how in c.steps)
         over = (0.0, 0.0)
         if u.kind == "pilot":
             first = self.excess(c.first, 0 if c.report is not None else u.minutes,
@@ -272,6 +276,9 @@ class Pricer:
     def costs(self, u: Unit, y: Duals, nu: float) -> tuple[np.ndarray, np.ndarray]:
         p = self.p
         op = -y.pi[u.kind] - (nu * p.weight if u.kind == "pilot" else 0.0)
+        if p.foreign:
+            trip = set(u.trip)
+            op = op + np.array([0.0 if g.id in trip else p.foreign for g in p.legs])
         dh = p.dh_base[(u.kind, u.group)].copy()
         for i in u.deadheads:
             if i in p.pos:

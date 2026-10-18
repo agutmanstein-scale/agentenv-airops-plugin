@@ -285,10 +285,10 @@ def execute(task: Task, plan: Plan, world: World | None = None, crew=None) -> Ex
         runs[i] = FlightRun(i, FLOWN, p, t, arr, slot[1] if slot else None, slot[0] if slot else None)
         if crew is not None:
             crew.fly(f, t, arr, want.get(i, {}))
-            for j, at in crew.woken():
-                if j not in runs and at < when[j]:
-                    when[j] = at
-                    heapq.heappush(heap, (at, 1, first[j], j))
+            for j, minute in crew.woken():
+                if j not in runs and minute < when[j]:
+                    when[j] = minute
+                    heapq.heappush(heap, (minute, 1, first[j], j))
         for j in waiting[(f.family, station)]:
             if soon(p, j) < when[j]:
                 when[j] = soon(p, j)
