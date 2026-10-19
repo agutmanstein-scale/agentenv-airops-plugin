@@ -21,10 +21,11 @@ MODEL_PARAMS = {"max_tokens": 32000}
 EFFORT = "high"
 SHARED = ["end_turn", "wait_turn", "resign"]
 OPS_TOOLS = ["ops_flights", "ops_program", "ops_aircraft", "ops_check", "ops_confirm", "ops_request", "ops_reply"]
-CREW_TOOLS = ["crew_flights", "crew_crews", "crew_reserves", "crew_options", "crew_check", "crew_confirm",
-              "crew_request", "crew_reply"]
+CREW_TOOLS = ["crew_flights", "crew_crews", "crew_reserves", "crew_program", "crew_options", "crew_check",
+              "crew_confirm", "crew_request", "crew_reply"]
 DESKS = {"joint": [("crew", "crew-desk", CREW_TOOLS), ("ops", "ops-desk", OPS_TOOLS)],
-         "one": [("both", "occ-desk", [t for t in OPS_TOOLS + CREW_TOOLS if not t.endswith(("request", "reply"))])]}
+         "one": [("both", "occ-desk", [t for t in OPS_TOOLS + CREW_TOOLS
+                                       if not t.endswith(("request", "reply")) and t != "crew_program"])]}
 CREDIT = ("Built from public U.S. records: BTS on-time and T-100 data, the FAA registry and FAA Command Center "
           "advisories; crews generated from the published schedule under FAR 117 and 14 CFR 121.467.")
 
@@ -84,7 +85,7 @@ Each watch the crew desk takes a turn, then you, then the crew desk again if you
 The channel: ops_request COVER (crew a flight by a time) or TEXT (400 characters). The crew desk's requests appear on \
 your page with ids: HOLD (a flight until a time), CANCEL, CANCEL_PAIR, TEXT. ops_reply accept carries a HOLD or a \
 CANCEL out now as your decision; decline leaves it. A request lapses when its flight leaves, is cancelled or its time \
-passes; a newer one on a flight replaces the older.
+passes, and a HOLD when its flight is committed; a newer request on a flight, from either desk, replaces the older.
 
 Tools: ops_flights, ops_program, ops_aircraft, ops_check, ops_confirm, ops_request, ops_reply, end_turn \
 (stand_down: true skips your remaining turns).
@@ -96,18 +97,21 @@ runs the flights and aircraft, with the FAA; you run the crews. Keep the day's c
 {DAY}
 
 Each watch you take a turn first, then the ops desk, then you again if it sent you a request or a text. Your page \
-lists the crew system's words: HOLD (a flight's crew is ready only later) or CANCEL (no crew can come), with the \
-fix it chose; only you see them, unless you tell ops.
+lists the FAA's advisories as issued (crew_program shows a hub's programs) and the crew system's words: HOLD (a \
+flight's crew is ready only later) or CANCEL (no crew can come), with the fix it chose; only you see those, unless \
+you tell ops.
 
 {CREW} You never cancel or hold flights: ask ops.
 
 The channel: crew_request HOLD (a flight until a time), CANCEL, CANCEL_PAIR (a flight and its round-trip partner) or \
-TEXT (400 characters). Ops's requests appear on your page with ids: COVER (crew a flight by a time), TEXT; crew_reply \
-accept commits you to a COVER (your moves follow with ref), decline refuses it. A request lapses when its flight \
-leaves, is cancelled or its time passes.
+TEXT (400 characters); CANCEL_PAIR is refused for a flight with no partner. Ops's requests appear on your page \
+with ids: COVER (crew a flight by a time), TEXT; crew_reply accept or decline is your word to ops on a COVER, which \
+the env doesn't hold you to (your moves can follow with ref). A request lapses when its flight leaves, is cancelled \
+or its time passes, and a HOLD when its flight is committed; a newer request on a flight, from either desk, replaces \
+the older.
 
-Tools: crew_flights, crew_crews, crew_reserves, crew_options, crew_check, crew_confirm, crew_request, crew_reply, \
-end_turn (stand_down: true skips your remaining turns).
+Tools: crew_flights, crew_crews, crew_reserves, crew_program, crew_options, crew_check, crew_confirm, crew_request, \
+crew_reply, end_turn (stand_down: true skips your remaining turns).
 
 {COST}""",
     "both": f"""You run JetBlue's operations control center alone: the flights and aircraft, with the FAA, and the \

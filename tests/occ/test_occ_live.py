@@ -33,7 +33,9 @@ async def test_every_tool_is_strict_and_the_card_has_the_extensions(pack):
     async with Client(env.create_app()) as c:
         listed = await c.list_tools()
     assert {t.name: strict(t.inputSchema, t.name) for t in listed} == {t.name: [] for t in listed}
-    assert len(listed) == 19 and all(len(t.description) < 600 for t in listed)
+    assert strict({"type": "string", "maxLength": 4, "default": "x"}, "t") == ["t: default is not supported",
+                                                                               "t: maxLength is not supported"]
+    assert len(listed) == 20 and all(len(t.description) < 600 for t in listed)
     move = next(t for t in listed if t.name == "crew_confirm").inputSchema["properties"]["moves"]["items"]
     assert move["required"] == ["action", "unit", "flight", "other", "kind", "time", "ref"]
 

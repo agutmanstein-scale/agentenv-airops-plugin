@@ -13,7 +13,7 @@ from ..programs.advisories import GDP, GDP_CNX, GS, GS_CNX, PROPOSED, Advisory
 from ..programs.cost import cancel_price
 from . import run
 
-ROWS, LOOKUP_ROWS, CREW_ROWS = 30, 60, 40
+ROWS, LOOKUP_ROWS, CREW_ROWS, REQUESTS, CHARS = 30, 60, 40, 12, 3600
 AHEAD, LATE, NEAR, SLOT_HOURS = 240, 30, 180, 6
 KINDS = {GDP: "GDP", PROPOSED: "proposed GDP", GDP_CNX: "GDP cancelled", GS: "ground stop", GS_CNX: "ground stop "
          "cancelled"}
@@ -144,29 +144,29 @@ def page(day, desk: str, proj, flags) -> str:
         parts.append(programs(day, proj))
         parts.append(spares(day, proj))
     if desk in ("crew", "one"):
-        parts.append(alerts(day, desk, proj))
+        parts.append(alerts(day, desk, proj, flags))
         parts.append(near(day, proj))
         parts.append(reserve_line(day, proj))
     return "\n\n".join(p for p in parts if p)
 
 
 def messages(day, desk: str) -> str:
-    lines = []
-    if desk in ("ops", "one"):
-        fresh = [n for n in day.notices if n["news_id"] not in day.seen[desk]]
-        day.seen[desk] |= {n["news_id"] for n in fresh}
-        lines += [f"FAA: {day.news[n['news_id']]['text']}" for n in fresh]
+    fresh = [n for n in day.notices if n["news_id"] not in day.seen[desk]]
+    day.seen[desk] |= {n["news_id"] for n in fresh}
+    lines = [f"FAA: {day.news[n['news_id']]['text']}" for n in fresh]
     for m in day.inbox[desk]:
         lines.append(f"{m['request']} {m['status']}" + (f": {m.get('why') or m.get('text')}" if m.get("why") or
                                                          m.get("text") else ""))
     day.inbox[desk] = []
-    for r in day.requests:
-        if r["receiver"] == desk and r["status"] == "open":
-            what = r["type"] + (f" {fid(r['params']['flight'])}" if "flight" in r["params"] else "") + \
-                (f" {'until' if r['type'] == 'HOLD' else 'by'} {hhmm(r['params']['time'])}" if "time" in r["params"]
-                 else "")
-            lines.append(f"{r['id']} from {r['sender']} at {hhmm(r['sent'])}: {what}" +
-                         (f' "{r["text"]}"' if r["text"] else ""))
+    asked = [r for r in day.requests if r["receiver"] == desk and r["status"] == "open"]
+    for r in asked[:REQUESTS]:
+        what = r["type"] + (f" {fid(r['params']['flight'])}" if "flight" in r["params"] else "") + \
+            (f" {'until' if r['type'] == 'HOLD' else 'by'} {hhmm(r['params']['time'])}" if "time" in r["params"]
+             else "")
+        lines.append(f"{r['id']} from {r['sender']} at {hhmm(r['sent'])}: {what}" +
+                     (f' "{r["text"]}"' if r["text"] else ""))
+    if len(asked) > REQUESTS:
+        lines.append(f"{len(asked) - REQUESTS} more open requests: answer these to see them")
     return "## Messages\n" + ("\n".join(lines) if lines else "None new.")
 
 
@@ -248,24 +248,31 @@ def spares(day, proj) -> str:
     return "\n".join(out)
 
 
-def alerts(day, desk: str, proj) -> str:
+def alerts(day, desk: str, proj, flags) -> str:
+    """The crew system's new words up to now, then those it said before that still stand on an open flight with a
+    crew flag, then what the projection has it say later."""
     t = day.t
     seen = day.seen[desk]
     fixes = {(x["flight"], x["kind"], x["t"]): x for x in day.truth.trace.get("fixes", ())}
-    now = [m for m in day.truth.messages if m["sent"] <= t and key(m) not in seen]
+    said = [m for m in day.truth.messages if m["sent"] <= t]
+    now = [m for m in said if key(m) not in seen]
     seen |= {key(m) for m in now}
-    latest = {}
+    latest, standing = {}, {}
     for m in sorted(now, key=lambda m: m["sent"]):
         latest[m["params"]["flight"]] = m
+    for m in sorted(said, key=lambda m: m["sent"]):
+        standing[m["params"]["flight"]] = m
+    standing = {i: m for i, m in standing.items() if i not in latest and not day.gone(i) and not day.cancelled(i)
+                and any(v[0] != run.LEGAL for v in flags.get(i, {}).values())}
     ahead = {}
     for m in sorted(proj.day.messages, key=lambda m: m["sent"]):
-        if m["sent"] > t and m["params"]["flight"] not in latest:
+        if m["sent"] > t and m["params"]["flight"] not in latest and m["params"]["flight"] not in standing:
             ahead[m["params"]["flight"]] = m
     out = ["## Crew system alerts (the standard crew desk's word on each flight it works; its fix when it found one)"]
-    rows = [alert_text(day, m, fixes, "now") for m in sorted(latest.values(), key=lambda m: (m["sent"],
-                                                                                            m["params"]["flight"]))]
-    rows += [alert_text(day, m, {}, "projected") for m in sorted(ahead.values(), key=lambda m: (m["sent"],
-                                                                                               m["params"]["flight"]))]
+    order = lambda m: (m["sent"], m["params"]["flight"])  # noqa: E731
+    rows = [alert_text(day, m, fixes, "now") for m in sorted(latest.values(), key=order)]
+    rows += [alert_text(day, m, fixes, "now") for m in sorted(standing.values(), key=order)]
+    rows += [alert_text(day, m, {}, "projected") for m in sorted(ahead.values(), key=order)]
     out += rows[:ROWS]
     if len(rows) > ROWS:
         out.append(f'{len(rows) - ROWS} more: crew_flights(status="attention")')
@@ -338,7 +345,7 @@ def window(value, default: int | None) -> int | None:
 
 
 def flights(day, ids, station, status, start, end, units: bool) -> dict:
-    """At most LOOKUP_ROWS flights matching every filter given, by scheduled departure."""
+    """The flights matching every filter given, by scheduled departure, as many as `fit`."""
     proj = day.project(day.plan)
     flags = run.flags(proj, day.task)
     if status is not None and status not in STATUSES:
@@ -377,10 +384,9 @@ def flights(day, ids, station, status, start, end, units: bool) -> dict:
         if (j := day.w.partner.get(i)) is not None:
             extra.append(f"pair {fid(j)}")
         out.append(f"{line} [{state}{'; ' + '; '.join(extra) if extra else ''}]")
-    rows = out[:LOOKUP_ROWS]
     return {"columns": "id flight route sched pax type delay plan proj slot pilot/cabin deadline" +
-            (" crews" if units else "") + " [status; cancel cost now; round-trip partner]", "rows": rows,
-            "more": len(out) - len(rows)}
+            (" crews" if units else "") + " [status; cancel cost now; round-trip partner]",
+            **fit(out, "ids, station, status, start or end")}
 
 
 def program(day, hub) -> dict:
@@ -442,9 +448,9 @@ def aircraft(day, station) -> dict:
                     if station is None or s == station)
     ferries = [f"{x.tail} {x.family} {x.orig}-{x.dest} {x.cost:,}" for x in proj.day.run.ferries
                if station is None or station in (x.orig, x.dest)]
-    return {"aircraft": rows[:LOOKUP_ROWS], "more": max(0, len(rows) - LOOKUP_ROWS),
-            "tomorrow": " ".join(f"{s} {fam} {n}" for (fam, s), n in sorted(needs.items()))[:2000],
-            "ferries_tonight": ferries[:30]}
+    tomorrow = " ".join(f"{s} {fam} {n}" for (fam, s), n in sorted(needs.items()))[:800]
+    return {**fit(rows, "station", CHARS - len(tomorrow) - sum(len(x) + 4 for x in ferries[:12]), key="aircraft"),
+            "tomorrow": tomorrow, "ferries_tonight": ferries[:12]}
 
 
 def crews_rows(day, proj, uid, station, base, kind, group, state) -> list[str]:
@@ -478,13 +484,25 @@ def crews_rows(day, proj, uid, station, base, kind, group, state) -> list[str]:
 def crew_list(day, unit, station, base, kind, group, state) -> dict:
     proj = day.project(day.plan)
     rows = crews_rows(day, proj, unit, station, base, kind, group, state)
-    return {"rows": rows[:CREW_ROWS], "more": max(0, len(rows) - CREW_ROWS)}
+    return fit(rows[:CREW_ROWS], "unit, station, base, kind, group or state", more=len(rows) - CREW_ROWS)
 
 
 def reserves(day, base) -> dict:
     proj = day.project(day.plan)
     rows = [r for r in crews_rows(day, proj, None, None, base, None, None, None) if " reserve" in r]
-    return {"rows": rows[:LOOKUP_ROWS], "more": max(0, len(rows) - LOOKUP_ROWS)}
+    return fit(rows, "base")
+
+
+def fit(rows: list[str], narrow: str, budget: int = CHARS, more: int = 0, key: str = "rows") -> dict:
+    """The rows that fit a result of about 4k characters, and how many more and how to narrow to them."""
+    kept, size = [], 0
+    for r in rows:
+        if size + len(r) + 4 > budget:
+            break
+        kept.append(r)
+        size += len(r) + 4
+    left = len(rows) - len(kept) + max(0, more)
+    return {key: kept, **({"more": f"{left} more: narrow with {narrow}"} if left else {})}
 
 
 def options(day, i: int, kind) -> dict:

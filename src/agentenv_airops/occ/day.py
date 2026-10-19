@@ -608,6 +608,9 @@ class OccDay:
     def crew_crews(self, desk: str, unit, station, base, kind, group, state) -> dict:
         return pages.crew_list(self, unit, station, base, kind, group, state)
 
+    def crew_program(self, desk: str, hub) -> dict:
+        return pages.program(self, hub)
+
     def crew_reserves(self, desk: str, base) -> dict:
         return pages.reserves(self, base)
 
@@ -652,6 +655,8 @@ class OccDay:
             raise Refused("a TEXT needs its text")
         if type != "TEXT" and flight is None:
             raise Refused(f"a {type} needs a flight")
+        if type == "CANCEL_PAIR" and self.w.partner.get(params["flight"]) is None:
+            raise Refused(f"{fid(params['flight'])} has no round-trip partner on its planned rotation")
         if type in ("HOLD", "COVER"):
             params["time"] = self.when(minute_of(self.need({"time": time}, "time", f"a {type}")), params["flight"])
         rid = f"R{len(self.requests) + 1}"

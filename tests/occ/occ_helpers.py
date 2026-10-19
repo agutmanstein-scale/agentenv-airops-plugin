@@ -109,10 +109,14 @@ def write_pack(path: Path, w: World) -> Path:
     return path
 
 
+KEYWORDS = {"type", "properties", "required", "additionalProperties", "items", "enum", "anyOf", "description", "const",
+            "$defs", "$ref"}
+
+
 def strict(schema: dict, where: str = "") -> list[str]:
     """Where a schema breaks OpenAI's strict mode: an object must close its properties and require every one; an
-    optional field is a nullable one; no defaults."""
-    problems = []
+    optional field is a nullable one; no defaults, and no keyword strict mode doesn't take."""
+    problems = [f"{where}: {k} is not supported" for k in sorted(set(schema) - KEYWORDS)]
     if schema.get("type") == "object" or "properties" in schema:
         props = schema.get("properties", {})
         if schema.get("additionalProperties") is not False:
@@ -121,8 +125,6 @@ def strict(schema: dict, where: str = "") -> list[str]:
             problems.append(f"{where}: required {schema.get('required')} is not every property")
         for name, sub in props.items():
             problems += strict(sub, f"{where}.{name}")
-    if "default" in schema:
-        problems.append(f"{where}: has a default")
     for sub in schema.get("anyOf", []):
         problems += strict(sub, where)
     if "items" in schema:

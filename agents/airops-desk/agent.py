@@ -417,17 +417,29 @@ LINE = re.compile(r"freeze line (\S+):")
 
 
 class Script:
-    """policy "script": a fixed desk on its pages and tools alone. The crew desk forwards each of the crew system's new
-    words, a flight's latest: CANCEL as a CANCEL request, HOLD as a TEXT; the ops desk accepts each CANCEL request at
-    its turn; one desk running both cancels the flights the crew system can't crew and holds the others to its crew
-    times."""
+    """policy "script": a fixed desk on its pages and tools alone, acting once on each of the crew system's words (a
+    flight's latest on the page). The crew desk forwards them, CANCEL as a CANCEL request, HOLD as a TEXT; the ops desk
+    accepts each CANCEL request at its turn; one desk running both cancels the flights the crew system can't crew and
+    holds the others to its crew times."""
 
     def __init__(self, desk: str):
         self.desk = desk
+        self.acted: set[str] = set()
+
+    def new(self, page: str) -> list[tuple]:
+        """The crew system's words on the page not acted on yet (a word stays on the page while it stands)."""
+        out = []
+        for m in NOW.finditer(page):
+            end = page.find("\n", m.start())
+            line = page[m.start():end if end >= 0 else None].split("; fix")[0]
+            if line not in self.acted:
+                self.acted.add(line)
+                out.append(m.groups())
+        return out
 
     async def turn(self, page: str, call) -> None:
         if self.desk == "crew":
-            for i, _, hold in NOW.findall(page):
+            for i, _, hold in self.new(page):
                 if hold:
                     await call("crew_request", {"type": "TEXT", "flight": f"f{i}", "time": None,
                                                 "text": f"crew system: HOLD f{i} until {hold}"})
@@ -440,7 +452,7 @@ class Script:
         else:
             line = LINE.search(page)
             changes = []
-            for i, _, hold in NOW.findall(page):
+            for i, _, hold in self.new(page):
                 if not hold:
                     changes.append({"flight": f"f{i}", "action": "cancel", "time": None, "other": None, "ref": None})
                 else:

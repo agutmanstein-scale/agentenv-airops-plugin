@@ -42,6 +42,7 @@ EMPTY = {"task_id": None, "mode": None, "done": False, "calls": [], "turns": [],
          "grade": None, "reward": None}
 Time = Annotated[str | None, Field(description='local "HH:MM" ("01:10+1" after midnight), or null')]
 Flight = Annotated[str | None, Field(description='flight id, e.g. "f12", or null')]
+Text = Annotated[str | None, Field(description=f"at most {TEXT_CHARS} characters, or null")]
 
 
 def _strict(schema: dict) -> None:
@@ -190,7 +191,8 @@ class OccEnv(AgentEnvEnvironment):
 
     # ------------------------------------------------------------------ ops tools
 
-    @tool(description="Flights, at most 60 rows by scheduled departure, filtered by any of ids, station, status and "
+    @tool(description="Flights by scheduled departure, as many as fit 4k characters, filtered by any of ids, station, "
+                      "status and "
                       "scheduled departure window: schedule, pax, type, its own delay once known (else ?), your plan, "
                       "where the projection has it leave and land and how late, its slot, the crew flags, deadline, "
                       "the cancellation's price now and its round-trip partner.")
@@ -221,13 +223,13 @@ class OccEnv(AgentEnvEnvironment):
 
     @tool(description="Ask the crew desk: COVER (crew `flight` by `time`) or TEXT (at most 400 characters).")
     async def ops_request(self, ctx: ToolContext, type: Literal["COVER", "TEXT"], flight: Flight, time: Time,
-                          text: Annotated[str | None, Field(max_length=TEXT_CHARS)]) -> str:
+                          text: Text) -> str:
         return await self.act(ctx, "ops_request", type=type, flight=flight, time=time, text=text)
 
     @tool(description="Answer a crew request: accept carries it out now as your decision (HOLD holds the flight, no "
                       "earlier than the freeze line; CANCEL and CANCEL_PAIR cancel), decline leaves it.")
     async def ops_reply(self, ctx: ToolContext, request: str, answer: Literal["accept", "decline"],
-                        text: Annotated[str | None, Field(max_length=TEXT_CHARS)]) -> str:
+                        text: Text) -> str:
         return await self.act(ctx, "ops_reply", request=request, answer=answer, text=text)
 
     # ------------------------------------------------------------------ crew tools
@@ -252,6 +254,11 @@ class OccEnv(AgentEnvEnvironment):
     async def crew_reserves(self, ctx: ToolContext, base: str | None) -> str:
         return await self.act(ctx, "crew_reserves", base=base)
 
+    @tool(description="A hub's FAA programs as issued, read-only: the advisories, JetBlue's slots in time order with "
+                      "who holds each (* claimed), the flights the program controls with no slot, and ground stops.")
+    async def crew_program(self, ctx: ToolContext, hub: Literal["JFK", "BOS"]) -> str:
+        return await self.act(ctx, "crew_program", hub=hub)
+
     @tool(description="The standard crew desk's options for a flight's crew of one kind now, priced by the wait, the "
                       "deadhead, the hotel and the end of the day: (a) its own crew, (b) a reserve, (c) a swap, "
                       "(d) a deadhead, (e) the pilots' extension.")
@@ -272,13 +279,13 @@ class OccEnv(AgentEnvEnvironment):
                       "(`flight` and its round-trip partner) or TEXT (at most 400 characters).")
     async def crew_request(self, ctx: ToolContext, type: Literal["HOLD", "CANCEL", "CANCEL_PAIR", "TEXT"],
                            flight: Flight, time: Time,
-                           text: Annotated[str | None, Field(max_length=TEXT_CHARS)]) -> str:
+                           text: Text) -> str:
         return await self.act(ctx, "crew_request", type=type, flight=flight, time=time, text=text)
 
     @tool(description="Answer an ops request: accept commits you to it (COVER: crew the flight by its time; your moves "
                       "follow with ref), decline refuses it.")
     async def crew_reply(self, ctx: ToolContext, request: str, answer: Literal["accept", "decline"],
-                         text: Annotated[str | None, Field(max_length=TEXT_CHARS)]) -> str:
+                         text: Text) -> str:
         return await self.act(ctx, "crew_reply", request=request, answer=answer, text=text)
 
     # ------------------------------------------------------------------ the env's own
