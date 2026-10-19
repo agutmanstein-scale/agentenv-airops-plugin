@@ -31,7 +31,12 @@ then the unit id; so it takes a crew off its trip, or relieves the planned crew 
 than waiting. A unit taken for a flight takes it and the rest of its planned crew's trip and is held for it; on a swap
 the planned crew takes that unit's trip. When the flight is ready to leave the desk decides again from that minute.
 Once for one of its kinds no option leaves by the deadline and no crew's trip brings one to the origin by then (the
-planned crew's only before the flight), the flight is cancelled at that minute, priced at that minute's notice.
+planned crew's only before the flight), the flight is cancelled at that minute, priced at that minute's notice; without
+`drop` the desk can't cancel, so it asks ops to (CANCEL) and the flight stays on the board, waiting for a crew or its
+deadline. Each decision on a flight is also the desk's word to ops, from what it computed and as scheduled from then:
+CANCEL where it is stuck, else HOLD(T) when the crew it takes or waits for can't leave before T, later than it wanted,
+or when none can until the first crew a trip brings there lands (T that arrival plus CONNECT), T the latest over the
+kinds; the flight's latest word stands, and a new one is logged only when its type or minute changes.
 
 The rules are crews.py's, judged at takeoff (crewreplay.py prices the same ones): a unit's period continues while the
 leg fits it; an uncalled short-call reserve reports, and a rested unit starts its second period, on the last whole hour
@@ -45,12 +50,14 @@ group and base, the units where the day leaves them sent to where their trips ha
 (crews.Ends: a unit may take any of its base's trips tomorrow). The log has per unit each period's report time and
 place, its legs and deadheads with their times, its release, hotels, and a reserve's call and report; per flight its
 crew status over time: "legal", "times out" at a minute (its crew's last legal departure), or "no crew" (no unit
-assigned, or its unit stranded or out of time), then "flown", "flown without a legal crew" or "cancelled".
+assigned, or its unit stranded or out of time), then "flown", "flown without a legal crew" or "cancelled", judged
+again whenever its crews move or the desk gives it a crew (a crew with a deadhead booked to its origin judged as if
+there after it); and the desk's messages to ops.
 """
 
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from ..core.model import Airport
 from . import crews, sim
@@ -58,6 +65,7 @@ from .crews import Unit
 from .model import Flight, Task
 
 LEGAL, TIMES_OUT, NO_CREW = "legal", "times out", "no crew"
+CANCEL, HOLD = "CANCEL", "HOLD"
 
 
 @dataclass
@@ -101,6 +109,8 @@ class CrewDay:
     cost: dict[str, float]
     units: dict[str, dict]
     status: dict[int, list[tuple]]
+    messages: tuple[dict, ...] = ()
+    dropped: dict[int, int] = field(default_factory=dict)
 
     @property
     def crew_cost(self) -> float:
@@ -113,17 +123,19 @@ class CrewDay:
 
 def execute(task: Task, plan: Mapping, units: Sequence[Unit], world: sim.World | None = None,
             local: crews.Local | None = None, fill: bool = True, log: bool = True,
-            airports: Mapping[str, Airport] | None = None, desk: bool = False) -> CrewDay:
+            airports: Mapping[str, Airport] | None = None, desk: bool = False, drop: bool = True) -> CrewDay:
     """The day under `plan` with `units` at the start (the truth by default); `local` reads a station's clock (the
     hub's by default), `airports` hold every station a unit may end at or be wanted at (the task's by default); with
-    `desk` the standard crew desk crews the flights the plan leaves unnamed, else the trip rule."""
+    `desk` the standard crew desk crews the flights the plan leaves unnamed, else the trip rule, and without `drop` it
+    asks ops to cancel where it would cancel."""
     world = sim.truth(task) if world is None else world
-    pool = Pool(task, units, local or (lambda s, m: m), plan, fill, log, airports or task.airports, desk=desk)
+    pool = Pool(task, units, local or (lambda s, m: m), plan, fill, log, airports or task.airports, desk=desk,
+                drop=drop)
     run = sim.execute(task, plan, world, pool)
     spent = pool.spent()
     return CrewDay(run, dict(pool.crewed), {i: tuple(v) for i, v in pool.riders.items()}, tuple(sorted(pool.uncrewed)),
                    {k: sum(v[k] for v in spent.values()) for k in ("deadhead", "hotel", "end")}, pool.unit_log(spent),
-                   pool.status)
+                   pool.status, tuple(pool.messages), dict(pool.dropped))
 
 
 def audit(task: Task, units: Sequence[Unit], plan: Mapping, deps: Mapping[int, int], blocks: Mapping[int, int],
@@ -152,8 +164,12 @@ def audit(task: Task, units: Sequence[Unit], plan: Mapping, deps: Mapping[int, i
 
 class Pool:
     def __init__(self, task: Task, units: Sequence[Unit], local: crews.Local, plan: Mapping, fill: bool, log: bool,
-                 airports: Mapping[str, Airport], ends: Mapping[int, str] | None = None, desk: bool = False):
-        self.task, self.local, self.fill, self.log, self.desk = task, local, fill, log, desk
+                 airports: Mapping[str, Airport], ends: Mapping[int, str] | None = None, desk: bool = False,
+                 drop: bool = True):
+        self.task, self.local, self.fill, self.log, self.desk, self.drop = task, local, fill, log, desk, drop
+        self.messages: list[dict] = []
+        self.standing: dict[int, tuple] = {}
+        self.notes: list[tuple] = []
         self.airports, self.diverted = airports, ends or {}
         self.reports = dict(plan.get("reports", {}))
         self.uncalled: dict[str, tuple[int, int]] = {}
@@ -218,12 +234,14 @@ class Pool:
             name = entry.get("crew", {}).get(kind)
             got, retry = self.attend(kind, group, f, t) if self.desk and self.fill and not name and not left else \
                 self.choose(kind, group, f, t, name)
-            if f.id in self.dropped:
+            if any(n[1] == CANCEL for n in self.notes):
+                self.say(f, t)
                 return None
             if got is not None:
                 picks[kind] = got
             elif retry is not None:
                 later.append(retry)
+        self.say(f, t)
         if left or len(picks) == len(crews.KINDS):
             self.picks[f.id] = picks
             return t
@@ -268,15 +286,15 @@ class Pool:
     def attend(self, kind: str, group: str, f: Flight, t: int) -> tuple:
         """The standard crew desk's crew of `kind` for f, ready to leave at t: the cheapest of its `options`, ties to
         the earlier letter, then the earlier departure, then the unit id; with none and no crew coming (`coming`), f is
-        cancelled now."""
+        cancelled now (`wait`)."""
         options = self.options(kind, group, f, t, t)
         if not options:
-            if not self.coming(kind, group, f):
-                self.dropped[f.id] = t
+            self.wait(kind, group, f, t, False)
             return None, None
         _, _, d, uid, act = min(options, key=lambda o: o[:4])
         self.take(kind, f, t, uid, act)
         if d > t:
+            self.notes.append((kind, HOLD, d, "later"))
             return None, d
         return (uid, self.operate(self.state[uid], f, t)), None
 
@@ -505,9 +523,12 @@ class Pool:
             if u.reserve == "short" and s.report is None:
                 s.call = max(t, u.rap, self.task.start)
                 s.earliest = crews.on_hour(s.call + u.lead)
+        y = self.planned.get((kind, f.id))
         self.hand(kind, f, uid, act[0] == "swap")
         s.claim = f.id
         self.held[f.id].append(uid)
+        if self.log:
+            self.rejudge({uid} if y is None else {uid, y}, t)
 
     def hand(self, kind: str, f: Flight, uid: str, swap: bool) -> None:
         """uid takes f and the rest of the trip of f's planned crew from f on; on a swap, that crew takes uid's own
@@ -530,22 +551,57 @@ class Pool:
             self.planned[(kind, i)] = uid
             self.watch[uid].add(i)
 
-    def coming(self, kind: str, group: str, f: Flight) -> bool:
-        """Whether a crew of the kind and group, wherever it is, has a trip leg landing at f's origin by f's deadline
-        (f's planned crew only before f)."""
+    def coming(self, kind: str, group: str, f: Flight) -> int | None:
+        """The first scheduled arrival at f's origin by f's deadline of a trip leg of a crew of the kind and group,
+        wherever it is (f's planned crew's only before f), or None."""
         mine = self.planned.get((kind, f.id))
+        out = None
         for uid in self.kin[(kind, group)]:
             trip = self.state[uid].trip
             if uid == mine and f.id in trip:
                 trip = trip[:trip.index(f.id)]
-            if any(self.task.flight(i).dest == f.orig and self.task.flight(i).sched_arr <= f.deadline for i in trip):
-                return True
-        return False
+            for i in trip:
+                g = self.task.flight(i)
+                if g.dest == f.orig and g.sched_arr <= f.deadline and (out is None or g.sched_arr < out):
+                    out = g.sched_arr
+        return out
+
+    def wait(self, kind: str, group: str, f: Flight, t: int, wake: bool) -> bool:
+        """With no option for f's `kind` at t: HOLD until the first crew a trip brings to its origin is there, else f
+        is stuck, cancelled now or, without `drop`, a CANCEL asked of ops; whether it is stuck."""
+        come = self.coming(kind, group, f)
+        if come is not None:
+            self.notes.append((kind, HOLD, come + crews.CONNECT, "coming"))
+            return False
+        self.notes.append((kind, CANCEL, None, "none"))
+        if self.drop:
+            self.dropped[f.id] = t
+            if wake:
+                self.wake.append((f.id, t))
+        return True
+
+    def say(self, f: Flight, t: int) -> None:
+        """The desk's word on f from the decision at t, logged when its type or minute changes: CANCEL when a kind is
+        stuck (with `drop` the cancellation itself, accepted at once), else HOLD until the latest minute a kind's crew
+        can be there; in the request log's shape (sender, receiver, type, params, free text, sent, reply, replied,
+        actions)."""
+        notes, self.notes = self.notes, []
+        if not notes:
+            return
+        kind, said, minute, reason = next((n for n in notes if n[1] == CANCEL), None) or max(notes, key=lambda n: n[2])
+        if self.standing.get(f.id) == (said, minute):
+            return
+        self.standing[f.id] = (said, minute)
+        done = said == CANCEL and self.drop
+        self.messages.append({"sender": "crew", "receiver": "ops", "type": said,
+                              "params": {"flight": f.id, "kind": kind, "minute": minute, "reason": reason},
+                              "text": "", "sent": t, "reply": "accept" if done else None,
+                              "replied": t if done else None, "actions": [{"cancel": f.id, "at": t}] if done else []})
 
     def check(self, f: Flight, t: int) -> None:
         """The desk at t on f, from its earliest departure t0: for each kind whose planned crew can't leave by t0, or
         its schedule if later, without the extension, it takes the cheapest of its `options` now unless that is
-        waiting for that crew; with none and no crew coming it cancels f now."""
+        waiting for that crew (HOLD if that leaves later); with none and no crew coming it cancels f now (`wait`)."""
         if f.id in self.done or f.id in self.dropped:
             return
         group, t0 = crews.TYPE[f.family], max(t, self.task.earliest(f, min(0, f.lb)))
@@ -559,13 +615,14 @@ class Pool:
                     continue
             options = self.options(kind, group, f, t, t0)
             if not options:
-                if not self.coming(kind, group, f):
-                    self.dropped[f.id] = t
-                    self.wake.append((f.id, t))
-                    return
+                if self.wait(kind, group, f, t, True):
+                    break
                 continue
-            _, _, _, uid, act = min(options, key=lambda o: o[:4])
+            _, _, d, uid, act = min(options, key=lambda o: o[:4])
+            if d > on_time:
+                self.notes.append((kind, HOLD, d, "later"))
             self.take(kind, f, t, uid, act)
+        self.say(f, t)
 
     def available(self, s: State, f: Flight) -> bool:
         """Whether the default rule may give s flight f: not held for another flight, and no uncalled short-call
@@ -793,7 +850,7 @@ class Pool:
         worst = (LEGAL, None)
         for kind in crews.KINDS:
             uid = self.named.get((kind, f.id)) or self.planned.get((kind, f.id))
-            got = (NO_CREW, None) if uid is None else self.outlook(self.state[uid], f)
+            got = (NO_CREW, None) if uid is None else self.flag(self.state[uid], f, t)
             if got[0] == NO_CREW or (got[0] == TIMES_OUT and (worst[0] == LEGAL or got[1] < worst[1])):
                 worst = got
             if worst[0] == NO_CREW:
@@ -801,6 +858,24 @@ class Pool:
         log = self.status[f.id]
         if not log or log[-1][1:] != worst:
             log.append((t, *worst))
+
+    def flag(self, s: State, f: Flight, t: int) -> tuple[str, int | None]:
+        """s's `outlook` for f as the status log shows it at t: riding a deadhead booked to f's origin, as it will be
+        there in the period the ride leaves it in."""
+        got = self.outlook(s, f)
+        rides = [self.task.flight(i) for i in s.deadheads if i in self.free and i not in self.done]
+        rides = [g for g in rides if g.orig == s.station and g.dest == f.orig]
+        if got[0] != NO_CREW or not rides:
+            return got
+        g = min(rides, key=lambda g: (g.sched_dep, g.id))
+        e = max(g.sched_dep, t)
+        period = self.boards(s, g, e, t)
+        if period is None:
+            return got
+        report, hour, flown, minutes, rap, rested = period
+        there = replace(s, station=f.orig, ready=e + g.sched_block + crews.CONNECT, report=report, hour=hour,
+                        flown=flown, minutes=minutes, rap=rap, period=2 if rested else s.period)
+        return self.outlook(there, f)
 
     def outlook(self, s: State, f: Flight) -> tuple[str, int | None]:
         """Whether s, following its trip to f, can take it: legal, timing out at its last legal departure, or not."""

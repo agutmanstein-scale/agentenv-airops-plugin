@@ -399,3 +399,72 @@ def test_a_reserve_the_morning_plan_called_logs_its_call():
               for k, kind in (("RP", "pilot"), ("RC", "cabin"))]
     d = crewsim.execute(task, {}, called)
     assert d.run.flights[0].dep == 705 and d.units["RP"]["call"] == 660 - 150
+
+
+def test_without_drop_the_desk_asks_ops_to_cancel_and_the_flight_stays_on_the_board():
+    task = day([flight(0, "JFK", "BOS", 600, 60)], [tail("N1", "JFK")])
+    d = crewsim.execute(task, {}, pair((0,), station="BUF"), desk=True, drop=False)
+    assert d.run.flights[0].status == AUTO_CANCELLED and d.dropped == {}
+    assert d.messages == ({"sender": "crew", "receiver": "ops", "type": crewsim.CANCEL,
+                           "params": {"flight": 0, "kind": "pilot", "minute": None, "reason": "none"}, "text": "",
+                           "sent": 0, "reply": None, "replied": None, "actions": []},)
+    d = crewsim.execute(task, {}, pair((0,), station="BUF"), desk=True)
+    assert d.dropped == {0: 0} and [(m["type"], m["reply"], m["replied"], m["actions"]) for m in d.messages] == [
+        (crewsim.CANCEL, "accept", 0, [{"cancel": 0, "at": 0}])]
+
+
+def test_the_desk_says_hold_until_its_crew_can_leave_and_says_it_again_only_when_that_changes():
+    task = day([flight(0, "JFK", "BOS", 600, 60)], [tail("N1", "JFK")])
+    d = crewsim.execute(task, {}, pair((0,), report=580), desk=True, drop=False)
+    assert d.run.flights[0].dep == 580 + crews.BRIEF
+    assert [(m["sent"], m["type"], m["params"]["minute"], m["params"]["reason"]) for m in d.messages] == [
+        (0, crewsim.HOLD, 580 + crews.BRIEF, "later")]
+    assert crewsim.execute(task, {}, pair((0,), report=500), desk=True, drop=False).messages == ()
+
+
+def test_with_no_crew_until_a_trip_brings_one_the_desk_holds_until_the_first_is_there():
+    flights = [flight(0, "JFK", "BOS", 600, 60, deadline=900), flight(1, "JFK", "PWM", 450, 60),
+               flight(2, "PWM", "JFK", 570, 60), flight(3, "PWM", "JFK", 640, 60)]
+    task = day(flights, [tail("N1", "JFK"), tail("N2", "JFK"), tail("N3", "PWM")])
+    units = pair((0,), station="BUF") + [unit(k, kind, report=390, trip=(1, 2)) for k, kind in (("P2", "pilot"),
+                                                                                                 ("C2", "cabin"))] + \
+        [unit(k, kind, "PWM", 580, trip=(3,)) for k, kind in (("P3", "pilot"), ("C3", "cabin"))]
+    pool = crewsim.Pool(task, units, lambda s, m: m, {}, True, False, task.airports, desk=True, drop=False)
+    assert pool.coming("pilot", "A32X", task.flight(0)) == 630
+    d = crewsim.execute(task, {}, units, desk=True, drop=False)
+    assert (d.messages[0]["sent"], d.messages[0]["type"], d.messages[0]["params"]["minute"],
+            d.messages[0]["params"]["reason"]) == (0, crewsim.HOLD, 630 + crews.CONNECT, "coming")
+    assert d.run.flights[0].dep == 630 + crews.CONNECT and d.crews[0] == {"pilot": "P2", "cabin": "C2"}
+
+
+def test_the_flag_follows_the_crew_the_desk_takes_and_counts_the_deadhead_it_booked():
+    task = day([flight(0, "JFK", "BOS", 600, 60), flight(1, "BOS", "JFK", 720, 60)], [tail("N1", "JFK")])
+    d = crewsim.execute(task, {}, pair((0, 1), station="BUF") + standbys(), desk=True)
+    cabin = 300 + crews.CABIN_DUTY - crews.DEBRIEF - 60
+    assert d.status[0][:2] == [(0, crewsim.NO_CREW, None), (0, crewsim.TIMES_OUT, cabin)]
+    flights = [flight(0, "JFK", "BOS", 700, 60), flight(1, "BOS", "JFK", 560, 60), flight(3, "JFK", "DCA", 760, 60)]
+    task = day(flights, [tail("N1", "JFK"), tail("N2", "BOS")])
+    units = pair((0,), station="BUF") + [unit(k, kind, "BOS", 480, trip=(1, 3)) for k, kind in
+                                         (("P3", "pilot"), ("C3", "cabin"))] + \
+        [unit(k, kind, "BOS", 480) for k, kind in (("P2", "pilot"), ("C2", "cabin"))]
+    d = crewsim.execute(task, {}, units, desk=True)
+    assert d.riders[1] == ("C2", "P2") and d.status[0][0] == (0, crewsim.NO_CREW, None)
+    assert d.status[0][1] == (0, crewsim.TIMES_OUT, 480 + crews.CABIN_DUTY - crews.DEBRIEF - 60)
+    pool = crewsim.Pool(task, units, lambda s, m: m, {}, True, False, task.airports, desk=True)
+    p2, f = pool.state["P2"], task.flight(0)
+    assert p2.deadheads == [1] and pool.outlook(p2, f) == (crewsim.NO_CREW, None)
+    assert pool.flag(p2, f, 0) == (crewsim.TIMES_OUT, crews.pilot_limit(480, 8, 1) - 60)
+
+
+def test_without_drop_the_desk_crews_alike_where_it_never_had_to_cancel():
+    task = day([flight(0, "JFK", "BOS", 600, 60), flight(1, "BOS", "JFK", 720, 60)], [tail("N1", "JFK")])
+    swap = day([flight(0, "JFK", "BOS", 600, 60), flight(1, "JFK", "DCA", 800, 60),
+                flight(2, "BUF", "JFK", 500, 100, sched_block=60)],
+               [tail("N1", "JFK"), tail("N2", "JFK"), tail("N3", "BUF")])
+    late = [unit(k, kind, "BUF", 440, trip=(2, 0)) for k, kind in (("P1", "pilot"), ("C1", "cabin"))]
+    there = [unit(k, kind, report=540, trip=(1,)) for k, kind in (("P2", "pilot"), ("C2", "cabin"))]
+    for t, units in ((task, pair((0, 1), station="BUF") + standbys()), (task, pair((0, 1), report=580) + standbys()),
+                     (swap, late + there)):
+        a, b = (crewsim.execute(t, {}, units, desk=True, drop=drop) for drop in (True, False))
+        assert a.run.rows() == b.run.rows() and a.crews == b.crews and a.units == b.units
+        assert a.status == b.status and a.messages == b.messages

@@ -42,7 +42,9 @@ the aircraft on tomorrow's needs (Task.needed).
 With a crew pool (crewsim.Pool) a flight ready to leave also needs its crews: the pool's `board` says whether
 they are there now, when to try again, or never (the flight then auto-cancels at its deadline unless a crew's arrival
 wakes it); a flight with "left" leaves whatever crews it finds. A flight the pool drops (its crew desk sure no crew
-can come) is cancelled, decided when the pool dropped it. A plan for the crew sim may carry "reports".
+can come) is cancelled, decided when the pool dropped it. A cancellation in the plan reaches the pool at its decided
+minute, before that minute's flights: until then the flight is on the board as if open, its crews sought, and it never
+leaves, so a decision changes nothing the pool did before it. A plan for the crew sim may carry "reports".
 
 A World is what a day runs on: the truth (the task's lb, truth blocks and programs as they ran), the day as known at
 a watch (what the desk could know then: lb and the truth block once the scheduled departure is within LOOK, else 0
@@ -193,7 +195,8 @@ def execute(task: Task, plan: Plan, world: World | None = None, crew=None) -> Ex
     world = truth(task) if world is None else world
     rules = Rules(task, world)
     want = {int(k): v for k, v in plan.items() if k != "reports"}
-    cancelled = {i for i, d in want.items() if d.get("cancel")}
+    cancelled = {i: task.start if d.get("decided") is None else d["decided"] for i, d in want.items()
+                 if d.get("cancel")}
     runs: dict[int, FlightRun] = {}
     when: dict[int, float] = {}
     first: dict[int, int] = {}
@@ -201,11 +204,10 @@ def execute(task: Task, plan: Plan, world: World | None = None, crew=None) -> Ex
     for f in task.flights:
         d = want.get(f.id, {})
         if f.id in cancelled:
-            decided = d.get("decided")
-            runs[f.id] = FlightRun(f.id, CANCELLED, decided=task.start if decided is None else decided)
-            if crew is not None:
-                crew.cancel(f.id, runs[f.id].decided)
-            continue
+            if crew is None:
+                runs[f.id] = FlightRun(f.id, CANCELLED, decided=cancelled[f.id])
+                continue
+            heap.append((cancelled[f.id], 0, cancelled[f.id], f.id))
         c = d["left"] if d.get("left") is not None else max(task.earliest(f, world.lb[f.id]), d.get("not_before") or 0)
         when[f.id] = first[f.id] = c
         heap.append((c, 1, c, f.id))
@@ -220,7 +222,7 @@ def execute(task: Task, plan: Plan, world: World | None = None, crew=None) -> Ex
         if t.tail in own:
             station, ready[t.tail] = through(own[t.tail], t.ready, moves)
         at[(t.family, station)].add(t.tail)
-    bound, claimed = _claims(task, want, runs, rules)
+    bound, claimed = _claims(task, want, cancelled, rules)
     taken: set[SlotKey] = set()
     used: Counter = Counter()
     legs: dict[str, list[int]] = {p: [] for p in ready}
@@ -233,6 +235,11 @@ def execute(task: Task, plan: Plan, world: World | None = None, crew=None) -> Ex
 
     while heap:
         t, kind, c, i = heapq.heappop(heap)
+        if not kind:
+            if i not in runs:
+                runs[i] = FlightRun(i, CANCELLED, decided=t)
+                crew.cancel(i, t)
+            continue
         if i in runs or when[i] != t:
             continue
         f = task.flight(i)
@@ -272,6 +279,8 @@ def execute(task: Task, plan: Plan, world: World | None = None, crew=None) -> Ex
                 runs[i] = FlightRun(i, CANCELLED, decided=crew.dropped[i])
                 crew.cancel(i, runs[i].decided)
                 continue
+            if go == t and i in cancelled:
+                go = cancelled[i]
             if go != t:
                 when[i] = f.deadline + 1 if go is None else go
                 heapq.heappush(heap, (when[i], kind, c, i))
@@ -358,12 +367,13 @@ def _wait(waiting: set[int], i: int, soon: list[int], when: dict, heap: list, ki
         heapq.heappush(heap, (when[i], kind, c, i))
 
 
-def _claims(task: Task, want: Mapping[int, Mapping], runs: Mapping[int, FlightRun],
+def _claims(task: Task, want: Mapping[int, Mapping], cancelled: Collection[int],
             rules: Rules) -> tuple[dict[SlotKey, int], dict[int, SlotKey]]:
     """Bind the claims: (segment, slot) to flight, and flight to its (segment, slot)."""
     bound: dict[SlotKey, int] = {}
     claimed: dict[int, SlotKey] = {}
-    for claim, i in sorted((v["claim"], i) for i, v in want.items() if v.get("claim") is not None and i not in runs):
+    for claim, i in sorted((v["claim"], i) for i, v in want.items()
+                           if v.get("claim") is not None and i not in cancelled):
         f = task.flight(i)
         seg = rules.governs(f, claim - f.sched_block)
         if seg is None:
