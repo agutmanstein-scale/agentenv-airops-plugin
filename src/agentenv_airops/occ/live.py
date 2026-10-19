@@ -259,7 +259,8 @@ class OccEnv(AgentEnvEnvironment):
         return await self.act(ctx, "crew_options", flight=flight, kind=kind)
 
     @tool(description="Check crew moves without committing them: the projected cost and its change, the flights whose "
-                      "crew or departure changes, what each unit named then flies and its legality, and refusals.")
+                      "crew or departure changes, what each unit named then flies and its legality, the legs they "
+                      "hand back to the crew system (handed_back), and refusals.")
     async def crew_check(self, ctx: ToolContext, moves: Moves) -> str:
         return await self.act(ctx, "crew_check", moves=_rows(moves))
 

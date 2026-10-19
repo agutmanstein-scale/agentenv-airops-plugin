@@ -1,7 +1,8 @@
 """Decisions taken during the day reach the sim at their minute: a hold, a claim, a crew named or let go, a rider and a
-reserve's call change nothing before it and act from it on, a unit the crew desk takes is no longer the standard desk's
-until it lets it go (the flight it leaves the desk finds a crew for when it boards); the standard desk leaves a named
-crew alone; and a day carried on in another world from a minute keeps everything before it."""
+reserve's call change nothing before it and act from it on; a unit the crew desk moves, and the crew it replaces, keep
+the legs of their trips that still connect, the rest going back to the standard desk at once, which leaves a named crew
+alone and doesn't take a unit while a flight it is named on is to come; a swap exchanges two trips; and a day carried
+on in another world from a minute keeps everything before it."""
 
 from dataclasses import replace
 
@@ -65,10 +66,36 @@ def test_a_crew_named_later_is_the_plans_only_from_its_minute():
     early = run({0: {"crew": {"pilot": "P2", "cabin": "C2"}}})
     assert 1 not in early.crews and early.crews[0] == {"pilot": "P2", "cabin": "C2"}
     late = run({0: {"names": named(550, 2)}})
-    assert before(late, 550) == before(free, 550) and late.crews[0] == {"pilot": "P2", "cabin": "C2"}
-    assert 1 not in late.crews and [(m["type"], m["sent"]) for m in late.messages] == [("HOLD", 0), ("CANCEL", 585)]
+    assert before(late, 550) == before(free, 550)
+    assert late.crews == {0: {"pilot": "P2", "cabin": "C2"}, 1: {"pilot": "P1", "cabin": "C1"}}
     back = run({0: {"names": named(550, 2, to=580)}})
-    assert back.crews == free.crews and back.messages == free.messages
+    assert back.crews == late.crews and [(m["type"], m["sent"]) for m in back.messages] == [("HOLD", 0)]
+
+
+def test_a_unit_the_crew_desk_moves_keeps_the_legs_that_still_connect_and_hands_back_the_rest():
+    task = day([flight(0, "JFK", "BOS", 600, 60), flight(2, "BOS", "JFK", 760, 60), flight(3, "JFK", "DCA", 610, 60)],
+               [tail("N1", "JFK"), tail("N2", "JFK")])
+    units = crew(1, (0, 2)) + crew(2, (), "JFK", reserve="standby", until=900) + crew(3, (3,))
+    run = lambda plan: crewsim.execute(task, plan, units, desk=True, drop=False)  # noqa: E731
+    free = run({})
+    assert free.crews[2] == {"pilot": "P1", "cabin": "C1"}
+    assert run({0: {"names": named(550, 1)}}).run.rows() == free.run.rows()
+    away = run({3: {"names": named(550, 1)}})
+    assert away.crews == {0: {"pilot": "P2", "cabin": "C2"}, 2: {"pilot": "P3", "cabin": "C3"},
+                          3: {"pilot": "P1", "cabin": "C1"}} and away.messages == ()
+    took = run({0: {"names": named(550, 2)}})
+    assert took.crews[0] == took.crews[2] == {"pilot": "P2", "cabin": "C2"} and took.messages == ()
+
+
+def test_a_swap_decided_later_exchanges_the_trips_and_leaves_them_to_the_standard_desk():
+    task = day([flight(0, "JFK", "BOS", 600, 60), flight(1, "JFK", "DCA", 620, 60), flight(2, "DCA", "JFK", 760, 60)],
+               [tail("N1", "JFK"), tail("N2", "JFK", legs=(1, 2))])
+    units = crew(1, (0,)) + crew(2, (1, 2))
+    run = lambda plan: crewsim.execute(task, plan, units, desk=True, drop=False)  # noqa: E731
+    swapped = run({"swaps": [[550, "P1", "P2"], [550, "C1", "C2"]]})
+    assert swapped.crews == {0: {"pilot": "P2", "cabin": "C2"}, 1: {"pilot": "P1", "cabin": "C1"},
+                             2: {"pilot": "P1", "cabin": "C1"}}
+    assert before(swapped, 550) == before(run({}), 550)
 
 
 def test_a_rider_and_a_reserve_called_later_act_from_their_minute():

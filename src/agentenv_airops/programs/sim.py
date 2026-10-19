@@ -76,7 +76,7 @@ from .cost import Cost, ferry_cost, priced
 from .model import Flight, Move, Segment, Task
 
 Plan = Mapping[int | str, Mapping]
-EXTRA = ("reports", "calls", "keeps")
+EXTRA = ("reports", "calls", "keeps", "swaps")
 CANCEL, WAKE, FLY = 0, 1, 2
 SlotKey = tuple[str, int]
 HourKey = tuple[str, int]

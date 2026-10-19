@@ -9,8 +9,9 @@ Per date, in its own process:
   with its internals and confirms through ops_confirm, the crew desk idle; the cost equals occ.run(case, "quiet").
 - Z1c channel: the crew script forwards the crew system's words (CANCEL as requests, HOLD as texts) and the ops script
   accepts each CANCEL at its turn (agents/airops-desk's Script); the cost equals occ.run(case, "talk-idle").
-- Z1d anchor: the pack's best plan confirmed at the first watch (every unit it leaves idle kept off the rides its trip
-  plans), both desks idle after; its cost equals the best plan's (within 0.5), reward 1.0.
+- Z1d anchor: the pack's best plan confirmed at the first watch (every unit kept off the rides its trip plans that the
+  best plan doesn't have it ride or fly), both desks idle after; its cost equals the best plan's (within 0.5), reward
+  1.0.
 - Z1e: every commit kept the past (A3), the audit passes (A1-A7), and a leak test: delays and blocks past the watch's
   LOOK changed, every call and result up to that watch is the same.
 - Z1f: the largest page per desk (joint: ops and crew within 8k characters, one-agent within 12k).
@@ -186,12 +187,13 @@ def best_moves(w: World) -> tuple[list[dict], list[dict]]:
         uid, _, second = key.partition("#")
         crew.append({"action": "rest" if second else "call_reserve", "unit": uid, "flight": None, "other": None,
                      "kind": None, "time": hhmm(r), "ref": None})
-    named = {k.split("#")[0] for k in plan.get("reports", {})} | {
-        uid for k, e in plan.items() if k != "reports" for uid in [*e.get("crew", {}).values(), *e.get("deadhead", ())]}
+    used = {(uid, int(k)) for k, e in plan.items() if k != "reports"
+            for uid in [*e.get("deadhead", ()), *e.get("crew", {}).values()]}
     for u in w.units:
-        if u.deadheads and u.id not in named:
-            crew.append({"action": "release", "unit": u.id, "flight": fid(u.deadheads[0]), "other": None, "kind": None,
-                         "time": None, "ref": None})
+        for i in u.deadheads:
+            if (u.id, i) not in used:
+                crew.append({"action": "release", "unit": u.id, "flight": fid(i), "other": None, "kind": None,
+                             "time": None, "ref": None})
     return ops, crew
 
 

@@ -465,8 +465,8 @@ class OccDay:
                 for x in mine:
                     x[1] = t
                 return [(i, "release", u.id)]
-            if i in state["deadheads"] and not any(k[1] == u.id for k in plan.get("keeps", ())):
-                plan.setdefault("keeps", []).append([t, u.id])
+            if i in state["deadheads"] and [u.id, i] not in [k[1:] for k in plan.get("keeps", ())]:
+                plan.setdefault("keeps", []).append([t, u.id, i])
                 return [(i, "release", u.id)]
             raise Refused(f"{u.id} isn't yours on {fid(i)} and doesn't ride it as planned: release lets go of a unit "
                           "you assigned or sent to ride, or keeps one off a ride its trip plans")
@@ -507,15 +507,9 @@ class OccDay:
         if (v.kind, v.group) != (u.kind, u.group) or other["station"] != state["station"] or v.id == u.id:
             raise Refused(f"a swap takes two units of one kind and group at one station: {u.id} at "
                           f"{state['station']}, {v.id} at {other['station']}")
-        out = []
-        for a, b in ((state, v), (other, u)):
-            for j in a["trip"]:
-                if not (self.gone(j) or self.cancelled(j)):
-                    self.name(plan, j, b)
-                    out.append((j, "swap", b.id))
-            for j in a["deadheads"]:
-                if not (self.gone(j) or self.cancelled(j)):
-                    plan.setdefault(j, {}).setdefault("rides", []).append([t, None, b.id])
+        plan.setdefault("swaps", []).append([t, u.id, v.id])
+        out = [(j, "swap", b.id) for a, b in ((state, v), (other, u)) for j in a["trip"]
+               if not (self.gone(j) or self.cancelled(j))]
         return out or [(None, "swap", u.id)]
 
     def name(self, plan: dict, i: int, u: crews.Unit) -> None:
@@ -582,7 +576,7 @@ class OccDay:
 
     def confirmed(self, desk: str, rows, apply: Callable, extra: Callable | None = None) -> dict:
         plan, refused, touched = self.changed(rows, apply)
-        review = {**self.review(plan), **(extra(plan) if extra else {})}
+        review = {**self.review(plan), **(extra(plan, touched) if extra else {})}
         if touched and (why := self.commit(desk, plan, touched, "confirm")):
             return {"error": why, "refused": refused}
         return {"confirmed": [f"{fid(i) + ' ' if i is not None else ''}{a}{' ' + d if d else ''}"
@@ -621,11 +615,12 @@ class OccDay:
         return pages.options(self, flight_id(self.task, flight), kind)
 
     def crew_check(self, desk: str, moves) -> dict:
-        plan, refused, _ = self.changed(moves, self.crew_entry)
-        return {**self.review(plan), **pages.legality(self, plan, moves), "refused": refused}
+        plan, refused, touched = self.changed(moves, self.crew_entry)
+        return {**self.review(plan), **pages.legality(self, plan, moves, touched), "refused": refused}
 
     def crew_confirm(self, desk: str, moves) -> dict:
-        return self.confirmed(desk, moves, self.crew_entry, lambda plan: pages.legality(self, plan, moves))
+        return self.confirmed(desk, moves, self.crew_entry,
+                              lambda plan, touched: pages.legality(self, plan, moves, touched))
 
     # ------------------------------------------------------------------ requests
 
@@ -821,7 +816,7 @@ class OccDay:
                     if c["tool"] not in ("resign", "wait_turn") and (c["turn"] is None or
                                                                      self.turns[c["turn"]]["desk"] != c["desk"])]
         for k, e in self.plan.items():
-            if k not in ("calls", "keeps") and set(e) - {"cancel", "decided", "holds", "claims", "names", "rides"}:
+            if k not in sim.EXTRA and set(e) - {"cancel", "decided", "holds", "claims", "names", "rides"}:
                 p["A4"].append(f"{fid(k)}: {sorted(e)}")
         for c in self.changes:
             if c["desk"] == OPS and c["action"] not in OPS_DOES:

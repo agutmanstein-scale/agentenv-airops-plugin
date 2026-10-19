@@ -50,20 +50,26 @@ of place for tomorrow. The day is graded once, on everything as it really happen
 hindsight. Decisions are taken now: none reaches back before this watch."""
 
 OPS = """Ops decisions (ops_check tries them, ops_confirm commits them): cancel; cancel_pair (it and its round-trip \
-partner on the planned rotation); hold to a time, no earlier than the freeze line an hour from now; release a hold or \
-claim; claim a slot (its arrival time) of a program's pool for a flight the program controls; swap_slots between two \
-flights holding slots of one program (FAA CDM refuses a slot outside the pool, used or claimed). Cancellations are \
-final. Flights committed at an earlier watch (due out before its freeze line) can't be cancelled, held or released, \
-except that accepting the crew desk's CANCEL cancels one: no crew can come."""
+partner on the planned rotation); hold to a time, no earlier than the freeze line an hour from now (at the first \
+watch, from now); release a hold or claim; claim a slot (its arrival time) of a program's pool for a flight the \
+program controls; swap_slots between two flights holding slots of one program (FAA CDM refuses a slot outside the \
+pool, used or claimed). Cancellations are final. Flights committed at an earlier watch (due out before its freeze \
+line) can't be cancelled, held or released, except that accepting the crew desk's CANCEL cancels one: no crew can \
+come."""
 
-CREW = """Crew moves (crew_check tries them, crew_confirm commits them; a move is refused only on a flight gone or \
-cancelled): assign a unit to fly a flight (it waits for that unit); call_reserve a short-call reserve to report on a \
-whole hour (time, or in time for the flight given) and assign it; swap the remaining trips of two units of one kind \
-and type at one station; deadhead a unit on a flight; rest a unit to report again at a time (a hotel away from base); \
-release a unit you assigned or sent to ride, giving the flight back to the crew system, or keep a unit off a ride \
-its trip plans (it stays where it is, yours). crew_options lists the crew \
-system's options for a flight's crew, priced; crew_crews and crew_reserves show units and reserves. A unit you move \
-is yours from then on: the crew system no longer uses it."""
+CREW = """Crew moves (crew_check tries them, crew_confirm commits them): assign a unit to fly a flight (the flight \
+waits for that unit: it can leave late, or cancel automatically at its deadline if the unit never can fly it); \
+call_reserve a short-call reserve to report on a whole hour (time, or in time for the flight given) and assign it; \
+swap the remaining trips of two units of one kind and type at one station (the crew system crews them as any trip); \
+deadhead a unit on a flight; rest a unit to report again at a time (a hotel away from base); release a unit you \
+assigned or sent to ride, giving the flight back to the crew system, or keep a unit off a ride its trip plans (it \
+stays where it is). A move is refused on a flight gone or cancelled, a unit of another type group, a reserve not free \
+to call or a report outside its window, a second period the unit can't start, a swap across kinds, types or \
+stations, or a release of what isn't yours. A move changes only what it names: a unit you move keeps the legs and \
+rides of its trip that still connect, and the legs it can no longer make, or that the crew you replaced can't, go \
+back to the crew system (crew_check lists them as handed_back); the crew system doesn't use a unit while a flight \
+you named it on or sent it to ride is to come. crew_options lists the crew system's options for a flight's crew, \
+priced; (a) needs no move. crew_crews and crew_reserves show units and reserves."""
 
 RULES = {
     "ops": f"""You are the ops controller of JetBlue's operations control center. The crew scheduler, another desk, \

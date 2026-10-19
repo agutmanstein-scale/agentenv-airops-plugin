@@ -18,7 +18,7 @@ AHEAD, LATE, NEAR, SLOT_HOURS = 240, 30, 180, 6
 KINDS = {GDP: "GDP", PROPOSED: "proposed GDP", GDP_CNX: "GDP cancelled", GS: "ground stop", GS_CNX: "ground stop "
          "cancelled"}
 STATUSES = ("open", "attention", "frozen", "flown", "cancelled")
-OPTION = {"own": "(a) its own crew", "standby": "(b) a reserve there", "call": "(b) call a reserve",
+OPTION = {"own": "(a) no move needed, its own crew", "standby": "(b) a reserve there", "call": "(b) call a reserve",
           "swap": "(c) swap", "deadhead": "(d) deadhead", "extend": "(e) extension"}
 
 
@@ -499,14 +499,18 @@ def options(day, i: int, kind) -> dict:
             f"{' report ' + hhmm(act[1]) if act[0] == 'call' else ''}{' with extension' if rank == 5 else ''}: "
             f"leaves {hhmm(dep)}, cost {cost:,.0f}" for cost, rank, dep, uid, act in sorted(found, key=lambda o: o[:4])]
     return {"flight": fid(i), "kind": kind, "options": rows[:20], "more": max(0, len(rows) - 20),
-            "note": "cost: the wait from now, deadhead and hotel, and the end of the day as the day prices it"}
+            "note": "cost: the wait from now, deadhead and hotel, and the end of the day as the day prices it, the "
+                    "unit taking the rest of the planned crew's trip. (a) needs no move; (b) or (c) with the planned "
+                    "crew there: swap the two; else assign, which names this flight only: the planned crew's later "
+                    "legs go back to the crew system (crew_check: handed_back)"}
 
 
-def legality(day, plan, moves) -> dict:
-    """Per unit a move names: what the projection has it fly, and with what margin."""
-    then = day.project(plan)
-    units = {str(m.get("unit")) for m in moves if isinstance(m, Mapping)} | \
-        {str(m.get("other")) for m in moves if isinstance(m, Mapping) and m.get("other")}
+def legality(day, plan, moves, touched) -> dict:
+    """Per unit a move names: what the projection has it fly, and with what margin; and the legs the moved units, or
+    the crews they replace, flew on the projection and no longer do, unnamed: back with the crew system."""
+    now, then = day.project(day.plan), day.project(plan)
+    moves = [m for m in moves if isinstance(m, Mapping)]
+    units = {str(m.get("unit")) for m in moves} | {str(m.get("other")) for m in moves if m.get("other")}
     out = {}
     for uid in sorted(units & set(day.units)):
         flown = [(i, kinds) for i, kinds in then.day.crews.items() if uid in kinds.values() and
@@ -523,4 +527,21 @@ def legality(day, plan, moves) -> dict:
                 note = f" legal until {hhmm(last[1])}"
             legs.append(f"{fid(i)} {hhmm(x.dep)}{note}")
         out[uid] = legs[:8] or ["flies nothing on the projection"]
-    return {"units": out}
+    return {"units": out, "handed_back": handed_back(day, plan, touched, now, then)}
+
+
+def handed_back(day, plan, touched, now, then) -> list[str]:
+    names = {(x[2], int(k)) for k, e in plan.items() if k not in sim.EXTRA for x in e.get("names", ()) if x[1] is None}
+    whose = {uid for *_, uid in touched} | {now.day.crews.get(i, {}).get(day.units[uid].kind)
+                                            for _, i, action, uid in touched if action in ("assign", "call_reserve")}
+    rows = []
+    for i, kinds in sorted(now.day.crews.items(), key=lambda x: (now.day.run.flights[x[0]].dep or 0, x[0])):
+        if (now.day.run.flights[i].dep or 0) < day.t:
+            continue
+        for kind, uid in kinds.items():
+            if uid in whose and (kind, i) not in names and then.day.crews.get(i, {}).get(kind) != uid:
+                y = then.day.run.flights[i]
+                who = then.day.crews.get(i, {}).get(kind) or ("cancelled" if y.status in (CANCELLED, AUTO_CANCELLED)
+                                                              else "no crew")
+                rows.append(f"{fid(i)} {kind}: {uid}'s, now {who}")
+    return rows[:12] + ([f"{len(rows) - 12} more"] if len(rows) > 12 else [])
