@@ -11,7 +11,7 @@ from agent_env.task_step.task_steps.verifiers.scoring import ScoreAggregator, ag
 from occ_helpers import play, scripted, storm, write_pack
 
 from agentenv_airops.occ.pack import Pack
-from agentenv_airops.occ.sweep import verdict
+from agentenv_airops.occ.sweep import Pilot, verdict
 from agentenv_airops.occ.tasks import RULES, generate, steps
 
 pytestmark = pytest.mark.anyio
@@ -91,3 +91,11 @@ async def test_the_verifier_scores_an_audited_day_and_refuses_one_that_fails(mon
     assert verdict(False, [{"step_id": "grade", "error": str(crash.value)}]) == "failed"
     assert verdict(False, [{"step_id": "grade", "error": str(illegal.value)}]) == "unscored"
     assert verdict(False, [{"step_id": "play-crew-desk", "error": "stopped answering"}]) == "failed"
+    late = json.dumps({"done": True, "problems": {"A1": ["adv-b: watch 2's trigger never brought it"]}})
+    assert verdict(False, [{"error": "the day can't be scored: " + late}]) == "failed"
+    assert verdict(False, [{"error": str(illegal.value)[:60]}]) == "failed"
+
+
+def test_a_pilot_keeps_a_worst_request_free_per_desk_of_a_run():
+    p = Pilot("p", "m", ["b6-x-joint", "b6-x-one"], {"joint": 3.0, "one": 5.0}, 20.0, margin=1.5)
+    assert (p.cap("b6-x-joint"), p.cap("b6-x-one")) == (9.0, 6.5)

@@ -6,6 +6,7 @@ end_turn in the same reply isn't run, and an error from wait_turn stops the desk
 
 import json
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -122,3 +123,10 @@ async def test_wait_turn_polls_until_the_page_and_an_error_without_done_stops_th
     assert episode.record["end_reason"] is None and episode.failure is None
     assert await episode.wait(Replies({"error": "no day loaded"})) is None
     assert episode.record["end_reason"] == "error" and episode.failure[0] == "error"
+
+
+def test_the_cap_reads_the_last_request_from_the_cache_only_while_it_is_warm():
+    agent = types.SimpleNamespace(route="responses")
+    warm = desk_agent.estimate(agent, 35_000, (100_000, 0), 2_000, (2.0, 10.0, 0.1), True)
+    cold = desk_agent.estimate(agent, 35_000, (100_000, 0), 2_000, (2.0, 10.0, 0.1), False)
+    assert warm == pytest.approx((0.01 + 0.02, 0.04)) and cold == pytest.approx((0.2 + 0.02, 0.04))

@@ -1,5 +1,6 @@
 """`agent-env airops-occ pilot`: the ops control center's days in a fixed order, one `agent-env run` at a time (or a
-few), each starting only while the spend so far plus its cap stays within the budget, an attempt that ends unscored for
+few), each starting only while the spend so far plus its cap stays within the budget (with a margin of one worst
+request per desk in progress, which a desk may spend past its cap), an attempt that ends unscored for
 an infrastructure reason tried again at most twice (one whose audit fails for what the desks or the env did is reported,
 not tried again); and the report: per run its reward and its reward against the
 bound, its cost against the best plan, the bound and B0, the share of the avoidable cost it saved, how it does against
@@ -44,15 +45,17 @@ class Pilot:
     budget: float
     pack: str | None = None
     policy: str | None = None
+    margin: float = 1.5
 
     @property
     def out(self) -> Path:
         return RUNS / self.name
 
     def cap(self, run: str) -> float:
-        """A run's most: its cap per desk times its desks."""
+        """A run's most: its cap per desk, and the margin of one worst request a desk can make past it, times its
+        desks."""
         mode = run.rsplit("-", 1)[1]
-        return self.caps[mode] * len(DESKS[mode])
+        return (self.caps[mode] + self.margin) * len(DESKS[mode])
 
 
 def results(out: Path) -> list[dict]:
@@ -66,17 +69,23 @@ def final(rows: list[dict]) -> bool:
 
 
 def verdict(scored: bool, failed: list[dict]) -> str:
-    """scored; unscored when the verifier refused a finished day for its audit beyond a desk's absence (A1-A6: what the
-    desks or the env did); else failed: a provider, the env or the harness down, a desk crashed or timed out, the day
-    unfinished, which is tried again."""
+    """scored; unscored when the verifier refused a finished day for its audit beyond the infrastructure's part (a
+    desk's absence, a trigger that never brought a watch's news): what the desks or the env did; else failed: a
+    provider, the env, the gateway or the harness down, a desk crashed or timed out, the day unfinished, the refusal
+    unreadable, which is tried again."""
     if scored:
         return "scored"
     for f in failed:
         text = f.get("error") or ""
         if UNSCORED in text:
-            why = json.JSONDecoder().raw_decode(text.split(UNSCORED, 1)[1])[0]
-            if why["done"] and set(why["problems"]) - {"A7"}:
-                return "unscored"
+            try:
+                why = json.JSONDecoder().raw_decode(text.split(UNSCORED, 1)[1])[0]
+                problems = [p for k, v in why["problems"].items() if k != "A7" for p in v
+                            if not (k == "A1" and p.endswith("trigger never brought it"))]
+                if why["done"] and problems:
+                    return "unscored"
+            except (ValueError, KeyError, TypeError, AttributeError):
+                return "failed"
     return "failed"
 
 

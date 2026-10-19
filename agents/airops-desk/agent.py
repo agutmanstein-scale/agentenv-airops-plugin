@@ -44,6 +44,7 @@ TIME_MARGIN = 1200
 HARNESS_CAP = "length (harness cap)"
 ROLE_HEADER = "AgentEnv-Role"
 STEP_TIMEOUT = 600.0
+CACHE_SECONDS = 300
 PRICES = {  # USD per 1M tokens: input, output, cache read. LiteLLM public price map, 2026-10-06 and 2026-10-09.
     "anthropic/claude-opus-5-5": (4.00, 20.00, 0.40),
     "anthropic/claude-sonnet-5-5": (2.00, 10.00, 0.20),
@@ -394,13 +395,14 @@ def size_of(request: dict) -> int:
     return len(json.dumps(request, default=lambda o: o.model_dump(mode="json")).encode())
 
 
-def estimate(agent, size: int, last: tuple[int, int] | None, out: int, price: tuple[float, float, float]
-             ) -> tuple[float, float]:
-    """A request's likely cost, input and output: the last response's input tokens read from the cache, the bytes
-    added since at 3.5 a token fresh (a cache write on Messages), and twice the largest output yet."""
+def estimate(agent, size: int, last: tuple[int, int] | None, out: int, price: tuple[float, float, float],
+             warm: bool) -> tuple[float, float]:
+    """A request's likely cost, input and output: the last response's input tokens read from the cache while it is
+    warm (else fresh), the bytes added since at 3.5 a token fresh (a cache write on Messages), and twice the largest
+    output yet."""
     cached, sent = last or (0, 0)
-    fresh = max(0, size - sent) / 3.5
-    return ((cached * price[2] + fresh * price[0] * (1.25 if agent.route == "messages" else 1)) / 1e6,
+    fresh = max(0, size - sent) / 3.5 + (0 if warm else cached)
+    return (((cached if warm else 0) * price[2] + fresh * price[0] * (1.25 if agent.route == "messages" else 1)) / 1e6,
             2 * out * price[1] / 1e6)
 
 
@@ -505,6 +507,7 @@ class Episode:
         self.spent = 0.0
         self.effort: str | None = None
         self.last: tuple[int, int] | None = None
+        self.last_at = 0.0
         self.most_out = 0
         self.failed_requests = 0
         self.failure: tuple[str, str] | None = None
@@ -621,7 +624,8 @@ class Episode:
                 record["messages"].append({"role": "user", "content": LAST_TURN})
             request = agent.request()
             size = size_of(request)
-            ins, outs = estimate(agent, size, self.last, self.most_out, price)
+            ins, outs = estimate(agent, size, self.last, self.most_out, price,
+                                 time.monotonic() - self.last_at < CACHE_SECONDS)
             if self.max_cost is not None and self.spent + ins + outs > self.max_cost:
                 return self.stop("cost_cap", f"the next request would likely cost ${ins + outs:.4f}, past the "
                                              f"${self.max_cost:g} cap with ${self.spent:.4f} spent")
@@ -639,7 +643,7 @@ class Episode:
                         return self.stop("provider_error", error=e, failed=True)
                     record["errors"].append(f"{self.describe(e)} (request {turn + 1} sent again)")
             self.spent += ins + agent.max_tokens * price[1] / 1e6 if t.stop == HARNESS_CAP else cost(t.usage, price)
-            self.last = (t.usage.get("input") or round(size / 3.5), size)
+            self.last, self.last_at = (t.usage.get("input") or round(size / 3.5), size), time.monotonic()
             self.most_out = max(self.most_out, t.usage.get("output", 0))
             self.cached += t.usage["cached"]
             self.written += t.usage["cache_write"]

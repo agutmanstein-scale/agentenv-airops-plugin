@@ -79,10 +79,12 @@ def tasks(split, task_ids, modes, pack, out, cap, noplay, policy):
 @click.option("--pack", type=click.Path(exists=True, path_type=Path), help="Default: the packaged pack.")
 @click.option("--policy", type=click.Choice(("llm", "script")), help="The desks' policy (default: llm).")
 @click.option("--parallel", type=int, default=1, show_default=True)
-def pilot(name, runs, model, cap_joint, cap_one, budget, pack, policy, parallel):
+@click.option("--request-margin", type=float, default=1.5, show_default=True,
+              help="USD of one worst request, kept free per desk in progress: a desk may pass its cap by one.")
+def pilot(name, runs, model, cap_joint, cap_one, budget, pack, policy, parallel, request_margin):
     """Play the runs in order under the budget, retrying an unscored one at most twice, then report."""
     p = Pilot(name, model, list(runs), {"joint": cap_joint, "one": cap_one}, budget,
-              str(pack.absolute()) if pack else None, policy)
+              str(pack.absolute()) if pack else None, policy, request_margin)
     known = Pack(pack).tasks
     if bad := [r for r in runs if r.rsplit("-", 1)[0] not in known or r.rsplit("-", 1)[-1] not in ("joint", "one")]:
         raise click.UsageError(f"not <task id>-joint or <task id>-one of the pack: {', '.join(bad)}")
