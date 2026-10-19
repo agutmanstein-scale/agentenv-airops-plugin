@@ -1,12 +1,12 @@
 """Decisions taken during the day reach the sim at their minute: a hold, a claim, a crew named or let go, a rider and a
-reserve's call change nothing before it and act from it on; the standard crew desk leaves a named crew alone; and a
-day carried on in another world from a minute keeps everything before it."""
+reserve's call change nothing before it and act from it on, a unit the crew desk takes is no longer the standard desk's
+until it lets it go (the flight it leaves the desk finds a crew for when it boards); the standard desk leaves a named
+crew alone; and a day carried on in another world from a minute keeps everything before it."""
 
 from dataclasses import replace
 
 from day_helpers import GDP, day, flight, tail, three_into_a_program
 
-from agentenv_airops.core.sim import FLOWN
 from agentenv_airops.programs import crewday, crews, crewsim, occ, sim
 from agentenv_airops.programs.crews import Unit
 
@@ -65,10 +65,10 @@ def test_a_crew_named_later_is_the_plans_only_from_its_minute():
     early = run({0: {"crew": {"pilot": "P2", "cabin": "C2"}}})
     assert 1 not in early.crews and early.crews[0] == {"pilot": "P2", "cabin": "C2"}
     late = run({0: {"names": named(550, 2)}})
-    assert late.crews[1] == {"pilot": "P2", "cabin": "C2"} and before(late, 550) == before(free, 550)
-    assert late.run.flights[0].status != FLOWN or late.crews[0] != {"pilot": "P1", "cabin": "C1"}
+    assert before(late, 550) == before(free, 550) and late.crews[0] == {"pilot": "P2", "cabin": "C2"}
+    assert 1 not in late.crews and [(m["type"], m["sent"]) for m in late.messages] == [("HOLD", 0), ("CANCEL", 585)]
     back = run({0: {"names": named(550, 2, to=580)}})
-    assert back.crews[0] == {"pilot": "P1", "cabin": "C1"} and back.run.flights[0].dep == 600
+    assert back.crews == free.crews and back.messages == free.messages
 
 
 def test_a_rider_and_a_reserve_called_later_act_from_their_minute():

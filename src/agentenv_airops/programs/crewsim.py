@@ -196,13 +196,15 @@ class Pool:
         self.named: dict[tuple[str, int], str] = {}
         self.riding: dict[int, list[str]] = defaultdict(list)
         self.refs: Counter = Counter()
+        self.mine: Counter = Counter()
         self.pending: dict[int, list[tuple]] = defaultdict(list)
         for when, change in entries(plan):
             if when is None or when <= task.start:
-                self.apply(change)
+                self.apply(change, when is not None)
             else:
                 self.pending[when].append(change)
         self.scripted = {u for u, n in self.refs.items() if n > 0}
+        self.owned = {u for u, n in self.mine.items() if n > 0}
         self.state = {}
         for u in units:
             s = State(u, u.station, u.ready, u.report, u.hour, u.rap if u.reserve == "short" else None, u.flown,
@@ -254,24 +256,29 @@ class Pool:
             for f in sorted(task.flights, key=lambda f: (f.sched_dep, f.id)):
                 self.check(f, task.start)
 
-    def apply(self, change: tuple) -> int | None:
+    def apply(self, change: tuple, timed: bool = False) -> int | None:
         """One crew entry of the plan taking effect: a unit named on a flight or no longer, riding one or no longer, or
-        a report set; the flight it touches."""
+        a report set; the flight it touches. A unit a timed entry (a crew desk's move) holds is the desk's: the
+        standard desk doesn't take it even for its own trip."""
         what, key, uid, value = change
+        counts = (self.refs, self.mine) if timed else (self.refs,)
         if what == "report":
             self.reports[key] = value
-            self.refs[uid] += 1
+            for c in counts:
+                c[uid] += 1
             return None
         if what in ("name", "unname"):
             if what == "name":
                 if (was := self.named.get(key)) is not None:
-                    self.refs[was] -= 1
+                    for c in counts:
+                        c[was] -= 1
                 self.named[key] = uid
             elif self.named.get(key) == uid:
                 del self.named[key]
             else:
                 return None
-            self.refs[uid] += 1 if what == "name" else -1
+            for c in counts:
+                c[uid] += 1 if what == "name" else -1
             return key[1]
         if what == "ride":
             self.riding[key].append(uid)
@@ -279,7 +286,8 @@ class Pool:
             self.riding[key].remove(uid)
         else:
             return None
-        self.refs[uid] += 1 if what == "ride" else -1
+        for c in counts:
+            c[uid] += 1 if what == "ride" else -1
         return key
 
     def changes(self) -> list[int]:
@@ -291,7 +299,7 @@ class Pool:
         desk re-plans the flights of the units they touch; the flights they touch, to try again."""
         touched, flights = set(), []
         for change in sorted(self.pending.pop(t, ()), key=lambda c: c[0] not in ("unname", "unride")):
-            i = self.apply(change)
+            i = self.apply(change, True)
             if i is None:
                 continue
             flights.append(i)
@@ -299,6 +307,7 @@ class Pool:
             if change[0] == "name":
                 self.watch[change[2]].add(i)
         self.scripted = {u for u, n in self.refs.items() if n > 0}
+        self.owned = {u for u, n in self.mine.items() if n > 0}
         flights = list(dict.fromkeys(flights))
         if self.log:
             for i in flights:
@@ -352,7 +361,7 @@ class Pool:
         spare = [u for u in everyone - self.scripted if u != mine and not self.state[u].trip
                  and self.available(self.state[u], f)]
         spare.sort(key=lambda u: (self.state[u].ready, u))
-        if mine in everyone and self.available(self.state[mine], f):
+        if mine in everyone and mine not in self.owned and self.available(self.state[mine], f):
             spare.insert(0, mine)
         for u in spare:
             s = self.state[u]
@@ -408,7 +417,7 @@ class Pool:
                 out.append((f.pax * (d - t0) + price + rest + moved, r, d, uid, act))
 
         mine = self.planned.get((kind, f.id))
-        y = self.state.get(mine) if mine is not None else None
+        y = self.state.get(mine) if mine is not None and mine not in self.owned else None
         if y is not None and self.available(y, f):
             if y.station == f.orig:
                 offer(0, mine, ("own",), self.when(y, f, t0, False), self.when(y, f, t0, True))
@@ -694,15 +703,16 @@ class Pool:
     def check(self, f: Flight, t: int) -> None:
         """The desk at t on f, from its earliest departure t0: for each kind whose planned crew can't leave by t0, or
         its schedule if later, without the extension, it takes the cheapest of its `options` now unless that is
-        waiting for that crew (HOLD if that leaves later); with none and no crew coming it cancels f now (`wait`)."""
+        waiting for that crew (HOLD if that leaves later); with none and no crew coming it cancels f now (`wait`). A
+        kind the plan names, or whose planned crew the crew desk took, it leaves to the crew desk until f boards."""
         if f.id in self.done or f.id in self.dropped:
             return
         group, t0 = crews.TYPE[f.family], max(t, self.task.earliest(f, min(0, f.lb)))
         on_time = max(t0, f.sched_dep)
         for kind in crews.KINDS:
-            if (kind, f.id) in self.named:
-                continue
             mine = self.planned.get((kind, f.id))
+            if (kind, f.id) in self.named or mine in self.owned:
+                continue
             y = self.state.get(mine) if mine is not None else None
             if y is not None and self.available(y, f):
                 d = self.when(y, f, t0, False) if y.station == f.orig else self.arrives(y, f, t)
