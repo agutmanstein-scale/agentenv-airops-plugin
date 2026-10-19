@@ -1,8 +1,12 @@
 """The storm day: v1's dispatch inside the FAA's programs at JFK and BOS, with JetBlue's slots and EDCTs in place of
 hourly caps.
 
-A plan maps flight ids to {"cancel", "not_before", "claim", "decided", "left"}, every key optional; a flight left out
-flies as early as it can. A cancelled flight is cancelled for good, decided at "decided" (the first watch when absent).
+A plan maps flight ids to {"cancel", "not_before", "claim", "decided", "left", "holds", "claims"}, every key optional;
+a flight left out flies as early as it can. A cancelled flight is cancelled for good, decided at "decided" (the first
+watch when absent). "holds" and "claims" are decisions taken during the day, each [decided, minute or None] in time
+order: a hold acts from its minute (the flight tries again then, and from then on waits for it), a claim binds from its
+minute the first slot at or after it that no flight took and no claim holds, and a later one replaces it (None lets
+go); "not_before" and "claim" act from the start.
 A flight with "left" (the day so far, at a watch) leaves at that minute whatever would hold it, counting where the MIP
 counts a pinned departure: on its slot if the minute plus its scheduled block is a free one of the segment governing
 it, on nothing if that is off the pool, else under the nominal cap. The others are dispatched as in v1: in order of
@@ -18,14 +22,15 @@ flight ready at minute t, in this order:
   period ends it arrives after the period;
 - any other arrival at a hub (exempt, uncontrolled, or past its period) needs room under the nominal cap of its
   arrival hour (rbs.nominal); a slot holder does not count against it.
-Claims bind first, in (claim, flight id) order, each to the first unbound slot at or after it in the pool of the
-segment that would govern the flight leaving at its claim less its scheduled block. A flight that can't make its
-claimed slot loses it and the slot is wasted, as a missed EDCT is. Any other slot is taken when its flight leaves, so
-of two flights after one slot the one whose EDCT comes first flies it (FSM-style compression, read as first come at
-the EDCT), and a cancelled or late flight leaves its slot to the flights behind. A flight not gone by its deadline
-auto-cancels there, decided there. With the crew model (model.Crew, repairs.crews) a flight not gone by its crew
-deadline may leave only from the end of its crew's rest on, still by its deadline; one that can't, its rest ending
-past its deadline, auto-cancels at its crew deadline, decided there, never before the first watch (Task.auto_at).
+Claims standing at the start bind first, in (claim, flight id) order, each to the first unbound slot at or after it in
+the pool of the segment that would govern the flight leaving at its claim less its scheduled block. A flight that can't
+make its claimed slot loses it and the slot is wasted, as a missed EDCT is. Any other slot is taken when its flight
+leaves, so of two flights after one slot the one whose EDCT comes first flies it (FSM-style compression, read as first
+come at the EDCT), and a cancelled or late flight leaves its slot to the flights behind. A flight not gone by its
+deadline auto-cancels there, decided there. With the crew model (model.Crew, repairs.crews) a flight not gone by its
+crew deadline may leave only from the end of its crew's rest on, still by its deadline; one that can't, its rest
+ending past its deadline, auto-cancels at its crew deadline, decided there, never before the first watch
+(Task.auto_at).
 
 Moves are fixed and uncosted, and bound to an aircraft (model.Move, `routes`): the one that flies the leg before the
 Move's break, landed and turned, is ready at the Move's destination at the Move's `ready` or then, whichever is later,
@@ -46,6 +51,9 @@ can come) is cancelled, decided when the pool dropped it. A cancellation in the 
 minute, before that minute's flights: until then the flight is on the board as if open, its crews sought, and it never
 leaves, so a decision changes nothing the pool did before it. A plan for the crew sim may carry "reports".
 
+Dispatch runs the day as a state machine, so it can stop at a minute and go on in another world from there (`switch`:
+the day as known at a watch, what happened before kept).
+
 A World is what a day runs on: the truth (the task's lb, truth blocks and programs as they ran), the day as known at
 a watch (what the desk could know then: lb and the truth block once the scheduled departure is within LOOK, else 0
 and the scheduled block, the programs as issued by then, proposed GDPs included, every stop to its as-issued end,
@@ -56,6 +64,7 @@ the same in all of them.
 
 import bisect
 import heapq
+import math
 from collections import Counter, defaultdict
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, replace
@@ -67,6 +76,8 @@ from .cost import Cost, ferry_cost, priced
 from .model import Flight, Move, Segment, Task
 
 Plan = Mapping[int | str, Mapping]
+EXTRA = ("reports", "calls")
+CANCEL, WAKE, FLY = 0, 1, 2
 SlotKey = tuple[str, int]
 HourKey = tuple[str, int]
 Route = tuple[str, tuple[Move, ...]]
@@ -192,136 +203,235 @@ class Execution:
 
 def execute(task: Task, plan: Plan, world: World | None = None, crew=None) -> Execution:
     """The day under `plan` in `world` (the truth by default), with the crew pool `crew` when given."""
-    world = truth(task) if world is None else world
-    rules = Rules(task, world)
-    want = {int(k): v for k, v in plan.items() if k != "reports"}
-    cancelled = {i: task.start if d.get("decided") is None else d["decided"] for i, d in want.items()
-                 if d.get("cancel")}
-    runs: dict[int, FlightRun] = {}
-    when: dict[int, float] = {}
-    first: dict[int, int] = {}
-    heap = []
-    for f in task.flights:
-        d = want.get(f.id, {})
-        if f.id in cancelled:
-            if crew is None:
-                runs[f.id] = FlightRun(f.id, CANCELLED, decided=cancelled[f.id])
-                continue
-            heap.append((cancelled[f.id], 0, cancelled[f.id], f.id))
-        c = d["left"] if d.get("left") is not None else max(task.earliest(f, world.lb[f.id]), d.get("not_before") or 0)
-        when[f.id] = first[f.id] = c
-        heap.append((c, 1, c, f.id))
-    heapq.heapify(heap)
-    carried, own = routes(task, cancelled)
-    moves: dict[int, int | None] = dict.fromkeys(task.moved)
-    ready = {t.tail: t.ready for t in task.tails}
-    family = {t.tail: t.family for t in task.tails}
-    at: dict[tuple[str, str], set[str]] = defaultdict(set)
-    for t in task.tails:
-        station = t.pos
-        if t.tail in own:
-            station, ready[t.tail] = through(own[t.tail], t.ready, moves)
-        at[(t.family, station)].add(t.tail)
-    bound, claimed = _claims(task, want, cancelled, rules)
-    taken: set[SlotKey] = set()
-    used: Counter = Counter()
-    legs: dict[str, list[int]] = {p: [] for p in ready}
-    waiting: dict[tuple[str, str], set[int]] = defaultdict(set)
-    quick: dict[str, tuple[int, int]] = {}
+    day = Dispatch(task, plan, truth(task) if world is None else world, crew)
+    day.until()
+    return day.execution()
 
-    def soon(p: str, i: int) -> int:
-        q = quick.get(p)
-        return q[1] if q and q[0] == i else ready[p]
 
-    while heap:
-        t, kind, c, i = heapq.heappop(heap)
-        if not kind:
+class Dispatch:
+    """`execute`'s day as it runs: `until` plays it to a minute, `switch` carries it on from there in another world
+    (the day as known at a watch, what happened before kept), `execution` plays the rest and gives the day."""
+
+    def __init__(self, task: Task, plan: Plan, world: World, crew=None):
+        self.task, self.world, self.crew = task, world, crew
+        self.rules = Rules(task, world)
+        self.want = want = {int(k): v for k, v in plan.items() if k not in EXTRA}
+        start = task.start
+        self.cancelled = {i: start if d.get("decided") is None else d["decided"] for i, d in want.items()
+                          if d.get("cancel")}
+        self.runs: dict[int, FlightRun] = {}
+        self.when: dict[int, float] = {}
+        self.first: dict[int, int] = {}
+        heap = []
+        for f in task.flights:
+            d = want.get(f.id, {})
+            if f.id in self.cancelled:
+                if crew is None:
+                    self.runs[f.id] = FlightRun(f.id, CANCELLED, decided=self.cancelled[f.id])
+                    continue
+                heap.append((self.cancelled[f.id], CANCEL, self.cancelled[f.id], f.id))
+            c = d["left"] if d.get("left") is not None else max(task.earliest(f, world.lb[f.id]), hold(d, start))
+            self.when[f.id] = self.first[f.id] = c
+            heap.append((c, FLY, c, f.id))
+            heap += [(m, WAKE, m, f.id) for m in changes(d, start)]
+        if crew is not None:
+            heap += [(m, WAKE, m, -1) for m in crew.changes()]
+        heapq.heapify(heap)
+        self.heap = heap
+        self.carried, own = routes(task, self.cancelled)
+        self.moves: dict[int, int | None] = dict.fromkeys(task.moved)
+        self.ready = {t.tail: t.ready for t in task.tails}
+        self.family = {t.tail: t.family for t in task.tails}
+        self.at: dict[tuple[str, str], set[str]] = defaultdict(set)
+        for t in task.tails:
+            station = t.pos
+            if t.tail in own:
+                station, self.ready[t.tail] = through(own[t.tail], t.ready, self.moves)
+            self.at[(t.family, station)].add(t.tail)
+        self.taken: set[SlotKey] = set()
+        self.bound, self.claimed = _claims(task, ((claim_at(d, start), i) for i, d in want.items()
+                                                  if i not in self.cancelled), self.rules, self.taken)
+        self.used: Counter = Counter()
+        self.legs: dict[str, list[int]] = {p: [] for p in self.ready}
+        self.waiting: dict[tuple[str, str], set[int]] = defaultdict(set)
+        self.quick: dict[str, tuple[int, int]] = {}
+
+    def until(self, stop: float = math.inf) -> None:
+        heap = self.heap
+        while heap and heap[0][0] < stop:
+            self.step(*heapq.heappop(heap))
+
+    def soon(self, p: str, i: int) -> int:
+        q = self.quick.get(p)
+        return q[1] if q and q[0] == i else self.ready[p]
+
+    def wake(self, i: int, t: int) -> None:
+        """Flight i tries again at t, never before its earliest departure."""
+        if i not in self.runs and (t := max(t, self.task.earliest(self.task.flight(i), self.world.lb[i]))) < \
+                self.when[i]:
+            self.when[i] = t
+            heapq.heappush(self.heap, (t, FLY, self.first[i], i))
+
+    def step(self, t: int, kind: int, c: int, i: int) -> None:
+        task, crew, runs, when, heap = self.task, self.crew, self.runs, self.when, self.heap
+        if kind == CANCEL:
             if i not in runs:
                 runs[i] = FlightRun(i, CANCELLED, decided=t)
                 crew.cancel(i, t)
-            continue
+            return
+        if kind == WAKE:
+            for j in crew.decide(t) if i < 0 else self.rebind(i, t):
+                self.wake(j, t)
+            return
         if i in runs or when[i] != t:
-            continue
+            return
         f = task.flight(i)
         if crew is not None and i in crew.dropped:
             runs[i] = FlightRun(i, CANCELLED, decided=crew.dropped[i])
             crew.cancel(i, runs[i].decided)
-            continue
-        left = want.get(i, {}).get("left") is not None
+            return
+        entry = self.want.get(i, {})
+        left = entry.get("left") is not None
+        if not left and t < (held := hold(entry, t)):
+            when[i] = held
+            heapq.heappush(heap, (held, kind, c, i))
+            return
         s = t if left else f.legal(t)
         if s > f.deadline:
             runs[i] = FlightRun(i, AUTO_CANCELLED, decided=task.auto_at(f))
             if crew is not None:
                 crew.cancel(i, runs[i].decided)
-            continue
+            return
         if s != t:
             when[i] = s
-            waiting[(f.family, f.orig)].discard(i)
+            self.waiting[(f.family, f.orig)].discard(i)
             heapq.heappush(heap, (s, kind, c, i))
-            continue
-        here = at[(f.family, f.orig)]
-        free = [p for p in here if soon(p, i) <= t]
+            return
+        here = self.at[(f.family, f.orig)]
+        free = [p for p in here if self.soon(p, i) <= t]
         if not free:
-            _wait(waiting[(f.family, f.orig)], i, [soon(p, i) for p in here], when, heap, kind, c)
-            continue
-        waiting[(f.family, f.orig)].discard(i)
+            _wait(self.waiting[(f.family, f.orig)], i, [self.soon(p, i) for p in here], when, heap, kind, c)
+            return
+        self.waiting[(f.family, f.orig)].discard(i)
         if left:
-            s, slot, hour = t, *_history(f, t, rules, taken)
+            s, slot, hour = t, *_history(f, t, self.rules, self.taken)
         else:
-            s, slot, hour = _leave(f, t, rules, claimed.get(i), bound, taken, used)
+            s, slot, hour = _leave(f, t, self.rules, self.claimed.get(i), self.bound, self.taken, self.used)
         if s != t:
             when[i] = s
             heapq.heappush(heap, (s, kind, c, i))
-            continue
+            return
         if crew is not None:
-            go = crew.board(f, t, want.get(i, {}), left)
+            go = crew.board(f, t, entry, left)
             if i in crew.dropped:
                 runs[i] = FlightRun(i, CANCELLED, decided=crew.dropped[i])
                 crew.cancel(i, runs[i].decided)
-                continue
-            if go == t and i in cancelled:
-                go = cancelled[i]
+                return
+            if go == t and i in self.cancelled:
+                go = self.cancelled[i]
             if go != t:
                 when[i] = f.deadline + 1 if go is None else go
                 heapq.heappush(heap, (when[i], kind, c, i))
-                continue
+                return
+        quick, ready = self.quick, self.ready
         p = min(free, key=lambda p: (quick.get(p, (None,))[0] != i, ready[p], p))
         here.remove(p)
-        arr = t + world.block[i]
+        arr = t + self.world.block[i]
         back = task.back(f, arr)
-        station, ready[p] = through(carried[i], back, moves) if i in carried else (f.dest, back)
-        at[(f.family, station)].add(p)
+        carried = self.carried
+        station, ready[p] = through(carried[i], back, self.moves) if i in carried else (f.dest, back)
+        self.at[(f.family, station)].add(p)
         quick.pop(p, None)
         if i in task.quick:
             turned = task.turned(f, arr)
             quick[p] = (task.quick[i][0], max([turned, *(m.ready for m in carried[i][1])]) if i in carried else turned)
         if slot is not None:
-            taken.add(slot)
+            self.taken.add(slot)
         if hour is not None:
-            used[hour] += 1
-        legs[p].append(i)
+            self.used[hour] += 1
+        self.legs[p].append(i)
         runs[i] = FlightRun(i, FLOWN, p, t, arr, slot[1] if slot else None, slot[0] if slot else None)
         if crew is not None:
-            crew.fly(f, t, arr, want.get(i, {}))
+            crew.fly(f, t, arr, entry)
             for j, minute in crew.woken():
                 if j not in runs and minute < when[j]:
                     when[j] = minute
-                    heapq.heappush(heap, (minute, 1, first[j], j))
-        for j in waiting[(f.family, station)]:
-            if soon(p, j) < when[j]:
-                when[j] = soon(p, j)
-                heapq.heappush(heap, (when[j], 1, first[j], j))
-    for f in task.flights:
-        runs.setdefault(f.id, FlightRun(f.id, AUTO_CANCELLED, decided=task.auto_at(f)))
-    ends = {p: station for (_, station), ps in at.items() for p in ps}
-    out = ferries(task, ends, family)
-    wasted = tuple(sorted(k for k, i in bound.items() if runs[i].status != FLOWN or (runs[i].program, runs[i].slot)
-                          != k))
-    cost = priced(task, {i: r.dep for i, r in runs.items()}, {i: r.arr for i, r in runs.items()},
-                  {i: r.decided for i, r in runs.items() if r.status != FLOWN},
-                  [(x.family, x.orig, x.dest) for x in out])
-    return Execution({i: runs[i] for i in sorted(runs)}, {p: tuple(v) for p, v in legs.items()},
-                     dict(sorted(ends.items())), out, wasted, moves, cost)
+                    heapq.heappush(heap, (minute, FLY, self.first[j], j))
+        for j in self.waiting[(f.family, station)]:
+            if self.soon(p, j) < when[j]:
+                when[j] = self.soon(p, j)
+                heapq.heappush(heap, (when[j], FLY, self.first[j], j))
+
+    def rebind(self, i: int, t: int) -> list[int]:
+        """Flight i's claim from minute t: the slot it held, if any, is free again, and a new claim binds the first
+        slot at or after it in the pool that would govern it, neither taken nor bound."""
+        if i in self.runs or i in self.cancelled:
+            return [i]
+        was = self.claimed.pop(i, None)
+        if was is not None:
+            del self.bound[was]
+        claim = claim_at(self.want.get(i, {}), t)
+        if claim is not None:
+            bound, claimed = _claims(self.task, [(claim, i)], self.rules, self.taken, self.bound)
+            self.bound |= bound
+            self.claimed |= claimed
+        return [i]
+
+    def switch(self, world: World, t: int) -> None:
+        """The day from minute t on in `world`: the flights gone keep their minutes and count again on its slots and
+        nominal hours, the claims standing at t bind again in its pools, and every flight not gone tries again from
+        t on its delays, blocks and programs, never earlier."""
+        task = self.task
+        self.world, self.rules = world, Rules(task, world)
+        self.taken, self.used = set(), Counter()
+        for _, i in sorted((r.dep, i) for i, r in self.runs.items() if r.status == FLOWN):
+            slot, hour = _history(task.flight(i), self.runs[i].dep, self.rules, self.taken)
+            if slot is not None:
+                self.taken.add(slot)
+            if hour is not None:
+                self.used[hour] += 1
+        self.bound, self.claimed = _claims(task, ((claim_at(d, t), i) for i, d in self.want.items()
+                                                  if i not in self.runs and i not in self.cancelled), self.rules,
+                                           self.taken)
+        for f in task.flights:
+            if f.id not in self.runs:
+                self.when[f.id] = c = max(t, task.earliest(f, world.lb[f.id]), hold(self.want.get(f.id, {}), t))
+                heapq.heappush(self.heap, (c, FLY, self.first[f.id], f.id))
+
+    def execution(self) -> Execution:
+        self.until()
+        task, runs = self.task, self.runs
+        for f in task.flights:
+            runs.setdefault(f.id, FlightRun(f.id, AUTO_CANCELLED, decided=task.auto_at(f)))
+        ends = {p: station for (_, station), ps in self.at.items() for p in ps}
+        out = ferries(task, ends, self.family)
+        wasted = tuple(sorted(k for k, i in self.bound.items() if runs[i].status != FLOWN or
+                              (runs[i].program, runs[i].slot) != k))
+        cost = priced(task, {i: r.dep for i, r in runs.items()}, {i: r.arr for i, r in runs.items()},
+                      {i: r.decided for i, r in runs.items() if r.status != FLOWN},
+                      [(x.family, x.orig, x.dest) for x in out])
+        return Execution({i: runs[i] for i in sorted(runs)}, {p: tuple(v) for p, v in self.legs.items()},
+                         dict(sorted(ends.items())), out, wasted, self.moves, cost)
+
+
+def hold(entry: Mapping, t: int) -> int:
+    """The minute a plan entry holds its flight to at minute t: its latest hold decided by t (`holds`, [decided,
+    minute or None] in time order), else its `not_before` from the start."""
+    if "holds" not in entry:
+        return entry.get("not_before") or 0
+    return next((nb or 0 for decided, nb in reversed(entry["holds"]) if decided <= t), 0)
+
+
+def claim_at(entry: Mapping, t: int) -> int | None:
+    """A plan entry's claim standing at minute t: its latest decided by t (`claims`), else its `claim`."""
+    if "claims" not in entry:
+        return entry.get("claim")
+    return next((m for decided, m in reversed(entry["claims"]) if decided <= t), None)
+
+
+def changes(entry: Mapping, start: int) -> list[int]:
+    """The minutes after the start at which a plan entry's hold or claim changes."""
+    return sorted({d for k in ("holds", "claims") for d, _ in entry.get(k, ()) if d > start})
 
 
 def routes(task: Task, cancelled: Collection[int]) -> tuple[dict[int, Route], dict[str, Route]]:
@@ -367,23 +477,24 @@ def _wait(waiting: set[int], i: int, soon: list[int], when: dict, heap: list, ki
         heapq.heappush(heap, (when[i], kind, c, i))
 
 
-def _claims(task: Task, want: Mapping[int, Mapping], cancelled: Collection[int],
-            rules: Rules) -> tuple[dict[SlotKey, int], dict[int, SlotKey]]:
-    """Bind the claims: (segment, slot) to flight, and flight to its (segment, slot)."""
-    bound: dict[SlotKey, int] = {}
+def _claims(task: Task, claims, rules: Rules, taken: Collection[SlotKey], bound: Mapping[SlotKey, int] | None = None
+            ) -> tuple[dict[SlotKey, int], dict[int, SlotKey]]:
+    """Bind the claims (claim, flight), in that order, each to the first slot at or after it neither taken nor bound:
+    (segment, slot) to flight, and flight to its (segment, slot)."""
+    bound = dict(bound or {})
+    new: dict[SlotKey, int] = {}
     claimed: dict[int, SlotKey] = {}
-    for claim, i in sorted((v["claim"], i) for i, v in want.items()
-                           if v.get("claim") is not None and i not in cancelled):
+    for claim, i in sorted((c, i) for c, i in claims if c is not None):
         f = task.flight(i)
         seg = rules.governs(f, claim - f.sched_block)
         if seg is None:
             continue
         for s in seg.slots[bisect.bisect_left(seg.slots, claim):]:
-            if (seg.id, s) not in bound:
-                bound[(seg.id, s)] = i
+            if (seg.id, s) not in bound and (seg.id, s) not in taken:
+                bound[(seg.id, s)] = new[(seg.id, s)] = i
                 claimed[i] = (seg.id, s)
                 break
-    return bound, claimed
+    return new, claimed
 
 
 def _leave(f: Flight, t: int, rules: Rules, claim: SlotKey | None, bound: Mapping[SlotKey, int], taken: set[SlotKey],
