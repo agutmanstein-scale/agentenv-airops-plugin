@@ -3,6 +3,7 @@
 // view(name), show(step), shot(spec), state()} lets a recorder drive it frame by frame.
 import { HUB_NAMES, cities, esc, flightsAt, positionsAt, prepare, programBands, watchAt } from "./model.js";
 import { Board, Desk, Header, Score, Timeline } from "./cards.js";
+import { Room } from "./room.js";
 import { Views } from "./inset.js";
 import { ATTRIBUTION, rings } from "./map.js";
 import { CREDIT, Expert } from "./panel.js";
@@ -65,21 +66,26 @@ const longDate = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB
 
 async function indexPage(app, url) {
   const index = await getJSON(url);
+  const room = index.episodes.length > 0 && index.episodes.every((e) => e.occ);
   document.documentElement.classList.add("light");
-  document.title = "AirOpsEnv v1 · episodes";
+  document.title = `${room ? "AirOpsEnv" : "AirOpsEnv v1"} · episodes`;
   const card = (e) => {
     const href = `?episode=${encodeURIComponent(new URL(e.url, url).href)}`;
     const gap = e.anchor ? (100 * (e.cost - e.anchor)) / e.anchor : null;
     const thumb = e.thumb ? ` style="background-image:url('${esc(new URL(e.thumb, url).href)}')"` : "";
     return `<a class="ep-card" href="${href}"><div class="thumb${e.thumb ? "" : " none"}"${thumb}><span>${esc(e.hub)}</span></div>
-      <div class="body"><h2>${esc(HUB_NAMES[e.hub] ?? e.hub)} · ${esc(longDate(e.date))}</h2><p class="model">${esc(e.model_label ?? e.model)}</p>
-      <dl><div><dt>Reward</dt><dd>${e.reward?.toFixed(3) ?? "–"}</dd></div><div><dt>Cost vs hindsight</dt><dd>${gap != null ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}%` : "–"}</dd></div></dl>
+      <div class="body"><h2>${esc(HUB_NAMES[e.hub] ?? e.hub)} · ${esc(longDate(e.date))}</h2><p class="model">${esc(e.model_label ?? e.model)}${e.occ ? ` · ${esc(e.occ)}` : ""}</p>
+      <dl><div><dt>Reward</dt><dd>${e.reward?.toFixed(3) ?? "–"}</dd></div><div><dt>${e.occ ? "Cost vs best plan" : "Cost vs hindsight"}</dt><dd>${gap != null ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}%` : "–"}</dd></div></dl>
       <p class="id">${esc(e.task_id)} · ${esc(e.run)}</p></div></a>`;
   };
-  app.innerHTML = `<div class="list"><header><h1>AirOpsEnv v1</h1><p class="sub">Recover an airline's storm day at JFK or Boston</p>
-    <p class="intro">Each run puts a model at JetBlue's operations desk through a real storm day. Every hour it reads the FAA's advisories and the weather and may cancel or hold flights; the day is then flown on what really happened and scored against the best plan in hindsight. Pick one to replay it.</p></header>
+  const head = room
+    ? `<h1>AirOpsEnv</h1><p class="sub">Run an airline's control center through a real storm day</p>
+    <p class="intro">Each run puts a model in JetBlue's operations control center for a whole storm day, from 04:00: an ops controller runs the flights, a crew scheduler the pilots and flight attendants, and they ask each other for holds, cancellations and cover. The day is flown on what really happened and scored against the best plan found. Pick one to replay it.</p>`
+    : `<h1>AirOpsEnv v1</h1><p class="sub">Recover an airline's storm day at JFK or Boston</p>
+    <p class="intro">Each run puts a model at JetBlue's operations desk through a real storm day. Every hour it reads the FAA's advisories and the weather and may cancel or hold flights; the day is then flown on what really happened and scored against the best plan in hindsight. Pick one to replay it.</p>`;
+  app.innerHTML = `<div class="list"><header>${head}</header>
     <div class="grid">${[...index.episodes].sort((a, b) => (b.reward ?? -1) - (a.reward ?? -1)).map(card).join("")}</div>
-    <p class="credit">Reward from 0.2 to 1: 1 is the best plan in hindsight. Cost in passenger-minutes. ${esc(CREDIT)}</p></div>`;
+    <p class="credit">Reward from 0.2 to 1: 1 is the best plan ${room ? "found" : "in hindsight"}. Cost in passenger-minutes. ${esc(CREDIT)}</p></div>`;
   resolveReady({ episodes: index.episodes.length });
 }
 
@@ -93,7 +99,7 @@ async function episodePage(app, url) {
   }
   P.lo = traffic?.span?.[0] ?? task.start;
   P.hi = traffic?.span?.[1] ?? P.end;
-  const city = cities(task, traffic), cityOf = (c) => city.get(c) ?? c, model = ep.model_label ?? ep.model;
+  const city = cities(task, traffic), cityOf = (c) => city.get(c) ?? c, model = ep.model_label ?? ep.model, brand = ep.occ ? "AirOpsEnv" : "AirOpsEnv v1";
   const stands = new Map(), terminals = new Map();
   for (const ac of traffic?.aircraft ?? []) {
     if (!ac.task) continue;
@@ -102,7 +108,7 @@ async function episodePage(app, url) {
   for (const ref of stands.values()) if (ref.includes("-")) terminals.set(ref.split("-")[0], (terminals.get(ref.split("-")[0]) ?? 0) + 1);
   const home = [...terminals].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   for (const [k, ref] of stands) stands.set(k, home && ref.startsWith(`${home}-`) ? ref.slice(home.length + 1) : ref.replace("-", " "));
-  document.title = `${HUB_NAMES[task.hub] ?? task.hub} ${task.date} · ${model} · AirOpsEnv v1`;
+  document.title = `${HUB_NAMES[task.hub] ?? task.hub} ${task.date} · ${model} · ${brand}`;
   app.innerHTML = `<div class="ep">
     <div class="view view-stage"><div class="stage-host"></div><div class="inset-caption">The airport · click to swap</div></div>
     <div class="view view-map"><div class="map"></div><div class="inset-caption">US radar and JetBlue's flights in the air · click to swap</div>
@@ -114,11 +120,11 @@ async function episodePage(app, url) {
     <footer class="timeline"></footer>
     <div class="credit"></div></div>`;
   const root = app.querySelector(".ep");
-  let stage = null, legAt = null;
+  let stage = null, tagAt = null;
   if (doc) {
     try {
-      const { AirportStage, legAt: leg } = await import("./stage/stage.js");
-      legAt = leg;
+      const { AirportStage, tagAt: tag } = await import("./stage/stage.js");
+      tagAt = tag;
       stage = new AirportStage(root.querySelector(".stage-host"), { stage: doc, traffic, base: new URL(".", stageUrl).href, manual: RECORD, controls: !RECORD, avoid: () => covered(root) });
       await stage.ready;
     } catch (e) {
@@ -129,10 +135,11 @@ async function episodePage(app, url) {
   }
   const views = new Views(root, P, { stage, interactive: !RECORD, onSwap: (main) => setView(main === "map" ? "network" : stageView) });
   const ctx = { task, earlier: P.news, city: cityOf, hub: task.hub, sched: P.sched, flightOf: (ref) => P.sched.get(Number(String(ref).replace(/^f/, "")))?.flight };
-  const header = new Header(root.querySelector(".head"), P, { model, weather: stage ? traffic.weather : null });
-  const desk = new Desk(root.querySelector(".desk"), P, { model, city: cityOf });
+  const header = new Header(root.querySelector(".head"), P, { model: ep.occ ? `${model} · ${ep.occ.label}` : model, weather: stage ? traffic.weather : null, brand });
+  const desk = ep.occ ? new Room(root.querySelector(".desk"), P, { model }) : new Desk(root.querySelector(".desk"), P, { model, city: cityOf });
   const score = new Score(root.querySelector(".score"), P, { model });
-  const board = new Board(root.querySelector(".board"), P, { city: cityOf, stands, terminal: home?.replace(/^T/, ""), rows: 8, scene: !!stage });
+  const board = new Board(root.querySelector(".board"), P, { city: cityOf, stands, terminal: home?.replace(/^T/, ""), rows: 8, scene: !!stage,
+    scope: ep.occ ? "all of its flights here" : "the task's flights" });
   const expertEl = root.querySelector(".expert");
   let expert = null;
   const cameras = (stage ? [...STAGE_VIEWS, "network"] : []).map((id, i) => ({ id, label: id === "harbour" && task.hub === "JFK" ? "Bay" : CAMERAS[id][0],
@@ -169,8 +176,8 @@ async function episodePage(app, url) {
   function followText(m) {
     const ac = traffic?.aircraft.find((a) => a.key === following);
     if (!ac) return "";
-    const leg = ac.task ? legAt?.(ac, m) : null;
-    const what = leg?.tag ?? (ac.task ? "a JetBlue aircraft of the task" : ac.jetblue ? "a JetBlue aircraft outside the task" : `${CARRIERS[ac.carrier] ?? ac.carrier} aircraft`);
+    const tag = ac.task ? tagAt?.(ac, m) : null;
+    const what = tag?.text ?? (ac.task ? "a JetBlue aircraft of the task" : ac.jetblue ? "a JetBlue aircraft outside the task" : `${CARRIERS[ac.carrier] ?? ac.carrier} aircraft`);
     return `Following <b>${esc(what)}</b> <span>${esc(ac.type ?? "")} ${esc(ac.tail)}</span> <button type="button">Stop · Esc</button>`;
   }
 

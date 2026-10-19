@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-const TONES = { ok: "#5ad08f", delay: "#f3b13f", hold: "#5aa8ff", cancel: "#ff6a5c" };
+const TONES = { ok: "#5ad08f", delay: "#f3b13f", hold: "#5aa8ff", cancel: "#ff6a5c", crew: "#c99bff" };
 const FADE = [
   [5000, 12000, 0.65],
   [2200, 6500, 0],

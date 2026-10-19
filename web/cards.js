@@ -36,11 +36,11 @@ class Card {
 }
 
 export class Header extends Card {
-  constructor(el, P, { model, weather = null }) {
+  constructor(el, P, { model, weather = null, brand = "AirOpsEnv v1" }) {
     super(el);
     this.P = P;
     const task = P.task;
-    el.innerHTML = `<h1><b>AirOpsEnv v1</b> · ${esc(model)} <span>· ${esc(HUB_NAMES[task.hub] ?? task.hub)}, ${esc(dayLong(task, task.start))}</span></h1>
+    el.innerHTML = `<h1><b>${esc(brand)}</b> · ${esc(model)} <span>· ${esc(HUB_NAMES[task.hub] ?? task.hub)}, ${esc(dayLong(task, task.start))}</span></h1>
       <div class="clock" data-s="clock"></div><div class="wx" data-s="wx"></div><div class="faa" data-s="faa"></div>`;
     this.metars = weather?.length ? weather.map((w) => ({ id: w.t, at: w.t, plain: w.plain }))
       : P.news.filter((n) => n.kind === "metar").map((n) => ({ id: n.id, at: n.at, plain: plain.metar(n.text).plain }));
@@ -133,11 +133,15 @@ export class Score extends Card {
     super(el);
     this.P = P;
     const ep = P.ep, ref = ep.reference ?? {};
-    const rows = [[model, ep.reward, true, "this run"], ...REFS.map(([k, label, note]) => [label, rewardOf(ref, ref[k]), false, note])].filter((r) => r[1] != null);
+    const refs = ep.occ?.refs ? ep.occ.refs.map((r) => [r.label, r.reward, false, r.note ?? ""]) : REFS.map(([k, label, note]) => [label, rewardOf(ref, ref[k]), false, note]);
+    const rows = [[model, ep.reward, true, "this run"], ...refs].filter((r) => r[1] != null);
+    const unit = ep.occ ? "Cost in passenger-minutes: passengers' delay and cancellations (more the later they are decided), and the airline's aircraft and crew minutes at FAA rates."
+      : "Cost in passenger-minutes: each minute a passenger lands late counts 1, each cancelled passenger 523.";
+    const top = ep.occ ? "Final reward (1 = the best plan found)" : "Final reward (1 = the best plan in hindsight)";
     el.innerHTML = `<h5 data-s="title"></h5>
       <div class="kpis" data-s="kpis"></div><div class="costbar" data-s="bar"></div>
-      <p class="unit">Cost in passenger-minutes: each minute a passenger lands late counts 1, each cancelled passenger 523.</p>
-      <div class="refs" title="Reward from 0.2 to 1: 1 is the best plan in hindsight"><div class="refs-h">Final reward (1 = the best plan in hindsight)</div>${rows.map(([label, r, me, note]) => `<div class="ref${me ? " me" : ""}" title="${esc(note)}"><span>${esc(label)}</span><i><b style="width:${(100 * (r - 0.2)) / 0.8}%"></b></i><em>${r.toFixed(3)}</em></div>`).join("")}</div>`;
+      <p class="unit">${esc(unit)}</p>
+      <div class="refs" title="Reward from 0.2 to 1"><div class="refs-h">${esc(top)}</div>${rows.map(([label, r, me, note]) => `<div class="ref${me ? " me" : ""}" title="${esc(note)}"><span>${esc(label)}</span><i><b style="width:${(100 * (r - 0.2)) / 0.8}%"></b></i><em>${r.toFixed(3)}</em></div>`).join("")}</div>`;
   }
 
   render(t) {
@@ -146,22 +150,22 @@ export class Score extends Card {
     this.slot("kpis", `${s.delayedPax}|${s.cancelled}|${Math.round(s.cost / 1000)}`, () => `
       <div><b>${fmt(s.delayedPax)}</b><span>passengers delayed 15 min or more</span></div>
       <div><b>${s.cancelled}</b><span>flights cancelled · ${fmt(s.cancelPax)} passengers</span></div>
-      <div><b>${short(s.cost)}</b><span>${s.done ? `the day's cost${best ? `, ${((100 * (s.cost - best)) / best).toFixed(1)}% over the best possible` : ""}` : "cost so far"}</span></div>`);
-    this.slot("bar", `${Math.round((200 * s.cost) / top)}|${s.done}`, () => `<i class="fill" style="width:${(100 * s.cost) / top}%"></i>${best ? `<i class="best" style="left:${(100 * best) / top}%"><span>best possible day ${short(best)}</span></i>` : ""}`);
+      <div><b>${short(s.cost)}</b><span>${s.done ? `the day's cost${best ? `, ${((100 * (s.cost - best)) / best).toFixed(1)}% over the best ${P.ep.occ ? "plan found" : "possible"}` : ""}` : "cost so far"}</span></div>`);
+    this.slot("bar", `${Math.round((200 * s.cost) / top)}|${s.done}`, () => `<i class="fill" style="width:${(100 * s.cost) / top}%"></i>${best ? `<i class="best" style="left:${(100 * best) / top}%"><span>${P.ep.occ ? "best plan found" : "best possible day"} ${short(best)}</span></i>` : ""}`);
   }
 }
 
 export class Board extends Card {
-  constructor(el, P, { city, stands, terminal = null, rows = 6, scene = false }) {
+  constructor(el, P, { city, stands, terminal = null, rows = 6, scene = false, scope = "the task's flights" }) {
     super(el);
     this.P = P;
     this.city = city;
     this.stands = stands;
     this.rows = rows;
-    el.innerHTML = `<div class="board-h"><b>${esc(HUB_NAMES[P.task.hub] ?? P.task.hub)}</b> <span>JetBlue${terminal ? ` · Terminal ${esc(terminal)}` : ""} · the task's flights</span></div>
+    el.innerHTML = `<div class="board-h"><b>${esc(HUB_NAMES[P.task.hub] ?? P.task.hub)}</b> <span>JetBlue${terminal ? ` · Terminal ${esc(terminal)}` : ""} · ${esc(scope)}</span></div>
       <section><h6><span>Departures</span><span>To</span><span>Gate</span><span>Status</span></h6><ol data-s="dep"></ol></section>
       <section><h6><span>Arrivals</span><span>From</span><span>Gate</span><span>Status</span></h6><ol data-s="arr"></ol></section>
-      <p class="legend"><i class="ok"></i>on time <i class="delay"></i>delayed <i class="hold"></i>held <i class="cancel"></i>cancelled${scene ? "<span>In 3D the task's aircraft carry tags; other airlines are grey</span>" : ""}</p>`;
+      <p class="legend"><i class="ok"></i>on time <i class="delay"></i>delayed <i class="hold"></i>held <i class="cancel"></i>cancelled${P.ep.occ ? ' <i class="crew"></i>crew' : ""}${scene ? `<span>In 3D ${P.ep.occ ? "JetBlue's aircraft carry tags, with their crews' status at the gate" : "the task's aircraft carry tags"}; other airlines are grey</span>` : ""}</p>`;
   }
 
   render(t, flights) {

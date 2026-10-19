@@ -11,7 +11,7 @@
       "type": "object",
       "required": ["task_id", "carrier", "hub", "date", "tz", "window", "start", "airports", "tails"],
       "properties": {
-        "task_id": {"type": "string", "pattern": "^[a-z0-9]+-[a-z]{3}-[0-9]{8}-[0-9]{4}$"},
+        "task_id": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z]{3})?-[0-9]{8}-[0-9]{4}$", "description": "A hub window (b6-jfk-20230714-1400) or a whole-network day (b6-20230709-0400)."},
         "carrier": {"type": "string"},
         "hub": {"type": "string", "pattern": "^[A-Z]{3}$"},
         "date": {"type": "string", "format": "date"},
@@ -52,11 +52,15 @@
     "cost": {"$ref": "#/$defs/cost"},
     "reference": {
       "type": "object",
-      "required": ["floor", "anchor"],
+      "required": ["anchor"],
       "properties": {
         "floor": {"type": "number"}, "hindsight": {"type": "number"}, "anchor": {"type": "number"},
         "follower": {"type": "number"}, "blind": {"type": "number"}, "naive": {"type": "number"},
-        "airline": {"type": "number"}, "gap_pct": {"type": "number"}, "qualifies": {"type": "boolean"}
+        "airline": {"type": "number"}, "gap_pct": {"type": "number"}, "qualifies": {"type": "boolean"},
+        "best": {"type": "number", "description": "A control-center day's best plan found (the anchor)."},
+        "bound": {"type": "number", "description": "Its proven lower bound."},
+        "B0": {"type": "number", "description": "The standard crew desk with aircraft doing nothing."},
+        "flat": {"type": "number"}
       }
     },
     "schedule": {
@@ -179,7 +183,53 @@
         }
       ]
     },
-    "sources": {"type": "object"}
+    "sources": {"type": "object"},
+    "occ": {
+      "description": "A control-center day (two desks, ops and crew, or one agent at both): what the room did. Absent from hub-window episodes.",
+      "type": "object",
+      "required": ["mode", "desks", "requests", "decisions", "crew"],
+      "properties": {
+        "mode": {"enum": ["joint", "one"]},
+        "label": {"type": "string"},
+        "desks": {"type": "array", "items": {"enum": ["ops", "crew", "one"]}},
+        "requests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "sender", "receiver", "type", "sent", "status"],
+            "properties": {
+              "id": {"type": "string"}, "sender": {"enum": ["ops", "crew"]}, "receiver": {"enum": ["ops", "crew"]},
+              "type": {"enum": ["TEXT", "HOLD", "CANCEL", "CANCEL_PAIR", "COVER"]},
+              "flight": {"type": ["integer", "null"]}, "time": {"type": ["integer", "null"]},
+              "text": {"type": ["string", "null"]}, "sent": {"type": "integer"},
+              "status": {"type": "string"}, "reply": {"type": ["string", "null"]},
+              "replied": {"type": ["integer", "null"]}, "reply_text": {"type": ["string", "null"]},
+              "actions": {"type": "array", "items": {"type": "object"}}
+            }
+          }
+        },
+        "decisions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["t", "desk", "action"],
+            "properties": {"t": {"type": "integer"}, "desk": {"enum": ["ops", "crew", "one"]}, "action": {"type": "string"},
+                           "flight": {"type": ["integer", "null"]}, "detail": {"type": ["string", "null"]},
+                           "ref": {"type": ["string", "null"]}, "via": {"type": "string"}}
+          }
+        },
+        "notes": {"type": "array", "items": {"type": "object", "required": ["t", "desk", "note"]}},
+        "crew": {
+          "description": "By flight id, the crew status its departure shows from each minute: [t, \"no crew\" | \"times out\" | null, until].",
+          "type": "object",
+          "propertyNames": {"pattern": "^[0-9]+$"},
+          "additionalProperties": {"type": "array", "items": {"type": "array", "minItems": 3, "maxItems": 3}}
+        },
+        "refs": {"type": "array", "items": {"type": "object", "required": ["label", "reward"]}},
+        "grade": {"type": "object"},
+        "absent": {"type": "object"}
+      }
+    }
   },
   "$defs": {
     "span": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},

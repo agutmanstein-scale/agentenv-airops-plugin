@@ -308,12 +308,36 @@ export class AirportStage {
     for (const f of live) {
       const tr = f.c.track;
       if (!tr.task) continue;
-      const leg = legAt(tr, this.T);
-      if (!leg?.tag) continue;
-      out.push({ key: f.key, matrix: f.matrix, dims: f.dims, text: leg.tag, tone: leg.tone || "ok", featured: f.key === this.featured, moving: (f.pose.speed || 0) > 0.3 });
+      const tag = tagAt(tr, this.T);
+      if (!tag) continue;
+      out.push({ key: f.key, matrix: f.matrix, dims: f.dims, text: tag.text, tone: tag.tone, featured: f.key === this.featured,
+        moving: (f.pose.speed || 0) > 0.3, priority: tag.crew && f.key !== this.featured ? 1 : undefined });
     }
     return out;
   }
+}
+
+const pad2 = (n) => String(n).padStart(2, "0");
+const hhmm = (m) => `${pad2(Math.floor((((m % 1440) + 1440) % 1440) / 60))}:${pad2(((m % 60) + 60) % 60)}`;
+
+/** A departure's crew status at the gate at t, from its crew log (control-center days): "waiting for crew" once
+ * boarding would start with no legal crew ("no crew yet" before), "crew times out 22:40" when the crew's clock is
+ * close to the flight's departure; null once it pushes back or when its crew is fine. */
+export function crewAt(leg, t) {
+  if (!leg.crew || leg.kind !== "dep" || leg.status !== "flown" || t >= leg.out) return null;
+  const row = leg.crew.findLast((r) => r[0] <= t);
+  if (!row || !row[1]) return null;
+  if (row[1] === "no crew") return t >= (leg.sched ?? leg.out) - 40 ? "waiting for crew" : "no crew yet";
+  return t < row[2] ? `crew times out ${hhmm(row[2])}` : null;
+}
+
+/** A task aircraft's tag at t: its leg's (legAt), with the crew status at the gate in place of the leg's own when it
+ * has one (crewAt). */
+export function tagAt(track, t) {
+  const leg = legAt(track, t);
+  if (!leg?.tag) return null;
+  const crew = crewAt(leg, t);
+  return { text: crew ? `${leg.tag.split(" · ")[0]} · ${crew}` : leg.tag, tone: crew ? "crew" : leg.tone || "ok", crew: !!crew };
 }
 
 /** The leg a task aircraft's tag shows at t: the one it is flying, a cancellation within 45 minutes of when it is cancelled and not before it was decided, else its next. */
