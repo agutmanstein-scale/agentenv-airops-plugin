@@ -260,5 +260,5 @@ def test_storm_dates_union_the_hub_candidates_and_the_control_rule_picks_two_dat
     storms, counts = network.storms(CACHE)
     assert len(storms) == 207 and sum(len(h) for h in storms.values()) == counts["candidates"] == 294
     assert Counter(storms.values()) == {("JFK", "BOS"): 87, ("JFK",): 67, ("BOS",): 53}
-    assert network.control_dates(CACHE, DERIVED) == {"2024-08-21": {"JFK": (1080, 1320), "BOS": (1020, 1260)},
-                                                     "2025-02-04": {"JFK": (1080, 1320), "BOS": (420, 660)}}
+    assert network.control_dates(CACHE, DERIVED) == {"2024-07-03": {"JFK": (1080, 1320), "BOS": (1020, 1260)},
+                                                     "2025-01-15": {"JFK": (1080, 1320), "BOS": (420, 660)}}

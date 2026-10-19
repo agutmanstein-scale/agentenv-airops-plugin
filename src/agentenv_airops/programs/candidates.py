@@ -14,10 +14,10 @@ clauses that need a solver (airline replay, recorded day, fidelity, leverage, pr
 Storm events chain program dates within 2 days, both hubs pooled. The seeded eval draw takes 12 day-hubs per hub,
 8 summer (Jun-Aug) and 4 winter (Dec-Feb), 9 and 3 if winter is short, at most one per hub per event; train is every
 qualifying candidate of an event with no eval day-hub. When clauses rerun after the draw, the drawn eval stays and only
-loses the days that fail (`settle`). Four controls are chosen by rule: per hub, the summer and
-the winter date with no program listed at JFK, BOS, EWR or LGA (a GDP or ground stop on the date's or the next UTC
-day's ATCSCC list), no weather or NAS cancellation in scope and the lowest mean all-carrier arrival delay at the hub,
-windowed on the hub's busiest 4 h of JetBlue movements.
+loses the days that fail (`settle`). The controls are chosen by rule: per season, the date with no program listed at
+JFK, BOS, EWR or LGA (a GDP or ground stop on the date's or the next UTC day's ATCSCC list) and JetBlue's highest
+network-wide on-time rate (`on_time`), the earlier date on a tie, windowed at each hub on its busiest 4 h of JetBlue
+movements.
 
 The fleet of a month is typed by the two published Form 41 B-43 inventories nearest it (`b43_years`, over the years
 B43_PUBLISHED pins, whatever the cache holds): 2026's is not published, so the 2026 months take 2025's and 2024's.
@@ -495,31 +495,42 @@ def settle(drawn: Mapping[tuple[str, str], str], qualifying: Iterable[tuple[str,
 
 
 def controls(inputs: Path, derived: Path, months: Sequence[str] = MONTHS) -> list[tuple[str, str, tuple[int, int]]]:
-    """The four rule-chosen controls as (date, hub, window)."""
+    """The rule-chosen controls as (date, hub, window): per season, the quiet date (no program listed, both neighbours
+    loaded, no archive gap) with JetBlue's highest on-time rate, the earlier on a tie, at each hub."""
     loaded = {d for m in months for d in pack.month_days(m)}
     quiet = [d for d in sorted(loaded) if pack.shift(d, -1) in loaded and pack.shift(d, 1) in loaded and not gap(d)
              and not any(e in LISTED and program_title(t) for day in (d, pack.shift(d, 1))
                          for e, t in advisories.listed(inputs, day))]
     out = []
-    for hub in HUBS:
-        for s in ("summer", "winter"):
-            ranked = sorted((arrival_delay(inputs, derived, d, hub), d) for d in quiet if season(d) == s)
-            for _, d in ranked:
-                ctx = context(inputs, derived, d, hub)
-                busy = windows.movements(ctx.day.cur, hub)
-                h = max(range(FIRST, DAY_END - CONTROL_HOURS + 1),
-                        key=lambda a: (sum(busy.get(k, 0) for k in range(a, a + CONTROL_HOURS)), -a))
-                sc = pack.scope(ctx.day, 60 * h, 60 * (h + CONTROL_HOURS))
-                if sc.clauses["tails_known"] and sc.clauses["size"] and not (sc.codes.get("B") or sc.codes.get("C")):
-                    out.append((d, hub, (60 * h, 60 * (h + CONTROL_HOURS))))
-                    break
+    for d in best_on_time(quiet, on_time(inputs, derived, months)):
+        for hub in HUBS:
+            busy = windows.movements(context(inputs, derived, d, hub).day.cur, hub)
+            h = max(range(FIRST, DAY_END - CONTROL_HOURS + 1),
+                    key=lambda a: (sum(busy.get(k, 0) for k in range(a, a + CONTROL_HOURS)), -a))
+            out.append((d, hub, (60 * h, 60 * (h + CONTROL_HOURS))))
     return out
 
 
-def arrival_delay(inputs: Path, derived: Path, d: str, hub: str) -> float:
-    x = frame(inputs, derived, d)
-    at = x[(x.FlightDate == d) & (x.Dest == hub) & (x.Cancelled == 0)]
-    return float(at.ArrDelay.clip(lower=0).mean()) if len(at) else math.inf
+def best_on_time(dates: Iterable[str], rate: Mapping[str, float]) -> list[str]:
+    """Per season, summer then winter, the date with the highest on-time rate, the earlier on a tie."""
+    out = []
+    for s in ("summer", "winter"):
+        days = [d for d in dates if season(d) == s and d in rate]
+        if days:
+            out.append(min(days, key=lambda d: (-rate[d], d)))
+    return out
+
+
+def on_time(inputs: Path, derived: Path, months: Sequence[str] = MONTHS) -> dict[str, float]:
+    """Per date, JetBlue's on-time rate over all its flights that day by DOT's A14 rule: arrived less than 15 minutes
+    after its schedule; a cancelled or diverted flight is not on time."""
+    out = {}
+    for m in months:
+        x = bts.read_ontime(bts.ontime_path(inputs, m), derived)
+        x = x[x.Reporting_Airline == CARRIER]
+        ok = (x.Cancelled == 0) & (x.Diverted == 0) & (x.ArrDelay < 15)
+        out |= {d: round(float(v), 6) for d, v in ok.groupby(x.FlightDate).mean().items()}
+    return dict(sorted(out.items()))
 
 
 def e_table(inputs: Path, derived: Path, months: Sequence[str] = MONTHS, workers: int = 1) -> list[unseen.Fit]:

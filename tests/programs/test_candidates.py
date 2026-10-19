@@ -2,6 +2,7 @@ import json
 from collections import Counter
 from datetime import date, timedelta
 
+import pandas as pd
 from program_helpers import CACHE, DERIVED, adv, needs_cache
 
 from agentenv_airops.build import fleet, pack
@@ -115,3 +116,25 @@ def test_a_storm_day_builds_at_its_rule_window_in_parallel_as_in_series():
     task = serial[1].task
     assert (task.task_id, task.slide, task.clauses["program_in_window"]) == ("b6-jfk-20240819-1300", 0, True)
     assert len(task.programs["JFK"].segments) == 1 and task.programs["JFK"].segments[0].slots
+
+
+def test_a_date_is_on_time_by_the_a14_rule_over_all_jetblue_flights_and_controls_take_the_best_per_season(
+        monkeypatch):
+    rows = [("2024-07-03", "B6", 14, 0, 0), ("2024-07-03", "B6", -5, 0, 0), ("2024-07-03", "B6", 15, 0, 0),
+            ("2024-07-03", "B6", None, 1, 0), ("2024-07-03", "B6", 3, 0, 1), ("2024-07-03", "DL", 0, 0, 0),
+            ("2024-07-04", "B6", 0, 0, 0)]
+    frame = pd.DataFrame(rows, columns=["FlightDate", "Reporting_Airline", "ArrDelay", "Cancelled", "Diverted"])
+    monkeypatch.setattr(candidates.bts, "read_ontime", lambda path, derived: frame)
+    assert candidates.on_time(CACHE, DERIVED, ("2024-07",)) == {"2024-07-03": 0.4, "2024-07-04": 1.0}
+    rate = {"2024-07-03": 0.9, "2024-08-21": 0.9, "2024-06-30": 0.8, "2025-01-15": 0.95, "2025-02-04": 0.91,
+            "2024-10-01": 1.0}
+    assert candidates.best_on_time(sorted(rate), rate) == ["2024-07-03", "2025-01-15"]
+
+
+@needs_cache
+def test_the_controls_are_the_quiet_summer_and_winter_dates_jetblue_ran_most_on_time():
+    picked = candidates.controls(CACHE, DERIVED)
+    assert sorted({d for d, _, _ in picked}) == ["2024-07-03", "2025-01-15"] and len(picked) == 4
+    rate = candidates.on_time(CACHE, DERIVED)
+    assert (rate["2024-07-03"], rate["2025-01-15"]) == (0.860248, 0.925403)
+    assert rate["2024-08-21"] < rate["2024-07-03"] and rate["2025-02-04"] < rate["2025-01-15"]
