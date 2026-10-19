@@ -329,9 +329,12 @@ class Ends:
         self.of = {u.id: (u.kind, u.group, u.home) for u in units}
         self.unit = {u.id: u for u in units}
         self.wanted: dict[tuple, Counter] = defaultdict(Counter)
+        self.members: dict[tuple, list[str]] = defaultdict(list)
         for u in units:
             self.wanted[self.of[u.id]][u.end] += 1
+            self.members[self.of[u.id]].append(u.id)
         self.memo: dict[tuple, float] = {}
+        self.spreads: dict[tuple, float] = {}
 
     def move(self, u: Unit, station: str, to: str) -> float:
         key = (self.of[u.id], station, to)
@@ -368,6 +371,16 @@ class Ends:
 
     def total(self, at: Mapping[str, str]) -> float:
         return sum(self.cost(at).values())
+
+    def spread(self, key: tuple, stations: tuple[str, ...]) -> float:
+        """The end of the day of one kind, type group and base whose units are at `stations` (sorted), all of them."""
+        if (key, stations) not in self.spreads:
+            have, need = Counter(stations), Counter(self.wanted[key])
+            stay = have & need
+            u0 = self.unit[self.members[key][0]]
+            sent = transport(have - stay, need - stay, lambda s, t: self.move(u0, s, t))
+            self.spreads[(key, stations)] = sum(n * self.move(u0, s, t) for (s, t), n in sent.items())
+        return self.spreads[(key, stations)]
 
 
 def transport(have: Mapping[str, int], need: Mapping[str, int], cost: Callable[[str, str], float],

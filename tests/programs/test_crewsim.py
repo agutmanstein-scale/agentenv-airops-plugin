@@ -351,3 +351,51 @@ def test_the_desk_cancels_a_flight_no_crew_can_reach_as_soon_as_that_is_certain_
     task = day(flights, [tail("N1", "JFK")])
     d = crewsim.execute(task, {}, pair((0, 1), report=340, hour=5), desk=True)
     assert (d.run.flights[1].status, d.run.flights[1].decided) == (CANCELLED, 400)
+
+
+def test_the_desk_relieves_a_late_crew_only_when_waiting_costs_more_than_the_end_of_the_day_the_move_shifts():
+    task = day([flight(0, "JFK", "BOS", 600, 60)], [tail("N1", "JFK")])
+    for report, dep, crew in ((580, 580 + crews.BRIEF, ("P1", "C1")), (615, 600, ("SP", "SC"))):
+        late = [unit(k, kind, report=report, home="BOS", end="BOS", trip=(0,)) for k, kind in (("P1", "pilot"),
+                                                                                              ("C1", "cabin"))]
+        d = crewsim.execute(task, {}, late + standbys(), desk=True)
+        assert d.run.flights[0].dep == dep and d.crews[0] == dict(zip(crews.KINDS, crew, strict=True))
+    pilot = unit("SP", report=300, reserve="standby", until=660)
+    moved = 2 * crews.reposition(pilot, "BOS", task.airports, task.date, "JFK")
+    assert 100 * 25 < moved < 100 * 60
+
+
+def test_the_desk_prices_a_rest_away_from_base_into_waiting_for_a_crew():
+    units = [unit("P1", "pilot", "BOS", 400, 6, ready=1020, landed=1000, trip=(0,)),
+             unit("C1", "cabin", "BOS", 1500, trip=(0,))]
+    task = day([flight(0, "BOS", "JFK", 1650, 60)], [tail("N1", "BOS")])
+    pool = crewsim.Pool(task, units, lambda s, m: m, {}, True, False, task.airports, desk=True)
+    own = [o for o in pool.options("pilot", "A32X", task.flight(0), 0, 1650) if o[3] == "P1"]
+    assert own == [(100 * 15 + crews.hotel("BOS", task.date) * 2, 0, 1665, "P1", ("own",))]
+
+
+def test_the_extension_is_open_to_any_crew_it_alone_makes_legal():
+    task = day([flight(0, "JFK", "BOS", 1080, 60, deadline=1200)], [tail("N1", "JFK")])
+    units = [unit("P1", "pilot", "BUF", trip=(0,)), unit("C1", "cabin", report=900, trip=(0,)),
+             unit("SP", "pilot", report=300, hour=5, reserve="standby", until=1260)]
+    assert 1080 + 60 > 300 + crews.fdp(5, 1)
+    d = crewsim.execute(task, {}, units, desk=True)
+    assert d.run.flights[0].dep == 1080 and d.crews[0] == {"pilot": "SP", "cabin": "C1"}
+
+
+def test_the_desk_does_not_cancel_a_flight_a_crew_at_its_origin_comes_back_to_fly():
+    flights = [flight(0, "JFK", "BOS", 600, 60, deadline=900), flight(1, "JFK", "PWM", 450, 60),
+               flight(2, "PWM", "JFK", 570, 60)]
+    task = day(flights, [tail("N1", "JFK"), tail("N2", "JFK")])
+    units = pair((0,), station="BUF") + [unit(k, kind, report=390, trip=(1, 2)) for k, kind in (("P2", "pilot"),
+                                                                                                 ("C2", "cabin"))]
+    d = crewsim.execute(task, {}, units, desk=True)
+    assert d.run.flights[0].dep == 630 + crews.CONNECT and d.crews[0] == {"pilot": "P2", "cabin": "C2"}
+
+
+def test_a_reserve_the_morning_plan_called_logs_its_call():
+    task = day([flight(0, "JFK", "BOS", 705, 60)], [tail("N1", "JFK")], start=600)
+    called = [unit(k, kind, report=660, reserve="short", rap=120, until=840, lead=150, trip=(0,))
+              for k, kind in (("RP", "pilot"), ("RC", "cabin"))]
+    d = crewsim.execute(task, {}, called)
+    assert d.run.flights[0].dep == 705 and d.units["RP"]["call"] == 660 - 150
