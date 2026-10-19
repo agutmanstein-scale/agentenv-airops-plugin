@@ -5,7 +5,7 @@ called; the crew and aircraft solvers run (HiGHS, one thread each).
     python scripts/build_occ_pack.py --out cache/<build> --run cache/<crew_check run> --split <o26_split.json>
                                      --tasks cache/<world_check run> [--only DATE,...] [--workers 4] [--resume]
                                      [--scale 1.0]
-    python scripts/build_occ_pack.py --assemble cache/<build> --pack data/b6-v2
+    python scripts/build_occ_pack.py --assemble cache/<build> --pack data/b6-v2 [--scripted cache/<occ_z1 run>]
 
 Per date, in its own process:
 1. the trips and the units at the start (crewday.storm_units on --run's own budgets, the middle band), frozen with
@@ -22,7 +22,9 @@ Per date, in its own process:
    --run's crew-aware calm day; the bound must not exceed any of them.
 It writes worlds/<date>.json.gz and dates/<date>.json as each date finishes (`--resume` keeps those written without an
 error), then summary.json and report.md. `--assemble` writes the pack: dates/<date>.json.gz (the task, its split set,
-and its frozen world) and manifest.json (the sha256 of every file, the commit, the framework and crew_params.json).
+and its frozen world) and manifest.json (the sha256 of every file, the commit, the framework and crew_params.json);
+with `--scripted`, each date occ_z1 checked gets the env's scripted desks' costs as references (joint: the crew desk
+forwarding its system's words and ops accepting its cancellations; one: one desk running both by script).
 """
 
 import argparse
@@ -64,9 +66,10 @@ def main() -> None:
     ap.add_argument("--scale", type=float, default=1.0, help="multiplies the joint search's budgets on a rerun")
     ap.add_argument("--assemble", type=Path, help="a build's out directory: write the pack from it")
     ap.add_argument("--pack", type=Path, default=ROOT / "data" / "b6-v2")
+    ap.add_argument("--scripted", type=Path, help="an occ_z1 run: its scripted desks' costs become references")
     a = ap.parse_args()
     if a.assemble:
-        print(json.dumps(assemble(a.assemble, a.pack), indent=1))
+        print(json.dumps(assemble(a.assemble, a.pack, a.scripted), indent=1))
         return
     if not (a.out and a.run and a.split and a.tasks):
         sys.exit("ERROR: --out, --run, --split and --tasks are required")
@@ -258,7 +261,7 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def assemble(build: Path, pack: Path) -> dict:
+def assemble(build: Path, pack: Path, scripted: Path | None = None) -> dict:
     """The pack from a build: per date the build wrote without an error, one file with its task (its split set) and
     its frozen world, and the manifest."""
     rows = {p.stem: json.loads(p.read_text()) for p in sorted((build / "dates").glob("*.json"))}
@@ -275,6 +278,9 @@ def assemble(build: Path, pack: Path) -> dict:
             continue
         task = replace(Task.from_dict(json.loads(line)), split=good[d]["split"])
         world = json.loads(gzip.decompress((build / "worlds" / f"{d}.json.gz").read_bytes()))
+        if scripted and (z := scripted / "dates" / f"{d}.json").is_file():
+            row = json.loads(z.read_text())
+            world["refs"]["scripted"] = {"joint": row["Z1c"]["cost"], "one": row["one"]["cost"]}
         with gzip.GzipFile(pack / "dates" / f"{d}.json.gz", "wb", mtime=0) as fh:
             fh.write(json.dumps({"task": task.to_dict(), **world}, separators=(",", ":")).encode())
     files = {str(p.relative_to(pack)): sha256(p) for p in sorted(pack.rglob("*")) if p.is_file()}
