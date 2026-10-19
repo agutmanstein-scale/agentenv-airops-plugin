@@ -67,6 +67,8 @@ def responses(i: int, turn: dict, body: dict) -> Response:
                 "usage": {"input_tokens": u["input"], "input_tokens_details": {"cached_tokens": u["cached"]},
                           "output_tokens": u["output"], "output_tokens_details": {"reasoning_tokens": 0},
                           "total_tokens": u["input"] + u["output"]}}
+    if turn["stop"] == "incomplete":
+        response["incomplete_details"] = {"reason": "max_output_tokens"}
     if not body.get("stream"):
         return JSONResponse(response)
     end = "response.incomplete" if turn["stop"] == "incomplete" else "response.completed"

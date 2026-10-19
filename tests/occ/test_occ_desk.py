@@ -1,6 +1,8 @@
 """airops-desk on scripted model turns from the fake LiteLLM against a served airops-occ day (no gateway, so every tool
 is listed): the model sees its page as the result of end_turn, never sees wait_turn or resign, and the day goes on
-without a desk that stops at its cost cap, which it leaves as played. No model is called."""
+without a desk that stops at its cost cap, which it leaves as played; a request that fails is sent again and costs
+nothing; a reply cut off at the output limit leaves no reasoning without its answer in the history, a call after
+end_turn in the same reply isn't run, and an error from wait_turn stops the desk unscored. No model is called."""
 
 import json
 import sys
@@ -27,15 +29,17 @@ def end(i: int, big: bool = False) -> dict:
                 {"note": None, "stand_down": False})}]}
 
 
-async def run(tmp_path, monkeypatch, cap: str | None = None):
+async def run(tmp_path, monkeypatch, cap: str | None = None, turns: list[dict] | None = None,
+              turn_timeout: float | None = None):
     """The one-desk day served, its advisories delivered by the env as each watch opens (no gateway, no trigger)."""
     monkeypatch.setenv("AIROPS_OCC_PACK", str(write_pack(tmp_path / "pack", storm())))
     opened = OccDay._open
     monkeypatch.setattr(OccDay, "_open", lambda self, by: opened(self, "env"))
     env = OccEnv()
     mcp = env.create_app()
-    env.occ_load(storm().task.task_id, "one")
-    with serve(mcp.http_app()) as url, FakeLiteLLM([end(i, cap is not None) for i in range(60)]) as fake:
+    env.occ_load(storm().task.task_id, "one", *([turn_timeout] if turn_timeout is not None else []))
+    turns = turns or [end(i, cap is not None) for i in range(60)]
+    with serve(mcp.http_app()) as url, FakeLiteLLM(turns) as fake:
         monkeypatch.setenv("LITELLM_BASE_URL", fake.url)
         monkeypatch.setenv("LITELLM_API_KEY", "sk-fake")
         if cap:
@@ -70,3 +74,51 @@ async def test_a_desk_at_its_cost_cap_leaves_and_the_day_goes_on_without_it(tmp_
     assert s["end_reason"] == "cost_cap" and result.outcome is TaskOutcome.SUCCEEDED and len(fake.requests) == 3
     assert env.day.absent["one"]["reason"] == "cost_cap" and env.day.done and env.day.audit()["ok"]
     assert env.day.grade["end_reason"] == "done" and env.day.grade["cost"] == env.day.w.refs["idle"]
+
+
+async def test_a_request_that_fails_mid_stream_is_sent_again_and_costs_nothing(tmp_path, monkeypatch):
+    result, fake, env = await run(tmp_path, monkeypatch, turns=[{"stream_error": "overloaded"}] +
+                                  [end(i) for i in range(60)])
+    s = result.parts[1].data["structured_output"]
+    assert (s["end_reason"], s["failed_requests"], s["turns"]) == ("done", 1, len(env.day.turns))
+    assert s["cost_usd"] == pytest.approx(len(env.day.turns) * (1000 * 2.0 + 100 * 10.0) / 1e6)
+
+
+async def test_a_cut_off_reply_leaves_no_dangling_reasoning_and_a_call_after_end_turn_is_not_run(tmp_path, monkeypatch):
+    cut = {"content": "", "reasoning": "weighing the holds", "stop": "incomplete", "usage": {"input": 1000,
+                                                                                                "output": 32000}}
+    late = {**end(1), "tool_calls": end(1)["tool_calls"] + [{"id": "call_x", "name": "ops_confirm",
+                                                              "arguments": json.dumps({"changes": []})}]}
+    result, fake, env = await run(tmp_path, monkeypatch, turns=[cut, late] + [end(i) for i in range(2, 60)])
+    second = fake.requests[1][2]["input"]
+    assert not any(x.get("type") == "reasoning" for x in second) and "ran out of output tokens" in json.dumps(second)
+    third = fake.requests[2][2]["input"]
+    assert "not run" in next(x["output"] for x in third if x.get("type") == "function_call_output" and
+                             x["call_id"] == "call_x")
+    assert not any(c["tool"] == "ops_confirm" for c in env.day.calls) and env.day.done
+    assert result.parts[1].data["structured_output"]["effort"] == "medium"
+
+
+async def test_a_desk_the_env_puts_off_stops_calling_the_model_and_the_day_ends_unscored(tmp_path, monkeypatch):
+    result, fake, env = await run(tmp_path, monkeypatch, turn_timeout=0.0)
+    s = result.parts[1].data["structured_output"]
+    assert (s["end_reason"], s["turns"], len(fake.requests)) == ("off", 1, 1)
+    assert env.day.done and env.day.audit()["problems"]["A7"] == ["one: timeout"]
+
+
+class Replies:
+    def __init__(self, *results: dict):
+        self.results = list(results)
+
+    async def call(self, name: str, args: dict) -> str:
+        return json.dumps(self.results.pop(0))
+
+
+async def test_wait_turn_polls_until_the_page_and_an_error_without_done_stops_the_desk_unscored():
+    episode = desk_agent.Episode(desk_agent.DeskConfig(role="crew"), {})
+    page = {"watch": 0, "turn": "crew", "page": "# Crew"}
+    assert await episode.wait(Replies({"waiting_for": "ops"}, page)) == page
+    assert await episode.wait(Replies({"done": True, "reward": 0.5})) is None and episode.reward == 0.5
+    assert episode.record["end_reason"] is None and episode.failure is None
+    assert await episode.wait(Replies({"error": "no day loaded"})) is None
+    assert episode.record["end_reason"] == "error" and episode.failure[0] == "error"

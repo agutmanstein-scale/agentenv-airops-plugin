@@ -122,9 +122,9 @@ def outcome(p: Pilot, run: str, number: int, log: Path, code: int, started: str)
     for role, name, _ in DESKS[mode]:
         pr = next((x for x in ctx.get("prompt_responses") or [] if x.get("step_id") == f"play-{name}"), None)
         s = (pr or {}).get("structured_output") or {}
-        desks[role] = {k: s.get(k) for k in ("end_reason", "desk_turns", "turns", "tool_calls", "input_tokens",
-                                             "output_tokens", "cached_tokens", "context_max", "cost_usd",
-                                             "priced_cost_usd", "failed_requests", "seconds", "error")}
+        desks[role] = {k: s.get(k) for k in ("end_reason", "effort", "desk_turns", "turns", "tool_calls",
+                                             "input_tokens", "output_tokens", "cached_tokens", "context_max",
+                                             "cost_usd", "failed_requests", "seconds", "error")}
         if pr and pr.get("agent_trajectory_object_url"):
             path = p.out / "transcripts" / f"{run}-a{number}-{role}.json"
             path.parent.mkdir(parents=True, exist_ok=True)

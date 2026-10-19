@@ -254,18 +254,27 @@ class OpenAIResponsesAgent:
                 raise ProviderError(f"error: {event.code}: {event.message}")
         if resp is None:
             raise ProviderError("the response stream ended without response.completed")
-        self.input.extend(resp.output)
+        items, stop = list(resp.output), resp.status or ""
+        if stop == "incomplete":
+            done = [k for k, x in enumerate(items) if x.type in ("message", "function_call") and
+                    getattr(x, "status", "completed") == "completed"]
+            history = items[:done[-1] + 1] if done else []
+            reason = getattr(resp.incomplete_details, "reason", None)
+            stop = f"length ({reason})" if reason == "max_output_tokens" else f"incomplete ({reason})"
+        else:
+            history = items
+        self.input.extend(history)
         text, reasoning, calls = "", "", []
-        for item in resp.output:
+        for item in items:
             if item.type == "message":
                 text += "".join(getattr(c, "text", "") for c in item.content)
             elif item.type == "reasoning":
                 reasoning += "\n".join(getattr(s, "text", "") for s in (getattr(item, "summary", None) or []))
-            elif item.type == "function_call":
+            elif item.type == "function_call" and item in history:
                 args, err = _args(item.arguments)
                 calls.append(Call(item.call_id, item.name, args, err, item.arguments or ""))
         u = resp.usage
-        return Turn(text, reasoning, calls, resp.status or "", {"input": u.input_tokens or 0,
+        return Turn(text, reasoning, calls, stop, {"input": u.input_tokens or 0,
                                                                  "output": u.output_tokens or 0,
                                                                  "cached": u.input_tokens_details.cached_tokens or 0,
                                                                  "cache_write": 0})
@@ -381,12 +390,18 @@ def make_agent(model: str, tools, system: str, max_tokens: int, effort: str | No
     return ChatAgent(model, tools, system, max_tokens, f"{root}/v1", key, effort, bill_to)
 
 
-def bound(agent, request: dict, price: tuple[float, float, float]) -> float:
-    """The most a request can cost: each byte of its body an input token (a cache write on Messages), and its output
-    limit in output tokens."""
-    size = len(json.dumps(request, default=lambda o: o.model_dump(mode="json")).encode())
-    out = agent.max_tokens * (5 if agent.route == "chat" else 1)
-    return (size * price[0] * (1.25 if agent.route == "messages" else 1) + out * price[1]) / 1e6
+def size_of(request: dict) -> int:
+    return len(json.dumps(request, default=lambda o: o.model_dump(mode="json")).encode())
+
+
+def estimate(agent, size: int, last: tuple[int, int] | None, out: int, price: tuple[float, float, float]
+             ) -> tuple[float, float]:
+    """A request's likely cost, input and output: the last response's input tokens read from the cache, the bytes
+    added since at 3.5 a token fresh (a cache write on Messages), and twice the largest output yet."""
+    cached, sent = last or (0, 0)
+    fresh = max(0, size - sent) / 3.5
+    return ((cached * price[2] + fresh * price[0] * (1.25 if agent.route == "messages" else 1)) / 1e6,
+            2 * out * price[1] / 1e6)
 
 
 def cost(usage: dict, price: tuple[float, float, float]) -> float:
@@ -487,7 +502,10 @@ class Episode:
                                        "usage": {"input_tokens": 0, "output_tokens": 0}, "end_reason": None,
                                        "errors": []}
         self.tool_calls = self.desk_turns = self.cached = self.written = self.context = 0
-        self.spent = self.unbilled = 0.0
+        self.spent = 0.0
+        self.effort: str | None = None
+        self.last: tuple[int, int] | None = None
+        self.most_out = 0
         self.failed_requests = 0
         self.failure: tuple[str, str] | None = None
         self.error: str | None = None
@@ -545,16 +563,21 @@ class Episode:
             await env.call("resign", {"reason": reason if reason in RESIGN else "error"})
 
     async def wait(self, env) -> dict | None:
-        """Polls wait_turn until the desk's page comes, unseen by the model; None once the day is over for it."""
+        """Polls wait_turn until the desk's page comes, unseen by the model; None once the day is over for it (its
+        absence as the end, if the env put it off), or on an error, which stops the desk unscored."""
         while True:
             out = _result(await env.call("wait_turn", {}))
             if isinstance(out, dict) and "page" in out:
                 self.desk_turns += 1
                 self.record["pages"].append({"watch": out["watch"], "turn": out["turn"], "chars": len(out["page"])})
                 return out
-            if not isinstance(out, dict) or out.get("done") or "error" in out:
-                if isinstance(out, dict) and out.get("reward") is not None:
-                    self.reward = out["reward"]
+            if not isinstance(out, dict) or (not out.get("done") and "error" in out):
+                self.stop("error", f"wait_turn: {json.dumps(out)[:500]}", failed=True)
+                return None
+            if out.get("done"):
+                self.reward = out.get("reward")
+                if out.get("absent"):
+                    self.stop(out["absent"])
                 return None
 
     async def scripted(self, env, page: dict) -> None:
@@ -571,7 +594,7 @@ class Episode:
             await script.turn(page["page"], call)
             await call("end_turn", {"note": None, "stand_down": False})
             page = await self.wait(env)
-        self.record["end_reason"] = "done"
+        self.record["end_reason"] = self.record["end_reason"] or "done"
 
     async def llm(self, env, opening: str, page: dict) -> None:
         config, record, price = self.config, self.record, PRICES[self.model]
@@ -580,6 +603,7 @@ class Episode:
         record["messages"] += [{"role": "system", "content": system}, {"role": "user", "content": first}]
         tools = [t for t in await env.tools() if t.name not in ("wait_turn", "resign")]
         limit = config.model_params["max_tokens"]
+        self.effort = config.effort or ("medium" if route(self.model) == "responses" else None)
         agent = make_agent(self.model, tools, system, limit, config.effort, self.base.rstrip("/").removesuffix("/v1"),
                            self.key)
         agent.user(first)
@@ -596,10 +620,11 @@ class Episode:
                 agent.user(LAST_TURN)
                 record["messages"].append({"role": "user", "content": LAST_TURN})
             request = agent.request()
-            most = bound(agent, request, price)
-            if self.max_cost is not None and self.spent + most > self.max_cost:
-                return self.stop("cost_cap", f"the next request could cost ${most:.4f}, past the ${self.max_cost:g} "
-                                             f"cap with ${self.spent:.4f} spent")
+            size = size_of(request)
+            ins, outs = estimate(agent, size, self.last, self.most_out, price)
+            if self.max_cost is not None and self.spent + ins + outs > self.max_cost:
+                return self.stop("cost_cap", f"the next request would likely cost ${ins + outs:.4f}, past the "
+                                             f"${self.max_cost:g} cap with ${self.spent:.4f} spent")
             for resend in range(STREAM_RETRIES + 1):
                 try:
                     t = await agent.step(request)
@@ -609,14 +634,13 @@ class Episode:
                         return self.stop("context_full", error=e)
                     if getattr(e, "status_code", None) in REFUSED:
                         return self.stop("provider_refused", error=e, failed=True)
-                    self.spent += most
-                    self.unbilled += most
                     self.failed_requests += 1
-                    if resend == STREAM_RETRIES or not mid_stream(e) or (
-                            self.max_cost is not None and self.spent + most > self.max_cost):
+                    if resend == STREAM_RETRIES or not mid_stream(e):
                         return self.stop("provider_error", error=e, failed=True)
                     record["errors"].append(f"{self.describe(e)} (request {turn + 1} sent again)")
-            self.spent += most if t.stop == HARNESS_CAP else cost(t.usage, price)
+            self.spent += ins + agent.max_tokens * price[1] / 1e6 if t.stop == HARNESS_CAP else cost(t.usage, price)
+            self.last = (t.usage.get("input") or round(size / 3.5), size)
+            self.most_out = max(self.most_out, t.usage.get("output", 0))
             self.cached += t.usage["cached"]
             self.written += t.usage["cache_write"]
             self.context = max(self.context, t.usage.get("input", 0))
@@ -641,27 +665,35 @@ class Episode:
                 record["messages"].append({"role": "user", "content": nudge})
                 continue
             empty = 0
-            pairs, over = [], False
+            pairs, over, ended = [], False, False
             for c in t.calls:
                 if over:
                     out = json.dumps({"error": "the day is over for this desk"})
+                elif ended:
+                    out = json.dumps({"error": "not run: it came after end_turn in the same reply; your turn had "
+                                               "ended"})
                 elif c.error:
                     out = json.dumps({"error": c.error})
                 else:
                     out = await env.call(c.name, c.arguments)
                     self.tool_calls += 1
-                    if c.name == "end_turn" and "error" not in (res := _result(out)):
+                    res = _result(out)
+                    if c.name == "end_turn" and "error" not in res:
+                        ended = True
                         nxt = await self.wait(env)
                         if nxt is None:
                             over = True
                             out = json.dumps({**res, "done": True, "reward": self.reward})
                         else:
                             out = json.dumps({**res, **nxt})
+                    elif isinstance(res, dict) and res.get("done"):
+                        over = True
+                        self.stop("off" if "off" in str(res.get("error")) else "done")
                 pairs.append((c, out))
                 record["messages"].append({"role": "tool", "tool_call_id": c.id, "name": c.name, "content": out})
             agent.results(pairs)
             if over:
-                return self.stop("done")
+                return None if record["end_reason"] else self.stop("done")
         self.stop("turn_limit")
 
     def result(self) -> TaskResult:
@@ -670,12 +702,13 @@ class Episode:
         usage = record["usage"]
         summary = {"agent": "airops-desk", "desk": self.desk, "role": self.config.role, "policy": self.policy,
                    "model": record["model"], "route": route(self.model) if self.policy == "llm" else None,
+                   "effort": self.effort,
                    "end_reason": record["end_reason"], "reward": self.reward, "desk_turns": self.desk_turns,
                    "turns": record["turns"], "tool_calls": self.tool_calls, "input_tokens": usage["input_tokens"],
                    "output_tokens": usage["output_tokens"], "cached_tokens": self.cached,
                    "cache_write_tokens": self.written, "context_max": self.context, "cost_usd": round(self.spent, 6),
-                   "max_cost_usd": self.max_cost, "priced_cost_usd": round(self.spent - self.unbilled, 6),
-                   "failed_requests": self.failed_requests, "seconds": record["seconds"], "error": self.error}
+                   "max_cost_usd": self.max_cost, "failed_requests": self.failed_requests, "seconds": record["seconds"],
+                   "error": self.error}
         text = (f"{self.desk} desk {record['end_reason']}: reward {json.dumps(self.reward)}, {self.desk_turns} desk "
                 f"turns, {record['turns']} model turns, {self.tool_calls} tool calls, ${self.spent:.4f}")
         builder = TaskResult.builder()
