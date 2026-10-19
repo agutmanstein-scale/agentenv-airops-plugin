@@ -5,6 +5,8 @@ solvers run (HiGHS, one thread each); no LLM is called.
     python scripts/crew_check.py --out cache/<run> --tasks cache/<world_check run> [--only DATE|TASK_ID,...]
                                  [--bands middle,low,high] [--workers 4] [--resume] [--scale 1.0]
     python scripts/crew_check.py --desk-replay cache/<crew_check run> --out cache/<new run> --tasks ... [--workers 4]
+    python scripts/crew_check.py --ends-over cache/<crew_check run> --out cache/<new run> --tasks ... [--workers 4]
+                                 [--resume]
 
 Per task of a world_check run (its storm dates and its controls, at its fitted scale), in its own process:
 1. the trips over the published schedule (pairings.py), once;
@@ -30,6 +32,12 @@ other result is RUN's, best plans and bounds included. It writes each date with 
 guards.json and report.md, the controls and leverage read against the new desk, both marked as the desk replay over RUN
 at this commit.
 
+With `--ends-over RUN` only the reserve-band ends (low and high) run, over RUN's dates (RUN having run the middle band):
+per date the trips and the calm optimum without crews, then for each end what the full run does for it (the units at
+the start, the record replay and the calm day, on the end budgets), measured against the calm base RUN used. Each date
+is RUN's row with the two ends added, its plans copied; guards.json and report.md then read all three bands, marked as
+the band ends over RUN at this commit, the middle band and the crew desk being RUN's.
+
 The guards, as registered (a storm date being a task that is not a control; the middle band):
 - record: flights without a legal crew in the crew replay <= 1% of the date's flown flights and <= 2, on >= 90% of
   storm dates;
@@ -52,6 +60,7 @@ import argparse
 import json
 import math
 import resource
+import shutil
 import statistics
 import subprocess
 import sys
@@ -96,6 +105,7 @@ def main() -> None:
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--scale", type=float, default=1.0, help="multiplies every time budget")
     ap.add_argument("--desk-replay", type=Path, help="an earlier run's out directory: only the crew desk runs again")
+    ap.add_argument("--ends-over", type=Path, help="an earlier middle-band run's out directory: only the band ends run")
     a = ap.parse_args()
     bands = tuple(a.bands.split(","))
     if "middle" not in bands or set(bands) - set(crews.BANDS):
@@ -110,6 +120,9 @@ def main() -> None:
             lines[head["date"]] = line
     if a.desk_replay:
         desk_replay(a.desk_replay, a.out, lines, a.workers)
+        return
+    if a.ends_over:
+        ends_over(a.ends_over, a.out, lines, a.workers, a.resume)
         return
     refs = {}
     for p in (a.tasks / "refs").glob("*.json"):
@@ -163,22 +176,32 @@ def check(task: Task, bands: tuple[str, ...], refs: dict, scale: float, plans: d
                            "reference": reference}
     base = optimum.objective if reference is None else reference
     for band in bands:
-        mid = band == "middle"
-        pre = "" if mid else "end_"
-        units, before = crewday.storm_units(w, band, budget[pre + "morning"], budget["polish"])
+        if band != "middle":
+            row["bands"][band] = end_band(w, band, optimum, base, budget, clock)
+            continue
+        units, before = crewday.storm_units(w, band, budget["morning"], budget["polish"])
         clock(f"{band}_morning")
-        rec, rec_plan = record(w, units, budget[pre + "record"], budget["polish"])
+        rec, rec_plan = record(w, units, budget["record"], budget["polish"])
         clock(f"{band}_record")
         rec["before_start"] = before
-        b = {"record": rec}
-        if mid:
-            b["joint"] = joint(w, units, refs, budget, rec, plans, clock)
-            plans["record"] = rec_plan
-        b["calm"] = calm(w, band, optimum, base, budget[pre + "calm"], budget["calm_cover"] if mid else 0.0,
-                         budget["width"], plans if mid else None)
+        b = {"record": rec, "joint": joint(w, units, refs, budget, rec, plans, clock)}
+        plans["record"] = rec_plan
+        b["calm"] = calm(w, band, optimum, base, budget["calm"], budget["calm_cover"], budget["width"], plans)
         clock(f"{band}_calm")
         row["bands"][band] = b
     return row
+
+
+def end_band(w: crewday.World, band: str, optimum, base: float, budget: dict, clock) -> dict:
+    """A reserve band's end: the units at the start, the record replay and the calm day, on the end budgets."""
+    units, before = crewday.storm_units(w, band, budget["end_morning"], budget["polish"])
+    clock(f"{band}_morning")
+    rec, _ = record(w, units, budget["end_record"], budget["polish"])
+    clock(f"{band}_record")
+    rec["before_start"] = before
+    b = {"record": rec, "calm": calm(w, band, optimum, base, budget["end_calm"], 0.0, budget["width"], None)}
+    clock(f"{band}_calm")
+    return b
 
 
 class Laps:
@@ -315,6 +338,64 @@ def plays(task: Task, units, world: sim.World, w: crewday.World) -> tuple[dict, 
     out["naive"] = {"notice": naive.cost.total, "flat": naive.cost.flat, "aircraft": naive.cost.to_dict(),
                     "statuses": dict(Counter(r.status for r in naive.flights.values()))}
     return out, crewday.named(desk)
+
+
+def ends_over(run: Path, out: Path, lines: dict[str, str], workers: int, resume: bool) -> None:
+    """The band ends over `run`'s dates (see the module doc), then the guards and the report over all three bands."""
+    dates = sorted(d for d in lines if (run / "dates" / f"{d}.json").exists())
+    todo = [d for d in dates if not (resume and (out / "dates" / f"{d}.json").exists())]
+    t0 = time.monotonic()
+    if todo:
+        with ProcessPoolExecutor(min(workers, len(todo)), max_tasks_per_child=1) as pool:
+            futures = {pool.submit(ends, lines[d], run, out): d for d in sorted(todo, key=lambda d: -len(lines[d]))}
+            for n, f in enumerate(as_completed(futures), 1):
+                print(f"[{time.monotonic() - t0:8.0f}s] {n}/{len(todo)} {futures[f]} {f.result()}", flush=True)
+    rows = [json.loads((out / "dates" / f"{d}.json").read_text()) for d in dates]
+    bands = ("middle", "low", "high")
+    report = guards(rows, bands)
+    was = run / "guards.json"
+    if was.exists() and "desk_replay" in (earlier := json.loads(was.read_text())):
+        report["desk_replay"] = earlier["desk_replay"]
+    report["ends_over"] = {"over": str(run), "commit": commit(), "dates": len(rows),
+                           "failed": sorted(r["date"] for r in rows if "ends_error" in r),
+                           "seconds": round(time.monotonic() - t0, 1)}
+    (out / "guards.json").write_text(json.dumps(report, indent=1, default=str) + "\n")
+    mark = report["ends_over"]
+    (out / "report.md").write_text(f"The reserve-band ends (low, high) run over {mark['over']} at commit "
+                                   f"{mark['commit']}; the middle band, the crew desk and every other number are that "
+                                   "run's.\n\n" + markdown(report, rows, bands))
+    print(json.dumps({"ends_over": mark, **report["guards"]}, indent=1, default=str), flush=True)
+
+
+def ends(line: str, run: Path, out: Path) -> str:
+    """One date of the band ends: its row from `run` with the low and high bands added, its plans copied."""
+    t0 = time.monotonic()
+    task = Task.from_dict(json.loads(line))
+    row = json.loads((run / "dates" / f"{task.date}.json").read_text())
+    plans = run / "plans" / f"{task.date}.json"
+    if plans.exists():
+        (out / "plans").mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(plans, out / "plans" / plans.name)
+    if "error" not in row:
+        laps: dict[str, float] = {}
+        try:
+            clock = Laps(laps)
+            w = crewday.world(task, INPUTS, DERIVED)
+            clock("trips")
+            optimum = crewplan.calm_optimum(w)
+            clock("calm_optimum")
+            for band in ("low", "high"):
+                row["bands"][band] = end_band(w, band, optimum, row["bands"]["middle"]["calm"]["base"], row["budget"],
+                                              clock)
+        except Exception:
+            row["ends_error"] = traceback.format_exc()
+        row["ends_over"] = {"seconds": round(time.monotonic() - t0, 1), "laps": laps,
+                            "peak_rss_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / RSS_UNIT, 2)}
+    (out / "dates").mkdir(parents=True, exist_ok=True)
+    (out / "dates" / f"{task.date}.json").write_text(json.dumps(row, indent=1, default=str))
+    if "error" in row:
+        return "error in the run"
+    return "error" if "ends_error" in row else f"{row['ends_over']['seconds']}s {row['ends_over']['peak_rss_gb']}GB"
 
 
 def outcome(d: crewsim.CrewDay) -> dict:

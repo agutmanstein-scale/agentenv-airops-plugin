@@ -162,3 +162,49 @@ def test_the_desk_replay_rewrites_only_the_desk_and_what_reads_it_and_says_over_
     assert again["played"]["naive"] == rows[2]["bands"]["middle"]["joint"]["played"]["naive"]
     assert (out / "report.md").read_text().startswith(f"The standard crew desk replayed over {run} at commit ")
     assert {p.name: p.read_text() for p in (run / "dates").iterdir()} == before
+
+
+def test_the_band_ends_run_over_a_middle_band_run_add_low_and_high_and_keep_the_rest(tmp_path, monkeypatch):
+    run, out = tmp_path / "run", tmp_path / "ends"
+    (run / "dates").mkdir(parents=True)
+    (run / "plans").mkdir()
+    rows = [row("2024-07-03", "control"), row("d1"), {"date": "d2", "task_id": "b6-d2", "split": "train",
+                                                       "error": "boom"}]
+    for r in rows:
+        if "error" not in r:
+            r["budget"] = {"end_morning": 1, "end_record": 1, "end_calm": 1, "polish": 1, "width": 30}
+            r["bands"]["middle"]["calm"]["base"] = 42.0
+            r["bands"]["middle"]["record"] |= {"flown": 10, "solve": {"uncrewed_bound": 0.0}}
+        (run / "dates" / f"{r['date']}.json").write_text(json.dumps(r))
+        (run / "plans" / f"{r['date']}.json").write_text(json.dumps({"notice": {r["date"]: 1}}))
+    (run / "guards.json").write_text(json.dumps({"desk_replay": {"over": "full2", "commit": "abc"}}))
+    before = {p.name: p.read_text() for p in (run / "dates").iterdir()}
+    seen = []
+
+    def end_band(w, band, optimum, base, budget, clock):
+        seen.append((band, base, optimum.objective, budget["end_calm"]))
+        return {"record": {"pass": band == "low", "uncrewed": 1, "flown": 10, "causes": []},
+                "calm": {"pass": True, "rise_pct": 0.5}}
+
+    monkeypatch.setattr(crew_check, "ProcessPoolExecutor", Inline)
+    monkeypatch.setattr(crew_check, "Task", SimpleNamespace(from_dict=lambda d: SimpleNamespace(**d)))
+    monkeypatch.setattr(crew_check.crewday, "world", lambda task, inputs, derived: None)
+    monkeypatch.setattr(crew_check.crewplan, "calm_optimum", lambda w: SimpleNamespace(objective=40.0))
+    monkeypatch.setattr(crew_check, "end_band", end_band)
+    lines = {r["date"]: json.dumps({"date": r["date"]}) for r in rows}
+    crew_check.ends_over(run, out, lines, 2, False)
+    assert sorted(seen) == [("high", 42.0, 40.0, 1), ("high", 42.0, 40.0, 1), ("low", 42.0, 40.0, 1),
+                            ("low", 42.0, 40.0, 1)]
+    g = json.loads((out / "guards.json").read_text())
+    assert g["ends_over"]["over"] == str(run) and g["ends_over"]["dates"] == 3 and g["ends_over"]["failed"] == []
+    assert g["desk_replay"] == {"over": "full2", "commit": "abc"}
+    assert g["reported"]["bands"]["low"]["record"] == 1.0 and g["reported"]["bands"]["high"]["record"] == 0.0
+    d1 = json.loads((out / "dates" / "d1.json").read_text())
+    assert set(d1["bands"]) == {"middle", "low", "high"} and d1["bands"]["middle"] == rows[1]["bands"]["middle"]
+    assert json.loads((out / "dates" / "d2.json").read_text()) == rows[2]
+    assert (out / "plans" / "d1.json").read_text() == (run / "plans" / "d1.json").read_text()
+    assert (out / "report.md").read_text().startswith(f"The reserve-band ends (low, high) run over {run} at commit ")
+    assert {p.name: p.read_text() for p in (run / "dates").iterdir()} == before
+    seen.clear()
+    crew_check.ends_over(run, out, lines, 2, True)
+    assert seen == []
