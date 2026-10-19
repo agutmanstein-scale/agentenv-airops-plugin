@@ -211,8 +211,9 @@ class OccEnv(AgentEnvEnvironment):
         return await self.act(ctx, "ops_aircraft", station=station)
 
     @tool(description="Check changes without committing them: the projected cost and its change by part, new "
-                      "automatic cancellations, the flights that move most, crew flags that change, and the changes "
-                      "refused (committed or cancelled flights, FAA CDM).")
+                      "automatic cancellations, every flight leaving over 30 min earlier or later or cancelled "
+                      "(warnings), the flights that move most, crew flags that change, and the changes refused "
+                      "(committed or cancelled flights, FAA CDM).")
     async def ops_check(self, ctx: ToolContext, changes: Changes) -> str:
         return await self.act(ctx, "ops_check", changes=_rows(changes))
 
@@ -266,8 +267,9 @@ class OccEnv(AgentEnvEnvironment):
         return await self.act(ctx, "crew_options", flight=flight, kind=kind)
 
     @tool(description="Check crew moves without committing them: the projected cost and its change, the flights whose "
-                      "crew or departure changes, what each unit named then flies and its legality, the legs they "
-                      "hand back to the crew system (handed_back), and refusals.")
+                      "crew or departure changes, every flight leaving over 30 min earlier or later or cancelled "
+                      "(warnings), what each unit named then flies and its legality, the legs they hand back to the "
+                      "crew system (handed_back), and refusals.")
     async def crew_check(self, ctx: ToolContext, moves: Moves) -> str:
         return await self.act(ctx, "crew_check", moves=_rows(moves))
 

@@ -58,19 +58,19 @@ pool, used or claimed). Cancellations are final. Flights committed at an earlier
 line) can't be cancelled, held or released, except that accepting the crew desk's CANCEL cancels one: no crew can \
 come."""
 
-CREW = """Crew moves (crew_check tries them, crew_confirm commits them): assign a unit to fly a flight (the flight \
-waits for that unit: it can leave late, or cancel automatically at its deadline if the unit never can fly it); \
-call_reserve a short-call reserve to report on a whole hour (time, or in time for the flight given) and assign it; \
-swap the remaining trips of two units of one kind and type at one station (the crew system crews them as any trip); \
-deadhead a unit on a flight; rest a unit to report again at a time (a hotel away from base); release a unit you \
-assigned or sent to ride, giving the flight back to the crew system, or keep a unit off a ride its trip plans (it \
-stays where it is). A move is refused on a flight gone or cancelled, a unit of another type group, a reserve not free \
-to call or a report outside its window, a second period the unit can't start, a swap across kinds, types or \
-stations, or a release of what isn't yours. A move changes only what it names: a unit you move keeps the legs and \
-rides of its trip that still connect, and the legs it can no longer make, or that the crew you replaced can't, go \
-back to the crew system (crew_check lists them as handed_back); the crew system doesn't use a unit while a flight \
-you named it on or sent it to ride is to come. crew_options lists the crew system's options for a flight's crew, \
-priced; (a) needs no move. crew_crews and crew_reserves show units and reserves."""
+CREW = """Crew moves (crew_check every move before crew_confirm commits it): assign a unit to fly a flight (the \
+flight waits for it, so it can leave late or cancel automatically at its deadline); call_reserve a short-call reserve \
+to report on a whole hour (time, or in time for the flight given) and assign it; swap the remaining trips of two \
+units of one kind and type at one station; deadhead a unit on a flight; rest a unit to report again at a time (a \
+hotel away from base); release a unit you assigned or sent to ride (no flight: its rest, call or swap), or keep it \
+off a ride its trip plans. A release undoes a move while nothing it changed has happened yet, as within its turn; \
+later it lets the unit go from now and gives back what the move took. Refused: a flight gone or cancelled, another \
+type group, a reserve not free to call or a report outside its window, a second period the unit can't start, a swap \
+across kinds, types or stations, a release of what isn't yours. A move changes only what it names: a moved unit keeps \
+the legs of its trip that still connect; legs it, or the crew it replaced, can no longer make go back to the crew \
+system (crew_check: handed_back, and warnings for flights moved over 30 min or cancelled), which doesn't use a unit \
+while a flight you named it on is to come. crew_options: the crew system's options for a flight's crew, priced as \
+scheduled, the first also on the projection; (a) needs no move. crew_crews, crew_reserves: units and reserves."""
 
 RULES = {
     "ops": f"""You are the ops controller of JetBlue's operations control center. The crew scheduler, another desk, \

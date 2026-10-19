@@ -34,6 +34,7 @@ OPS_DOES = ("cancel", "hold", "release", "claim")
 ASKS = {CREW: ("HOLD", "CANCEL", "CANCEL_PAIR", "TEXT"), OPS: ("COVER", "TEXT")}
 ANSWERS = ("accept", "decline")
 TEXT_CHARS = 400
+WARN = 30
 GRADED = ("done", "stand_down", "cost_cap", "context_full", "turn_limit", "time_limit")
 REASONS = (*GRADED, "error", "crash", "timeout", "missing")
 TURNS = {"joint": 6, "one": 8, "idle": 0}
@@ -575,12 +576,17 @@ class OccDay:
 
     def review(self, plan: dict) -> dict:
         """A plan on the projection against the current one: its costs and their change, the new automatic
-        cancellations, the flights it moves or crews otherwise (by impact) and the crew flags it changes."""
+        cancellations, every flight it moves by more than WARN minutes or cancels (warnings), the flights it moves or
+        crews otherwise (by impact) and the crew flags it changes."""
         now, then = self.project(self.plan), self.project(plan)
         a, b = costs(now.day), costs(then.day)
-        moved = []
+        moved, warnings = [], []
         for i in sorted(then.day.run.flights):
             x, y = now.day.run.flights[i], then.day.run.flights[i]
+            if x.status != y.status and y.status != FLOWN:
+                warnings.append(f"{fid(i)} {pages.proj_text(y, self.task.flight(i))}")
+            elif x.dep is not None and y.dep is not None and abs(y.dep - x.dep) > WARN:
+                warnings.append(f"{fid(i)} leaves {y.dep - x.dep:+d} min")
             cx, cy = now.day.crews.get(i, {}), then.day.crews.get(i, {})
             if (x.status, x.dep, x.arr) != (y.status, y.dep, y.arr) or cx != cy:
                 f = self.task.flight(i)
@@ -593,6 +599,7 @@ class OccDay:
         return {"cost": b, "delta": {k: round(b[k] - a[k], 1) for k in b},
                 "auto_cancelled": [fid(i) for i, x in then.day.run.flights.items() if x.status == AUTO_CANCELLED
                                    and now.day.run.flights[i].status != AUTO_CANCELLED],
+                "warnings": warnings[:20] + ([f"{len(warnings) - 20} more"] if len(warnings) > 20 else []),
                 "flights": [m for *_, m in sorted(moved)[:12]] + ([f"{len(moved) - 12} more"] if len(moved) > 12
                                                                    else []),
                 "flags": flags[:12] + ([f"{len(flags) - 12} more"] if len(flags) > 12 else [])}

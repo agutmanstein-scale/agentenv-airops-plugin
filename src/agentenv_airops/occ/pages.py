@@ -13,7 +13,7 @@ from ..programs.advisories import GDP, GDP_CNX, GS, GS_CNX, PROPOSED, Advisory
 from ..programs.cost import cancel_price
 from . import run
 
-ROWS, LOOKUP_ROWS, CREW_ROWS, REQUESTS, CHARS = 30, 60, 40, 12, 3600
+ROWS, LOOKUP_ROWS, CREW_ROWS, REQUESTS, CHARS, OPTIONS, PRICED = 30, 60, 40, 12, 3600, 12, 4
 AHEAD, LATE, NEAR, SLOT_HOURS = 240, 30, 180, 6
 KINDS = {GDP: "GDP", PROPOSED: "proposed GDP", GDP_CNX: "GDP cancelled", GS: "ground stop", GS_CNX: "ground stop "
          "cancelled"}
@@ -506,7 +506,10 @@ def fit(rows: list[str], narrow: str, budget: int = CHARS, more: int = 0, key: s
 
 
 def options(day, i: int, kind) -> dict:
-    """The standard crew desk's options for the flight's kind at this minute, as it prices them: decision support."""
+    """The standard crew desk's options for the flight's kind at this minute, as it prices them as scheduled, each with
+    the flight the projection has its unit on next; the first PRICED unlike ones (another option, departure or cost)
+    priced again on the projection, carried out as the note says (the change crew_check would show): decision
+    support."""
     if kind not in crews.KINDS:
         return {"error": f"kind is one of {', '.join(crews.KINDS)}"}
     task = day.task
@@ -515,15 +518,61 @@ def options(day, i: int, kind) -> dict:
     d.until(day.t)
     f = task.flight(i)
     t0 = max(day.t, task.earliest(f, min(0, f.lb) if lb_known(f.sched_dep, day.t) else 0))
-    found = pool.options(kind, crews.TYPE[f.family], f, day.t, t0)
-    rows = [f"{OPTION.get(act[0], act[0])} {uid}{' via ' + fid(act[1]) if act[0] == 'deadhead' else ''}"
-            f"{' report ' + hhmm(act[1]) if act[0] == 'call' else ''}{' with extension' if rank == 5 else ''}: "
-            f"leaves {hhmm(dep)}, cost {cost:,.0f}" for cost, rank, dep, uid, act in sorted(found, key=lambda o: o[:4])]
-    return {"flight": fid(i), "kind": kind, "options": rows[:20], "more": max(0, len(rows) - 20),
-            "note": "cost: the wait from now, deadhead and hotel, and the end of the day as the day prices it, the "
-                    "unit taking the rest of the planned crew's trip. (a) needs no move; (b) or (c) with the planned "
-                    "crew there: swap the two; else assign, which names this flight only: the planned crew's later "
-                    "legs go back to the crew system (crew_check: handed_back)"}
+    found = sorted(pool.options(kind, crews.TYPE[f.family], f, day.t, t0), key=lambda o: o[:4])
+    now = day.project(day.plan)
+    rows, priced = [], set()
+    for cost, rank, dep, uid, act in found[:OPTIONS]:
+        row = (f"{OPTION.get(act[0], act[0])} {uid}{' via ' + fid(act[1]) if act[0] == 'deadhead' else ''}"
+               f"{' report ' + hhmm(act[1]) if act[0] == 'call' else ''}{' with extension' if rank == 5 else ''}: "
+               f"leaves {hhmm(dep)}, cost {cost:,.0f} as scheduled")
+        if (nxt := next_leg(day, now, uid)) is not None:
+            row += f"; the projection has {uid} on {fid(nxt)} at {hhmm(now.day.run.flights[nxt].dep)}"
+        if act[0] != "own" and len(priced) < PRICED and (same := (act[0], rank, dep, round(cost))) not in priced:
+            priced.add(same)
+            moves = carry(day, now, pool, f, kind, uid, act)
+            plan, refused, _ = day.changed(moves, day.crew_entry)
+            if refused:
+                row += f"; can't be carried out: {refused[0]['reason']}"
+            else:
+                rv = day.review(plan)
+                row += (f"; on the projection {rv['delta']['total']:+,.0f} by {move_text(moves)}"
+                        + (f", auto-cancels {' '.join(rv['auto_cancelled'])}" if rv["auto_cancelled"] else ""))
+        rows.append(row)
+    return {"flight": fid(i), "kind": kind, "options": rows, "more": max(0, len(found) - OPTIONS),
+            "note": "cost as scheduled: the wait from now, deadhead and hotel, and the end of the day as the day "
+                    "prices it, the unit taking the rest of the planned crew's trip; the first options also priced "
+                    "on the projection as carried out. (a) needs no move; (b) or (c) with the planned crew there: "
+                    "swap the two; else assign, which names this flight only: the planned crew's later legs go back "
+                    "to the crew system (crew_check: handed_back)"}
+
+
+def next_leg(day, proj, uid: str) -> int | None:
+    legs = [(x.dep, j) for j, kinds in proj.day.crews.items() if uid in kinds.values()
+            and (x := proj.day.run.flights[j]).dep is not None and x.dep >= day.t]
+    return min(legs)[1] if legs else None
+
+
+def carry(day, now, pool, f, kind: str, uid: str, act: tuple) -> list[dict]:
+    """An option's moves as the note says: a swap with the planned crew when it is there and f is its next leg, a
+    call with the flight, a deadhead then the flight, else the flight."""
+    def mv(action, flight=None, other=None, time=None):
+        return {"action": action, "unit": uid, "flight": flight, "other": other, "kind": kind, "time": time,
+                "ref": None}
+    y = pool.planned.get((kind, f.id))
+    if act[0] == "call":
+        return [mv("call_reserve", fid(f.id), time=hhmm(act[1]))]
+    if act[0] == "deadhead":
+        return [mv("deadhead", fid(act[1])), mv("assign", fid(f.id))]
+    if act[0] in ("standby", "swap") and y not in (None, uid) and now.units[y]["station"] == \
+            now.units[uid]["station"] and now.units[y]["trip"][:1] == [f.id]:
+        return [mv("swap", other=y)]
+    return [mv("assign", fid(f.id))]
+
+
+def move_text(moves: list[dict]) -> str:
+    return ", ".join(f"{m['action']}{' ' + m['flight'] if m['flight'] else ''}"
+                     f"{' with ' + m['other'] if m['other'] else ''}{' report ' + m['time'] if m['time'] else ''}"
+                     for m in moves)
 
 
 def legality(day, plan, moves, touched) -> dict:
