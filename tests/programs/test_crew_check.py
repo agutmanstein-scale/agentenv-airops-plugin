@@ -1,4 +1,6 @@
 import importlib.util
+import json
+from concurrent.futures import Future
 from types import SimpleNamespace
 
 from day_helpers import day, flight, tail
@@ -111,3 +113,52 @@ def test_cabin_duties_count_report_to_release_and_those_past_fourteen_hours():
     assert crew_check.day_duties(day) == [16.0]
     h = crew_check.duty_hours([16.0, 14.0, 9.5])
     assert h["over_14h"] == 1 and h["max"] == 16.0 and h["n"] == 3
+
+
+class Inline:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def submit(self, fn, *args):
+        done = Future()
+        done.set_result(fn(*args))
+        return done
+
+
+def test_the_desk_replay_rewrites_only_the_desk_and_what_reads_it_and_says_over_which_run(tmp_path, monkeypatch):
+    run, out = tmp_path / "run", tmp_path / "replay"
+    (run / "dates").mkdir(parents=True)
+    (out / "dates").mkdir(parents=True)
+    rows = [row("2024-07-03", "control"), row("2025-01-15", "control"), row("d1")]
+    for r in rows:
+        r["budget"] = {"morning": 1, "polish": 1}
+        r["bands"]["middle"]["record"] |= {"before_start": {"objective": 5.0, "uncrewed": 0}, "flown": 10,
+                                            "solve": {"uncrewed_bound": 0.0}}
+        (run / "dates" / f"{r['date']}.json").write_text(json.dumps(r))
+    before = {p.name: p.read_text() for p in (run / "dates").iterdir()}
+    desk = {"notice": 97.9, "flat": 97.9, "uncrewed": 0, "statuses": {"cancelled": 2}}
+    monkeypatch.setattr(crew_check, "ProcessPoolExecutor", Inline)
+    monkeypatch.setattr(crew_check, "Task", SimpleNamespace(from_dict=lambda d: SimpleNamespace(**d)))
+    monkeypatch.setattr(crew_check.crewday, "world", lambda task, inputs, derived: SimpleNamespace(local=None,
+                                                                                                   airports=None))
+    monkeypatch.setattr(crew_check.crewday, "storm_units", lambda w, band, limit, polish: (
+        [], {"objective": 5.0 if w is not None else 0.0, "uncrewed": 0}))
+    monkeypatch.setattr(crew_check.sim, "truth", lambda task: None)
+    monkeypatch.setattr(crew_check.crewsim, "execute", lambda *args, **kwargs: None)
+    monkeypatch.setattr(crew_check, "outcome", lambda d: desk)
+    crew_check.desk_replay(run, out, {r["date"]: json.dumps({"date": r["date"]}) for r in rows}, 2)
+    g = json.loads((out / "guards.json").read_text())
+    assert g["desk_replay"]["over"] == str(run) and g["desk_replay"]["units_as_run"] == g["desk_replay"]["dates"] == 3
+    c = g["guards"]["controls"]["controls"]["b6-2024-07-03"]
+    assert c["crew_desk_flat"] == 97.9 and not c["crew_desk_within_margin"] and not g["guards"]["controls"]["pass"]
+    again = json.loads((out / "dates" / "d1.json").read_text())["bands"]["middle"]["joint"]
+    assert again["played"]["crew_desk"] == desk and again["notice"]["below_bound"] == {"crew_desk": 97.9}
+    assert again["played"]["naive"] == rows[2]["bands"]["middle"]["joint"]["played"]["naive"]
+    assert (out / "report.md").read_text().startswith(f"The standard crew desk replayed over {run} at commit ")
+    assert {p.name: p.read_text() for p in (run / "dates").iterdir()} == before

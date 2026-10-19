@@ -4,6 +4,7 @@ solvers run (HiGHS, one thread each); no LLM is called.
 
     python scripts/crew_check.py --out cache/<run> --tasks cache/<world_check run> [--only DATE|TASK_ID,...]
                                  [--bands middle,low,high] [--workers 4] [--resume] [--scale 1.0]
+    python scripts/crew_check.py --desk-replay cache/<crew_check run> --out cache/<new run> --tasks ... [--workers 4]
 
 Per task of a world_check run (its storm dates and its controls, at its fitted scale), in its own process:
 1. the trips over the published schedule (pairings.py), once;
@@ -22,6 +23,12 @@ Per task of a world_check run (its storm dates and its controls, at its fitted s
    with the crew replay's crew cost.
 Eval dates and controls get the larger budgets (BUDGETS). Writes dates/<date>.json and plans/<date>.json as each task
 finishes (`--resume` keeps those written), then guards.json and report.md.
+
+With `--desk-replay RUN` only the standard crew desk runs again, over RUN's dates: per date the trips and the units at
+the start as RUN computed them (each date says whether the morning replay reproduced RUN's), then the desk's day; every
+other result is RUN's, best plans and bounds included. It writes each date with the desk's numbers in place, then
+guards.json and report.md, the controls and leverage read against the new desk, both marked as the desk replay over RUN
+at this commit.
 
 The guards, as registered (a storm date being a task that is not a control; the middle band):
 - record: flights without a legal crew in the crew replay <= 1% of the date's flown flights and <= 2, on >= 90% of
@@ -46,6 +53,7 @@ import json
 import math
 import resource
 import statistics
+import subprocess
 import sys
 import time
 import traceback
@@ -87,6 +95,7 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--scale", type=float, default=1.0, help="multiplies every time budget")
+    ap.add_argument("--desk-replay", type=Path, help="an earlier run's out directory: only the crew desk runs again")
     a = ap.parse_args()
     bands = tuple(a.bands.split(","))
     if "middle" not in bands or set(bands) - set(crews.BANDS):
@@ -99,6 +108,9 @@ def main() -> None:
         head = json.loads(line[:line.index(',"tz"')] + "}")
         if not only or head["date"] in only or head["task_id"] in only:
             lines[head["date"]] = line
+    if a.desk_replay:
+        desk_replay(a.desk_replay, a.out, lines, a.workers)
+        return
     refs = {}
     for p in (a.tasks / "refs").glob("*.json"):
         r = json.loads(p.read_text())
@@ -296,18 +308,72 @@ def joint(w: crewday.World, units, refs: dict, budget: dict, rec: dict, plans: d
 def plays(task: Task, units, world: sim.World, w: crewday.World) -> tuple[dict, dict]:
     """The standard crew desk (the empty plan, its crews by the crew sim's desk) and the airline replay with crews (by
     the trip rule), naive without crews; and the desk's day as a plan naming what it did."""
-    out = {}
     desk = crewsim.execute(task, {}, units, world, w.local, airports=w.airports, desk=True)
     airline = crewsim.execute(task, references.airline_plan(task), units, world, w.local, airports=w.airports)
-    for name, d in (("crew_desk", desk), ("airline", airline)):
-        out[name] = {"notice": round(d.total, 1), "flat": round(crewplan.worth(d, True), 1),
-                     "aircraft": d.run.cost.to_dict(), "crew_cost": {k: round(v, 1) for k, v in d.cost.items()},
-                     "uncrewed": len(d.uncrewed), "statuses": dict(Counter(r.status for r in d.run.flights.values())),
-                     "riders": sum(len(v) for v in d.riders.values())}
+    out = {"crew_desk": outcome(desk), "airline": outcome(airline)}
     naive = sim.execute(task, {}, world)
     out["naive"] = {"notice": naive.cost.total, "flat": naive.cost.flat, "aircraft": naive.cost.to_dict(),
                     "statuses": dict(Counter(r.status for r in naive.flights.values()))}
     return out, crewday.named(desk)
+
+
+def outcome(d: crewsim.CrewDay) -> dict:
+    return {"notice": round(d.total, 1), "flat": round(crewplan.worth(d, True), 1), "aircraft": d.run.cost.to_dict(),
+            "crew_cost": {k: round(v, 1) for k, v in d.cost.items()}, "uncrewed": len(d.uncrewed),
+            "statuses": dict(Counter(r.status for r in d.run.flights.values())),
+            "riders": sum(len(v) for v in d.riders.values())}
+
+
+def desk_replay(run: Path, out: Path, lines: dict[str, str], workers: int) -> None:
+    """The standard crew desk again over `run`'s dates (see the module doc), then the guards and the report."""
+    dates = sorted(d for d in lines if (run / "dates" / f"{d}.json").exists())
+    t0 = time.monotonic()
+    if dates:
+        with ProcessPoolExecutor(min(workers, len(dates)), max_tasks_per_child=1) as pool:
+            futures = {pool.submit(redesk, lines[d], run / "dates" / f"{d}.json", out): d
+                       for d in sorted(dates, key=lambda d: -len(lines[d]))}
+            for n, f in enumerate(as_completed(futures), 1):
+                print(f"[{time.monotonic() - t0:8.0f}s] {n}/{len(dates)} {futures[f]} {f.result()}", flush=True)
+    rows = [json.loads((out / "dates" / f"{d}.json").read_text()) for d in dates]
+    bands = tuple(b for b in crews.BANDS if any(b in r.get("bands", {}) for r in rows))
+    bands = ("middle", *(b for b in bands if b != "middle"))
+    report = guards(rows, bands)
+    report["desk_replay"] = {"over": str(run), "commit": commit(), "dates": len(rows),
+                             "units_as_run": sum(r.get("desk_replay", {}).get("units_as_run", False) for r in rows),
+                             "seconds": round(time.monotonic() - t0, 1)}
+    (out / "guards.json").write_text(json.dumps(report, indent=1, default=str) + "\n")
+    mark = report["desk_replay"]
+    (out / "report.md").write_text(f"The standard crew desk replayed over {mark['over']} at commit {mark['commit']}; "
+                                   "every other number is that run's.\n\n" + markdown(report, rows, bands))
+    print(json.dumps({"desk_replay": mark, **report["guards"]}, indent=1, default=str), flush=True)
+
+
+def redesk(line: str, path: Path, out: Path) -> str:
+    """One date of the desk replay: its row from the earlier run with the desk's day played again on the units at the
+    start computed as that run did, and the desk against each bound."""
+    t0 = time.monotonic()
+    row = json.loads(path.read_text())
+    if "error" not in row:
+        task = Task.from_dict(json.loads(line))
+        w = crewday.world(task, INPUTS, DERIVED)
+        units, before = crewday.storm_units(w, "middle", row["budget"]["morning"], row["budget"]["polish"])
+        desk = crewsim.execute(task, {}, units, sim.truth(task), w.local, airports=w.airports, desk=True)
+        j = row["bands"]["middle"]["joint"]
+        j["played"]["crew_desk"] = outcome(desk)
+        for name in ("notice", "flat"):
+            n, value = j[name], j["played"]["crew_desk"][name]
+            if n.get("bound") is not None and "below_bound" in n:
+                n["below_bound"] = {k: v for k, v in n["below_bound"].items() if k != "crew_desk"} | (
+                    {"crew_desk": value} if value < n["bound"] - 0.5 else {})
+        ran = row["bands"]["middle"]["record"]["before_start"]
+        row["desk_replay"] = {"seconds": round(time.monotonic() - t0, 1),
+                              "units_as_run": all(before.get(k) == ran.get(k) for k in ("objective", "uncrewed"))}
+    (out / "dates" / path.name).write_text(json.dumps(row, indent=1, default=str))
+    return "error in the run" if "error" in row else f"{row['desk_replay']['seconds']}s"
+
+
+def commit() -> str:
+    return subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
 
 
 def summary(task: Task, j: crewplan.Joint, replayed: float, others: dict, reference: dict) -> dict:
