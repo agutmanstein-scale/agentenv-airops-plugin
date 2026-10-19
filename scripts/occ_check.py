@@ -144,7 +144,9 @@ def check(task: Task, ran: dict, desk: dict, plans_path: Path, logs: Path) -> di
     laps["setup"] = round(time.monotonic() - t0, 1)
     case = occ.Case.of(w, units)
     j = ran["bands"]["middle"]["joint"]
-    bound, flat_bound, best = j["notice"]["bound"], j["flat"].get("bound"), j["notice"]["best"]
+    bound, flat_bound, best = j["notice"].get("bound"), j["flat"].get("bound"), j["notice"]["best"]
+    if bound is None:
+        raise RuntimeError("the crew run has no bound on this date")
     logs.mkdir(parents=True, exist_ok=True)
     modes, runs = {}, {}
     for name in occ.MODES:
@@ -186,9 +188,11 @@ def same_world(case: occ.Case, ran: dict, desk: dict, before: dict, base: crewsi
         plan = {int(k) if k != "reports" else k: v for k, v in plans[name].items()}
         day = crewsim.execute(task, plan, case.units, case.world, case.local, fill=False, airports=case.airports)
         stored[name] = [round(crewplan.worth(day, name == "flat"), 1), j[name]["best"]]
-    ok = all(a == b for a, b in units.values()) and all(abs(a - b) <= TOL for a, b in [*b0.values(), *stored.values()])
-    return {"ok": ok, "units": units, "units_as_run": desk.get("desk_replay", {}).get("units_as_run"), "B0": b0,
-            "stored": stored}
+    as_run = desk.get("desk_replay", {}).get("units_as_run") is True
+    failed = [k for k, bad in (("units", any(a != b for a, b in units.values())), ("units_as_run", not as_run),
+                               ("B0", any(abs(a - b) > TOL for a, b in b0.values())),
+                               ("stored", any(abs(a - b) > TOL for a, b in stored.values()))) if bad]
+    return {"ok": not failed, "failed": failed, "units": units, "units_as_run": as_run, "B0": b0, "stored": stored}
 
 
 def mode_row(case: occ.Case, r: occ.Run, bound: float, flat_bound: float | None, best: float) -> dict:
@@ -246,11 +250,14 @@ def room(r: dict) -> dict:
     j = r["bands"]["middle"]["joint"]
     desk, flat, notice = j["played"]["crew_desk"], j["flat"], j["notice"]
     value = desk["flat"] / flat["best"] - 1
-    upper = desk["flat"] / flat["bound"] - 1 if flat.get("bound") is not None else desk["notice"] / notice["bound"] - 1
-    as_run = bool(r.get("desk_replay", {}).get("units_as_run"))
-    return {"room": round(value, 4), "upper": round(upper, 4), "notice": round(desk["notice"] / notice["best"] - 1, 4),
-            "undetermined": value < ROOM <= upper, "units_as_run": as_run, "flat_from": flat.get("from"),
-            "pass": value >= ROOM and as_run}
+    under = flat.get("bound"), notice.get("bound")
+    upper = desk["flat"] / under[0] - 1 if under[0] is not None else \
+        desk["notice"] / under[1] - 1 if under[1] is not None else None
+    as_run = r.get("desk_replay", {}).get("units_as_run") is True
+    return {"room": round(value, 4), "upper": None if upper is None else round(upper, 4),
+            "notice": round(desk["notice"] / notice["best"] - 1, 4),
+            "undetermined": upper is not None and value < ROOM <= upper, "units_as_run": as_run,
+            "flat_from": flat.get("from"), "pass": value >= ROOM and as_run}
 
 
 def roles_of(rows: dict[str, dict], split: dict) -> dict[str, str]:
@@ -271,24 +278,36 @@ def bar1(rows: dict[str, dict], split: dict, done: dict[str, dict] | None) -> di
             v["checks_ok"] = d in done and "error" not in done[d] and done[d].get("checks_ok", False)
             v["pass"] = v["pass"] and v["checks_ok"]
     evals = sorted(split["eval"])
-    passed = [d for d in evals if per.get(d, {}).get("pass")]
+    for d in evals:
+        per[d] = per.get(d, {"missing": True, "pass": False})
+        per[d]["why"] = [] if per[d]["pass"] else why(per[d])
+    passed = [d for d in evals if per[d]["pass"]]
     part = roles_of(rows, split)
     return {"gate": {"n": len(evals), "need": need(len(evals)), "passed": len(passed),
                      "pass": len(passed) >= need(len(evals)) and bool(evals),
                      "rule": f"room >= {ROOM:.0%} on >= {GATE_SHARE:.0%} of eval dates",
                      "checks_applied": done is not None},
-            "eval": {d: per.get(d, {"missing": True, "pass": False}) for d in evals},
-            "failed": sorted(set(evals) - set(passed)),
+            "eval": {d: per[d] for d in evals},
+            "failed": {d: per[d]["why"] for d in evals if not per[d]["pass"]},
             "undetermined": sorted(d for d in evals if per.get(d, {}).get("undetermined")),
-            "controls": {d: per[d] for d in per if part[d] == "control"},
-            "kept": summary([per[d] for d in per if part[d] in ("eval", "train", "neither")]),
-            "storm": summary([per[d] for d in per if part[d] != "control"])}
+            "controls": {d: per[d] for d in per if part.get(d) == "control"},
+            "kept": summary([per[d] for d in per if part.get(d) in ("eval", "train", "neither")]),
+            "storm": summary([per[d] for d in per if d in part and part[d] != "control"])}
+
+
+def why(v: dict) -> list[str]:
+    """Why a date fails bar 1."""
+    if v.get("missing") or v.get("error"):
+        return ["missing" if v.get("missing") else "error in the desk replay"]
+    return [w for w, bad in (("units_as_run false", not v["units_as_run"]), ("room under 10%", v["room"] < ROOM),
+                             ("checks", v.get("checks_ok") is False)) if bad]
 
 
 def summary(vs: list[dict]) -> dict:
     ok = [v for v in vs if "room" in v]
     return {"n": len(vs), "errors": len(vs) - len(ok), "room": dist([v["room"] for v in ok]),
-            "notice": dist([v["notice"] for v in ok]), "upper": dist([v["upper"] for v in ok]),
+            "notice": dist([v["notice"] for v in ok]),
+            "upper": dist([v["upper"] for v in ok if v["upper"] is not None]),
             "ge_10pct": sum(v["room"] >= ROOM for v in ok), "undetermined": sum(v["undetermined"] for v in ok)}
 
 
@@ -299,14 +318,17 @@ def gates(rows: dict[str, dict], done: dict[str, dict], split: dict) -> dict:
     for d in evals:
         r = done.get(d)
         if r is None or "error" in r:
-            per[d] = {"pass": False, "why": "missing" if r is None else "error"}
+            per[d] = {"pass": False, "why": ["missing" if r is None else "error"]}
         else:
-            per[d] = {**r["bar2"], "checks_ok": r["checks_ok"], "pass": r["bar2"]["pass"] and r["checks_ok"]}
+            fails = [k if k != "F1" else f"F1: {', '.join(r['F1']['failed'])}" for k in ("F1", "F2", "F3", "F8")
+                     if not fine(r, k)]
+            per[d] = {**r["bar2"], "checks_ok": r["checks_ok"], "pass": r["bar2"]["pass"] and r["checks_ok"],
+                      "why": fails + ([] if r["bar2"]["pass"] else ["gain under 5"])}
     passed = [d for d in evals if per[d]["pass"]]
     b2 = {"gate": {"n": len(evals), "need": need(len(evals)), "passed": len(passed),
                    "pass": len(passed) >= need(len(evals)) and bool(evals),
                    "rule": f"gain >= {GAIN} points of max(B0 - L, {FLOOR} L) on >= {GATE_SHARE:.0%} of eval dates"},
-          "eval": per, "failed": sorted(set(evals) - set(passed)),
+          "eval": per, "failed": {d: per[d]["why"] for d in evals if not per[d]["pass"]},
           "literal": {"ge_5": sum((per[d].get("literal") or -1e9) >= GAIN for d in evals), "n": len(evals)}}
     b1 = bar1(rows, split, done)
     ok = [r for r in done.values() if "error" not in r]
@@ -420,6 +442,10 @@ def markdown(report: dict, rows: dict[str, dict], done: dict[str, dict], split: 
         g = b2.get(d, {})
         out.append(f"| {d} | {v.get('room')} | {v.get('upper')} | {v['pass']} | {g.get('gain')} | {g.get('literal')} "
                    f"| {r.get('checks_ok')} | {g.get('pass')} | {r.get('B0')} | " + " | ".join(map(str, cost)) + " |")
+    for name in ("bar1", "bar2"):
+        if report.get(name, {}).get("failed"):
+            out += ["", f"{name[:3].title()} {name[3:]} fails on: " + "; ".join(
+                f"{d} ({', '.join(w)})" for d, w in report[name]["failed"].items())]
     if done:
         part = roles_of(rows, split)
         out += ["", "## Every date", "",
