@@ -253,13 +253,14 @@ def deadline(sched_dep: int, orig: str, start: int, dmax: int = DMAX, cutoff: in
     return min(d, cutoff) if orig in HUBS else d
 
 
-def pairs(legs: list) -> dict[int, int]:
-    """Out-and-backs from a hub on one tail's scheduled legs (id, orig, dest), consecutive and paired left to right."""
+def pairs(legs: list, hubs: Collection[str] | None = HUBS) -> dict[int, int]:
+    """Out-and-backs from a hub (from anywhere with `hubs` None) on one tail's scheduled legs (id, orig, dest),
+    consecutive and paired left to right."""
     out = {}
     k = 0
     while k + 1 < len(legs):
         (a, ao, ad), (b, bo, bd) = legs[k], legs[k + 1]
-        if ao in HUBS and ao == bd and ad == bo:
+        if (hubs is None or ao in hubs) and ao == bd and ad == bo:
             out[a], out[b] = b, a
             k += 2
         else:

@@ -215,10 +215,10 @@ def frozen(run: sim.Execution, t: int) -> set[int]:
             or (r.status == AUTO_CANCELLED and r.decided < t + FREEZE)}
 
 
-def so_far(task: Task, plan: Mapping[int, Mapping], t: int) -> dict[int, dict]:
-    """`plan` as the env runs it at watch t: a flight that has left on the truth leaves when it did, every other open
-    one no earlier than t."""
-    run = sim.execute(task, plan)
+def so_far(task: Task, plan: Mapping[int, Mapping], t: int, run: sim.Execution | None = None) -> dict[int, dict]:
+    """`plan` as the env runs it at watch t: a flight that has left on the truth (in `run`, the plan's day by
+    default) leaves when it did, every other open one no earlier than t."""
+    run = sim.execute(task, plan) if run is None else run
     out = {}
     for f in task.flights:
         entry, dep = plan.get(f.id, {}), run.flights[f.id].dep
