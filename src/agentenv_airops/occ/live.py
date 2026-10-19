@@ -71,7 +71,7 @@ class CrewMove(BaseModel):
                     "for `flight`) and assign it to `flight` if given; swap the remaining trips of `unit` and `other`, "
                     "two units at one station; deadhead `unit` on `flight`; rest `unit` to report again at `time` "
                     "(null: as soon as rested; a hotel away from base); release `unit` from `flight`, which goes back "
-                    "to the crew system")
+                    "to the crew system (or keep `unit` off a ride its trip plans on `flight`: it stays)")
     unit: str = Field(description='crew unit id, e.g. "P-A32X-0391"')
     flight: Flight = None
     other: str | None = Field(default=None, description="the other unit of a swap, or null")

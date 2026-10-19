@@ -461,15 +461,20 @@ class OccDay:
             e = plan.get(i, {})
             mine = [x for x in e.get("names", ()) if x[3] == u.id and x[1] is None] + \
                 [x for x in e.get("rides", ()) if x[2] == u.id and x[1] is None]
-            if not mine:
-                raise Refused(f"{u.id} isn't yours on {fid(i)}: release lets go of a unit you assigned or sent to ride")
-            for x in mine:
-                x[1] = t
-            return [(i, "release", u.id)]
+            if mine:
+                for x in mine:
+                    x[1] = t
+                return [(i, "release", u.id)]
+            if i in state["deadheads"] and not any(k[1] == u.id for k in plan.get("keeps", ())):
+                plan.setdefault("keeps", []).append([t, u.id])
+                return [(i, "release", u.id)]
+            raise Refused(f"{u.id} isn't yours on {fid(i)} and doesn't ride it as planned: release lets go of a unit "
+                          "you assigned or sent to ride, or keeps one off a ride its trip plans")
         if action == "call_reserve":
-            if u.reserve != "short" or state["report"] is not None or state["held"] is not None or \
-                    "earliest" not in state or any(c[1] == u.id for c in plan.get("calls", ())):
-                raise Refused(f"{u.id} is not a short-call reserve free to call")
+            free = t == self.task.start or (state["report"] is None and state["held"] is None)
+            if u.reserve != "short" or not free or any(c[1] == u.id for c in plan.get("calls", ())):
+                raise Refused(f"{u.id} is not a short-call reserve free to call (the crew system may have called it: "
+                              "assign it instead)")
             first = crews.on_hour(max(t, u.rap, self.task.start) + u.lead)
             if move.get("time") is not None:
                 r = minute_of(move["time"])
@@ -486,9 +491,11 @@ class OccDay:
                 self.name(plan, i, u)
             return [(i, "call_reserve", u.id)]
         if action == "rest":
-            if state["period"] != 1 or state["release"] is None or state["report"] is None:
+            if state["period"] != 1 or (u.reserve == "short" and state["report"] is None and t > self.task.start):
                 raise Refused(f"{u.id} can't start a second duty period today")
-            first = crews.on_hour(max(state["release"] + crews.rest(u.kind), t))
+            first = crews.on_hour(t if state["release"] is None else max(state["release"] + crews.rest(u.kind), t))
+            if t == self.task.start:
+                first = crews.on_hour(t)
             r = first if move.get("time") is None else minute_of(move["time"])
             r = r if r >= first - EARLY else r + 1440
             if r % 60 or r < first:
@@ -814,7 +821,7 @@ class OccDay:
                     if c["tool"] not in ("resign", "wait_turn") and (c["turn"] is None or
                                                                      self.turns[c["turn"]]["desk"] != c["desk"])]
         for k, e in self.plan.items():
-            if k != "calls" and set(e) - {"cancel", "decided", "holds", "claims", "names", "rides"}:
+            if k not in ("calls", "keeps") and set(e) - {"cancel", "decided", "holds", "claims", "names", "rides"}:
                 p["A4"].append(f"{fid(k)}: {sorted(e)}")
         for c in self.changes:
             if c["desk"] == OPS and c["action"] not in OPS_DOES:

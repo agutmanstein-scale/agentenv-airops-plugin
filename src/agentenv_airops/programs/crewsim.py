@@ -205,6 +205,8 @@ class Pool:
                 self.pending[when].append(change)
         self.scripted = {u for u, n in self.refs.items() if n > 0}
         self.owned = {u for u, n in self.mine.items() if n > 0}
+        self.cut = {int(k): task.start if v.get("decided") is None else v["decided"] for k, v in plan.items()
+                    if k not in sim.EXTRA and v.get("cancel")}
         self.state = {}
         for u in units:
             s = State(u, u.station, u.ready, u.report, u.hour, u.rap if u.reserve == "short" else None, u.flown,
@@ -262,6 +264,10 @@ class Pool:
         standard desk doesn't take it even for its own trip."""
         what, key, uid, value = change
         counts = (self.refs, self.mine) if timed else (self.refs,)
+        if what == "keep":
+            for c in counts:
+                c[uid] += 1
+            return None
         if what == "report":
             self.reports[key] = value
             for c in counts:
@@ -704,8 +710,9 @@ class Pool:
         """The desk at t on f, from its earliest departure t0: for each kind whose planned crew can't leave by t0, or
         its schedule if later, without the extension, it takes the cheapest of its `options` now unless that is
         waiting for that crew (HOLD if that leaves later); with none and no crew coming it cancels f now (`wait`). A
-        kind the plan names, or whose planned crew the crew desk took, it leaves to the crew desk until f boards."""
-        if f.id in self.done or f.id in self.dropped:
+        kind the plan names, or whose planned crew the crew desk took, it leaves to the crew desk until f boards; a
+        flight the plan cancels by t (its first pass at the start included) it leaves alone."""
+        if f.id in self.done or f.id in self.dropped or self.cut.get(f.id, t + 1) <= t:
             return
         group, t0 = crews.TYPE[f.family], max(t, self.task.earliest(f, min(0, f.lb)))
         on_time = max(t0, f.sched_dep)
@@ -1059,7 +1066,8 @@ def entries(plan: Mapping) -> list[tuple[int | None, tuple]]:
     """A plan's crew entries, each with the minute it takes effect (None: from the start), in plan order: the units it
     names (`crew`), lets ride (`deadhead`) and has report (`reports`) from the start, and those it names, lets ride or
     calls from a minute on (`names` [from, to or None, kind, unit], `rides` [from, to or None, unit], `calls` [from,
-    key, report]), a name or a ride ending at its `to`."""
+    key, report]), a name or a ride ending at its `to`, and those it keeps where they are (`keeps` [from, unit]: off
+    the rides their trips plan)."""
     out = []
     for k, v in plan.items():
         if k in sim.EXTRA:
@@ -1073,6 +1081,7 @@ def entries(plan: Mapping) -> list[tuple[int | None, tuple]]:
             out += [(frm, ("ride", i, uid, None))] + ([(to, ("unride", i, uid, None))] if to else [])
     out += [(None, ("report", key, key.split("#")[0], r)) for key, r in plan.get("reports", {}).items()]
     out += [(frm, ("report", key, key.split("#")[0], r)) for frm, key, r in plan.get("calls", ())]
+    out += [(frm, ("keep", uid, uid, None)) for frm, uid in plan.get("keeps", ())]
     return out
 
 

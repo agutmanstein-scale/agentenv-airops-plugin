@@ -76,7 +76,7 @@ from .cost import Cost, ferry_cost, priced
 from .model import Flight, Move, Segment, Task
 
 Plan = Mapping[int | str, Mapping]
-EXTRA = ("reports", "calls")
+EXTRA = ("reports", "calls", "keeps")
 CANCEL, WAKE, FLY = 0, 1, 2
 SlotKey = tuple[str, int]
 HourKey = tuple[str, int]
@@ -380,7 +380,8 @@ class Dispatch:
     def switch(self, world: World, t: int) -> None:
         """The day from minute t on in `world`: the flights gone keep their minutes and count again on its slots and
         nominal hours, the claims standing at t bind again in its pools, and every flight not gone tries again from
-        t on its delays, blocks and programs, never earlier."""
+        t on its delays, blocks and programs, never earlier, its place among the flights of a minute read from them
+        too."""
         task = self.task
         self.world, self.rules = world, Rules(task, world)
         self.taken, self.used = set(), Counter()
@@ -395,7 +396,9 @@ class Dispatch:
                                            self.taken)
         for f in task.flights:
             if f.id not in self.runs:
-                self.when[f.id] = c = max(t, task.earliest(f, world.lb[f.id]), hold(self.want.get(f.id, {}), t))
+                entry = self.want.get(f.id, {})
+                self.first[f.id] = max(task.earliest(f, world.lb[f.id]), hold(entry, task.start))
+                self.when[f.id] = c = max(t, task.earliest(f, world.lb[f.id]), hold(entry, t))
                 heapq.heappush(self.heap, (c, FLY, self.first[f.id], f.id))
 
     def execution(self) -> Execution:

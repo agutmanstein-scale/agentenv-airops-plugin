@@ -60,7 +60,8 @@ def standing(s: crewsim.State, start: int) -> dict:
 
 def history(day: CrewDay, t: int) -> tuple:
     """What the day did before t (occ.past's departures, cancellations, crew flags and messages), with the crews and
-    riders of the flights gone and each unit's calls and duties so far."""
+    riders of the flights gone and each unit's duties so far and its call (a reserve called but released before it
+    reported is logged as never called, as crewsim does)."""
     gone = {i for i, x in day.run.flights.items() if x.dep is not None and x.dep < t}
     duties = {}
     for uid, rec in sorted(day.units.items()):
@@ -70,9 +71,8 @@ def history(day: CrewDay, t: int) -> tuple:
             rides = [x for x in d["deadheads"] if x[1] < t]
             if legs or rides:
                 done.append((d["report"], d["at"], d["begins"], tuple(legs), tuple(rides)))
-        call = rec["call"] if rec["call"] is not None and rec["call"] < t else None
-        if done or call is not None:
-            duties[uid] = (call, tuple(done))
+        if done:
+            duties[uid] = (rec["call"], tuple(done))
     return (occ.past(day, t), tuple(sorted((i, tuple(sorted(c.items()))) for i, c in day.crews.items() if i in gone)),
             tuple(sorted((i, r) for i, r in day.riders.items() if i in gone)), tuple(sorted(duties.items())))
 

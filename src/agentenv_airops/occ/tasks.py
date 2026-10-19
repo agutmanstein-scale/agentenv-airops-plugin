@@ -60,7 +60,8 @@ CREW = """Crew moves (crew_check tries them, crew_confirm commits them; a move i
 cancelled): assign a unit to fly a flight (it waits for that unit); call_reserve a short-call reserve to report on a \
 whole hour (time, or in time for the flight given) and assign it; swap the remaining trips of two units of one kind \
 and type at one station; deadhead a unit on a flight; rest a unit to report again at a time (a hotel away from base); \
-release a unit you assigned or sent to ride, giving the flight back to the crew system. crew_options lists the crew \
+release a unit you assigned or sent to ride, giving the flight back to the crew system, or keep a unit off a ride \
+its trip plans (it stays where it is, yours). crew_options lists the crew \
 system's options for a flight's crew, priced; crew_crews and crew_reserves show units and reserves. A unit you move \
 is yours from then on: the crew system no longer uses it."""
 

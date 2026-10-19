@@ -107,8 +107,8 @@ def test_talking_cancels_what_the_crew_desk_cannot_crew_and_reads_its_holds():
     talk, quiet, flags = (occ.run(c, m) for m in ("talk", "quiet", "quiet-flags"))
     assert (talk.plan[2], talk.causes[2]) == ({"cancel": True, "decided": 0}, occ.REQUEST)
     asked = {m["params"]["flight"]: m for m in talk.messages()}
-    assert (asked[2]["type"], asked[2]["reply"], asked[2]["replied"], asked[2]["actions"]) == (
-        crewsim.CANCEL, "accept", 0, [{"cancel": 2, "at": 0}])
+    assert [v for k, v in talk.replies.items() if k[1:3] == (crewsim.CANCEL, 2)] == [
+        {"reply": "accept", "replied": 0, "actions": [{"cancel": 2, "at": 0}]}] and 2 not in asked
     assert (asked[3]["type"], asked[3]["params"]["minute"], asked[3]["reply"]) == (crewsim.HOLD, 645, "accept")
     assert quiet.day.run.flights[2].status == AUTO_CANCELLED and 2 not in quiet.plan
     assert (flags.plan[2]["decided"], flags.causes[2]) == (600, occ.FLAG)
