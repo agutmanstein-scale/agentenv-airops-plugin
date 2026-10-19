@@ -1,6 +1,9 @@
 """OccDay by hand on a small storm day: the turn machine and its refusals, the requests and their log, the freeze, the
-advisories and the audit, absences, the projection's history and crew flags, the scripted desks against stage 2b's
-policies, and a recorded day replayed byte for byte."""
+advisories and the audit, absences, a crew move released in its turn or at the next watch leaving the day as without
+it, the projection's history and crew flags, the scripted desks against stage 2b's policies, and a recorded day replayed
+byte for byte."""
+
+from dataclasses import replace
 
 import pytest
 from occ_helpers import case, play, scripted, storm
@@ -9,7 +12,7 @@ from agentenv_airops.core.sim import CANCELLED, FLOWN
 from agentenv_airops.occ import run
 from agentenv_airops.occ.day import OccDay, Refused, reward
 from agentenv_airops.occ.replay import replay
-from agentenv_airops.programs import crewplan, occ
+from agentenv_airops.programs import crewplan, crews, crewsim, occ
 
 END = {"note": None, "stand_down": False}
 
@@ -121,8 +124,44 @@ def test_crew_moves_are_the_crew_desks_from_their_minute_and_the_system_crews_th
     assert d.plan[0]["names"] == [[0, None, "pilot", "P3"], [0, None, "cabin", "C3"]]
     assert d.truth.crews[0] == {"pilot": "P3", "cabin": "C3"}
     back = d.call("crew", "crew_confirm", {"moves": [move | {"action": "release"}]})
-    assert back["confirmed"] == ["f0 release P3"] and d.plan[0]["names"][0] == [0, 0, "pilot", "P3"]
+    assert back["confirmed"] == ["f0 release P3"] and d.plan[0]["names"] == [[0, None, "cabin", "C3"]]
     assert d.call("crew", "crew_options", {"flight": "f2", "kind": "pilot"})["options"] == []
+
+
+def mv(action: str, unit: str, flight: str | None = None, other: str | None = None, time: str | None = None) -> dict:
+    return {"action": action, "unit": unit, "flight": flight, "other": other, "kind": None, "time": time, "ref": None}
+
+
+MOVES = {"assign": ([mv("assign", "P3", "f0")], [mv("release", "P3", "f0")]),
+         "call_reserve": ([mv("call_reserve", "RP", "f3")], [mv("release", "RP", "f3")]),
+         "deadhead": ([mv("deadhead", "P3", "f0")], [mv("release", "P3", "f0")]),
+         "rest": ([mv("rest", "C1", time="23:00")], [mv("release", "C1")]),
+         "swap": ([mv("swap", "C1", other="C3")], [mv("release", "C1")]),
+         "deadhead+assign": ([mv("deadhead", "P3", "f0"), mv("assign", "P3", "f1")],
+                             [mv("release", "P3", "f1"), mv("release", "P3", "f0")])}
+
+
+@pytest.mark.parametrize("move", sorted(MOVES))
+def test_a_crew_move_released_in_its_turn_or_at_the_next_watch_leaves_the_day_as_without_it(world, move):
+    reserves = tuple(crews.Unit(uid, "pilot", "A32X", crews.size("pilot", "A32X"), "JFK", "JFK", "JFK", 0, None, None,
+                                reserve="short", rap=0, until=900, lead=120) for uid in ("RP", "RQ"))
+    w = replace(world, units=(*world.units, *reserves))
+
+    def day(moves, releases, at):
+        d = OccDay(w)
+        while not d.done:
+            desk = d.turn["desk"]
+            for n in list(d.pending):
+                d.notice(n, "trigger")
+            d.call(desk, "wait_turn", {})
+            if desk == "crew" and d.turn["kind"] == "crew":
+                for rows, k in ((moves, 0), (releases, at)):
+                    if rows and d.k == k:
+                        assert d.call("crew", "crew_confirm", {"moves": rows})["refused"] == []
+            d.call(desk, "end_turn", END)
+        return d.grade["cost"], d.truth.run.rows(), sorted(d.truth.crews.items()), crewsim.entries(d.plan)
+    moves, releases = MOVES[move]
+    assert day(moves, releases, 0) == day(moves, releases, 1) == day([], [], 0) != day(moves, [], 0)
 
 
 def test_a_watch_waits_for_its_advisory_and_the_audit_flags_one_the_trigger_never_brought(world):

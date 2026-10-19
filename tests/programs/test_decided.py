@@ -1,8 +1,8 @@
 """Decisions taken during the day reach the sim at their minute: a hold, a claim, a crew named or let go, a rider and a
 reserve's call change nothing before it and act from it on; a unit the crew desk moves, and the crew it replaces, keep
-the legs of their trips that still connect, the rest going back to the standard desk at once, which leaves a named crew
-alone and doesn't take a unit while a flight it is named on is to come; a swap exchanges two trips; and a day carried
-on in another world from a minute keeps everything before it."""
+the legs of their trips that still connect, the rest going back to the standard desk at once (and back to them when the
+move ends), which leaves a named crew alone and doesn't take a unit while a flight it is named on is to come; a swap
+exchanges two trips; and a day carried on in another world from a minute keeps everything before it."""
 
 from dataclasses import replace
 
@@ -69,7 +69,7 @@ def test_a_crew_named_later_is_the_plans_only_from_its_minute():
     assert before(late, 550) == before(free, 550)
     assert late.crews == {0: {"pilot": "P2", "cabin": "C2"}, 1: {"pilot": "P1", "cabin": "C1"}}
     back = run({0: {"names": named(550, 2, to=580)}})
-    assert back.crews == late.crews and [(m["type"], m["sent"]) for m in back.messages] == [("HOLD", 0)]
+    assert back.crews == free.crews and back.messages == free.messages
 
 
 def test_a_unit_the_crew_desk_moves_keeps_the_legs_that_still_connect_and_hands_back_the_rest():

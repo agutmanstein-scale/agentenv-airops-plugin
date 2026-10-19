@@ -456,7 +456,7 @@ class OccDay:
                 raise Refused(why)
             if action in ("assign", "call_reserve") and crews.TYPE[f.family] != u.group:
                 raise Refused(f"{u.id} flies the {u.group} group; {fid(i)} is an {f.family}")
-        if action in ("assign", "deadhead", "release") and i is None:
+        if action in ("assign", "deadhead") and i is None:
             raise Refused(f"{action} needs a flight")
         if action == "assign":
             self.name(plan, i, u)
@@ -465,18 +465,7 @@ class OccDay:
             plan.setdefault(i, {}).setdefault("rides", []).append([t, None, u.id])
             return [(i, "deadhead", u.id)]
         if action == "release":
-            e = plan.get(i, {})
-            mine = [x for x in e.get("names", ()) if x[3] == u.id and x[1] is None] + \
-                [x for x in e.get("rides", ()) if x[2] == u.id and x[1] is None]
-            if mine:
-                for x in mine:
-                    x[1] = t
-                return [(i, "release", u.id)]
-            if i in state["deadheads"] and [u.id, i] not in [k[1:] for k in plan.get("keeps", ())]:
-                plan.setdefault("keeps", []).append([t, u.id, i])
-                return [(i, "release", u.id)]
-            raise Refused(f"{u.id} isn't yours on {fid(i)} and doesn't ride it as planned: release lets go of a unit "
-                          "you assigned or sent to ride, or keeps one off a ride its trip plans")
+            return self.release(plan, u, i, state)
         if action == "call_reserve":
             free = t == self.task.start or (state["report"] is None and state["held"] is None)
             if u.reserve != "short" or not free or any(c[1] == u.id for c in plan.get("calls", ())):
@@ -519,11 +508,52 @@ class OccDay:
                if not (self.gone(j) or self.cancelled(j))]
         return out or [(None, "swap", u.id)]
 
+    def release(self, plan: dict, u: crews.Unit, i: int | None, state: Mapping) -> list[tuple]:
+        """Lets go of u's moves: on a flight its name or ride there (and the call that came with it), with none its
+        rest, call and swaps; undone as if never made while nothing they changed has happened yet (always within the
+        turn), else a name or ride ends now. With a flight and none of those, u is kept off a ride its trip plans."""
+        t = self.t
+        if i is None:
+            moves = [(("calls",), x) for x in plan.get("calls", ()) if x[1] in (u.id, f"{u.id}#2")] + \
+                [(("swaps",), x) for x in plan.get("swaps", ()) if u.id in x[1:]]
+        else:
+            moves = [((i, k), x) for k in ("names", "rides") for x in plan.get(i, {}).get(k, ())
+                     if x[-1] == u.id and x[1] is None]
+            moves += [(("calls",), x) for x in plan.get("calls", ()) if x[1] == u.id and moves and
+                      x[0] in {m[0] for _, m in moves}]
+        if not moves:
+            if i is not None and i in state["deadheads"] and [u.id, i] not in [k[1:] for k in plan.get("keeps", ())]:
+                plan.setdefault("keeps", []).append([t, u.id, i])
+                return [(i, "release", u.id)]
+            raise Refused(f"{u.id} has no move of yours to release{' on ' + fid(i) if i is not None else ''} and "
+                          "doesn't ride it as planned: release lets go of a unit you assigned or sent to ride (with no "
+                          "flight: its rest, call or swap), or keeps one off a ride its trip plans")
+
+        def drop(p: dict) -> None:
+            for path, x in moves:
+                box = p[path[0]] if len(path) == 1 else p[path[0]][path[1]]
+                box.remove(x)
+        trial = copy.deepcopy(plan)
+        drop(trial)
+        if all(x[0] == t for _, x in moves) or run.acted(run.truth(self.w, trial, self.world), t) == \
+                run.acted(self.truth, t):
+            drop(plan)
+        elif i is None:
+            raise Refused(f"{u.id}'s rest, call or swap has already acted: it can't be undone now")
+        else:
+            for path, x in moves:
+                if len(path) == 2:
+                    x[1] = t
+        return [(i, "release", u.id)]
+
     def name(self, plan: dict, i: int, u: crews.Unit) -> None:
         e = plan.setdefault(i, {})
-        for x in e.get("names", ()):
+        for x in list(e.get("names", ())):
             if x[2] == u.kind and x[1] is None:
-                x[1] = self.t
+                if x[0] == self.t:
+                    e["names"].remove(x)
+                else:
+                    x[1] = self.t
         e.setdefault("names", []).append([self.t, None, u.kind, u.id])
 
     def changed(self, rows, apply: Callable) -> tuple[dict, list[dict], list[tuple]]:
@@ -570,7 +600,7 @@ class OccDay:
     def commit(self, desk: str, plan: dict, touched: list[tuple], via: str) -> str | None:
         """The plan in force from t, the truth played again; refused if anything before t would change."""
         truth = run.truth(self.w, plan, self.world)
-        if run.history(truth, self.t) != run.history(self.truth, self.t):
+        if run.acted(truth, self.t) != run.acted(self.truth, self.t):
             self.acausal.append({"watch": self.k, "t": self.t, "seq": self.seq + 1, "desk": desk, "via": via})
             return f"these changes would change what happened before {hhmm(self.t)}: nothing was committed"
         self.plan, self.truth = plan, truth

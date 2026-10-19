@@ -77,6 +77,12 @@ def history(day: CrewDay, t: int) -> tuple:
             tuple(sorted((i, r) for i, r in day.riders.items() if i in gone)), tuple(sorted(duties.items())))
 
 
+def acted(day: CrewDay, t: int) -> tuple:
+    """What the day did before t that no decision can take back: `history` less the crew flags and messages."""
+    past, *rest = history(day, t)
+    return (past[:2], *rest)
+
+
 def flags(p: Projection, task) -> dict[int, dict[str, tuple[str, int | None]]]:
     """Per open flight and kind its crew flag on the projection: "no crew" where it auto-cancels having waited for a
     crew of the kind, "crew" (the minute it leaves) where it leaves after waiting for one, "times out" (the crew's last

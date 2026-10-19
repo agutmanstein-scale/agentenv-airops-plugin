@@ -203,6 +203,8 @@ class Pool:
         self.commits: dict[str, set[int]] = defaultdict(set)
         self.kept: dict[str, set[int]] = defaultdict(set)
         self.swaps: list[tuple[str, str]] = []
+        self.lost: dict[int, dict[str, list[tuple[int, bool]]]] = defaultdict(dict)
+        self.replaced: dict[int, list[tuple[str, str, int]]] = defaultdict(list)
         self.pending: dict[int, list[tuple]] = defaultdict(list)
         for when, change in entries(plan):
             if when is None or when <= task.start:
@@ -322,18 +324,22 @@ class Pool:
     def decide(self, t: int) -> list[int]:
         """The plan's crew entries decided at t, in effect from now (`settle`), and the desk re-plans the flights of the
         units they move and of the crews they replace; the flights they touch, to try again."""
-        touched, flights, replaced = set(), [], []
+        touched, flights, replaced, ended = set(), [], [], []
         for change in sorted(self.pending.pop(t, ()), key=lambda c: c[0] not in ("unname", "unride")):
             touched |= {change[2], change[1]} if change[0] == "swap" else {change[2]}
             if change[0] == "name" and self.planned.get(change[1]) not in (None, change[2]):
                 touched.add(self.planned[change[1]])
                 replaced.append((change[2], self.planned[change[1]], change[1][1]))
+            if change[0] in ("unname", "unride"):
+                ended.append((change[3], change[2], change[1][1] if change[0] == "unname" else change[1]))
             i = self.apply(change, True)
             if i is None:
                 continue
             flights.append(i)
             if change[0] == "name":
                 self.watch[change[2]].add(i)
+        for frm, x, i in ended:
+            touched |= self.restore(frm, x, i, t)
         self.settle(t, touched, replaced)
         flights = list(dict.fromkeys(flights))
         if self.log:
@@ -349,6 +355,7 @@ class Pool:
         `hand`)."""
         self.trade()
         self.rescript()
+        self.replaced[t] += replaced
         dropped = {u: self.prune(u, t) for u in sorted(touched)}
         for x, y, i in replaced:
             s, after = self.state[x], self.task.flight(i).sched_dep
@@ -360,6 +367,43 @@ class Pool:
                     self.planned[(s.unit.kind, j)] = x
                     self.watch[x].add(j)
                 self.prune(x, t)
+
+    def restore(self, frm: int, x: str, i: int, t: int) -> set[str]:
+        """A crew desk's name or ride of x on flight i, taken at frm, ending at t: x, and the crew it replaced on i,
+        get back the legs and rides its taking dropped, those still to come that no one else is named on, from
+        whoever the standard desk gave them to; the units given back to."""
+        units = {x} | {y for xx, y, ii in self.replaced.get(frm, ()) if (xx, ii) == (x, i)}
+        for uid in units:
+            s = self.state[uid]
+            kind = s.unit.kind
+            for j, leg in self.lost[frm].pop(uid, ()):
+                if j in self.done or self.cut.get(j, t + 1) <= t:
+                    continue
+                if not leg:
+                    if j not in s.deadheads:
+                        s.deadheads.append(j)
+                    continue
+                if self.named.get((kind, j), uid) != uid:
+                    continue
+                if (cur := self.planned.get((kind, j))) not in (None, uid):
+                    if j in self.state[cur].trip:
+                        self.state[cur].trip.remove(j)
+                    if self.state[cur].claim == j:
+                        self.unhold(cur, j)
+                if j not in s.trip:
+                    s.trip = sorted([*s.trip, j], key=lambda g: (self.task.flight(g).sched_dep, g))
+                self.planned[(kind, j)] = uid
+                self.watch[uid].add(j)
+        return units
+
+    def unhold(self, uid: str, i: int) -> None:
+        """uid no longer held for flight i: an uncalled short-call reserve as if never called."""
+        s = self.state[uid]
+        self.held[i].remove(uid)
+        s.claim = None
+        if s.report is None:
+            s.call = None
+            s.earliest, s.ready = self.uncalled[uid]
 
     def rescript(self) -> None:
         """The units the plan's entries move (`owned`: a crew desk's) and those the standard desk leaves alone
@@ -415,13 +459,11 @@ class Pool:
             if g is not None:
                 chain, at = [], self.lands(g.id)
         out += [x.id for x in rest if x.id not in keep]
+        lost = self.lost[t].setdefault(uid, [])
         for i in out:
+            lost.append((i, i in legs))
             if s.claim == i:
-                self.held[i].remove(uid)
-                s.claim = None
-                if s.report is None:
-                    s.call = None
-                    s.earliest, s.ready = self.uncalled[uid]
+                self.unhold(uid, i)
             if i in s.trip:
                 s.trip.remove(i)
                 if self.planned.get((kind, i)) == uid:
@@ -1197,9 +1239,9 @@ def entries(plan: Mapping) -> list[tuple[int | None, tuple]]:
         out += [(None, ("name", (kind, i), uid, None)) for kind, uid in v.get("crew", {}).items()]
         out += [(None, ("ride", i, uid, None)) for uid in v.get("deadhead", ())]
         for frm, to, kind, uid in v.get("names", ()):
-            out += [(frm, ("name", (kind, i), uid, None))] + ([(to, ("unname", (kind, i), uid, None))] if to else [])
+            out += [(frm, ("name", (kind, i), uid, None))] + ([(to, ("unname", (kind, i), uid, frm))] if to else [])
         for frm, to, uid in v.get("rides", ()):
-            out += [(frm, ("ride", i, uid, None))] + ([(to, ("unride", i, uid, None))] if to else [])
+            out += [(frm, ("ride", i, uid, None))] + ([(to, ("unride", i, uid, frm))] if to else [])
     out += [(None, ("report", key, key.split("#")[0], r)) for key, r in plan.get("reports", {}).items()]
     out += [(frm, ("report", key, key.split("#")[0], r)) for frm, key, r in plan.get("calls", ())]
     out += [(frm, ("keep", i, uid, None)) for frm, uid, i in plan.get("keeps", ())]
