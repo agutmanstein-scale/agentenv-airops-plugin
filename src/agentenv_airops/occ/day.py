@@ -160,14 +160,15 @@ class OccDay:
         return [i for i in self.task.by_id if run.opened(self.truth, i, t) and not self.plan.get(i, {}).get("cancel")]
 
     def _advance(self, via: str) -> int | None:
-        """The next turn: the next desk present in this watch's queue, else the next watch's; the watch it opened when
-        that watch awaits its advisories through the trigger on this call."""
+        """The next turn: the next desk present in this watch's queue, else the next watch's, none once an absence
+        leaves the run unscorable; the watch it opened when that watch awaits its advisories through the trigger on
+        this call."""
         opened = None
         while True:
             while self.queue:
                 kind = self.queue.pop(0)
                 desk = CREW if kind == "reply" else kind
-                if desk not in self.absent:
+                if desk not in self.absent and not self.unscorable():
                     self.turn = {"n": len(self.turns), "watch": self.k, "t": self.t, "desk": desk, "kind": kind,
                                  "granted": None, "ended": None, "calls": 0}
                     self.turns.append(self.turn)
@@ -217,6 +218,9 @@ class OccDay:
             self.notice(n, via)
         return out
 
+    def unscorable(self) -> bool:
+        return any(a["reason"] not in GRADED for a in self.absent.values())
+
     def grantable(self, desk: str) -> bool:
         return self.turn is not None and self.turn["desk"] == desk and not self.pending
 
@@ -241,9 +245,11 @@ class OccDay:
             return self._logged(desk, tool, args, self.resign(desk, args.get("reason") or "done"))
         if desk in self.absent:
             return {"error": f"the {desk} desk is off ({self.absent[desk]['reason']})", "done": True}
-        if self.done or self.turn is None or self.turn["desk"] != desk or self.turn["granted"] is None:
+        if self.done:
+            return {"error": "the day is over", "done": True}
+        if self.turn is None or self.turn["desk"] != desk or self.turn["granted"] is None:
             self.refusals.append({"seq": self.seq, "desk": desk, "tool": tool, "watch": self.k,
-                                  "turn": None if self.done else self.whose(), "mutating": tool in MUTATING})
+                                  "turn": self.whose(), "mutating": tool in MUTATING})
             return {"error": f"not your turn: it is {self.whose()}; call wait_turn"}
         self.turn["calls"] += 1
         turn, k, t = self.turn["n"], self.k, self.t
@@ -294,8 +300,9 @@ class OccDay:
         if desk not in self.absent:
             self.absent[desk] = {"reason": reason if reason in REASONS else "error", "watch": self.k, "t": self.t,
                                  "seq": self.seq + 1}
-            if not self.done and self.turn is not None and self.turn["desk"] == desk:
-                self.turn["ended"], self.turn["note"] = self.seq + 1, f"resigned: {reason}"
+            if not self.done and self.turn is not None and (self.turn["desk"] == desk or self.unscorable()):
+                self.turn["ended"] = self.seq + 1
+                self.turn["note"] = f"resigned: {reason}" if self.turn["desk"] == desk else f"{desk} desk off: {reason}"
                 self._advance("resign")
         return {"resigned": desk, "reason": self.absent[desk]["reason"], "done": self.done}
 

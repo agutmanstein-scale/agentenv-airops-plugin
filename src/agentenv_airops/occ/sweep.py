@@ -1,6 +1,7 @@
 """`agent-env airops-occ pilot`: the ops control center's days in a fixed order, one `agent-env run` at a time (or a
 few), each starting only while the spend so far plus its cap stays within the budget, an attempt that ends unscored for
-an infrastructure reason tried again at most twice; and the report: per run its reward and its reward against the
+an infrastructure reason tried again at most twice (one whose audit fails for what the desks or the env did is reported,
+not tried again); and the report: per run its reward and its reward against the
 bound, its cost against the best plan, the bound and B0, the share of the avoidable cost it saved, how it does against
 the env's scripted desks, the requests and their outcomes, and per desk its tokens, cost, turns, largest context, wall
 time and end; every recorded day replayed through the env's calls and its audit checked."""
@@ -29,6 +30,7 @@ NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,40}")
 INSTANCE = re.compile(r"(\d+(?:\.\d+)?)s, instance (\S+)")
 VERIFIER = "airops-occ"
 MAX_ATTEMPTS = 3
+UNSCORED = "the day can't be scored: "
 POLL_SECONDS = 5.0
 GRADED = ("done", "stand_down", "cost_cap", "context_full", "turn_limit", "time_limit")
 
@@ -59,8 +61,23 @@ def results(out: Path) -> list[dict]:
 
 
 def final(rows: list[dict]) -> bool:
-    """Scored, or MAX_ATTEMPTS attempts."""
-    return any(r["outcome"] == "scored" for r in rows) or len(rows) >= MAX_ATTEMPTS
+    """Scored, refused by the audit, or MAX_ATTEMPTS attempts."""
+    return any(r["outcome"] in ("scored", "unscored") for r in rows) or len(rows) >= MAX_ATTEMPTS
+
+
+def verdict(scored: bool, failed: list[dict]) -> str:
+    """scored; unscored when the verifier refused a finished day for its audit beyond a desk's absence (A1-A6: what the
+    desks or the env did); else failed: a provider, the env or the harness down, a desk crashed or timed out, the day
+    unfinished, which is tried again."""
+    if scored:
+        return "scored"
+    for f in failed:
+        text = f.get("error") or ""
+        if UNSCORED in text:
+            why = json.JSONDecoder().raw_decode(text.split(UNSCORED, 1)[1])[0]
+            if why["done"] and set(why["problems"]) - {"A7"}:
+                return "unscored"
+    return "failed"
 
 
 def context(instance: str) -> dict:
@@ -122,7 +139,7 @@ def outcome(p: Pilot, run: str, number: int, log: Path, code: int, started: str)
     failed = m.get("failed_steps") or []
     absent = {d: a["reason"] for d, a in (day.get("absent") or {}).items()}
     return {"pilot": p.name, "run": run, "attempt": number, "started_utc": started, "wall_seconds": wall,
-            "exit": code, "instance": instance, "outcome": "scored" if scored else "failed",
+            "exit": code, "instance": instance, "outcome": verdict(scored, failed),
             "failed_step": failed[-1]["step_id"] if failed else None,
             "error": (failed[-1].get("error") or "")[:500] if failed else None, "cost_usd": round(spent, 6),
             "desks": desks, "absent": absent, "day": f"days/{run}-a{number}.json" if day else None,

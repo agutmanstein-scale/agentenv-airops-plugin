@@ -2,13 +2,16 @@
 audit (news, turns, causality, roles, crew legality, the bound, each desk's presence) or has no reward raises, so the
 run is not scored."""
 
+import json
+
 from agentenv_protocol import client
 
 
 async def verify(mcp_url: str) -> list[dict]:
     day = (await client.get_data(mcp_url.removesuffix("/mcp"))).parts[0].data
     if not day["done"] or not day["audit"]["ok"] or day["reward"] is None:
-        raise RuntimeError(f"the day can't be scored: done {day['done']}, audit {day['audit']}, reward {day['reward']}")
+        raise RuntimeError("the day can't be scored: " + json.dumps(
+            {"done": day["done"], "problems": day["audit"]["problems"], "reward": day["reward"]}))
     grade = day["grade"]
     return [{"criterion": "the day's reward on the truth, 1.0 at the best plan found in hindsight",
              "result": grade["reward"] >= 1.0, "score": grade["reward"], "episode": day},

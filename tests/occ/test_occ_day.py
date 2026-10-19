@@ -138,14 +138,17 @@ def test_a_watch_waits_for_its_advisory_and_the_audit_flags_one_the_trigger_neve
     assert d.end()["audit"]["problems"]["A1"] == ["adv-b: watch 2's trigger never brought it"]
 
 
-def test_a_desk_that_leaves_is_skipped_and_one_that_times_out_leaves_the_run_unscored(world):
+def test_a_desk_that_leaves_is_skipped_and_one_that_times_out_ends_the_day_unscored(world):
     left = play(world, policies={"crew": lambda d, desk, page: d.call(desk, "resign", {"reason": "turn_limit"})
                                  if d.k == 3 else None})
     assert {t["desk"] for t in left.turns if t["watch"] > 3} == {"ops"} and left.audit()["ok"]
     d = OccDay(world)
     d.call("crew", "wait_turn", {})
     d.time_out("crew")
-    assert d.turn["desk"] == "ops" and d.end()["audit"]["problems"] == {"A7": ["crew: timeout", "ops: missing"]}
+    assert d.done and d.call("ops", "wait_turn", {})["done"] and d.call("ops", "ops_flights", {
+        "ids": None, "station": None, "status": None, "start": None, "end": None}) == {"error": "the day is over",
+                                                                                      "done": True}
+    assert d.end()["audit"]["problems"] == {"A7": ["crew: timeout"]} and d.grade["cost"] == world.refs["idle"]
 
 
 def test_the_projection_keeps_the_truth_before_the_watch_and_flags_each_kind(world):

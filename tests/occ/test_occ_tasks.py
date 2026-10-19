@@ -11,6 +11,7 @@ from agent_env.task_step.task_steps.verifiers.scoring import ScoreAggregator, ag
 from occ_helpers import play, scripted, storm, write_pack
 
 from agentenv_airops.occ.pack import Pack
+from agentenv_airops.occ.sweep import verdict
 from agentenv_airops.occ.tasks import RULES, generate, steps
 
 pytestmark = pytest.mark.anyio
@@ -82,5 +83,11 @@ async def test_the_verifier_scores_an_audited_day_and_refuses_one_that_fails(mon
     assert results[0]["score"] == data["reward"] and aggregate_score(results, ScoreAggregator.WEIGHTED_AVERAGE) == \
         data["reward"]
     data["audit"] = {"ok": False, "problems": {"A7": ["crew: crash"]}}
-    with pytest.raises(RuntimeError, match="can't be scored"):
+    with pytest.raises(RuntimeError, match="can't be scored") as crash:
         await verifier.verify("http://env/mcp")
+    data["audit"] = {"ok": False, "problems": {"A5": ["flown without a legal crew: [3]"], "A7": ["crew: crash"]}}
+    with pytest.raises(RuntimeError, match="can't be scored") as illegal:
+        await verifier.verify("http://env/mcp")
+    assert verdict(False, [{"step_id": "grade", "error": str(crash.value)}]) == "failed"
+    assert verdict(False, [{"step_id": "grade", "error": str(illegal.value)}]) == "unscored"
+    assert verdict(False, [{"step_id": "play-crew-desk", "error": "stopped answering"}]) == "failed"

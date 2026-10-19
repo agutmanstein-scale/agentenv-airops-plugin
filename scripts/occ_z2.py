@@ -32,6 +32,7 @@ from agent_env.task.store import get_task_instance_store
 
 from agentenv_airops.occ.pack import Pack
 from agentenv_airops.occ.replay import replay
+from agentenv_airops.occ.sweep import verdict
 from agentenv_airops.occ.tasks import generate
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -123,6 +124,8 @@ def play(out: Path, bundle: Path, name: str, pack: Pack, z1: Path) -> dict:
             problems.append("the killed run was scored")
         if not any(f[0] == "grade" for f in row["failed_steps"]):
             problems.append("the grade step did not refuse it")
+        if verdict(row["scored"], failed) != "failed":
+            problems.append("the pilot would not try it again")
     else:
         if not row["scored"]:
             problems.append("not scored")
