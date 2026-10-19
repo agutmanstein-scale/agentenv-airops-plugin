@@ -5,7 +5,7 @@ the hub's clock, "+1" after midnight; flights are f<id>, crew units by their ids
 from collections import Counter, defaultdict
 from collections.abc import Mapping
 
-from ..core.known import LOOK
+from ..core.known import LOOK, lb_known
 from ..core.model import hhmm, parse_hhmm
 from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN
 from ..programs import crews, crewsim, sim
@@ -279,6 +279,7 @@ def key(m: Mapping) -> tuple:
 
 
 def alert_text(day, m: Mapping, fixes: Mapping, when: str) -> str:
+    """A crew system word and its fix, the fix's price and departure once the flight's own delay is known."""
     i, p = m["params"]["flight"], m["params"]
     f = day.task.flight(i)
     what = "CANCEL: no crew can reach it by its deadline" if m["type"] == crewsim.CANCEL else \
@@ -286,7 +287,9 @@ def alert_text(day, m: Mapping, fixes: Mapping, when: str) -> str:
     out = (f"{when} {fid(i)} {f.flight.split()[-1]} {f.orig}-{f.dest} {hhmm(f.sched_dep)} {p['kind']}: {what}, "
            f"at {hhmm(m['sent'])}")
     if (x := fixes.get((i, p["kind"], m["sent"]))) is not None:
-        out += f"; fix {OPTION.get(x['act'], x['act'])} {x['unit']} cost {x['cost']:,.0f} leaves {hhmm(x['dep'])}"
+        out += f"; fix {OPTION.get(x['act'], x['act'])} {x['unit']}"
+        if lb_known(f.sched_dep, day.t):
+            out += f" cost {x['cost']:,.0f} leaves {hhmm(x['dep'])}"
     return out
 
 
@@ -493,7 +496,7 @@ def options(day, i: int, kind) -> dict:
                             drop=False)
     d.until(day.t)
     f = task.flight(i)
-    t0 = max(day.t, task.earliest(f, min(0, f.lb)))
+    t0 = max(day.t, task.earliest(f, min(0, f.lb) if lb_known(f.sched_dep, day.t) else 0))
     found = pool.options(kind, crews.TYPE[f.family], f, day.t, t0)
     rows = [f"{OPTION.get(act[0], act[0])} {uid}{' via ' + fid(act[1]) if act[0] == 'deadhead' else ''}"
             f"{' report ' + hhmm(act[1]) if act[0] == 'call' else ''}{' with extension' if rank == 5 else ''}: "

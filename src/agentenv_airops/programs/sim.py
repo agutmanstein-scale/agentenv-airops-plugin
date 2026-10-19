@@ -384,6 +384,8 @@ class Dispatch:
         too."""
         task = self.task
         self.world, self.rules = world, Rules(task, world)
+        if self.crew is not None:
+            self.crew.lb = world.lb
         self.taken, self.used = set(), Counter()
         for _, i in sorted((r.dep, i) for i, r in self.runs.items() if r.status == FLOWN):
             slot, hour = _history(task.flight(i), self.runs[i].dep, self.rules, self.taken)

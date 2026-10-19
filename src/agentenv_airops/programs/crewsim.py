@@ -188,6 +188,7 @@ class Pool:
                  airports: Mapping[str, Airport], ends: Mapping[int, str] | None = None, desk: bool = False,
                  drop: bool = True):
         self.task, self.local, self.fill, self.log, self.desk, self.drop = task, local, fill, log, desk, drop
+        self.lb = task.lb
         self.messages: list[dict] = []
         self.standing: dict[int, tuple] = {}
         self.notes: list[tuple] = []
@@ -822,14 +823,15 @@ class Pool:
                               "replied": t if done else None, "actions": [{"cancel": f.id, "at": t}] if done else []})
 
     def check(self, f: Flight, t: int) -> None:
-        """The desk at t on f, from its earliest departure t0: for each kind whose planned crew can't leave by t0, or
-        its schedule if later, without the extension, it takes the cheapest of its `options` now unless that is
-        waiting for that crew (HOLD if that leaves later); with none and no crew coming it cancels f now (`wait`). A
-        kind the plan names, or whose planned crew the crew desk took, it leaves to the crew desk until f boards; a
-        flight the plan cancels by t (its first pass at the start included) it leaves alone."""
+        """The desk at t on f, from its earliest departure t0 in the world the day runs in (`lb`: the truth's, the
+        day as known after sim.Dispatch.switch): for each kind whose planned crew can't leave by t0, or its schedule if
+        later, without the extension, it takes the cheapest of its `options` now unless that is waiting for that crew
+        (HOLD if that leaves later); with none and no crew coming it cancels f now (`wait`). A kind the plan names it
+        leaves to the crew desk until f boards; a flight the plan cancels by t (its first pass at the start included)
+        it leaves alone."""
         if f.id in self.done or f.id in self.dropped or self.cut.get(f.id, t + 1) <= t:
             return
-        group, t0 = crews.TYPE[f.family], max(t, self.task.earliest(f, min(0, f.lb)))
+        group, t0 = crews.TYPE[f.family], max(t, self.task.earliest(f, min(0, self.lb[f.id])))
         on_time = max(t0, f.sched_dep)
         for kind in crews.KINDS:
             mine = self.planned.get((kind, f.id))
