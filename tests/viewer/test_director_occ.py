@@ -121,7 +121,7 @@ def test_a_control_center_day_cuts_between_the_room_and_the_airport_in_time_orde
 def test_a_cancel_the_desks_agree_is_asked_and_answered_in_the_room_then_stays_at_its_gate():
     ep, traffic = day()
     ask, gate = record.direct(ep, traffic, seconds=60)[1:3]
-    assert (ask.desk, ask.ref, ask.cards, ask.at) == ("ops", "R1", (), 612)
+    assert (ask.desk, ask.ref, ask.cards, ask.at) == ("crew", "R1", (), 612)
     assert frames(ask)[0] <= 606 and frames(ask)[-1] >= 612 + record.REPLY - 0.1
     assert ask.caption == "The crew scheduler asks the ops controller to cancel B6 20 to New York"
     assert ask.subline == ("The ops controller accepts: “Accept cancellation: no legal crew after the stop moved its "
@@ -137,7 +137,7 @@ def test_a_cover_plays_out_as_the_covered_flight_lands_with_the_crew_found():
     ep, traffic = day()
     shots = record.direct(ep, traffic, seconds=60)
     ask, landing = shots[8], shots[9]
-    assert (ask.ref, ask.desk) == ("R2", "crew") and frames(ask)[0] <= 728 and ask.t1 >= 736 + record.REPLY - 0.1
+    assert (ask.ref, ask.desk) == ("R2", "ops") and frames(ask)[0] <= 728 and ask.t1 >= 736 + record.REPLY - 0.1
     assert ask.caption == "The ops controller asks the crew scheduler to find a crew for B6 30 from Detroit"
     assert ask.subline == "The crew scheduler accepts and puts pilots 0754 on it"
     assert (landing.key, landing.at) == ("N4", 785) and landing.caption == "B6 30 from Detroit lands 30 min late"
@@ -148,7 +148,8 @@ def test_the_crew_a_flight_waits_for_walks_up_to_its_gate_then_it_leaves():
     ep, traffic = day()
     shots = {s.name: s for s in record.direct(ep, traffic, seconds=60)}
     crew, push = shots["crew"], shots["push"]
-    assert (crew.key, crew.path, crew.speed, crew.cards) == ("N1", ((60, 0), (20, 10)), (6, 6), ("tags",))
+    assert (crew.key, crew.ref, crew.path) == ("N1", "out-B610-688", ((60, 0), (20, 10)))
+    assert (crew.speed, crew.cards) == ((6, 6), ("tags",))
     assert frames(crew)[-1] < 692 < push.t0 and crew.t0 > 680
     assert crew.caption == "The pilots of B6 10 to Miami walk up to gate 11"
     assert crew.subline == "140 passengers have waited 1 h 32 min"

@@ -67,8 +67,6 @@ DESKS = {"ops": "the ops controller", "crew": "the crew scheduler"}
 ASKS = {"CANCEL": "to cancel", "CANCEL_PAIR": "to cancel the round trip of", "HOLD": "to hold",
         "COVER": "to find a crew for"}
 CREW_MOVES = ("assign", "call_reserve", "deadhead", "swap")
-PUSH = {"room": 2.5, "room-desks": 0.8, "room-wall": 1.5}
-"""How far a room shot's camera moves in on its view, in metres."""
 REPLY = 5.5
 """Minutes from a request's answer to its card landing back at the asking desk in the room (web/center/cards.js)."""
 GLUED = re.compile(r"[a-z]\d|\d[a-z]{2}|\d{2}:\d{2}\+1|\b[A-Z]\d{3,}")
@@ -89,7 +87,7 @@ class Shot:
     """One shot: a camera from minute ``t0`` for ``seconds`` at a clock of ``speed`` (seconds of the day per second,
     ramped from the first to the second), the cards it shows and its caption; ``at`` is the moment it is about,
     ``reach`` how near the weather brings a wide camera, in metres, and ``path`` the last leg of a crew's walk in the
-    stage's metres; a room shot's ``desk`` and ``ref`` are the desk and request it is about."""
+    stage's metres; ``desk`` and ``ref`` are the desk and the request (a room shot) or crew group it is about."""
     name: str
     camera: str
     t0: float
@@ -485,7 +483,7 @@ class Center(Day):
             subline = (f"{who} accepts: “{said}”" if said else
                        f"{who} accepts and puts {self.unit(moved[0]['detail'])} on it" if moved else f"{who} accepts")
             room = self.in_room("ask", "room-desks", r["answered"], r["shown"] - 0.5, r["answered"] + REPLY,
-                                desk=r["receiver"], ref=r["id"], subline=subline,
+                                desk=r["sender"], ref=r["id"], subline=subline,
                                 caption=f"{upper(self.desk(r['sender']))} asks {self.desk(r['receiver'])} "
                                         f"{ASKS[r['type']]} {self.trip(r['flight'])}")
             out = self.plays_out(r, room.t1)
@@ -627,7 +625,8 @@ class Center(Day):
 
     def walk(self, leaver: tuple | None) -> list[Shot]:
         """The departure's crew walking up to its gate while it waits for them (the sidecar's crews, display-only), the
-        last to arrive first: across their walk from the aircraft's side, at a walker's pace, until they go in."""
+        last to arrive first: from across their walk, the aircraft beyond them, the camera on the group (its ``ref``),
+        at a walker's pace, until they go in."""
         if leaver is None:
             return []
         a, _, g, *_ = leaver
@@ -646,7 +645,8 @@ class Center(Day):
             out.append(Shot("crew", "crew", t0, SECONDS["crew"], speed, key=a["key"], at=end, cards=("tags",),
                             kicker=clock(t0), caption=f"The {who} of {g['flight']} to {g['city']} walk up to {gate}",
                             subline=f"{self.pax(g['flight'])} passengers have waited {late(end - spans[0][0])}"
-                            if self.pax(g["flight"]) else "", path=(tuple(s["p"][-2]), tuple(s["p"][-1]))))
+                            if self.pax(g["flight"]) else "", ref=c["key"],
+                            path=(tuple(s["p"][-2]), tuple(s["p"][-1]))))
         return out
 
     def map(self) -> list[list[Shot]]:
@@ -897,14 +897,6 @@ FILM_JS = """
       end.querySelector("div").append(root.querySelector(".card.score"));
       end.querySelector(".credit-line").textContent = root.querySelector(".credit").textContent;
     },
-    async room(c) {
-      await airops.view(c.camera);
-      const cam = airops.room.camera, d = cam.position.clone();
-      cam.getWorldDirection(d);
-      const at = cam.position.clone().addScaledVector(d, 8), to = cam.position.clone().addScaledVector(d, c.push);
-      return { room: true, name: c.camera, from: cam.position.toArray(), to: to.toArray(), at: at.toArray(),
-        fov: cam.fov, fov1: cam.fov - 2, t0: c.t0, t1: c.t1 };
-    },
     poses(key, a, b, step) {
       const out = [];
       for (let t = a; t <= b + 1e-9; t += step) {
@@ -939,8 +931,8 @@ FILM_JS = """
         const [[x0, y0], [x1, y1]] = c.path, n = Math.hypot(x1 - x0, y1 - y0) || 1, d = [(x1 - x0) / n, (y1 - y0) / n];
         const sd = [-d[1], d[0]], a = S.data.stands.find((s) => s.ref === ref)?.xy ?? [x1, y1];
         const k = (a[0] - x1) * sd[0] + (a[1] - y1) * sd[1] >= 0 ? -1 : 1;
-        const at = add([x1, y1], d, -22), from = add(add(at, sd, 28 * k), d, 12);
-        return { from: [...from, 6], to: [...add(from, d, 4), 6], at: [...at, 1.6], fov: 48, fov1: 46, ...span };
+        const at = add([x1, y1], d, -22), from = add(add(at, sd, 21 * k), d, 10);
+        return { from: [...from, 4.5], to: [...add(from, d, 4), 4.5], at: [...at, 1.6], fov: 48, fov1: 46, ...span };
       }
       const p = S.pose(T, c.key);
       if (!p || p.phase === "absent") return null;
@@ -1077,13 +1069,15 @@ def setup(page, ep: Mapping, shot: Shot, bare: bool = False, camera: Mapping | N
         page.js("airops.view('network')")
         return
     if shot.camera in ROOM:
-        rig = {"camera": shot.camera, "t0": shot.t0, "t1": shot.t1, "push": PUSH[shot.camera]}
-        page.js(f"film.room({json.dumps(rig)}).then((spec) => airops.shot(spec))")
+        spec = {"room": True, "name": shot.camera, "desk": shot.desk, "ref": shot.ref, "t0": shot.t0, "t1": shot.t1}
+        page.js(f"airops.view({json.dumps(shot.camera)}).then(() => airops.shot({json.dumps(spec)}))")
         return
     cam = {"camera": shot.camera, "key": shot.key, "t0": shot.t0, "t1": shot.t1, "at": shot.at, "reach": shot.reach,
            "path": shot.path}
     if (spec := page.js(f"film.camera({json.dumps(cam)})")) is None:
         raise SystemExit(f"no camera for the {shot.name} shot at {clock(shot.t0)}")
+    if shot.camera == "crew":
+        spec["at"] = f"crew:{shot.ref}"
     page.js(f"airops.shot({json.dumps(spec)})")
     if shot.camera == "crew":
         page.js(f"airops.stage.featured = {json.dumps(shot.key)}")
