@@ -44,7 +44,10 @@ refund exposure and notice. Each flight a booked connection uses gets its depart
 copies' minutes, which the cover row makes the minute it leaves, 0 when cancelled), and each booked connection a binary
 y that its inbound flown and its outbound cancelled, y >= cancelled(j) - cancelled(i), or a gap under the MCT, dep_j -
 dep_i - block_i + M y >= MCT (its cancelled terms raised so that it binds only when both fly, M the widest gap short
-of the MCT their copies allow, no row where none falls short), force to 1. Every way a group is disrupted rebooks it,
+of the MCT their copies allow, no row where none falls short), force to 1. Valid cuts tighten the relaxation: with
+columns counting each such flight's copies by minutes on a GRID-minute grid, y >= left(j, a) - left(i, a - MCT -
+block_i, rounded up) - cancelled(i) for every grid minute a in the RISK minutes after the outbound's earliest one.
+Every way a group is disrupted rebooks it,
 as a column per option, onto the proxy's itineraries within each flight's seats as booked (none on a cancelled one),
 or strands it at the proxy's night price. Rebooking costs at least 0, so a y at 1 that nothing forces never lowers the
 cost: every day the sim runs is a solution at its proxy cost (pax.Proxy.cost, the rebooking an LP), every optimum
@@ -68,6 +71,7 @@ from .pax import Proxy, mct
 
 INF = highspy.kHighsInf
 INTEGRAL = 1e-6
+GRID, RISK = 5, 180
 
 
 @dataclass(frozen=True)
@@ -377,6 +381,7 @@ class Network:
         self.copies = copies
         self.at: dict[int, int] = {}
         self.links: dict[tuple[int, int], int] = {}
+        self.upto: dict[tuple[int, int], int] = {}
         self.rebook: dict[tuple[int, int], int] = {}
         self.strand: dict[int, int] = {}
         if pax is not None:
@@ -389,6 +394,7 @@ class Network:
         for k in sorted({k for x in pax.links for k in (x.i, x.j)}):
             self.at[k] = c = m.col(0, max((d for d, _ in copies[k]), default=0), False)
             m.row({c: 1, **{self.xs[(k, d)]: -d for d, _ in copies[k]}}, 0, 0)
+        cuts, need = [], defaultdict(set)
         for x in pax.links:
             gi, gj = gone[x.i], gone[x.j]
             self.links[(x.i, x.j)] = y = m.col(0, 1, True)
@@ -400,6 +406,24 @@ class Network:
             if gap + hi - lo > 0:
                 m.row({self.at[x.j]: 1, self.at[x.i]: -1, **{c: b for c in gi}, **{c: lo for c in gj},
                        y: gap + hi - lo}, gap + b, INF)
+            for a in range(-(-lo // GRID) * GRID, min(max(d for d, _ in copies[x.j]), hi + gap - 1, lo + RISK) + 1,
+                           GRID):
+                t = -(-(a - gap - b) // GRID) * GRID
+                cuts.append((x, a, t))
+                need[x.j].add(a)
+                need[x.i].add(t)
+        for k, ts in sorted(need.items()):
+            ds, pos, prev = sorted(d for d, _ in copies[k]), 0, None
+            for t in sorted(ts):
+                self.upto[(k, t)] = c = m.col(0, 1, False)
+                row = {c: 1} if prev is None else {c: 1, self.upto[(k, prev)]: -1}
+                while pos < len(ds) and ds[pos] <= t:
+                    row[self.xs[(k, ds[pos])]] = -1
+                    pos += 1
+                m.row(row, 0, 0)
+                prev = t
+        for x, a, t in cuts:
+            m.row({self.links[(x.i, x.j)]: 1, self.upto[(x.j, a)]: -1, self.upto[(x.i, t)]: 1, **gone[x.i]}, 0, INF)
         room: dict[int, dict[int, int]] = defaultdict(dict)
         for n, mode in enumerate(pax.modes):
             hit = gone[mode.cut] if mode.cut is not None else {self.links[mode.link]: 1}
@@ -441,6 +465,30 @@ class Network:
         lapsed = {i: self.task.flight(i).deadline + 1 for i, c in self.lapsed.items() if x[c] > 0.5}
         return Solution(status, round(objective), bound, round(100 * mip_gap, 4), round(wall, 2), deps, len(m.cost),
                         len(m.rows), sum(len(v) for v in self.copies.values()), start is not None, settled, lapsed)
+
+    def rounded(self, time_limit: float = 600.0, threads: int = 1) -> dict[int, dict] | None:
+        """The LP relaxation's optimum rounded to a plan the sim can play, a start for the search: a flight more
+        cancelled than not is cancelled at the start (held past its deadline where the LP lets it auto-cancel more than
+        the desk cancels it), any other held to the minute by which half of it has left; None if the LP isn't
+        reached."""
+        h = self.m._highs(time_limit, threads)
+        h.run()
+        if h.modelStatusToString(h.getModelStatus()) != "Optimal":
+            return None
+        x, task = np.array(h.getSolution().col_value), self.task
+        plan = {}
+        for f in task.flights:
+            cut, auto = x[self.cancel[f.id]], x[self.lapsed[f.id]] if f.id in self.lapsed else 0.0
+            if cut + auto >= 0.5:
+                plan[f.id] = {"not_before": f.deadline + 1} if auto > cut else {"cancel": True, "decided": task.start}
+                continue
+            left = 0.0
+            for d, _ in self.copies[f.id]:
+                left += x[self.xs[(f.id, d)]]
+                if left >= 0.5 * (1 - cut - auto):
+                    plan[f.id] = {"not_before": d}
+                    break
+        return plan
 
     def vector(self, run: sim.Execution) -> np.ndarray | None:
         """`run` (a day sim.execute ran in this world, holding every pin) as a solution of the model, or None if a
@@ -513,6 +561,8 @@ class Network:
         pax, runs = self.pax, run.flights
         for k, c in self.at.items():
             x[c] = runs[k].dep if runs[k].status == FLOWN else 0
+        for (k, t), c in self.upto.items():
+            x[c] = runs[k].status == FLOWN and runs[k].dep <= t
         for link in pax.links:
             x[self.links[(link.i, link.j)]] = pax.broken(link, runs)
         _, rebooked, stranded = pax.assign(runs)

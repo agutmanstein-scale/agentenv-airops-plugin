@@ -152,3 +152,14 @@ def test_every_passenger_optimum_replays_at_its_objective(seed):
     assert sol.proven and abs(sol.objective - proxy.cost(run)) <= 1
     assert sol.objective <= proxy.cost(sim.execute(task, mip.solve(task).plan(task.start))) + 1
     assert sol.bound <= sol.objective + 1e-6
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_the_rounded_relaxation_is_a_plan_the_sim_plays_and_a_start_the_model_holds(seed):
+    task, passengers = mixed(seed)
+    proxy = pax.Proxy(task, passengers)
+    net = mip.Network(task, pax=proxy)
+    run = sim.execute(task, net.rounded())
+    x = net.vector(run)
+    assert x is not None and feasible(net, x)
+    assert float(np.dot(net.m.cost, x)) == pytest.approx(proxy.cost(run), abs=1e-6)
