@@ -25,6 +25,8 @@ DEPTH, HALF, INSIDE, WALK = 10.0, 13.0, 3.0, 75.0
 """A lounge reaches this far in from the glass and at most this far either side of its jet bridge; passengers walk
 along the concourse this far in from the glass, this many metres a minute."""
 ARRIVE, FULL, BOARD, CLOSED, DEPLANE, LEAVE = 110, 40, 35, 8, 9, 6
+MAKE_IT = 20
+"""Minutes a connecting passenger needs from block-in to the outbound's pushback."""
 QUEUE, SERVE = 0.6, 4
 """Share of a disrupted group at the airport that queues at the counter; minutes the last of a group takes to be
 served after its turn at the desk."""
@@ -58,6 +60,11 @@ def passengers(ep: Mapping, sidecar: Mapping, stage: Mapping) -> dict | None:
     for e in pax["events"]:
         if e["at"] == hub:
             events[e["flight"]].append(e)
+    conn_in, conn_out = defaultdict(int), defaultdict(int)
+    for c in pax["connections"]:
+        if c["at"] == hub:
+            conn_in[c["to"]] += c["pax"]
+            conn_out[c["from"]] += c["pax"]
     crowds, joins, groups = [], [], []
     for (flight, kind), found in legs.items():
         if kind != "dep":
@@ -92,8 +99,7 @@ def passengers(ep: Mapping, sidecar: Mapping, stage: Mapping) -> dict | None:
                         and abs(s["sched_arr"] - leg["sched"]) <= 5), None)
             if stand not in by_stand or leg["status"] != "flown" or leg["in"] is None or rows.get(fid) is None:
                 continue
-            on = sum(c["pax"] for c in pax["connections"] if c["from"] == fid and c["at"] == hub)
-            n = rows[fid]["flown"] - on
+            n = rows[fid]["flown"] - conn_out[fid]
             if n > 0:
                 walk = face.walk(lounges[by_stand[stand]], face.exit(site), leg["in"] + DEPLANE, site)
                 city = leg.get("city") or leg.get("other") or ""
@@ -128,7 +134,7 @@ def passengers(ep: Mapping, sidecar: Mapping, stage: Mapping) -> dict | None:
         s = sched.get(i)
         if s is None or s["orig"] != hub:
             continue
-        conn = sum(c["pax"] for c in pax["connections"] if c["to"] == i and c["at"] == hub)
+        conn = conn_in[i]
         if conn or r.get("hold") or r.get("misconnected"):
             tags[s["flight"]] = {"conn": conn, "held": r.get("hold") or 0, "missed": r.get("misconnected") or 0,
                                  "sched": s["sched_dep"]}
@@ -136,8 +142,6 @@ def passengers(ep: Mapping, sidecar: Mapping, stage: Mapping) -> dict | None:
             "crowds": crowds, "queue": line, "groups": sorted(groups, key=lambda g: g["segs"][0]["t"][0]),
             "tags": tags}
 
-
-MAKE_IT = 20
 
 
 def share(t: float, span: Sequence[float]) -> float:
