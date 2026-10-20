@@ -9,6 +9,7 @@ import sys
 import types
 from pathlib import Path
 
+import httpx
 import pytest
 from agentenv_protocol.a2a_agent import TaskOutcome, TaskRequest, TextPart
 from occ_helpers import desk_agent, serve, storm, write_pack
@@ -123,6 +124,25 @@ async def test_wait_turn_polls_until_the_page_and_an_error_without_done_stops_th
     assert episode.record["end_reason"] is None and episode.failure is None
     assert await episode.wait(Replies({"error": "no day loaded"})) is None
     assert episode.record["end_reason"] == "error" and episode.failure[0] == "error"
+
+
+class Dropping:
+    def __init__(self):
+        self.calls: list[tuple] = []
+
+    async def call(self, name: str, args: dict) -> str:
+        self.calls.append((name, args))
+        if name == "wait_turn":
+            raise httpx.RemoteProtocolError("Server disconnected without sending a response")
+        return json.dumps({})
+
+
+async def test_a_dropped_connection_resigns_the_desk_as_an_error_not_done():
+    episode = desk_agent.Episode(desk_agent.DeskConfig(role="crew"), {})
+    env = Dropping()
+    with pytest.raises(httpx.RemoteProtocolError):
+        await episode.play(env, "")
+    assert env.calls[-1] == ("resign", {"reason": "error"}) and episode.record["end_reason"] == "error"
 
 
 def test_the_cap_reads_the_last_request_from_the_cache_only_while_it_is_warm():

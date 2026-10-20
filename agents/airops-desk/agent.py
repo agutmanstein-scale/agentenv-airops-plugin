@@ -9,6 +9,7 @@ alone, with no model. Either way the desk resigns as it stops, with its reason; 
 turns and the largest context it sent."""
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -561,9 +562,13 @@ class Episode:
                 await self.scripted(env, page)
             else:
                 await self.llm(env, opening, page)
+        except BaseException:
+            self.record["end_reason"] = self.record["end_reason"] or "error"
+            raise
         finally:
             reason = self.record["end_reason"] or "done"
-            await env.call("resign", {"reason": reason if reason in RESIGN else "error"})
+            with contextlib.suppress(Exception):
+                await env.call("resign", {"reason": reason if reason in RESIGN else "error"})
 
     async def wait(self, env) -> dict | None:
         """Polls wait_turn until the desk's page comes, unseen by the model; None once the day is over for it (its
