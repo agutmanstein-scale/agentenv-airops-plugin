@@ -130,12 +130,12 @@ on 2026-07-09 the registered retry replaces an attempt whose crew desk lost its 
 
 Every run replays in the [replay Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv), watch by
 watch: the control-center room in 3D, tiered desk rows facing a video wall of the network, the radar and the FAA's
-programs, with the two desks at their pods and their requests travelling between them; the hub airport in 3D, with
-every airline's flights on their real times, the crews walking to their gates, riding the apron bus and leaving in
-the hotel van when they time out, and aircraft tagged "waiting for crew"; the US map with the radar and the crews
-resting away from base, the reserves on call and the crews riding as passengers; and expert panes with each crew's
-duty clock against its legal limit, the full request log and the pages the desks read. The room, the crew room and
-the crews' paths are drawn for display only.
+programs, with the two desks at their pods and their requests travelling between them; the hub airport in 3D, with every
+airline's flights on their real times, the crews walking to their gates, riding the apron bus and leaving in the hotel
+van when their duty ends away from base, and aircraft tagged "waiting for crew"; the US map with the radar and the crews
+resting away from base, the reserves on call and the crews riding as passengers; and expert panes with each crew's duty
+clock against its legal limit, the full request log and the pages the desks read. The room, the crew room and the crews'
+paths are drawn for display only.
 
 ## Tables
 
