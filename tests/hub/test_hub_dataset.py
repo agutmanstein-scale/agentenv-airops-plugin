@@ -24,6 +24,9 @@ from agentenv_airops.core.model import load_pack
 from agentenv_airops.core.reward import reward
 from agentenv_airops.day import Day
 from agentenv_airops.episodes import replay
+from agentenv_airops.occ import tasks as occ_tasks
+from agentenv_airops.occ.day import reward as occ_reward
+from agentenv_airops.occ.pack import Pack
 from agentenv_airops.schedule import TOOLS, max_turns, timetable
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -31,6 +34,7 @@ FIXTURES = ROOT / "tests" / "fixtures" / "tasks.jsonl"
 E2E = ROOT / "tests" / "export" / "fixtures"
 DAY = E2E / "e2e-day.jsonl"
 ID = "b6-jfk-20240109-1800"
+OCC_EVAL, OCC_CONTROL, OCC_OTHER = "b6-20240713-0400", "b6-20240703-0400", "b6-20250111-0400"
 SONNET, GPT = "anthropic/claude-sonnet-5-5", "openai/gpt-6.1-sol"
 TAG = f"v{tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']['version']}"
 PLUGIN = f"agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@{TAG}"
@@ -115,24 +119,40 @@ def test_the_card_lists_the_tables_with_the_days_first_and_the_bundle_for_agent_
     assert data["agentenv"] == {"default": "airops", "bundles": {"airops": {
         "plugins": [PLUGIN], "setup": "agent-env airops setup --agent"}}}
     assert {"rl-environment", "agentenv"} <= set(data["tags"]) and data["license"] == "other"
-    assert data["pretty_name"] == "AirOpsEnv v1" and "\n<h1>AirOpsEnv v1</h1>\n" in text
+    assert data["pretty_name"] == "AirOpsEnv v2: the ops control center"
+    assert "\n<h1>AirOpsEnv v2: the ops control center</h1>\n" in text
+    assert "\n# AirOpsEnv v1: one desk at one hub\n" in text
     assert "<!-- board -->\n\n| Claude |\n\n<!-- /board -->" in text
     assert "<!-- board -->\n\n<!-- /board -->" in hub.card_text(PLUGIN, files)
 
 
 def test_the_readme_and_the_hub_sources_pin_this_version_of_the_plugin_and_the_dataset():
-    pin = re.compile(r"(?:agentenv-airops-plugin(?:@|/blob/|/releases/tag/|/)"
+    pin = re.compile(r"(?:agentenv-airops-plugin(?:@|/blob/|/)"
                      r"|AirOpsEnv-AgentEnv(?:@|/resolve/|%2Fresolve%2F))(v\d+\.\d+\.\d+)")
     for path in ("README.md", "hub/dataset/README.md", "hub/space/README.md"):
         pins = pin.findall((ROOT / path).read_text())
         assert pins and set(pins) == {TAG}, path
+    films = re.findall(r"agentenv-airops-plugin/releases/tag/(v\d+\.\d+\.\d+)", (ROOT / "README.md").read_text())
+    assert TAG in films and set(films) <= {TAG, "v0.2.0"}
 
 
 def _dry_build(hub, tmp_path, monkeypatch, *extra: str) -> Path:
     out = tmp_path / "out"
+    occ = [] if "--occ-pack" in extra else ["--occ-pack", str(_occ_pack(tmp_path))]
     monkeypatch.setattr(sys, "argv", ["hub_dataset.py", "--runs", str(tmp_path / "runs"), "--out", str(out),
-                                      "--cache", str(tmp_path / "cache"), *extra])
+                                      "--cache", str(tmp_path / "cache"), *occ, *extra])
     hub.main()
+    return out
+
+
+def _occ_pack(tmp_path: Path, ids: tuple[str, ...] = (OCC_EVAL, OCC_CONTROL)) -> Path:
+    """The packaged b6-v2 pack cut down to ``ids``."""
+    pack, out = Pack(), tmp_path / "b6-v2"
+    (out / "dates").mkdir(parents=True, exist_ok=True)
+    for i in ids:
+        name = f"{pack.tasks[i]['date']}.json.gz"
+        (out / "dates" / name).write_bytes((pack.path / "dates" / name).read_bytes())
+    (out / "manifest.json").write_text(json.dumps(pack.manifest | {"tasks": {i: pack.tasks[i] for i in ids}}))
     return out
 
 
@@ -154,7 +174,10 @@ def test_a_dry_build_without_a_sweep_has_the_days_the_bundle_and_no_runs(hub, lo
     assert not (out / "results").exists() and not list(out.glob("episodes/v1-*"))
     assert json.loads((out / "viewer/episodes/index.json").read_text()) == {"version": 1, "episodes": []}
     data = DatasetCard((out / "README.md").read_text()).data.to_dict()
-    assert data["configs"][0]["config_name"] == "v1_tasks" and data["agentenv"]["default"] == "airops"
+    assert data["configs"][0]["config_name"] == "v2_tasks" and data["configs"][0]["default"] is True
+    assert data["agentenv"]["default"] == "airops"
+    assert [r["task_id"] for r in _rows(out, "tasks/v2-eval.parquet")] == [OCC_EVAL]
+    assert not list(out.glob("episodes/v2-*")) and not list(out.glob("desks/*"))
 
 
 def _sweep(tmp_path: Path, transcript: bytes) -> tuple[Path, str]:
@@ -227,7 +250,8 @@ def test_a_dry_build_with_a_sweep_publishes_its_run_in_both_kinds_of_table_on_th
     text = (out / "README.md").read_text()
     assert "| Claude Sonnet 5.5 | Anthropic | 1 of 1 | **0.841** (0.841 to 0.841) |" in text
     names = [c["config_name"] for c in DatasetCard(text).data.to_dict()["configs"]]
-    assert names == ["v1_tasks", "results", "v1_references", "v1_episodes", "airops_tasks", "airops_episodes"]
+    assert names == ["v2_tasks", "v1_tasks", "results", "v1_references", "v1_episodes", "airops_tasks",
+                     "airops_episodes"]
 
 
 def test_a_key_in_a_transcript_stops_the_build_before_anything_is_written(hub, local_stores, tmp_path, monkeypatch):
@@ -289,3 +313,141 @@ def test_the_dry_build_copies_the_twin_and_stage_the_viewer_episodes_point_at_wi
         assert (out / "viewer/stage/JFK" / name).read_bytes() == (stage_dir / name).read_bytes()
     traffic = json.loads(gzip.decompress((out / "viewer/episodes" / episode["stage"]["traffic"]).read_bytes()))
     assert traffic == {"hub": "JFK", "task_id": ID, "legs": len(episode["executed"])}
+
+
+def test_a_v2_day_row_carries_its_references_their_rewards_the_advisories_the_rules_and_the_world(hub):
+    pack = Pack()
+    world = pack.world(OCC_EVAL)
+    row = hub.occ_task_row(pack, OCC_EVAL)
+    assert (row["date"], row["split"], row["season"], row["storm_hubs"], row["num_flights"]) == (
+        "2024-07-13", "eval", "summer", ["BOS"], len(world.task.flights))
+    assert (row["best"], row["bound"], row["B0"]) == (world.refs["best"], world.refs["bound"],
+                                                      world.refs["B0"]["notice"])
+    assert row["B0_reward"] == 0.308268 and row["idle_reward"] == round(occ_reward(row["idle"], row["best"],
+                                                                                   row["B0"]), 6)
+    assert row["pilot_crews"] + row["pilot_reserves"] == sum(u.kind == "pilot" for u in world.units)
+    news = json.loads(row["advisories"])
+    assert len(news) == row["num_advisories"] > 0 and [n["at"] for n in news] == sorted(n["at"] for n in news)
+    assert row["system_prompt_crew"] == occ_tasks.RULES["crew"] and json.loads(row["world"])["task_id"] == OCC_EVAL
+
+
+def _occ_row(run: str, attempt: int, reward_: float, cost: float, desks: tuple[str, ...], folder: Path) -> dict:
+    """A pilot's results row as `agent-env airops-occ pilot` writes it, with its day and its desks' transcripts."""
+    day = {"task_id": run.rsplit("-", 1)[0], "mode": run.rsplit("-", 1)[1], "digest": f"{run}-a{attempt}",
+           "audit": {"ok": True, "problems": {}}, "changes": [{"desk": "ops", "action": "cancel", "target": 3}],
+           "requests": [{"id": 1, "type": "HOLD", "status": "accepted"}],
+           "grade": {"costs": {"delay": cost - 10, "end": 10.0}, "counts": {
+               "cancelled": {"confirm": 2, "accept": 1}, "auto_cancelled": 0, "holds": 1, "claims": 0,
+               "crew_moves": {"assign": 3}, "requests": {"HOLD accepted": 1}, "alerts": {"HOLD": 4}}}}
+    (folder / "days").mkdir(parents=True, exist_ok=True)
+    (folder / "days" / f"{run}-a{attempt}.json").write_text(json.dumps(day))
+    stats = {}
+    for desk in desks:
+        path = f"transcripts/{run}-a{attempt}-{desk}.json"
+        (folder / path).parent.mkdir(parents=True, exist_ok=True)
+        (folder / path).write_text(json.dumps({"messages": [{"role": "user", "content": "page"}, {
+            "role": "assistant", "content": "", "tool_calls": [{"id": "c1", "name": "end_turn", "arguments": "{}"}]}]}))
+        stats[desk] = {"end_reason": "stand_down", "effort": "high", "desk_turns": 2, "turns": 3, "tool_calls": 4,
+                       "input_tokens": 100, "output_tokens": 10, "cached_tokens": 50, "context_max": 900,
+                       "cost_usd": 0.5, "failed_requests": 0, "seconds": 60.0, "error": None, "transcript": path}
+    return {"pilot": folder.name, "run": run, "attempt": attempt, "started_utc": "2026-10-19T18:00:00Z",
+            "wall_seconds": 600.0, "exit": 0, "outcome": "scored", "cost_usd": 0.5 * len(desks), "desks": stats,
+            "absent": {}, "day": f"days/{run}-a{attempt}.json", "reward": reward_, "reward_L": reward_ - 0.1,
+            "cost": cost, "best": 1000.0, "bound": 900.0, "gap_pct": 10.0, "B0": 2000.0,
+            "over_best_pct": cost / 10 - 100, "over_bound_pct": 0.0, "avoidable_share": (2000 - cost) / 1000,
+            "above_script": None, "script": None, "below_best": False}
+
+
+def _occ_runs(tmp_path: Path) -> tuple[Path, Path]:
+    """The board on two dates, a retry folder replacing one of its runs, and a pilot run on the control day, with
+    each recorded day's replay kept as the build keeps it."""
+    runs, replays = tmp_path / "runs", tmp_path / "replays"
+    plan = {"occ-board-sol": [(f"{OCC_EVAL}-joint", 0.7, 1300.0), (f"{OCC_EVAL}-one", 0.5, 1500.0),
+                              (f"{OCC_OTHER}-joint", 0.9, 1100.0), (f"{OCC_OTHER}-one", 0.6, 1400.0)],
+            "occ-board-sol-retry": [(f"{OCC_OTHER}-joint", 0.4, 1600.0)],
+            "occ-pilot-canary": [(f"{OCC_CONTROL}-joint", 0.8, 1200.0)]}
+    for name, played in plan.items():
+        folder = runs / name
+        rows = [_occ_row(run, 1, score, cost, ("crew", "ops") if run.endswith("joint") else ("both",), folder)
+                for run, score, cost in played]
+        (folder / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+        (folder / "pilot.json").write_text(json.dumps({"name": name, "model": GPT, "runs": [r["run"] for r in rows],
+                                                       "caps": {"joint": 5.0, "one": 8.0}, "budget": 93.0}))
+        replays.mkdir(exist_ok=True)
+        for r in rows:
+            run_id = f"{name}/{r['run']}-a1"
+            (replays / f"{run_id.replace('/', '.')}.json").write_text(json.dumps(
+                {"digest": run_id.split("/")[1], "exact": True, "mismatches": 0, "first": []}))
+    return runs, replays
+
+
+def test_v2s_runs_mark_the_superseded_attempt_and_the_board_reads_the_retry(hub, tmp_path):
+    runs, replays = _occ_runs(tmp_path)
+    pack = Pack(_occ_pack(tmp_path, (OCC_EVAL, OCC_CONTROL, OCC_OTHER)))
+    files, board_md = hub.occ_files(runs, ["occ-pilot-canary", "occ-board-sol-retry", "occ-board-sol"], pack,
+                                    replays, 1, "2026-10-19")
+    rows = {r["run_id"]: r for r in pq.read_table(io.BytesIO(files["episodes/v2-eval.parquet"])).to_pylist()}
+    masked, retry = rows[f"occ-board-sol/{OCC_OTHER}-joint-a1"], rows[f"occ-board-sol-retry/{OCC_OTHER}-joint-a1"]
+    assert (masked["on_board"], masked["superseded_by"]) == (False, retry["run_id"])
+    assert (retry["on_board"], retry["superseded_by"], retry["set"]) == (True, None, "board")
+    assert sum(r["on_board"] for r in rows.values()) == 4 and retry["date"] == "2025-01-11"
+    assert (retry["replays_exactly"], retry["audit_ok"], retry["cancelled"], retry["crew_moves"]) == (True, True, 3, 3)
+    assert (retry["desks"], retry["input_tokens"], retry["cap_usd_per_desk"]) == (["crew", "ops"], 200, 5.0)
+    [canary] = pq.read_table(io.BytesIO(files["episodes/v2-control.parquet"])).to_pylist()
+    assert (canary["set"], canary["on_board"], canary["split"]) == ("pilot", False, "control")
+    desks = pq.read_table(io.BytesIO(files["desks/v2-eval.parquet"]))
+    assert desks.num_rows == 2 + 1 + 2 + 1 + 2 and desks.schema.field("messages").type == pa.list_(hub.tables.MESSAGE)
+    joint, one, b0, paired = pq.read_table(io.BytesIO(files["results/v2-board.parquet"])).to_pylist()
+    assert (joint["mode"], joint["dates"], joint["mean_reward"]) == ("joint", 2, round((0.7 + 0.4) / 2, 4))
+    assert (one["mean_reward"], b0["mean_reward"]) == (0.55, 0.3083)
+    assert (paired["mean_reward"], paired["higher_on"], paired["lower_on"]) == (0.0, 1, 1)
+    assert joint["ci_low"] <= joint["mean_reward"] <= joint["ci_high"] and joint["spend_usd"] == 2.0
+    card = json.loads(files["results/eval-v2.json"])
+    assert set(card) == EVAL_CARD and (card["env"], card["version"], card["tasks"]["n"]) == ("airops-occ", "v2", 2)
+    assert [m["model"] for m in card["models"]] == ["GPT-6.1 Sol, two desks, talking",
+                                                    "GPT-6.1 Sol, one agent at both desks"]
+    assert "| GPT-6.1 Sol, two desks, talking | 2 | **0.550**" in board_md
+
+
+def test_a_recorded_day_is_replayed_again_only_when_it_changed(hub, tmp_path, monkeypatch):
+    runs, replays = _occ_runs(tmp_path)
+    stale = replays / f"occ-board-sol.{OCC_EVAL}-one-a1.json"
+    stale.write_text(json.dumps({"digest": "before", "exact": False, "mismatches": 2, "first": []}))
+    done = []
+    monkeypatch.setattr(hub, "replay_day", lambda job: done.append(job[0]) or (job[0], {"exact": True,
+                                                                                         "mismatches": 0}))
+    pack = Pack(_occ_pack(tmp_path, (OCC_EVAL, OCC_CONTROL, OCC_OTHER)))
+    attempts = hub.occ_attempts(runs, ["occ-board-sol"], pack)
+    checked = hub.occ_replays(attempts, runs, pack, replays, 1)
+    assert done == [f"occ-board-sol/{OCC_EVAL}-one-a1"] and all(c["exact"] for c in checked.values())
+
+
+def test_the_control_center_viewer_is_merged_in_first_and_its_copy_of_a_shared_file_wins(hub, tmp_path, capsys):
+    v1 = {"viewer/episodes/index.json": json.dumps({"version": 1, "episodes": [{"url": "v1.json"}]}).encode(),
+          "viewer/episodes/v1.json": b"{}", "viewer/stage/JFK/stage.json.gz": b"old"}
+    occ_viewer = tmp_path / "occ"
+    for path, content in {"episodes/index.json": json.dumps({"version": 1, "episodes": [
+            {"url": "occ.json", "occ": "two desks", "featured": 1}]}), "episodes/occ.json": "{}",
+            "stage/JFK/stage.json.gz": "new"}.items():
+        (occ_viewer / path).parent.mkdir(parents=True, exist_ok=True)
+        (occ_viewer / path).write_text(content)
+    files = hub.merge_viewer(v1, occ_viewer)
+    assert json.loads(files["viewer/episodes/index.json"])["episodes"] == [
+        {"url": "occ.json", "occ": "two desks", "featured": 1}, {"url": "v1.json"}]
+    assert files["viewer/stage/JFK/stage.json.gz"] == b"new" and files["viewer/episodes/v1.json"] == b"{}"
+    assert "viewer/stage/JFK/stage.json.gz" in capsys.readouterr().out
+
+
+def test_the_card_leads_with_v2s_tables_and_board_and_keeps_v1s(hub):
+    files = {p: b"" for p in ("tasks/v2-eval.parquet", "tasks/v2-train.parquet", "tasks/v2-control.parquet",
+                              "episodes/v2-eval.parquet", "desks/v2-eval.parquet", "results/v2-board.parquet",
+                              "tasks/v1-eval.parquet", "results/board.parquet", "episodes/v1-eval.parquet")}
+    text = hub.card_text(PLUGIN, files, "| Claude |", "| GPT-6.1 Sol, two desks |")
+    data = DatasetCard(text).data.to_dict()
+    assert [c["config_name"] for c in data["configs"]] == [
+        "v2_tasks", "v2_board", "v2_runs", "v2_desks", "v1_tasks", "results", "v1_episodes", "airops_tasks",
+        "airops_episodes"]
+    assert [c for c in data["configs"] if c.get("default")] == [data["configs"][0]]
+    assert [f["split"] for f in data["configs"][0]["data_files"]] == ["eval", "control", "train"]
+    assert "<!-- board-v2 -->\n\n| GPT-6.1 Sol, two desks |\n\n<!-- /board-v2 -->" in text
+    assert text.index("<!-- board-v2 -->") < text.index("<!-- board -->")
