@@ -86,8 +86,9 @@ async function indexPage(app, url) {
       <p class="id">${esc(e.task_id)} · ${esc(e.run)}</p></div></a>`;
   };
   const board = (e) => (e.run ?? "").startsWith("occ-board");
-  const rank = (e) => [e.featured ? 0 : 1, e.featured ?? 0, board(e) || !e.occ ? 0 : 1, -(e.reward ?? -1)];
-  const order = (list) => [...list].sort((a, b) => rank(a).reduce((d, x, i) => d || x - rank(b)[i], 0));
+  const rank = (e) => (e.occ ? [e.featured ? 0 : 1, e.featured ?? 0, board(e) ? 0 : 1, e.date, e.occ === "two desks" ? 0 : 1] : [0, 0, 0, "", -(e.reward ?? -1)]);
+  const cmp = (x, y) => (typeof x === "string" ? x.localeCompare(y) : x - y);
+  const order = (list) => [...list].sort((a, b) => rank(a).reduce((d, x, i) => d || cmp(x, rank(b)[i]), 0));
   const grid = (list) => `<div class="grid">${order(list).map(card).join("")}</div>`;
   const head = (h) => `<h1>${esc(h.title)}</h1><p class="sub">${esc(h.sub)}</p><p class="intro">${esc(h.intro)}</p>`;
   const sections = [];
