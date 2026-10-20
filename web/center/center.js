@@ -9,7 +9,7 @@ import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUnifo
 import { buildCards } from "./cards.js";
 import { ROOM, buildHall } from "./hall.js";
 import { buildPods } from "./pods.js";
-import { BASE as VIEWS, compose } from "./shots.js";
+import { THREE_DESKS, BASE as VIEWS, compose } from "./shots.js";
 import { WALL, buildWall } from "./wall.js";
 
 const CSS = `.cc-caption { position: absolute; z-index: 2; top: 12px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 4px;
@@ -193,7 +193,7 @@ export class ControlCenter {
     const cam = this.camera, rig = this.rig;
     if (rig.kind === "preset") {
       if (!rig.set) {
-        const v = VIEWS[rig.name];
+        const v = (this.pods.pods.size === 3 && THREE_DESKS[rig.name]) || VIEWS[rig.name];
         cam.position.copy(vec(v.from));
         cam.fov = v.fov;
         cam.updateProjectionMatrix();
