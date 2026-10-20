@@ -73,9 +73,9 @@ Point = tuple[float, float]
 
 def crews(ep: Mapping, sidecar: Mapping, stage: Mapping) -> list[dict]:
     """The crews' movements at the hub, a group per crew or per crews moving together: `key`, `kind` (report, out,
-    in, off, hotel, walkaround), `crew` ([pilots, cabin crew]), the `flights` it relates to, `stand` and `segs`, each {do: walk |
-    wait | van, t: [from, to] minutes, p: path ([x, y] metres) or at: [x, y], say: its tag}, a van's with v: shuttle |
-    hotel and dir: in | out."""
+    in, off, hotel, walkaround), `crew` ([pilots, cabin crew]), the `flights` it relates to, `stand` and `segs`, each
+    {do: walk | wait | van, t: [from, to] minutes, p: path ([x, y] metres) or at: [x, y], say: its tag}, a van's with
+    v: shuttle | hotel and dir: in | out."""
     occ = ep.get("occ") or {}
     site = Site.of(stage)
     if not occ.get("units") or site is None:

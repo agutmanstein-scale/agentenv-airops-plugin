@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.3.1/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-banner.jpg" alt="AirOpsEnv v2: JetBlue's operations control center in 3D on the Boston storm day of 13 July 2024, replayed from GPT-6.1 Sol's two desks: the ops controller and the crew scheduler at their pods under the video wall of the network, as the crew desk's hold of B6 515 is accepted" width="100%"></a>
+<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.3.2/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-banner.jpg" alt="AirOpsEnv v2: JetBlue's operations control center in 3D on the Boston storm day of 13 July 2024, replayed from GPT-6.1 Sol's two desks: the ops controller and the crew scheduler at their pods under the video wall of the network, as the crew desk's hold of B6 515 is accepted" width="100%"></a>
 
 <h1>AirOpsEnv v2: the ops control center</h1>
 
@@ -32,7 +32,7 @@ Every recorded run replays exactly through the env and passes its audit, and rep
 control-center room where the desks decide, and the airport where it plays out.
 
 <p align="center">
-  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.3.1/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-hero.webp" width="100%" alt="GPT-6.1 Sol's two desks run JetBlue's control center through the Boston storm of 13 July 2024: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave"></a>
+  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.3.2/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-hero.webp" width="100%" alt="GPT-6.1 Sol's two desks run JetBlue's control center through the Boston storm of 13 July 2024: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave"></a>
 </p>
 <p align="center"><sub>Two GPT-6.1 Sol desks run JetBlue's network through the Boston storm of Saturday 13 July 2024
 (<code>b6-20240713-0400</code>): 612 flights on 193 aircraft from 04:00, an FAA ground stop and a ground delay program
@@ -46,8 +46,8 @@ walks up to gate C23 and it takes off. Click it to replay the day in 3D, from th
 <a href="https://github.com/earakely-scale/agentenv-airops-plugin/releases/tag/v0.3.0">full film</a> and two more,
 Boston in fog and rain on 10 December 2023 and in snow on 11 January 2025, are on the v0.3.0 release.
 Airport © OpenStreetMap contributors (ODbL), imagery USGS The National Map; flights BTS; advisories FAA ATCSCC;
-radar NEXRAD via the Iowa Environmental Mesonet. The control-center room, the crew room and the crews' paths are drawn
-for display only.</sub></p>
+radar NEXRAD via the Iowa Environmental Mesonet. The control-center room, the crew room, the crews' paths and the
+walk-rounds are drawn for display only.</sub></p>
 
 **Contents:** [The control center](#the-control-center) · [How a day is played](#how-a-day-is-played) ·
 [The days](#the-days) · [Grading](#grading) · [The Sol board](#the-sol-board) · [Watch a run](#watch-a-run) ·
@@ -256,18 +256,19 @@ watch by watch:
   pod.
 - **The airport**, in 3D as in v1, now with its crews: pilots and flight attendants in uniform walk from the crew room
   to their gates, ride the apron bus to remote stands, board as passengers when deadheading, and take the hotel van when
-  their duty ends away from base. An aircraft waiting for its crew sits at the gate tagged "waiting for crew", and tags
-  show the crew clock ("crew times out 22:40"). Every airline's flights move on their real times; the task's flights
-  follow the desks' decisions. The crew camera (key 7) stays with a crew.
+  their duty ends away from base; before pushback a first officer walks round each departing aircraft. An aircraft
+  waiting for its crew sits at the gate tagged "waiting for crew", and tags show the crew clock ("crew times out
+  22:40"). Every airline's flights move on their real times; the task's flights follow the desks' decisions. The crew
+  camera (key 7) stays with a crew.
 - **The US map**: the radar and the aircraft in the air, and the crews: resting in hotels away from base, the reserves
   still on call at each base, crews riding as passengers.
 - **Expert panes**: each crew on duty against its legal limit (FAR 117 or 121.467), the full log of requests between
   the desks with their answers, and the page each desk read at its turn.
 - **Films** cut between the room when the desks decide or talk and the airport when it plays out.
 
-The room is modelled on public photos of airline system operations centers; it, the crew room, the crews' walking
-paths, the apron bus and the hotel-van routes are display-only (none of them is public data), like v1's stands and
-taxi routes. Neither the env nor the grade sees them.
+The room is modelled on public photos of airline system operations centers; it, the crew room, the crews' walking paths,
+the first officers' walk-rounds, the apron bus and the hotel-van routes are display-only (none of them is public data),
+like v1's stands and taxi routes. Neither the env nor the grade sees them.
 
 ```bash
 python scripts/occ_episodes.py occ-board-sol --replay --out cache/occ/viewer --space-out cache/occ/space
@@ -287,7 +288,7 @@ framework, build the env and the desk agent and register them, and check the wir
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.1"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.2"
 agent-env airops-occ setup                    # builds airops-occ and airops-desk for this machine's Docker
 agent-env airops-occ tasks --noplay           # writes results/bundles/airops-occ: each eval date, joint and one
 agent-env run results/bundles/airops-occ --task wiring-noplay
@@ -308,8 +309,8 @@ both modes, the very task files the board ran (each desk's cost cap $5 in a two-
 `wiring-noplay`. The dataset's default bundle is v1's `airops`, so name this one:
 
 ```bash
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.1 --bundle airops-occ --task wiring-noplay
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.1 --bundle airops-occ --task b6-20240713-0400-joint \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.2 --bundle airops-occ --task wiring-noplay
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.2 --bundle airops-occ --task b6-20240713-0400-joint \
     --model openai/gpt-6.1-sol
 ```
 
@@ -377,9 +378,9 @@ python scripts/occ_episodes.py occ-board-sol occ-board-sol-retry occ-pilot-sol o
     --exclude occ-board-sol/b6-20260709-0400-joint --label occ-board-sol-retry=occ-board-sol \
     --featured occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400 --replay --out cache/occ/viewer-release
 python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --workers 6 \
-    --out cache/hub/dataset-v0.3.1 --space-out cache/hub/space-v0.3.1
+    --out cache/hub/dataset-v0.3.2 --space-out cache/hub/space-v0.3.2
 python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --workers 6 \
-    --out cache/hub/dataset-v0.3.1 --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.3.1
+    --out cache/hub/dataset-v0.3.2 --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.3.2
 ```
 
 `hub_dataset.py` replays every recorded control-center day through the env's calls for `v2_runs` (a few minutes a
@@ -579,7 +580,7 @@ framework, build the env and agent images and register them, and check the wirin
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.1"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.2"
 agent-env airops setup --agent        # builds airops-day and airops-llm for this machine's Docker
 agent-env run airops --task wiring-noplay
 ```
@@ -596,7 +597,7 @@ agent-env run airops --task b6-bos-20250216-1500 --model openai/gpt-6.1-sol
 Or play one straight from the dataset, which pins this release:
 
 ```bash
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.1 --task b6-bos-20250216-1500 \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.2 --task b6-bos-20250216-1500 \
     --model anthropic/claude-sonnet-5-5
 ```
 
