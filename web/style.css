@@ -339,6 +339,9 @@ html.light, html.light body { background: #eef1f4; color: #14202b; overflow: aut
 .decs li.d-cancel, .decs li.d-cancel_pair { box-shadow: inset 2px 0 0 var(--cancel); }
 .decs li.d-hold, .decs li.d-claim { box-shadow: inset 2px 0 0 var(--hold); }
 .decs li.d-assign, .decs li.d-call_reserve, .decs li.d-deadhead, .decs li.d-swap, .decs li.d-rest { box-shadow: inset 2px 0 0 #c99bff; }
+.decs li.d-rebook, .decs li.d-hotel { box-shadow: inset 2px 0 0 #e9c27a; }
+@media (max-height: 960px) { .room.three blockquote { -webkit-line-clamp: 2; } }
+@media (max-height: 820px) { .room.three .decs li:nth-child(n+2) { display: none; } .room.three blockquote { -webkit-line-clamp: 1; } }
 .room blockquote { margin: 5px 0 0; padding: 3px 10px; border-left: 3px solid #c3d3db; color: #dfe7eb; font-style: italic; font-size: 12px;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .room blockquote span { font-style: normal; color: var(--muted); margin-right: 3px; }

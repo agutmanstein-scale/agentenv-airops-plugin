@@ -35,6 +35,7 @@ export class Room {
     this.rows = three ? 2 : DECISIONS;
     this.asks = three ? 2 : REQUESTS;
     el.classList.add("room");
+    el.classList.toggle("three", three);
     el.innerHTML = `<div class="room-h"><b>The ops control center</b><span>${esc(this.occ.mode === "one"
       ? pax ? `${model} runs every desk: flights, crews and passengers` : `${model} runs both desks: flights and crews`
       : three ? `${model} at three desks: the ops controller runs the flights, the crew scheduler the crews, the customer desk the passengers`
