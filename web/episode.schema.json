@@ -185,20 +185,20 @@
     },
     "sources": {"type": "object"},
     "occ": {
-      "description": "A control-center day (two desks, ops and crew, or one agent at both): what the room did. Absent from hub-window episodes.",
+      "description": "A control-center day (two desks, ops and crew, three with the customer desk, or one agent at every desk): what the room did. Absent from hub-window episodes.",
       "type": "object",
       "required": ["mode", "desks", "requests", "decisions", "crew"],
       "properties": {
         "mode": {"enum": ["joint", "one"]},
         "label": {"type": "string"},
-        "desks": {"type": "array", "items": {"enum": ["ops", "crew", "one"]}},
+        "desks": {"type": "array", "items": {"enum": ["ops", "crew", "customer", "one"]}},
         "requests": {
           "type": "array",
           "items": {
             "type": "object",
             "required": ["id", "sender", "receiver", "type", "sent", "status"],
             "properties": {
-              "id": {"type": "string"}, "sender": {"enum": ["ops", "crew"]}, "receiver": {"enum": ["ops", "crew"]},
+              "id": {"type": "string"}, "sender": {"enum": ["ops", "crew", "customer"]}, "receiver": {"enum": ["ops", "crew", "customer"]},
               "type": {"enum": ["TEXT", "HOLD", "CANCEL", "CANCEL_PAIR", "COVER"]},
               "flight": {"type": ["integer", "null"]}, "time": {"type": ["integer", "null"]},
               "text": {"type": ["string", "null"]}, "sent": {"type": "integer"},
@@ -206,7 +206,8 @@
               "replied": {"type": ["integer", "null"]}, "reply_text": {"type": ["string", "null"]},
               "shown": {"type": "number", "description": "The minute the room shows it sent (display only)."},
               "answered": {"type": ["number", "null"], "description": "The minute the room shows its answer (display only)."},
-              "actions": {"type": "array", "items": {"type": "object"}}
+              "actions": {"type": "array", "items": {"type": "object"}},
+              "pax": {"type": "integer", "minimum": 0, "description": "The passengers it is about: a customer desk's hold, the connecting passengers it protects."}
             }
           }
         },
@@ -215,9 +216,11 @@
           "items": {
             "type": "object",
             "required": ["t", "desk", "action"],
-            "properties": {"t": {"type": "integer"}, "shown": {"type": "number"}, "desk": {"enum": ["ops", "crew", "one"]}, "action": {"type": "string"},
+            "properties": {"t": {"type": "integer"}, "shown": {"type": "number"}, "desk": {"enum": ["ops", "crew", "customer", "one"]}, "action": {"type": "string"},
                            "flight": {"type": ["integer", "null"]}, "detail": {"type": ["string", "null"]},
-                           "ref": {"type": ["string", "null"]}, "via": {"type": "string"}}
+                           "ref": {"type": ["string", "null"]}, "via": {"type": "string"},
+                           "to": {"type": ["integer", "null"], "description": "A rebooking's new flight."},
+                           "pax": {"type": ["integer", "null"], "minimum": 0}, "at": {"type": ["string", "null"], "description": "A hotel's station."}}
           }
         },
         "notes": {"type": "array", "items": {"type": "object", "required": ["t", "desk", "note"]}},
@@ -244,6 +247,49 @@
         "refs": {"type": "array", "items": {"type": "object", "required": ["label", "reward"]}},
         "grade": {"type": "object"},
         "absent": {"type": "object"}
+      }
+    },
+    "passengers": {
+      "description": "The day's passengers (v3): each flight's bookings, connections and what became of them, and their day as events. Absent before v3.",
+      "type": "object",
+      "required": ["flights", "connections", "events"],
+      "properties": {
+        "flights": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "booked", "flown"],
+            "properties": {
+              "id": {"type": "integer"}, "booked": {"type": "integer", "minimum": 0}, "added": {"type": "integer", "minimum": 0},
+              "conn_in": {"type": "integer", "minimum": 0}, "conn_out": {"type": "integer", "minimum": 0},
+              "flown": {"type": "integer", "minimum": 0}, "misconnected": {"type": "integer", "minimum": 0},
+              "rebooked": {"type": "array", "items": {"type": "object", "required": ["to", "pax"],
+                                                      "properties": {"to": {"type": "integer"}, "pax": {"type": "integer", "minimum": 0}}}},
+              "stranded": {"type": "integer", "minimum": 0}, "home": {"type": "integer", "minimum": 0},
+              "hold": {"type": "integer", "minimum": 0, "description": "Minutes its departure waited for connecting passengers."}
+            }
+          }
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["from", "to", "at", "pax", "made"],
+            "properties": {"from": {"type": "integer"}, "to": {"type": "integer"}, "at": {"type": "string"},
+                           "pax": {"type": "integer", "minimum": 0}, "made": {"type": "integer", "minimum": 0}}
+          }
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["t", "kind", "at", "flight", "pax"],
+            "properties": {"t": {"type": "integer"}, "kind": {"enum": ["misconnect", "rebook", "hotel", "home"]},
+                           "at": {"type": "string"}, "flight": {"type": "integer"}, "from": {"type": "integer"},
+                           "to": {"type": "integer"}, "pax": {"type": "integer", "minimum": 0},
+                           "until": {"type": ["integer", "null"]}}
+          }
+        }
       }
     }
   },

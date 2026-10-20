@@ -346,7 +346,7 @@ function huddle(it, s, p, out, shift = 0) {
   out[4] = 0;
 }
 
-function sample(p, cum, d, side, out) {
+export function sample(p, cum, d, side, out) {
   let i = 1;
   while (i < p.length - 1 && cum[i] < d) i++;
   if (p.length < 2) {
@@ -368,7 +368,7 @@ function sample(p, cum, d, side, out) {
 
 /** A van's pose at T: driving its road over [t0, t1] (eased), standing at the curb `park` minutes after it drops a
  * crew off or before it picks one up; null when it is not there. */
-function vanAt(s, T) {
+export function vanAt(s, T) {
   const [t0, t1] = s.t;
   const via = s.dir === "via";
   if (T < t0 - (s.dir !== "in" ? s.park : 0) || T > t1 + (s.dir !== "out" ? s.park : 0)) return null;
@@ -381,7 +381,7 @@ function vanAt(s, T) {
   return { x: o[0], y: o[1], heading: o[3], fade: Math.min(1, far / FADE) };
 }
 
-function placeVan(g, s, pose) {
+export function placeVan(g, s, pose) {
   g.visible = pose.fade > 0.02;
   g.position.set(pose.x, 0.02, -pose.y);
   g.rotation.set(0, -pose.heading * (Math.PI / 180), 0);
@@ -392,7 +392,7 @@ function placeVan(g, s, pose) {
   g.userData.mat.depthWrite = pose.fade >= 1;
 }
 
-function colored(geo, col, x = 0, y = 0, z = 0) {
+export function colored(geo, col, x = 0, y = 0, z = 0) {
   const c = new THREE.Color(col);
   geo.translate(x, y, z);
   const g = geo.index ? geo.toNonIndexed() : geo;
@@ -457,7 +457,7 @@ function figureKit() {
   return { pilot, cabin, head, leg, bag, flightbag, vest };
 }
 
-function buildVan() {
+export function buildVan() {
   const g = new THREE.Group();
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.15 });
   const wheel = (x, z) => colored(new THREE.CylinderGeometry(0.36, 0.36, 0.26, 14).rotateZ(Math.PI / 2), "#121314", x, 0.36, z);
