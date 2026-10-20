@@ -105,7 +105,7 @@ function note(list) {
   const by = new Map();
   for (const e of runs) by.set(e.occ, [...(by.get(e.occ) ?? []), e.reward]);
   const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
-  const parts = [...by].map(([label, rs]) => `${mean(rs).toFixed(3)} with ${label}`);
+  const parts = [...by].sort((a, b) => mean(b[1]) - mean(a[1])).map(([label, rs]) => `${mean(rs).toFixed(3)} with ${label}`);
   const days = new Set(runs.map((e) => e.task_id)).size, model = runs[0].model_label ?? runs[0].model;
   return `<p class="note">The board: ${esc(model)} on ${days} storm days scores a mean reward of ${esc(parts.join(" and "))}. 1 is the best plan found; the standard crew desk scores about 0.31.</p>`;
 }
