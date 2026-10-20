@@ -36,7 +36,8 @@ agentenv:
 at Logan in the afternoon. The crew scheduler makes 34 crew moves, the ops controller cancels 7 flights and holds 3,
 and between them pass 15 messages, a HOLD and three COVER requests. Flown on what really happened, the day saves 86% of
 what standard crew-desk practice leaves on the table: reward 0.806, against 0.657 for one Sol agent running both desks
-and 0.308 for the standard crew desk. Click to replay it in 3D: the control-center room and the airport.</sub>
+and 0.308 for the standard crew desk. In the clip the crew desk's HOLD of B6 515 is accepted in the room and B6 515
+pushes back held until 07:45. Click to replay the day in 3D: the control-center room and the airport.</sub>
 
 <h1>AirOpsEnv v2: the ops control center</h1>
 

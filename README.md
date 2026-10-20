@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://earakely-scale-airopsenv-agentenv.static.hf.space/viewer/index.html?episode=https%3A%2F%2Fhuggingface.co%2Fdatasets%2Fearakely-scale%2FAirOpsEnv-AgentEnv%2Fresolve%2Fv0.3.0%2Fviewer%2Fepisodes%2Focc-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json"><img src="assets/airops-occ-banner.jpg" alt="AirOpsEnv v2: JetBlue's operations control center on the storm day of 13 July 2024, the two desks in the control-center room and Boston Logan in 3D, replayed from GPT-6.1 Sol's run" width="100%"></a>
+<a href="https://earakely-scale-airopsenv-agentenv.static.hf.space/viewer/index.html?episode=https%3A%2F%2Fhuggingface.co%2Fdatasets%2Fearakely-scale%2FAirOpsEnv-AgentEnv%2Fresolve%2Fv0.3.0%2Fviewer%2Fepisodes%2Focc-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json"><img src="assets/airops-occ-banner.jpg" alt="AirOpsEnv v2: JetBlue's operations control center in 3D on the Boston storm day of 13 July 2024, replayed from GPT-6.1 Sol's two desks: the ops controller and the crew scheduler at their pods under the video wall of the network, as the crew desk's hold of B6 515 is accepted" width="100%"></a>
 
 <h1>AirOpsEnv v2: the ops control center</h1>
 
@@ -40,8 +40,11 @@ at Logan in the afternoon. The crew scheduler makes 34 crew moves (24 assignment
 call and 2 releases); the ops controller cancels 7 flights and holds 3; between them pass 15 messages, a HOLD the ops
 desk accepts and three COVER requests, two of them accepted. Flown on what really happened, the day costs 13.4% more
 than the best plan found in hindsight and saves 86% of what standard crew-desk practice leaves on the table: reward
-0.806, against 0.657 for one Sol agent running both desks and 0.308 for the standard crew desk. Replayed on the env's
-viewer; <a href="https://github.com/earakely-scale/agentenv-airops-plugin/releases/tag/v0.3.0">full film</a>.
+0.806, against 0.657 for one Sol agent running both desks and 0.308 for the standard crew desk. In the clip the crew
+desk's HOLD of B6 515 to Buffalo is accepted in the room and B6 515 pushes back held until 07:45; later B6 451's crew
+walks up to gate C23 and it takes off. Replayed on the env's viewer; the
+<a href="https://github.com/earakely-scale/agentenv-airops-plugin/releases/tag/v0.3.0">full film</a> and two more,
+Boston in fog and rain on 10 December 2023 and in snow on 11 January 2025, are on the release.
 Airport © OpenStreetMap contributors (ODbL), imagery USGS The National Map; flights BTS; advisories FAA ATCSCC;
 radar NEXRAD via the Iowa Environmental Mesonet. The control-center room, the crew room and the crews' paths are drawn
 for display only.</sub></p>
