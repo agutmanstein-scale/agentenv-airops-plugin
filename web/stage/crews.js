@@ -75,8 +75,10 @@ export function buildCrews(list = []) {
     get count() {
       return live.reduce((n, g) => n + (g.shown || 0), 0);
     },
-    /** Pose the crews about at minute T; rate is the replay's clock rate (0 paused), wall the wall clock in seconds. */
-    update(T, wall, rate = 0) {
+    /** Pose the crews about at minute T; rate is the replay's clock rate (0 paused), wall the wall clock in seconds;
+     * a person inside a building (inside(x, y)), gone in at the end of a walk or passing through a pier's root, isn't
+     * drawn, as one through the door at the end of the walk or up the jet bridge isn't. */
+    update(T, wall, rate = 0, inside = null) {
       const n = { pilot: 0, cabin: 0, head: 0, leg: 0, bag: 0, flightbag: 0, vest: 0, blob: 0 };
       const huddles = new Map();
       let v = 0;
@@ -108,7 +110,7 @@ export function buildCrews(list = []) {
           const sum = [0, 0, 0];
           for (const p of it.people) {
             if (n.head >= CAP) break;
-            if (!personAt(it, k, T, p, at, shift)) continue;
+            if (!personAt(it, k, T, p, at, shift) || inside?.(at[0], at[1])) continue;
             const walking = at[4] === 1;
             sum[0] += at[0];
             sum[1] += at[1];

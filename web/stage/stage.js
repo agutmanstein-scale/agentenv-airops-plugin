@@ -26,6 +26,7 @@ const CURB_TURNS = [90, 65, 115, 45, 135, 25, 155];
  * in sight, is taken. */
 const CREW_HOLD = 3;
 const CREW_NEAREST = 0.8;
+const CELL = 50;
 /** The crew camera prefers a group in sight this many wall seconds at the clock's rate, and comes no nearer it than
  * this share of its place's distance as it eases between places. */
 const ease = (u) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
@@ -280,7 +281,7 @@ export class AirportStage {
       snow: (c, p, t) => s.snow * Math.min(1, Math.max(0.15, (t * 60 - p.since) / 2400)),
     });
     this.bridges.update(T, live, s);
-    this.crews.update(T, this.wall, this.rate || 0);
+    this.crews.update(T, this.wall, this.rate || 0, (this.inside ??= (x, y) => this.#indoors(x, y)));
     this.spray.update(T, live, s, this.camera);
     this.#aim(dt, live);
     this.env.focus(this.camera, this.focusAt);
@@ -404,16 +405,18 @@ export class AirportStage {
 
   /** The group the crew camera stays on: `key` while its people are drawn outdoors with a clear place to see them
    * from, else the group in sight longest (CREW_HOLD wall seconds or more at the clock's rate, if one is), else the
-   * next to come out, looked for at most every 0.1 s. */
+   * next to come out: at once when the crew followed boards or goes in, then at most every 0.1 s. */
   #crewInSight(key) {
     const rig = this.rig;
     const people = this.crews.shown(key);
-    if (people && !rig.blocked && !this.#indoors(people.x, people.y)) return key;
-    if (this.wall - (rig.checked ?? -1) < 0.1) return key;
+    const was = rig.inSight;
+    rig.inSight = !!people && !rig.blocked && !this.#indoors(people.x, people.y);
+    if (rig.inSight) return key;
+    if (!was && this.wall - (rig.checked ?? -1) < 0.1) return key;
     rig.checked = this.wall;
     const next = this.crews.pick(this.T, this.#flightsOf(this.featured), { ok: (k) => this.#crewClear(k), hold: (CREW_HOLD * (this.rate || 0)) / 60 });
     if (!next || next === key) return key;
-    Object.assign(rig, { key: next, at: `crew:${next}`, choice: null, last: null, off: null, tgt: null, blocked: false });
+    Object.assign(rig, { key: next, at: `crew:${next}`, choice: null, last: null, off: null, tgt: null, blocked: false, inSight: false });
     this.featured = this.#aircraftOf(next) ?? this.featured;
     return next;
   }
@@ -536,17 +539,28 @@ export class AirportStage {
     return this.clear.spot;
   }
 
+  /** Whether (x, y) is inside a building near the hub, through a grid of the buildings' boxes, since the crews ask
+   * it for every person they draw. */
   #indoors(x, y) {
     if (!this.blocks) {
       const home = homeOf(this.data).centre;
       const near = (b) => b.outer.some(([px, py]) => Math.hypot(px - home[0], py - home[1]) < 2500);
-      this.blocks = [...this.data.terminals, ...(this.data.hangars || []), ...(this.data.buildings || [])].filter(near).map((b) => {
+      this.blocks = new Map();
+      for (const b of [...this.data.terminals, ...(this.data.hangars || []), ...(this.data.buildings || [])].filter(near)) {
         const xs = b.outer.map((p) => p[0]);
         const ys = b.outer.map((p) => p[1]);
-        return { ring: b.outer, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] };
-      });
+        const block = { ring: b.outer, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] };
+        for (let i = Math.floor(block.box[0] / CELL); i <= Math.floor(block.box[2] / CELL); i++) {
+          for (let j = Math.floor(block.box[1] / CELL); j <= Math.floor(block.box[3] / CELL); j++) {
+            const k = `${i},${j}`;
+            if (!this.blocks.has(k)) this.blocks.set(k, []);
+            this.blocks.get(k).push(block);
+          }
+        }
+      }
     }
-    return this.blocks.some((b) => x >= b.box[0] && x <= b.box[2] && y >= b.box[1] && y <= b.box[3] && inRing(b.ring, x, y));
+    const here = this.blocks.get(`${Math.floor(x / CELL)},${Math.floor(y / CELL)}`);
+    return !!here && here.some((b) => x >= b.box[0] && x <= b.box[2] && y >= b.box[1] && y <= b.box[3] && inRing(b.ring, x, y));
   }
 
   /** Whether the jet bridges, the buildings (their eaves and canopies over the walkway) and the aircraft with their
