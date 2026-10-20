@@ -128,18 +128,25 @@ def test_a_cancellation_rebooks_first_come_first_served_and_costs_the_refund_exp
     assert sim.execute(task, plan).cost.cancel == 523 * 100
 
 
-def test_optimal_rebooking_takes_the_earlier_arrival_first_come_first_served_by_departure_passes_by():
-    flights = [flight(0, "JFK", "PWM", 400, 60, pax=100, deadline=900),
-               flight(1, "JFK", "BOS", 500, 60, pax=100, deadline=900),
-               flight(2, "JFK", "PWM", 520, 60, pax=100, deadline=900),
-               flight(3, "BOS", "PWM", 620, 60, pax=100, deadline=900)]
+def test_the_default_rebooking_takes_the_earliest_arrival_where_an_optimal_assignment_saves_a_later_passenger():
+    """X, off a cancelled flight at 240, takes the earliest arrival's last seats; Y, whose outbound is cancelled too,
+    lands at 415, too late for the slow flight at 420, and finds the fast one full. The optimal assignment swaps
+    them."""
+    flights = [flight(0, "BUF", "JFK", 300, 115, pax=100, deadline=900),
+               flight(1, "JFK", "PWM", 300, 60, pax=10, deadline=900),
+               flight(2, "JFK", "PWM", 430, 60, pax=10, deadline=900),
+               flight(3, "JFK", "PWM", 420, 140, pax=140, deadline=900),
+               flight(4, "JFK", "PWM", 480, 60, pax=140, deadline=900)]
     task = day(flights, [tail(f"N{i}", f.orig, end=f.dest) for i, f in enumerate(flights)], start=240)
-    passengers = Passengers(tuple(Group(i, (i,), 100 if i else 30) for i in range(4)))
-    runs = sim.execute(task, {0: {"cancel": True, "decided": 240}}).flights
+    passengers = Passengers((Group(0, (1,), 10), Group(1, (0, 2), 10), Group(2, (0,), 90), Group(3, (3,), 140),
+                             Group(4, (4,), 140)), fare=200.0)
+    runs = sim.execute(task, {1: {"cancel": True, "decided": 240}, 2: {"cancel": True, "decided": 240}}).flights
     fcfs, best = pax.fly(task, passengers, runs), pax.optimal(task, passengers, runs)
-    assert next(p for p in fcfs.parts if p.group == 0).legs == (1, 3)
-    assert next(p for p in best.parts if p.group == 0).legs == (2,)
-    assert best.delay == fcfs.delay - 30 * 100
+    assert next(p for p in fcfs.parts if p.group == 0).legs == (4,)
+    assert next(p for p in fcfs.parts if p.group == 1).kind == "stranded"
+    assert next(p for p in best.parts if p.group == 0).legs == (3,)
+    assert next(p for p in best.parts if p.group == 1).legs == (0, 4)
+    assert best.delay == 10 * (560 - 360) + 10 * (540 - 490) < fcfs.delay
 
 
 def mixed(seed: int):

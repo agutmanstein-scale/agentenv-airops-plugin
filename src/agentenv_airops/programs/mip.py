@@ -445,8 +445,10 @@ class Network:
             m.row({**r, **({c: pax.free[k] for c in gone[k]} if isinstance(k, int) else {})}, -INF, pax.free[k])
 
     def solve(self, time_limit: float = 600.0, gap: float = GAP, threads: int = 1, canonical: bool = True,
-              start: np.ndarray | None = None, fix: bool = True) -> Solution:
+              start: np.ndarray | None = None, fix: bool = True, seed: int | None = None) -> Solution:
+        """`seed` sets HiGHS's random seed, for independent searches of one model."""
         m = self.m
+        m.seed = seed
         lp = m.relax(time_limit, threads) if fix and canonical else None
         if lp is not None and lp.integral:
             status, objective, bound, mip_gap, wall, x = "Optimal", lp.objective, lp.objective, 0.0, lp.wall, lp.x
@@ -617,13 +619,18 @@ class Network:
 
 
 class _Started(_Model):
-    """v1's model, run from a start solution when one is given, within column bounds when given, or relaxed."""
+    """v1's model, run from a start solution when one is given, within column bounds when given, or relaxed, under a
+    HiGHS random seed when one is set."""
+
+    seed: int | None = None
 
     def run(self, time_limit: float, gap: float, threads: int, start: np.ndarray | None = None,
             lower: np.ndarray | None = None,
             upper: np.ndarray | None = None) -> tuple[str, float, float, float, float, np.ndarray]:
         h = self._highs(time_limit, threads, lower, upper)
         h.setOptionValue("mip_rel_gap", gap)
+        if self.seed is not None:
+            h.setOptionValue("random_seed", self.seed)
         n = len(self.cost)
         ints = np.array([c for c in range(n) if self.integer[c]], dtype=np.int32)
         h.changeColsIntegrality(len(ints), ints, np.array([highspy.HighsVarType.kInteger] * len(ints)))

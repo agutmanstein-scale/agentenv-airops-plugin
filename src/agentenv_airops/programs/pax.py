@@ -20,18 +20,19 @@ family's smallest seats for a flight that never flew); the crew sim is unchanged
 disrupted when a leg it holds is cancelled (at the decision, or when it reaches the leg's origin if that is later) or
 when it misses a connection (it arrives later than the outbound's departure less the station's MCT; at the outbound's
 pushback). JetBlue rebooks on JetBlue only (Contract of Carriage §37(c): "reaccommodation on the next available JetBlue
-flight in the same class of service"), first come, first served by scheduled departure: disruptions in time order, ties
-by the scheduled departure of the flight they were on, then group id; at its minute a disrupted group gives up its seats
-on the legs it can no longer fly and takes, in order of scheduled departure (then scheduled arrival, fewer legs, ids),
-the JetBlue itineraries to its final destination the schedule sells from where it is, direct or through one connecting
-station (from its MCT to DWELL minutes), every leg not cancelled by then and leaving at or after the group is ready, as
-many of the group as each has seats for. Ready: at its origin one MCT after the decision, earlier flights than the one
-it booked included (an assumption: a passenger at its origin is taken to be at the airport); at a connection its arrival
-plus the MCT. A rebooked flight cancelled later, or a connection missed again, disrupts it again. Who has no seat that
-day takes, in the order stranded, the first seats of the DAYS following days' published BTS schedules (`Seat`, seats
-left after their own T-100 loads; with none given, today's schedule on each following day, seats not limited), a night
-away for each night it waits; who has none within those days is refunded at that minute, per JetBlue's Customer Service
-Plan ("Rebook to an alternate JetBlue flight within five days" or a full refund).
+flight in the same class of service"), first come, first served, the earliest scheduled arrival first (the default
+rebooking): disruptions in time order, ties by the scheduled departure of the flight they were on, then group id; at its
+minute a disrupted group gives up its seats on the legs it can no longer fly and takes, in order of scheduled arrival at
+its final destination (then scheduled departure, fewer legs, ids), the JetBlue itineraries to its final destination the
+schedule sells from where it is, direct or through one connecting station (from its MCT to DWELL minutes), every leg not
+cancelled by then and leaving at or after the group is ready, as many of the group as each has seats for. Ready: at its
+origin one MCT after the decision, earlier flights than the one it booked included (an assumption: a passenger at its
+origin is taken to be at the airport); at a connection its arrival plus the MCT. A rebooked flight cancelled later, or a
+connection missed again, disrupts it again. Who has no seat that day takes, in the order stranded and in the same order
+of arrival, the seats of the DAYS following days' published BTS schedules (`Seat`, seats left after their own T-100
+loads; with none given, today's schedule on each following day, seats not limited), a night away for each night it
+waits; who has none within those days is refunded at that minute, per JetBlue's Customer Service Plan ("Rebook to an
+alternate JetBlue flight within five days" or a full refund).
 
 Cost P (cost.priced, in passenger-minutes at the FAA's $1.07): every v2 term but two. Each passenger's delay is charged
 at the final destination, rebooked or a later day's arrival included, in place of v2's delay at every leg; a refunded
@@ -348,16 +349,16 @@ class Timetable:
             self.od[(f.orig, f.dest)].append(f)
 
     def itineraries(self, s: str, d: str, ok: Callable, then: Callable) -> list[tuple]:
-        """The itineraries from s to d whose first flight passes `ok` and second `then`, by scheduled departure, then
-        scheduled arrival, fewer flights and the flights."""
-        out = [(_dep(f), _arr(f), 1, (_key(f),), (f,)) for f in self.od.get((s, d), ()) if ok(f)]
+        """The itineraries from s to d whose first flight passes `ok` and second `then`, by scheduled arrival, then
+        scheduled departure, fewer flights and the flights."""
+        out = [(_arr(f), _dep(f), 1, (_key(f),), (f,)) for f in self.od.get((s, d), ()) if ok(f)]
         for h in CONNECT:
             if h in (s, d) or not self.od.get((s, h)) or not self.od.get((h, d)):
                 continue
             seconds = [g for g in self.od[(h, d)] if then(g)]
             for f in self.od[(s, h)]:
                 if ok(f):
-                    out += [(_dep(f), _arr(g), 2, (_key(f), _key(g)), (f, g)) for g in seconds
+                    out += [(_arr(g), _dep(f), 2, (_key(f), _key(g)), (f, g)) for g in seconds
                             if mct(h) <= _dep(g) - _arr(f) <= DWELL]
         return [legs for *_, legs in sorted(out, key=lambda x: x[:4])]
 
@@ -375,8 +376,8 @@ def _key(f) -> int | str:
 
 
 class Later:
-    """The DAYS following days' published schedules and their seats left, first come first served by scheduled
-    departure; without them, today's schedule on each following day, seats not limited."""
+    """The DAYS following days' published schedules and their seats left, first come first served, the earliest
+    scheduled arrival first; without them, today's schedule on each following day, seats not limited."""
 
     def __init__(self, task: Task, seats: tuple[Seat, ...]):
         self.flights = seats or tuple(Seat(f"{f.id} +{k}", f.orig, f.dest, f.sched_dep + 1440 * k,

@@ -8,24 +8,23 @@ pax_step0 = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(pax_step0)
 
 
-def row(date: str, k: float, combined: float, gap: float, wall: float = 1700.0) -> dict:
-    shares = {"plan": combined / 2, "rebooking": combined / 2, "combined": combined}
-    return {"date": date, "k": k, "split": "eval", "shares": shares, "G2": {"proven_1pct": gap <= 1 and wall <= 1800},
-            "changed": {"either_changed_share": 0.3}, "mip": {"gap_pct": gap, "wall_s": wall}}
+def row(date: str, v2: float, pax: float, split: str = "eval") -> dict:
+    return {"date": date, "split": split, "ratio": v2 / pax, "G1": v2 >= pax_step0.G1_RATIO * pax, "won": "incumbent",
+            "rebooking": {"share": 0.02}, "sensitivity": {"0.5": {"ratio": 1.01}, "2": {"ratio": 1.1}},
+            "mip": {"status": "Time limit reached", "gap_pct": 3.0, "wall_s": 1790.0}}
 
 
-def test_the_guards_are_recomputed_from_the_per_date_files_alone(tmp_path):
+def test_g1_and_its_ratios_are_recomputed_from_the_per_date_files_alone(tmp_path):
     days = tmp_path / "dates"
     days.mkdir()
     for n in range(24):
         date = f"2024-07-{n + 1:02d}"
-        rows = [row(date, 1.0, 0.06 if n < 12 else 0.04, 0.5 if n < 20 else 2.0), row(date, 0.5, 0.01, 0.1)]
-        for r in rows:
-            pax_step0.path(days, date, r["k"]).write_text(json.dumps(r))
+        pax_step0.path(days, date).write_text(json.dumps(row(date, 106 if n < 12 else 104, 100)))
+    pax_step0.path(days, "2024-06-01").write_text(json.dumps(row("2024-06-01", 200, 100, "train")))
     g = pax_step0.guards(tmp_path)
-    assert (g["G1"]["passing"], g["G1"]["pass"]) == (12, True)
-    assert (g["G2"]["passing"], g["G2"]["pass"]) == (20, True)
-    assert g["medians"]["0.5"]["combined"] == 0.01
-    pax_step0.path(days, "2024-07-01", 1.0).write_text(json.dumps(row("2024-07-01", 1.0, 0.04, 0.5)))
+    assert (g["G1"]["dates"], g["G1"]["passing"], g["G1"]["pass"]) == (24, 12, True)
+    assert g["G1"]["ratios"]["2024-07-01"] == 1.06 and "2024-06-01" not in g["G1"]["ratios"]
+    assert g["G2_reported"]["2024-06-01"]["gap_pct"] == 3.0 and g["won"] == {"incumbent": 25}
+    pax_step0.path(days, "2024-07-01").write_text(json.dumps(row("2024-07-01", 105, 101)))
     assert not pax_step0.guards(tmp_path)["G1"]["pass"]
-    assert "G1: FAIL" in pax_step0.report(pax_step0.guards(tmp_path))
+    assert "G1: FAIL, 11 of 24" in pax_step0.report(pax_step0.guards(tmp_path))

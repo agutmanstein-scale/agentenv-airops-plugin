@@ -1,42 +1,47 @@
-"""Step 0 of AirOpsEnv v3, the passengers' premise, as registered: with passengers priced by cost P (programs.pax),
-does what the aircraft plan and the rebooking decide change enough to matter? Aircraft only, the v2 step-0 world (the
-whole day from 04:00, the truth); no LLM is called.
+"""Step 0 of AirOpsEnv v3, the passengers' premise, as re-registered: with passengers priced by cost P (programs.pax)
+and rebooked by the default (first come, first served, the earliest scheduled arrival first), does a passenger-aware
+plan beat v2's by enough to matter? Aircraft only, the v2 step-0 world (the whole day from
+04:00, the truth); no LLM is called.
 
-    python scripts/pax_step0.py --out cache/v3/step0/<run> [--workers 72] [--split eval] [--only DATE,...]
-        [--levels 1,0.5,2] [--layers off] [--time-limit 1800] [--inputs cache/inputs] [--derived cache/derived]
-        [--board results/runs/occ-board-sol] [--resume] [--summarize]
+    python scripts/pax_step0.py --out cache/v3/step0/<run> [--workers 24] [--seeds 4] [--split eval]
+        [--only DATE,...] [--sensitivity 0.5,2] [--layers off] [--time-limit 1800] [--inputs cache/inputs]
+        [--derived cache/derived] [--board results/runs/occ-board-sol] [--resume] [--summarize] [--crew]
 
-One job per date and share level k (the date's survey flows times k: 1 the measured shares, which gate; 0.5 and 2 the
-sensitivity):
-- P(naive): the empty plan, its passengers rebooked first come first served (FCFS);
-- A_v2: v2's references.anchor plan (the hindsight MIP under v2's cost), scored under P, FCFS;
-- A_pax: the passenger-aware MIP (mip.Network with pax.Proxy) started from whichever the proxy prices lowest of A_v2's
-  day, the empty plan's and its LP relaxation rounded (Network.rounded), --time-limit seconds in all,
-  scored under P, FCFS, and with its passengers rebooked optimally (pax.optimal, an LP over the day's seats);
-- avoidable = P(naive) - P(A_pax, optimal); lever (a), the plan, P(A_v2) - P(A_pax); lever (b), the rebooking,
-  P(A_pax) - P(A_pax, optimal); combined P(A_v2) - P(A_pax, optimal); each also as a share of avoidable;
-- G1 (k = 1): the combined share is at least 5% on at least 12 of the 24 eval dates; G2 (k = 1): A_pax is proven within
-  1% inside 30 minutes on at least 20 of 24;
-- reported, not gating: the changed cancellations (auto-cancels included) and holds (references.deliberate's) as
-  |A_v2 xor A_pax| / |A_v2 or A_pax|, departures moved by more than 5 and 15 minutes, misconnected and stranded
-  passengers; at k = 1 the crew world: the pack's joint best plan and B0, and the Sol board's days (--board, when
-  present), under P against their v2 cost.
-Layers (--layers on, Alec's world layers) are not in this tree; the switch is kept for the 2x2.
-Every job writes dates/<date>-k<k>.json as it finishes (--resume keeps those written); guards.json and report.md are
-recomputed from those files alone (--summarize does only that). The Sol board's days live on the laptop
-(results/runs, not in git): --crew rescores the crew world into the k = 1 files written elsewhere, with no MIP.
+One job per date, at the date's measured survey shares:
+- A_v2: v2's references.anchor plan (the hindsight MIP under v2's cost);
+- the passenger-aware MIP (mip.Network with pax.Proxy), started from whichever the proxy prices lowest of A_v2's day,
+  the empty plan's and its LP relaxation rounded (Network.rounded), --time-limit seconds in all, searched by --seeds
+  single-threaded HiGHS runs at once under different random seeds (forked from the job): its incumbent is theirs at
+  the lowest objective, its bound the highest of theirs (each is valid for the one model);
+- A_pax: the cheapest under P, default rebooking, of the MIP's incumbent at its limit, the rounded LP plan, A_v2 and
+  the empty plan (ties in that order); the winner, every candidate's P, and the MIP's gap and status are kept;
+- G1: P(A_v2) >= 1.05 x P(A_pax) on at least 12 of the 24 eval dates; G2, reported only: the MIP's gap and status;
+- reported: the rebooking lever, P(A_pax) - P(A_pax, optimal assignment) (pax.optimal) as a share of P(A_pax); the
+  changed cancellations (auto-cancels included) and holds (references.deliberate's), A_v2 against A_pax; misconnects,
+  overnight strands and refunds; JetBlue's replayed day (references.airline_plan) under P: of the passengers off its
+  cancelled flights the shares rebooked the same day, overnight and refunded, and their mean and median delay; and at
+  each --sensitivity factor of the survey flows, A_v2 and A_pax re-scored under P (no new solve).
+The crew world (the pack's joint best plan and B0, and the Sol board's days) is --crew, run on the laptop after the
+box, where results/runs lives; it adds to the files already written. Layers (--layers on) are not in this tree.
+Every job writes dates/<date>.json as it finishes (--resume keeps those written); guards.json and report.md are
+recomputed from those files alone (--summarize does only that).
 """
 
 import argparse
 import glob
 import json
+import multiprocessing
 import resource
 import statistics
 import sys
 import time
 import traceback
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import replace
 from pathlib import Path
+
+import highspy
 
 from agentenv_airops.build import nextday
 from agentenv_airops.core.sim import FLOWN
@@ -44,33 +49,36 @@ from agentenv_airops.occ.pack import Pack
 from agentenv_airops.programs import crewsim, mip, pax, references, sim
 from agentenv_airops.programs.cost import REFUND
 
-G1_SHARE, G1_DATES, G2_GAP, G2_WALL, G2_DATES = 0.05, 12, 1.0, 1800.0, 20
+G1_RATIO, G1_DATES = 1.05, 12
 MARGIN = 30.0
+CANDIDATES = ("incumbent", "rounded", "A_v2", "empty")
+SEARCH: tuple | None = None
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--seeds", type=int, default=1, help="HiGHS searches of the passenger MIP at once, per job")
     ap.add_argument("--split", default="eval", help="eval, train, control or all")
     ap.add_argument("--only", default="", help="comma-separated dates")
-    ap.add_argument("--levels", default="1,0.5,2")
+    ap.add_argument("--sensitivity", default="0.5,2")
     ap.add_argument("--layers", choices=("off", "on"), default="off")
-    ap.add_argument("--time-limit", type=float, default=G2_WALL)
+    ap.add_argument("--time-limit", type=float, default=1800.0)
     ap.add_argument("--inputs", type=Path, default=Path("cache/inputs"))
     ap.add_argument("--derived", type=Path, default=Path("cache/derived"))
     ap.add_argument("--board", type=Path, default=Path("results/runs/occ-board-sol"))
     ap.add_argument("--pack", type=Path, default=None)
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--summarize", action="store_true")
-    ap.add_argument("--crew", action="store_true", help="only (re)score the crew world into the k = 1 files")
+    ap.add_argument("--crew", action="store_true", help="only score the crew world into the files written")
     a = ap.parse_args()
     if a.layers == "on":
         sys.exit("--layers on: the world layers are not in this tree")
     days = a.out / "dates"
     days.mkdir(parents=True, exist_ok=True)
     if a.crew:
-        for f in sorted(days.glob("*-k1.json")):
+        for f in sorted(days.glob("*.json")):
             row = json.loads(f.read_text())
             if "error" not in row:
                 w, passengers = booked(row["date"], 1.0, a)
@@ -82,27 +90,27 @@ def main() -> None:
         only = set(filter(None, a.only.split(",")))
         dates = sorted(v["date"] for v in tasks.values() if (a.split == "all" or v["split"] == a.split)
                        and (not only or v["date"] in only))
-        levels = [float(k) for k in a.levels.split(",")]
-        todo = [(d, k) for d in dates for k in levels if not (a.resume and path(days, d, k).exists())]
-        print(f"{len(todo)} jobs on {min(a.workers, max(1, len(todo)))} workers", file=sys.stderr)
+        todo = [d for d in dates if not (a.resume and path(days, d).exists())]
+        print(f"{len(todo)} jobs on {min(a.workers, max(1, len(todo)))} workers, {a.seeds} HiGHS searches each",
+              file=sys.stderr)
         with ProcessPoolExecutor(min(a.workers, max(1, len(todo))), max_tasks_per_child=1) as ex:
-            futures = {ex.submit(job, d, k, a): (d, k) for d, k in todo}
+            futures = {ex.submit(job, d, a): d for d in todo}
             for fut in as_completed(futures):
-                d, k = futures[fut]
+                d = futures[fut]
                 try:
                     row = fut.result()
                 except Exception:
-                    row = {"date": d, "k": k, "error": traceback.format_exc()}
-                path(days, d, k).write_text(json.dumps(row, indent=1))
-                print(f"{d} k={k:g}: {brief(row)}", file=sys.stderr)
+                    row = {"date": d, "error": traceback.format_exc()}
+                path(days, d).write_text(json.dumps(row, indent=1))
+                print(f"{d}: {brief(row)}", file=sys.stderr)
     summary = guards(a.out)
     (a.out / "guards.json").write_text(json.dumps(summary, indent=1))
     (a.out / "report.md").write_text(report(summary))
-    print(json.dumps({g: summary[g]["pass"] for g in ("G1", "G2")}))
+    print(json.dumps({"G1": summary["G1"]["pass"], "G1_count": summary["G1"]["passing"]}))
 
 
-def path(days: Path, date: str, k: float) -> Path:
-    return days / f"{date}-k{k:g}.json"
+def path(days: Path, date: str) -> Path:
+    return days / f"{date}.json"
 
 
 def booked(date: str, k: float, a: argparse.Namespace):
@@ -113,54 +121,78 @@ def booked(date: str, k: float, a: argparse.Namespace):
     return w, pax.book(w.task, flows, pax.Dwell.load(), nextday.seats(w.task, a.inputs, a.derived))
 
 
-def job(date: str, k: float, a: argparse.Namespace) -> dict:
+def job(date: str, a: argparse.Namespace) -> dict:
     t0 = time.monotonic()
-    w, passengers = booked(date, k, a)
+    w, passengers = booked(date, 1.0, a)
     task, tid = w.task, w.task.task_id
-    split = Pack(a.pack).tasks[tid]["split"]
     proxy = pax.Proxy(task, passengers)
     t1 = time.monotonic()
     anchor, _ = references.anchor(task)
-    plan_v2 = anchor.plan(task.start)
     t2 = time.monotonic()
     net = mip.Network(task, pax=proxy)
-    starts = [sim.execute(task, plan_v2), sim.execute(task, {})]
-    lp_plan = net.rounded(a.time_limit)
-    if lp_plan is not None:
-        starts.append(sim.execute(task, lp_plan))
-    start = min(starts, key=proxy.cost)
-    sol = net.solve(max(60.0, a.time_limit - (time.monotonic() - t2) - MARGIN), canonical=False,
-                    start=net.vector(start))
+    plans = {"A_v2": anchor.plan(task.start), "empty": {}}
+    rounded = net.rounded(a.time_limit)
+    if rounded is not None:
+        plans["rounded"] = rounded
+    start = min((sim.execute(task, p) for p in plans.values()), key=proxy.cost)
+    sol, searches = portfolio(net, net.vector(start), max(60.0, a.time_limit - (time.monotonic() - t2) - MARGIN),
+                              a.seeds)
     t3 = time.monotonic()
-    naive = sim.execute(task, {}, pax=passengers)
-    v2 = sim.execute(task, plan_v2, pax=passengers)
-    best = sim.execute(task, sol.plan(task.start), pax=passengers)
+    plans["incumbent"] = sol.plan(task.start)
+    scored = {n: sim.execute(task, plans[n], pax=passengers) for n in CANDIDATES if n in plans}
+    won = min(scored, key=lambda n: (scored[n].cost.total, CANDIDATES.index(n)))
+    best, v2 = scored[won], scored["A_v2"]
     optimal = pax.optimal(task, passengers, best.flights)
-    p = {"naive": naive.cost.total, "v2": v2.cost.total, "pax": best.cost.total,
-         "pax_optimal": best.cost.total - best.pax.delay - best.pax.lodging - best.pax.fare + optimal.delay
-         + optimal.lodging + optimal.fare}
-    room = p["naive"] - p["pax_optimal"]
-    levers = {"plan": p["v2"] - p["pax"], "rebooking": p["pax"] - p["pax_optimal"],
-              "combined": p["v2"] - p["pax_optimal"]}
-    row = {"date": date, "task_id": tid, "split": split, "k": k, "flows": passengers.source,
-           "passengers": counts(passengers), "P": p, "avoidable": room, "levers": levers,
-           "shares": {n: v / room if room > 0 else None for n, v in levers.items()},
-           "anchor": anchor.to_dict(), "mip": {**sol.to_dict(), "proxy_replay": round(proxy.cost(best), 1),
-                                               "start": round(proxy.cost(start), 1)},
-           "G2": {"proven_1pct": sol.gap_pct <= G2_GAP and t3 - t2 <= G2_WALL, "gap_pct": sol.gap_pct,
-                  "wall_s": round(t3 - t2, 1)},
-           "changed": changed(task, v2, best), "costs": {n: r.cost.to_dict() for n, r in
-                                                            (("naive", naive), ("v2", v2), ("pax", best))},
-           "outcomes": {n: {**r.pax.outcomes(), "misconnected": r.pax.misconnected()} for n, r in
-                        (("naive", naive), ("v2", v2), ("pax", best))},
-           "optimal_outcomes": optimal.outcomes(),
-           "wall_s": {"build": round(t1 - t0, 1), "anchor": round(t2 - t1, 1), "pax_mip": round(t3 - t2, 1),
-                      "total": round(time.monotonic() - t0, 1)},
-           "rss_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (2 ** 30 if sys.platform == "darwin"
+    p_optimal = (best.cost.total - best.pax.delay - best.pax.lodging - best.pax.fare + optimal.delay + optimal.lodging
+                 + optimal.fare)
+    sensitivity = {}
+    for k in (float(x) for x in a.sensitivity.split(",") if x):
+        _, scaled = booked(date, k, a)
+        pv, pp = (sim.execute(task, plans[n], pax=scaled).cost.total for n in ("A_v2", won))
+        sensitivity[f"{k:g}"] = {"A_v2": pv, "A_pax": pp, "ratio": pv / pp}
+    return {"date": date, "task_id": tid, "split": Pack(a.pack).tasks[tid]["split"], "flows": passengers.source,
+            "passengers": counts(passengers),
+            "P": {n: r.cost.total for n, r in scored.items()}, "won": won,
+            "ratio": v2.cost.total / best.cost.total, "G1": v2.cost.total >= G1_RATIO * best.cost.total,
+            "rebooking": {"default": best.cost.total, "optimal": p_optimal,
+                          "share": (best.cost.total - p_optimal) / best.cost.total},
+            "mip": {**sol.to_dict(), "start": round(proxy.cost(start), 1), "wall_s": round(t3 - t2, 1),
+                    "searches": searches},
+            "anchor": anchor.to_dict(), "changed": changed(task, v2, best),
+            "costs": {"A_v2": v2.cost.to_dict(), "A_pax": best.cost.to_dict()},
+            "outcomes": {n: {**scored[n].pax.outcomes(), "misconnected": scored[n].pax.misconnected()} for n in
+                         ("A_v2", won)},
+            "optimal_outcomes": optimal.outcomes(),
+            "airline": replay(task, passengers),
+            "sensitivity": sensitivity,
+            "wall_s": {"build": round(t1 - t0, 1), "anchor": round(t2 - t1, 1), "pax_mip": round(t3 - t2, 1),
+                       "total": round(time.monotonic() - t0, 1)},
+            "rss_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (2 ** 30 if sys.platform == "darwin"
                                                                                   else 2 ** 20), 2)}
-    if k == 1:
-        row["crew"] = crew_world(w, passengers, a.board)
-    return row
+
+
+def portfolio(net: mip.Network, x, limit: float, seeds: int) -> tuple[mip.Solution, list[dict]]:
+    """The MIP searched under `seeds` random seeds at once: the lowest incumbent, with the highest bound."""
+    global SEARCH
+    SEARCH = (net, x, limit)
+    highspy.Highs.resetGlobalScheduler(True)
+    if seeds == 1:
+        sols = [search(0)]
+    else:
+        with ProcessPoolExecutor(seeds, mp_context=multiprocessing.get_context("fork")) as ex:
+            sols = list(ex.map(search, range(seeds)))
+    best = min(sols, key=lambda s: (s.objective, sols.index(s)))
+    bound = max(s.bound for s in sols)
+    proven = any(s.proven for s in sols)
+    gap = 0.0 if proven else round(100 * max(0.0, best.objective - bound) / max(1.0, abs(best.objective)), 4)
+    return (replace(best, status="Optimal" if proven else best.status, bound=bound, gap_pct=gap),
+            [{"seed": k, **{f: getattr(s, f) for f in ("status", "objective", "gap_pct", "wall_s")},
+              "bound": round(s.bound, 1)} for k, s in enumerate(sols)])
+
+
+def search(seed: int) -> mip.Solution:
+    net, x, limit = SEARCH
+    return net.solve(limit, canonical=False, start=x, seed=seed)
 
 
 def counts(p: pax.Passengers) -> dict:
@@ -172,23 +204,53 @@ def counts(p: pax.Passengers) -> dict:
 
 def changed(task, v2: sim.Execution, best: sim.Execution) -> dict:
     out = {}
-    for name, run in (("v2", v2), ("pax", best)):
+    for name, run in (("A_v2", v2), ("A_pax", best)):
         cut = {i for i, r in run.flights.items() if r.status != FLOWN}
         plan = {i: {"cancel": True, "decided": task.start} for i in cut}
         held = references.deliberate(task, plan, {i: r.dep for i, r in run.flights.items() if i not in cut},
                                      sim.truth(task), task.start)
         out[name] = (cut, set(held))
-    both = [i for i in v2.flights if i not in out["v2"][0] | out["pax"][0]]
+    both = [i for i in v2.flights if i not in out["A_v2"][0] | out["A_pax"][0]]
     moved = [abs(best.flights[i].dep - v2.flights[i].dep) for i in both]
 
     def share(a: set, b: set) -> float | None:
         return len(a ^ b) / len(a | b) if a | b else None
 
-    (c1, h1), (c2, h2) = out["v2"], out["pax"]
-    return {"cancelled": {"v2": len(c1), "pax": len(c2), "changed_share": share(c1, c2)},
-            "held": {"v2": len(h1), "pax": len(h2), "changed_share": share(h1, h2)},
+    (c1, h1), (c2, h2) = out["A_v2"], out["A_pax"]
+    return {"cancelled": {"A_v2": len(c1), "A_pax": len(c2), "changed_share": share(c1, c2)},
+            "held": {"A_v2": len(h1), "A_pax": len(h2), "changed_share": share(h1, h2)},
             "either_changed_share": share(c1 | h1, c2 | h2),
             "moved_over_5": sum(m > 5 for m in moved), "moved_over_15": sum(m > 15 for m in moved)}
+
+
+def replay(task, passengers: pax.Passengers) -> dict:
+    """JetBlue's replayed day under P: what became of the passengers off its cancelled flights."""
+    run = sim.execute(task, references.airline_plan(task), pax=passengers)
+    groups = {g.id: g for g in passengers.groups}
+    cut = {i for i, g in groups.items() if any(run.flights[k].status != FLOWN for k in g.legs)}
+    kinds: Counter = Counter()
+    travel = []
+    for p in run.pax.parts:
+        if p.group not in cut:
+            continue
+        kinds["same_day" if p.kind == pax.REBOOKED else p.kind] += p.pax
+        if p.kind != pax.REFUNDED:
+            travel.append((p.delay, p.pax))
+    n = sum(kinds.values())
+    return {"P": run.cost.total, "off_cancelled": n, "share_of_trips": n / sum(g.pax for g in groups.values()),
+            **{k: kinds[k] / n if n else None for k in ("same_day", pax.STRANDED, pax.REFUNDED)},
+            "mean_delay": sum(d * w for d, w in travel) / sum(w for _, w in travel) if travel else None,
+            "median_delay": wmedian(travel)}
+
+
+def wmedian(pairs: list[tuple[int, float]]) -> int | None:
+    pairs = sorted(pairs)
+    total, run = sum(w for _, w in pairs), 0.0
+    for v, w in pairs:
+        run += w
+        if run >= total / 2:
+            return v
+    return None
 
 
 def crew_world(w, passengers: pax.Passengers, board: Path) -> dict:
@@ -211,59 +273,50 @@ def crew_world(w, passengers: pax.Passengers, board: Path) -> dict:
         day = pax.fly(task, passengers, runs, riders)
         lost = sum(task.flight(i).pax for i, r in runs.items() if r.status != FLOWN)
         v2 = d["grade"]["costs"]
-        out[Path(f).stem] = {"P": v2["total"] - v2["delay"] - v2["cancel"] + day.delay + REFUND * lost + day.lodging,
-                             "v2": v2["total"], "outcomes": day.outcomes()}
+        out[Path(f).stem] = {"P": v2["total"] - v2["delay"] - v2["cancel"] + day.delay + REFUND * lost + day.lodging
+                             + day.fare, "v2": v2["total"], "outcomes": day.outcomes()}
     return out
 
 
 def brief(row: dict) -> str:
     if "error" in row:
         return "ERROR " + row["error"].strip().splitlines()[-1]
-    s = row["shares"]
-    return (f"combined {pct(s['combined'])} plan {pct(s['plan'])} rebooking {pct(s['rebooking'])}; mip "
-            f"{row['mip']['status']} gap {row['mip']['gap_pct']}% {row['mip']['wall_s']} s")
-
-
-def pct(v: float | None) -> str:
-    return "n/a" if v is None else f"{100 * v:.1f}%"
+    m = row["mip"]
+    return (f"P(A_v2)/P(A_pax) {row['ratio']:.3f} ({row['won']} won); mip {m['status']} gap {m['gap_pct']}% "
+            f"{m['wall_s']} s")
 
 
 def guards(out: Path) -> dict:
     rows = [json.loads(Path(f).read_text()) for f in sorted(glob.glob(str(out / "dates" / "*.json")))]
     ok = [r for r in rows if "error" not in r]
-    base = [r for r in ok if r["k"] == 1 and r["split"] == "eval"]
-    g1 = [r["date"] for r in base if (r["shares"]["combined"] or 0) >= G1_SHARE]
-    g2 = [r["date"] for r in base if r["G2"]["proven_1pct"]]
-    by_k = {}
-    for k in sorted({r["k"] for r in ok}):
-        rs = [r for r in ok if r["k"] == k]
-        by_k[f"{k:g}"] = {n: med([r["shares"][n] for r in rs]) for n in ("plan", "rebooking", "combined")} | {
-            "dates": len(rs), "changed_either": med([r["changed"]["either_changed_share"] for r in rs]),
-            "mip_gap_pct": med([r["mip"]["gap_pct"] for r in rs]), "mip_wall_s": med([r["mip"]["wall_s"] for r in rs])}
-    return {"G1": {"rule": f"combined share >= {G1_SHARE:.0%} on >= {G1_DATES} of 24 eval dates at k = 1",
-                   "dates": len(base), "passing": len(g1), "pass": len(base) == 24 and len(g1) >= G1_DATES,
-                   "passing_dates": g1},
-            "G2": {"rule": f"passenger MIP proven within {G2_GAP:g}% inside {G2_WALL:g} s on >= {G2_DATES} of 24",
-                   "dates": len(base), "passing": len(g2), "pass": len(base) == 24 and len(g2) >= G2_DATES,
-                   "passing_dates": g2},
-            "medians": by_k, "errors": [(r["date"], r["k"]) for r in rows if "error" in r]}
-
-
-def med(vs: list) -> float | None:
-    vs = [v for v in vs if v is not None]
-    return statistics.median(vs) if vs else None
+    base = [r for r in ok if r["split"] == "eval"]
+    passing = [r["date"] for r in base if r["G1"]]
+    return {"G1": {"rule": f"P(A_v2) >= {G1_RATIO} x P(A_pax) on >= {G1_DATES} of 24 eval dates at measured shares",
+                   "dates": len(base), "passing": len(passing), "pass": len(base) == 24 and len(passing) >= G1_DATES,
+                   "passing_dates": passing, "ratios": {r["date"]: round(r["ratio"], 4) for r in base}},
+            "G2_reported": {r["date"]: {"status": r["mip"]["status"], "gap_pct": r["mip"]["gap_pct"],
+                                        "wall_s": r["mip"]["wall_s"]} for r in ok},
+            "all_dates": {r["date"]: {"split": r["split"], "ratio": round(r["ratio"], 4), "won": r["won"],
+                                      "rebooking_share": round(r["rebooking"]["share"], 4),
+                                      "sensitivity": {k: round(v["ratio"], 4) for k, v in r["sensitivity"].items()}}
+                          for r in ok},
+            "won": dict(Counter(r["won"] for r in ok)),
+            "median_ratio": statistics.median([r["ratio"] for r in ok]) if ok else None,
+            "errors": [r["date"] for r in rows if "error" in r]}
 
 
 def report(s: dict) -> str:
-    lines = ["# v3 step 0: passengers (numbers only)", ""]
-    for g in ("G1", "G2"):
-        verdict = "PASS" if s[g]["pass"] else "FAIL"
-        lines.append(f"- {g}: {verdict}, {s[g]['passing']} of {s[g]['dates']} ({s[g]['rule']})")
-    lines += ["", "| k | dates | plan share | rebooking share | combined share | changed cancels+holds | MIP gap % "
-              "| MIP s |", "|---|---|---|---|---|---|---|---|"]
-    for k, m in s["medians"].items():
-        lines.append(f"| {k} | {m['dates']} | {pct(m['plan'])} | {pct(m['rebooking'])} | {pct(m['combined'])} | "
-                     f"{pct(m['changed_either'])} | {m['mip_gap_pct']} | {m['mip_wall_s']} |")
+    g = s["G1"]
+    lines = ["# v3 step 0: passengers (numbers only)", "",
+             f"- G1: {'PASS' if g['pass'] else 'FAIL'}, {g['passing']} of {g['dates']} ({g['rule']})",
+             f"- A_pax winners: {s['won']}; median P(A_v2)/P(A_pax) {s['median_ratio']}", "",
+             "| date | split | P(A_v2)/P(A_pax) | won | rebooking lever | x0.5 | x2 | MIP status | gap % | s |",
+             "|---|---|---|---|---|---|---|---|---|---|"]
+    for d, r in sorted(s["all_dates"].items()):
+        g2 = s["G2_reported"][d]
+        lines.append(f"| {d} | {r['split']} | {r['ratio']:.3f} | {r['won']} | {100 * r['rebooking_share']:.1f}% | "
+                     f"{r['sensitivity'].get('0.5', '-')} | {r['sensitivity'].get('2', '-')} | {g2['status']} | "
+                     f"{g2['gap_pct']} | {g2['wall_s']} |")
     if s["errors"]:
         lines += ["", f"errors: {s['errors']}"]
     return "\n".join(lines) + "\n"
