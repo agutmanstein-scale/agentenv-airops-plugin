@@ -1,4 +1,4 @@
-AirOpsEnv v1
+AirOpsEnv (v1 and v2)
 Copyright 2026 Scale AI. Code licensed under Apache-2.0 (LICENSE).
 
 Data sources (see data/*/SOURCE.md for each file):
@@ -7,6 +7,13 @@ Data sources (see data/*/SOURCE.md for each file):
   on-time data.
 - FAA Air Traffic Control System Command Center advisories (fly.faa.gov). U.S. Government works, public domain.
 - FAA Aircraft Registry releasable database. U.S. Government work, public domain.
+- v2: FAA NASR airport data and Airport Capacity Profiles; the Port Authority of New York and New Jersey's and
+  Massport's published movement counts (a check only, not shipped). FAA works are public domain.
+- v2's crew rules and costs, as pinned with their sources in src/agentenv_airops/programs/crew_params.json: 14 CFR
+  parts 117 and 121 (eCFR) and the Federal Register; the FAA's Economic Values for Investment and Regulatory
+  Decisions (Table 4-7); BLS OEWS, ECEC and CPI-U; GSA and DoD per diem rates (U.S. Government works, public domain);
+  and facts cited from JetBlue's 10-K filings and press releases, ALPA and Airline Pilot Central (crew bases, fleet
+  configurations, average fare). Neither JetBlue nor any union is affiliated with this project.
 - Iowa Environmental Mesonet (Iowa State University): archived METAR, TAF, NEXRAD composites. Public domain;
   attribution to the Iowa Environmental Mesonet is appreciated and given here.
 - airportsdata (MIT licence): airport coordinates and time zones.

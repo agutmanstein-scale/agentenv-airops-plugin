@@ -187,7 +187,7 @@ def readme() -> str:
 controller and the crew scheduler, each its own `{AGENT}` agent in its role) or by one desk running both, in hourly \
 watches on the gateway's virtual clock, and graded against the best plan found in hindsight.
 
-Every task deploys the env registered as `{ENV}` (run `agent-env airops occ setup` once) and loads one day of its pack
+Every task deploys the env registered as `{ENV}` (run `agent-env airops-occ setup` once) and loads one day of its pack
 through `{LOAD_URI}`. Each desk's role sees only its own tools; one trigger per watch delivers the watch's FAA
 advisories through the hidden `{NOTICE_TOOL}` when an `end_turn` opens that watch, and the clock starts frozen at
 04:00. The desks play concurrently, taking turns the env grants (crew, ops, then crew again if ops asked it something).

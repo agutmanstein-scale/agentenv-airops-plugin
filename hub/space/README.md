@@ -8,7 +8,7 @@ app_file: index.html
 pinned: true
 license: other
 license_name: us-public-domain-iem-mit-odbl-apache-2.0
-license_link: https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.2.0/NOTICE
+license_link: https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.3.0/NOTICE
 short_description: Recover an airline's storm day at JFK or Boston
 tags:
 - agentenv
