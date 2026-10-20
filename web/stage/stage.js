@@ -19,9 +19,11 @@ const VIEWS = ["tower", "gate", "threshold", "harbour", "follow", "crew"];
 const WALK_TURNS = [18, -18, 35, -35, 160, -160, 60, -60];
 const WAIT_TURNS = [125, -125, 100, -100, 150, -150, 75, -75];
 const VAN_TURNS = [145, -145, 100, -100, 55, -55, 180, 0];
+const CURB_TURNS = [90, 65, 115, 45, 135, 25, 155];
 /** The crew camera's bearings off a group's heading, best first: ahead of a walking group along its walkway, along
- * the building's face from a waiting one (which faces its door), behind a van; the first clear of the buildings and
- * the aircraft about, with the group in sight, is taken. */
+ * the building's face from a waiting one (which faces its door), behind the apron bus, square on to a van at the curb
+ * from its open side (the terminal behind it); the first clear of the buildings and the aircraft about, with the group
+ * in sight, is taken. */
 const ease = (u) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
 const angDiff = (a, b) => ((((b - a) % 360) + 540) % 360) - 180;
 const forward = (h, out = new THREE.Vector3()) => out.set(Math.sin(h * DEG), 0, -Math.cos(h * DEG));
@@ -117,7 +119,7 @@ export class AirportStage {
 
   /** tower | gate | threshold | harbour | follow | crew; opts.key picks the aircraft (follow, gate), opts.stand the
    * gate; for crew, opts.key is a crew group's key (crewGroups()) or an aircraft whose crew it takes, else the
-   * featured aircraft's crew or the next crew about. */
+   * featured aircraft's crew or the next crew about, and opts.wide shows a van's whole road from high up. */
   async view(name, opts = {}) {
     await this.ready;
     return this.#view(name, opts);
@@ -343,29 +345,48 @@ export class AirportStage {
     const f = this.crews.focus(key, this.T);
     if (!f) return;
     const van = f.kind === "van";
+    if (van && f.road && rig.wide) return this.#aimCurb(dt, f);
     const P = new THREE.Vector3(f.x, van ? 1.7 : 1.25, -f.y);
-    const [dist, up, turns] = van ? [30, 9, VAN_TURNS] : f.kind === "wait" ? [15, 2.8, WAIT_TURNS] : [20, 3.4, WALK_TURNS];
-    const hulls = this.#hulls(f.x, f.y, dist + 60);
-    const posts = this.bridges.obstacles().filter(([x, y]) => Math.hypot(x - f.x, y - f.y) < dist + 10);
-    const at = (a) => {
+    const open = van && !f.bus ? this.#curbSide(f) : 0;
+    const curb = open ? CURB_TURNS.map((a) => a * open) : VAN_TURNS;
+    const near = f.bus ? [26, 7, VAN_TURNS] : van ? [24, 5, curb] : f.kind === "wait" ? [15, 2.8, WAIT_TURNS] : [20, 3.4, WALK_TURNS];
+    const [tiers, turns] = [[[near[0], near[1]], [near[0] * 1.4, 13], [40, 28]], near[2]];
+    const hulls = this.#hulls(f.x, f.y, 100).concat(van ? [] : this.crews.vehicles());
+    const posts = this.bridges.obstacles().filter(([x, y]) => Math.hypot(x - f.x, y - f.y) < 60);
+    const tubes = this.bridges.tubes().filter((t) => segDist(f.x, f.y, t) < 80);
+    const at = (tier, a) => {
       const h = (f.heading + a) * DEG;
+      const [dist, up] = tiers[tier];
       return new THREE.Vector3(f.x + Math.sin(h) * dist, up, -(f.y + Math.cos(h) * dist));
     };
     const seen = (c) => {
       if (this.#indoors(c.x, -c.z) || hulls.some((h) => segDist(c.x, -c.z, h) < h[4] + 2)) return false;
+      if (c.y < 9 && tubes.some((t) => segDist(c.x, -c.z, t) < t[4] + 6)) return false;
       for (let i = 1; i < 24; i++) {
         const u = i / 24;
         const [x, y] = [c.x + (P.x - c.x) * u, -(c.z + (P.z - c.z) * u)];
         if (u > 0.9 && !van) break;
-        if (this.#indoors(x, y) || hulls.some((h) => segDist(x, y, h) < h[4])) return false;
-        if (c.y + (P.y - c.y) * u < 4.4 && posts.some(([px, py, r]) => Math.hypot(px - x, py - y) < r)) return false;
+        const z = c.y + (P.y - c.y) * u;
+        if (this.#indoors(x, y) && z < 25) return false;
+        if (z < 6 && hulls.some((h) => segDist(x, y, h) < h[4])) return false;
+        if (z < 4.4 && posts.some(([px, py, r]) => Math.hypot(px - x, py - y) < r)) return false;
+        if (z > 2.3 && z < 9 && tubes.some((t) => segDist(x, y, t) < t[4] + 0.5)) return false;
       }
-      return true;
+      return van || this.#clearTo(c, P);
     };
-    if (rig.turnKind !== f.kind) [rig.turn, rig.turnKind] = [null, f.kind];
-    const turn = [rig.turn, ...turns].find((a) => a != null && seen(at(a)));
-    if (turn != null) rig.turn = turn;
-    const want = turn != null ? at(turn) : rig.pos?.clone() ?? at(turns[0]);
+    if (rig.turnKind !== f.kind) [rig.choice, rig.last, rig.turnKind] = [null, null, f.kind];
+    if (!rig.choice || !dt || this.wall - (rig.chose ?? -1) > 0.25) {
+      rig.chose = this.wall;
+      rig.choice = null;
+      for (let tier = 0; tier < tiers.length && !rig.choice; tier++) {
+        const keep = rig.last && rig.last[0] === tier ? [rig.last[1]] : [];
+        const a = [...keep, ...turns].find((a) => seen(at(tier, a)));
+        if (a != null) rig.choice = [tier, a];
+      }
+      rig.choice ??= rig.last ?? [tiers.length - 1, turns[0]];
+      rig.last = rig.choice;
+    }
+    const want = at(...rig.choice);
     const k = !dt || !rig.pos || rig.pos.distanceTo(want) > 80 ? 1 : 1 - Math.exp(-dt / (rig.tau ?? 0.6));
     rig.pos = rig.pos ? rig.pos.lerp(want, k) : want.clone();
     rig.tgt = rig.tgt ? rig.tgt.lerp(P, k) : P.clone();
@@ -380,7 +401,7 @@ export class AirportStage {
       cam.lookAt(target);
     } else {
       cam.position.copy(rig.pos);
-      cam.fov = rig.fov ?? (van ? 40 : 36);
+      cam.fov = rig.fov ?? (van ? 40 : [36, 32, 26][rig.choice[0]]);
       cam.updateProjectionMatrix();
       const [nx, ny] = this.#clearSpot();
       const dir = target.clone().sub(cam.position);
@@ -392,6 +413,40 @@ export class AirportStage {
       cam.lookAt(target.clone().addScaledVector(right, -nx * D * tanV * cam.aspect).addScaledVector(upv, -ny * D * tanV));
     }
     this.focusAt = target;
+  }
+
+  /** A van's road from high behind its curb end on the open side, looking down it: the curb, the road and the van on
+   * it, clear of the buildings either side. */
+  #aimCurb(dt, f) {
+    const cam = this.camera;
+    const rig = this.rig;
+    const [a, b] = f.road;
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const d = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+    const side = this.#curbSide({ ...f, heading: (Math.atan2(d[0], d[1]) / DEG + 360) % 360, x: mid[0], y: mid[1] }) || 1;
+    const out = [d[1] * side, -d[0] * side];
+    const want = new THREE.Vector3(a[0] + out[0] * 30 - d[0] * 55, 75, -(a[1] + out[1] * 30 - d[1] * 55));
+    const P = new THREE.Vector3(mid[0], 2, -mid[1]);
+    const k = !dt || !rig.pos || rig.pos.distanceTo(want) > 80 ? 1 : 1 - Math.exp(-dt / (rig.tau ?? 0.6));
+    rig.pos = rig.pos ? rig.pos.lerp(want, k) : want.clone();
+    rig.tgt = rig.tgt ? rig.tgt.lerp(P, k) : P.clone();
+    cam.position.copy(rig.pos);
+    cam.fov = rig.fov ?? 42;
+    cam.updateProjectionMatrix();
+    cam.lookAt(rig.tgt);
+    this.focusAt = rig.tgt.clone();
+  }
+
+  /** Which side of a van at the curb is open (1 right of its heading, -1 left), the other being the terminal; 0 when
+   * neither or both are. */
+  #curbSide(f) {
+    const probe = (a) => {
+      const h = (f.heading + a) * DEG;
+      return this.#indoors(f.x + Math.sin(h) * 22, f.y + Math.cos(h) * 22);
+    };
+    const [r, l] = [probe(90), probe(-90)];
+    return r === l ? 0 : r ? -1 : 1;
   }
 
   /** Where in normalised device coordinates the crew camera puts its group: 42 % across the part of the page between
@@ -421,6 +476,21 @@ export class AirportStage {
       });
     }
     return this.blocks.some((b) => x >= b.box[0] && x <= b.box[2] && y >= b.box[1] && y <= b.box[3] && inRing(b.ring, x, y));
+  }
+
+  /** Whether the jet bridges leave a group's heads and middles at P in sight from c (a ray to each against the
+   * bridges' meshes). */
+  #clearTo(c, P) {
+    const ray = (this.ray ??= new THREE.Raycaster());
+    const to = new THREE.Vector3();
+    for (const h of [0.9, 2.2]) {
+      to.set(P.x, h, P.z).sub(c);
+      const d = to.length();
+      ray.set(c, to.normalize());
+      ray.far = d - 1.5;
+      if (ray.intersectObject(this.bridges.group, true).length) return false;
+    }
+    return true;
   }
 
   /** The fuselages of the aircraft about within r of (x, y): [x0, y0, x1, y1, half width] in ENU metres. */

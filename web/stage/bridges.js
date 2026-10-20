@@ -126,6 +126,7 @@ export function buildBridges(stage, plan) {
     const top = at(s);
     const n = [-dir(q.ang)[1], dir(q.ang)[0]];
     b.legs = [top[0], top[1]];
+    b.tube = [b.P[0], b.P[1], q.C[0] + f[0] * CAB.d * 0.5, q.C[1] + f[1] * CAB.d * 0.5, CAB.w / 2];
     for (const [k, sg] of [[0, -1], [1, 1]]) parts.leg.setMatrixAt(i * 2 + k, beam([top[0] + n[0] * sg * 1.0, top[1] + n[1] * sg * 1.0, 0.7], [top[0] + n[0] * sg * 1.0, top[1] + n[1] * sg * 1.0, top[2]], 0.42, 0.42));
     parts.bogie.setMatrixAt(i, beam([top[0] - dir(q.ang)[0] * 0.7, top[1] - dir(q.ang)[1] * 0.7, 0.55], [top[0] + dir(q.ang)[0] * 0.7, top[1] + dir(q.ang)[1] * 0.7, 0.55], 3.0, 1.1));
   }
@@ -139,6 +140,10 @@ export function buildBridges(stage, plan) {
      * each rotunda's column and each pair of legs. */
     obstacles() {
       return list.flatMap((b) => [[b.P[0], b.P[1], 1.3], ...(b.legs ? [[b.legs[0], b.legs[1], 2.0]] : [])]);
+    },
+    /** Each bridge's tunnel and cab overhead as [x0, y0, x1, y1, half width] ENU metres, rotunda to cab front. */
+    tubes() {
+      return list.filter((b) => b.tube).map((b) => b.tube);
     },
     update(t, live, s) {
       uSnow.value = s.snow;

@@ -10,6 +10,7 @@ minutes after block-in and walks to its next stand when it leaves within CONNECT
 the same stand), else to the crew room; released at the hub, it goes off duty by the employee exit beside the crew
 room, or, away from base or resting at a hub hotel, to the curb and the hotel van."""
 
+import heapq
 import json
 import math
 from bisect import bisect_right
@@ -29,15 +30,20 @@ WALKWAY = 3.5
 """The walkway's offset from the terminal's face, under the jet bridges."""
 CURB = 11.0
 """The curb lane's offset from the terminal's landside face."""
-ROOM_ALONG, CURB_ALONG, ROAD = 25.0, 110.0, 140.0
+ROOM_ALONG, CURB_ALONG, ROAD = 25.0, 110.0, 160.0
 """The crew room this far past the end gate into the landside face, the curb this far past the gate and the vans'
 road on along the face from the curb this far."""
+DOOR = (1.0, 2.5)
+"""An aircraft's front left door this far behind its stand point (the nose wheel) and out from its centreline."""
 RAMP = 60.0
 """A stand without a jet bridge farther than this from the walkway is a remote one, reached by the apron bus from the
 walkway point nearest it."""
-BUS, STOP, ALIGHT = 300.0, 6.0, 9.0
-"""The apron bus drives this many metres a minute between its stop this far out from the walkway and a point this far
-short of the aircraft's door."""
+BUS, STOP, ALIGHT, CLEAR = 300.0, 6.0, 9.0, 4.0
+"""The apron bus drives this many metres a minute between its stop this far out from the crew room and a point this
+far off the aircraft's door, keeping this far outside its wingtip as it comes round."""
+LANE_COST = {"taxilane": 1.0, "taxiway": 1.6}
+"""The apron bus keeps to the taxi graph's taxilanes and taxiways (never a runway or a stand's lead), taxilanes
+first."""
 CUT = 45.0
 """A walk cuts through the building (a pier's root) across a gap this narrow."""
 LEAVE, BOARD, DEADHEAD, DEPLANE, CONNECT = 50, 35, 30, 10, 75
@@ -96,7 +102,7 @@ def moves(uid: str, u: Mapping, hub: str, flights: Mapping[int, Mapping], gates:
             if g is None:
                 where = ("away",)
                 continue
-            door, t0, flight = site.door(g["stand"]), t + DEPLANE, ride[0]["flight"]
+            door, t0, flight = site.door(g["stand"], g["dims"]), t + DEPLANE, ride[0]["flight"]
             if nxt and nxt[2] == "out" and nxt[0] - t0 <= CONNECT:
                 g2 = gates.at(nxt[4][0]["flight"], "dep", nxt[0])
                 where = ("aboard",) if g2 and g2["stand"] == g["stand"] else ("door", door, t0, flight)
@@ -145,7 +151,7 @@ def hub_events(u: Mapping, hub: str, flights: Mapping[int, Mapping]) -> list[tup
 
 def to_gate(me: Mapping, flight: str, deadhead: bool, g: Mapping, t: float, site: "Site", where: tuple) -> dict:
     """From the crew room, or the gate it came in at, to the jet bridge of its departure; it waits there to board."""
-    dest = site.door(g["stand"])
+    dest = site.door(g["stand"], g["dims"])
     late = short(g["crew"], t - BOARD)
     if where[0] == "door":
         segs, inbound = site.trip(where[1], dest, where[2]), where[3]
@@ -283,7 +289,8 @@ class Gates:
                     at = leg and (leg["in"] if kind == "arr" else leg["out"])
                     if leg and leg["status"] == "flown" and at is not None:
                         self.legs.setdefault((leg["flight"], kind), []).append(
-                            {"stand": v["stand"], "at": at, "from": v["from"], "crew": leg.get("crew")})
+                            {"stand": v["stand"], "at": at, "from": v["from"], "crew": leg.get("crew"),
+                             "dims": (a.get("length") or 40.0, a.get("span") or 36.0)})
 
     def at(self, flight: str, kind: str, t: float) -> dict | None:
         near = [g for g in self.legs.get((flight, kind), []) if abs(g["at"] - t) <= NEAR]
@@ -293,12 +300,13 @@ class Gates:
 class Place:
     """Where a crew stands (xy), the walkway point it reaches it from (walk), that point's arc length on the
     terminal's outline (s) and what it faces while it waits there (face); for a remote stand, xy is the apron bus's
-    stop, door the aircraft's door and near where the bus sets down by it."""
+    stop by the crew room, door the aircraft's door, near where the bus sets down by it and drive the bus's way from
+    its stop to there."""
 
     def __init__(self, xy: Point, s: float, walk: Point, face: Point | None = None,
-                 door: Point | None = None, near: Point | None = None):
+                 door: Point | None = None, near: Point | None = None, drive: list[Point] | None = None):
         self.xy, self.s, self.walk, self.face, self.door, self.near = xy, s, walk, face or xy, door, near
-        self.bus = door is not None
+        self.drive, self.bus = drive or [], door is not None
 
 
 class Site:
@@ -340,31 +348,37 @@ class Site:
         curb_s = (end + sign * min(CURB_ALONG, gap * 0.45)) % L
         self.room = Place(ring.at(room_s, WALKWAY), room_s, ring.at(room_s, WALKWAY))
         self.curb = Place(ring.at(curb_s, CURB - 2), curb_s, ring.at(curb_s, WALKWAY))
-        coarse = Ring(ring.outer, 15.0)
-        c0 = coarse.project(ring.at(curb_s))[0]
-        c1 = c0 + sign * ROAD
-        self.lane = [ring.at(curb_s, CURB), *coarse.between(c0, c1, CURB, sign > 0), coarse.at(c1, CURB)]
+        self.lane = lane(ring, curb_s, sign)
+        self.stop = ring.at(room_s, WALKWAY + STOP)
+        self.roads = Roads(stage)
 
-    def door(self, ref: str) -> Place:
-        """The walkway point under a stand's jet bridge, else (no bridge on the terminal) its aircraft's front door, or
-        for a remote stand the walkway point its apron bus leaves from."""
-        root = self.roots.get(ref)
+    def door(self, ref: str, dims: tuple[float, float] = (40.0, 36.0)) -> Place:
+        """The walkway point under a stand's jet bridge (by a bridge on another building, a point under it reached
+        from the walkway), else its aircraft's front door, or for a remote stand the apron bus's stop by the crew room,
+        with the bus's way out to the door of the aircraft (length, span: dims) there."""
+        root, st = self.roots.get(ref), self.stands[ref]
         if root is not None:
             s, d = self.ring.project(root)
+            w = self.ring.at(s, WALKWAY)
             if d < 15:
-                w = self.ring.at(s, WALKWAY)
                 return Place(w, s, w, self.ring.at(s))
-        st = self.stands[ref]
+            k = WALKWAY / (dist(root, st["xy"]) or 1.0)
+            return Place((root[0] + (st["xy"][0] - root[0]) * k, root[1] + (st["xy"][1] - root[1]) * k), s, w, root)
         h = math.radians(st["heading"])
         fx, fy = math.sin(h), math.cos(h)
-        xy = (st["xy"][0] - fx * 6 - fy * 4, st["xy"][1] - fy * 6 + fx * 4)
+        xy = (st["xy"][0] - fx * DOOR[0] - fy * DOOR[1], st["xy"][1] - fy * DOOR[0] + fx * DOOR[1])
         s, d = self.ring.project(xy)
         w = self.ring.at(s, WALKWAY)
         if d > RAMP:
-            stop = self.ring.at(s, WALKWAY + STOP)
-            k = ALIGHT / (dist(stop, xy) or 1.0)
-            near = (xy[0] + (stop[0] - xy[0]) * k, xy[1] + (stop[1] - xy[1]) * k)
-            return Place(stop, s, w, tuple(st["xy"]), door=xy, near=near)
+            nose, (long, span) = st["xy"], dims
+            wing, side = span / 2 + CLEAR, DOOR[1] + ALIGHT
+            aside = [(nose[0] - fx * back - fy * out, nose[1] - fy * back + fx * out)
+                     for back, out in ((long + 4, wing), (-14, wing), (-12, side), (-2, side))]
+            lead = self.roads.lead.get(ref)
+            if lead is not None and dist(self.roads.nodes[lead], aside[1]) < dist(self.roads.nodes[lead], aside[0]):
+                aside = aside[1:]
+            drive = self.roads.way(self.stop, lead, aside[0]) + aside
+            return Place(self.stop, self.room.s, self.room.walk, tuple(nose), door=xy, near=aside[-1], drive=drive)
         return Place(xy, s, w, tuple(st["xy"]))
 
     def trip(self, a: Place, b: Place, t0: float) -> list[dict]:
@@ -372,18 +386,18 @@ class Site:
         segs = []
         if a.bus:
             segs.append(seg("walk", t0, [a.door, a.near]))
-            segs.append(self.bus(a.near, a.xy, segs[-1]["t"][1] + 0.5))
+            segs.append(self.bus(a.drive[::-1], segs[-1]["t"][1] + 0.5))
             t0 = segs[-1]["t"][1] + 0.5
         segs.append(seg("walk", t0, self.route(a, b)))
         if b.bus:
-            segs.append(self.bus(b.xy, b.near, segs[-1]["t"][1] + 1))
+            segs.append(self.bus(b.drive, segs[-1]["t"][1] + 1))
             segs.append(seg("walk", segs[-1]["t"][1] + 0.5, [b.near, b.door]))
         return segs
 
-    def bus(self, a: Point, b: Point, t0: float) -> dict:
-        """The apron bus straight across the apron from a to b, leaving at t0 and standing a minute at each end."""
-        return {"do": "van", "t": [round(t0, 1), round(t0 + dist(a, b) / BUS, 1)],
-                "p": [[num(a[0]), num(a[1])], [num(b[0]), num(b[1])]], "v": "bus", "dir": "via", "park": 1.0}
+    def bus(self, path: Sequence[Point], t0: float) -> dict:
+        """The apron bus along path, leaving at t0 and standing a minute at each end."""
+        return {"do": "van", "t": [round(t0, 1), round(t0 + length(path) / BUS, 1)],
+                "p": [[num(x), num(y)] for x, y in path], "v": "bus", "dir": "via", "park": 1.0}
 
     def route(self, a: Place, b: Place) -> list[Point]:
         """From a to b along the walkway, the airside way round."""
@@ -461,6 +475,80 @@ class Ring:
             if (q[0] - q0[0]) * (p[0] - p0[0]) + (q[1] - q0[1]) * (p[1] - p0[1]) > 0:
                 out.append((p, q))
         return [q for _, q in out[1:]]
+
+
+def lane(ring: "Ring", curb_s: float, sign: int) -> list[Point]:
+    """The vans' road: from the curb ROAD metres on along the landside face, smoothed of the building's notches and
+    spikes and kept CURB out from it, then on straight."""
+    pts = dp([ring.at(curb_s + sign * d) for d in range(0, int(ROAD) + 1, 5)], 20.0)
+    while len(pts) > 2 and (k := next((i for i in range(1, len(pts) - 1) if dist(pts[i - 1], pts[i])
+                                       + dist(pts[i], pts[i + 1]) > 1.5 * dist(pts[i - 1], pts[i + 1]) + 10), 0)):
+        del pts[k]
+    out = []
+    for i, p in enumerate(pts):
+        a, b = pts[max(0, i - 1)], pts[min(len(pts) - 1, i + 1)]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        d = math.hypot(dx, dy) or 1.0
+        nx, ny = (dy / d, -dx / d) if sign > 0 else (-dy / d, dx / d)
+        out.append((p[0] + nx * CURB, p[1] + ny * CURB))
+    (x0, y0), (x1, y1) = out[-2], out[-1]
+    d = math.hypot(x1 - x0, y1 - y0) or 1.0
+    return out + [(x1 + (x1 - x0) / d * 60, y1 + (y1 - y0) / d * 60)]
+
+
+class Roads:
+    """The apron's roads for the apron bus: the stage's taxi graph without its runways and stand leads, and where each
+    stand's lead leaves it."""
+
+    def __init__(self, stage: Mapping):
+        g = stage.get("taxi_graph") or {}
+        self.nodes = g.get("nodes") or []
+        self.adj: dict[int, list[tuple[int, float]]] = {}
+        leads: dict[int, list[int]] = {}
+        for a, b, w, kind in g.get("edges") or []:
+            if kind == "lead":
+                leads.setdefault(a, []).append(b)
+                leads.setdefault(b, []).append(a)
+            elif kind in LANE_COST:
+                self.adj.setdefault(a, []).append((b, w * LANE_COST[kind]))
+                self.adj.setdefault(b, []).append((a, w * LANE_COST[kind]))
+        self.lead: dict[str, int] = {}
+        for ref, n in (g.get("stand_nodes") or {}).items():
+            seen, todo = {n}, [n]
+            while todo and ref not in self.lead:
+                k = todo.pop(0)
+                if k in self.adj:
+                    self.lead[ref] = k
+                for m in leads.get(k, ()):
+                    if m not in seen:
+                        seen.add(m)
+                        todo.append(m)
+
+    def near(self, p: Sequence[float]) -> int | None:
+        return min(self.adj, key=lambda k: dist(self.nodes[k], p), default=None)
+
+    def way(self, a: Point, node: int | None, b: Point) -> list[Point]:
+        """From a onto the roads at the node nearest it, along them to `node` (else the node nearest b), off to b."""
+        start, end = self.near(a), node if node is not None else self.near(b)
+        if start is None or end is None:
+            return [a]
+        best, back, todo = {start: 0.0}, {}, [(0.0, start)]
+        while todo:
+            c, k = heapq.heappop(todo)
+            if k == end:
+                break
+            if c > best[k]:
+                continue
+            for m, w in self.adj.get(k, ()):
+                if c + w < best.get(m, math.inf):
+                    best[m], back[m] = c + w, k
+                    heapq.heappush(todo, (c + w, m))
+        if end not in best:
+            return [a]
+        chain = [end]
+        while chain[-1] != start:
+            chain.append(back[chain[-1]])
+        return dp([a, *(tuple(self.nodes[k]) for k in reversed(chain))], 2.0)
 
 
 def shortcut(path: list[Point]) -> list[Point]:
