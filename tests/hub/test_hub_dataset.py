@@ -175,7 +175,15 @@ def test_a_dry_build_without_a_sweep_has_the_days_the_bundle_and_no_runs(hub, lo
     assert json.loads((out / "viewer/episodes/index.json").read_text()) == {"version": 1, "episodes": []}
     data = DatasetCard((out / "README.md").read_text()).data.to_dict()
     assert data["configs"][0]["config_name"] == "v2_tasks" and data["configs"][0]["default"] is True
-    assert data["agentenv"]["default"] == "airops"
+    assert data["agentenv"]["default"] == "airops" and data["agentenv"]["bundles"]["airops-occ"] == {
+        "plugins": [PLUGIN], "setup": "agent-env airops-occ setup"}
+    occ = sorted(p.stem for p in (out / "bundles/airops-occ/tasks").glob("*.json"))
+    assert occ == sorted([f"{i}-{m}" for i in (OCC_EVAL, OCC_CONTROL) for m in ("joint", "one")] + ["wiring-noplay"])
+    steps = {m: json.loads((out / f"bundles/airops-occ/tasks/{OCC_EVAL}-{m}.json").read_text())
+             for m in ("joint", "one")}
+    assert {m: {s["env_vars"]["AIROPS_MAX_COST_USD"] for s in found if s["type"] == "deploy_agent"}
+            for m, found in steps.items()} == {"joint": {"5"}, "one": {"8"}}
+    assert parse_bundle(out / "bundles/airops-occ").id_root and (out / "bundles/airops-occ/README.md").is_file()
     assert [r["task_id"] for r in _rows(out, "tasks/v2-eval.parquet")] == [OCC_EVAL]
     assert not list(out.glob("episodes/v2-*")) and not list(out.glob("desks/*"))
 

@@ -5,8 +5,9 @@ static replay Space that reads it; push either. Two kinds of tables share the da
   FAA's advisories as the desks get them, the desks' rules and each date's world as the env loads it; v2_runs, every
   attempt the control-center pilots recorded under --runs (the board, its labelled retry and the pilot), each replayed
   through the env's calls, with the attempt a retry superseded flagged; v2_desks, each desk of each attempt with its
-  transcript; v2_board, each mode's means with the board's bootstrap CIs and the paired difference; and the eval card
-  results/eval-v2.json.
+  transcript; v2_board, each mode's means with the board's bootstrap CIs and the paired difference; the eval card
+  results/eval-v2.json; and the bundle airops-occ, every date in both modes as the board ran them, which
+  `agent-env hf run --bundle airops-occ` plays.
 - AirOps's own, v1_*, per split of the pack: the days (what the planner is told, each watch's news, the reference
   costs and the task line itself), their references, and the scored runs (the grade, the final plan, the tool calls
   and the chat transcript); the model board (results) and its eval card, results/eval-v1.json, in FineEnvs' shape.
@@ -99,6 +100,9 @@ REWARD = ("0.2 + 0.8 exp(-g/0.5), g = max(0, cost - hindsight) / (hindsight - fl
           "passenger and the end-of-day ferries; graded once, on the final plan flown on the day as it happened")
 EXCUSED = "nothing: the env never strands a flight, so there are no rule breaks to excuse"
 OCC = "v2"
+OCC_BUNDLE = "airops-occ"
+OCC_SETUP = "agent-env airops-occ setup"
+OCC_CAPS = {"joint": 5.0, "one": 8.0}
 OCC_SPLITS = ("eval", "control", "train")
 OCC_BOARD = "occ-board-sol"
 OCC_LABELS = {"occ-board-sol-retry": OCC_BOARD}
@@ -329,16 +333,21 @@ def split_order(path: str) -> int:
 
 
 def card_text(plugin: str, files: dict[str, bytes], board_md: str = "", occ_md: str = "") -> str:
-    """hub/dataset/README.md with the dataset's configs, each version's board between its markers, and the bundle's
-    two configs and needs, as agentenv-hf's publish writes them."""
+    """hub/dataset/README.md with the dataset's configs, each version's board between its markers, the bundle airops's
+    two configs and needs as agentenv-hf's publish writes them, and airops-occ's needs when the build has it."""
     text = BOARD.sub(lambda m: m[1] + (f"\n{board_md}\n" if board_md else "") + m[2], CARD.read_text())
     text = OCC_BOARD_MD.sub(lambda m: m[1] + (f"\n{occ_md}\n" if occ_md else "") + m[2], text)
     ours = DatasetCard(text)
     ours.data.configs = configs(files)
     if ours.data.configs:
         ours.data.configs[0]["default"] = True
-    return card(str(ours), name=BUNDLE, split=SPLIT, repo=None, description=None, license=None,
+    text = card(str(ours), name=BUNDLE, split=SPLIT, repo=None, description=None, license=None,
                 needs={"plugins": [plugin], "setup": SETUP})
+    if not any(p.startswith(f"bundles/{OCC_BUNDLE}/") for p in files):
+        return text
+    both = DatasetCard(text)
+    both.data.agentenv["bundles"][OCC_BUNDLE] = {"plugins": [plugin], "setup": OCC_SETUP}
+    return str(both)
 
 
 def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str, fixtures: list[Path], cache: Path,
@@ -374,13 +383,25 @@ def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str,
         files = merge_viewer(files, occ_viewer)
     occ_tables, occ_md = occ_files(runs_dir, list(occ_pilots), Pack(occ_pack), replays or cache / "occ" / "replays",
                                    workers, date)
-    files |= occ_tables
+    files |= occ_tables | occ_bundle(out, occ_pack)
     for d in [d for d, _ in played] + [runs_dir / name for name in occ_pilots]:
         for path in sorted(d.rglob("*")):
             rel = path.relative_to(d)
             if path.is_file() and rel.parts[0] not in ("logs", "bundle"):
                 files[f"runs/{d.name}/{rel.as_posix()}"] = path.read_bytes()
     return files | {"README.md": card_text(plugin, files, board_md, occ_md).encode()}
+
+
+def occ_bundle(out: Path, pack: Path | None) -> dict[str, bytes]:
+    """The bundle airops-occ as `agent-env airops-occ tasks` writes it, every date of the pack in both modes at the
+    board's caps per desk, with wiring-noplay: the files the board ran, which `agent-env hf run --bundle airops-occ`
+    plays."""
+    folder = out / "bundles" / OCC_BUNDLE
+    shutil.rmtree(folder, ignore_errors=True)
+    for mode, cap in OCC_CAPS.items():
+        occ_tasks.generate(folder, split="all", modes=(mode,), pack=pack, cap=cap, noplay=mode == "joint")
+    return {f"bundles/{OCC_BUNDLE}/{p.relative_to(folder).as_posix()}": p.read_bytes()
+            for p in sorted(folder.rglob("*")) if p.is_file()}
 
 
 def merge_viewer(files: dict[str, bytes], folder: Path) -> dict[str, bytes]:

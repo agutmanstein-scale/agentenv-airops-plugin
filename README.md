@@ -297,6 +297,20 @@ agent-env run results/bundles/airops-occ --task b6-20240713-0400-joint --model o
 agent-env run results/bundles/airops-occ --task b6-20240713-0400-one --model openai/gpt-6.1-sol
 ```
 
+Or play a day straight from the dataset, which pins this release and holds the bundle `airops-occ`: every date in
+both modes, the very task files the board ran (each desk's cost cap $5 in a two-desk run, $8 for one agent), and
+`wiring-noplay`. The dataset's default bundle is v1's `airops`, so name this one:
+
+```bash
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.0 --bundle airops-occ --task wiring-noplay
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.0 --bundle airops-occ --task b6-20240713-0400-joint \
+    --model openai/gpt-6.1-sol
+```
+
+`hf run` downloads the dataset card and `bundles/` at the tag's commit, checks that the plugin the card's `agentenv`
+table names is installed, shows what it will run and asks first; `agent-env airops-occ setup` must have built the env
+and the desk agent.
+
 A pilot plays runs in a fixed order under a budget, retries a run that failed for an infrastructure reason at most
 twice, and reports every scored run replayed and audited; this is how the board ran:
 
@@ -342,8 +356,11 @@ from the packs and the recorded runs under `results/runs`:
   its retry and the pilot, with the superseded attempt flagged) and `v2_board` (each mode's means with their CIs, and
   the paired difference); the eval card `results/eval-v2.json`; and `runs/`, the run folders as recorded, with each
   day's record and each desk's transcript;
+- the bundle `airops-occ` (`bundles/airops-occ/`): the 70 dates in both modes and `wiring-noplay`, as the board ran
+  them, so that `agent-env hf run earakely-scale/AirOpsEnv-AgentEnv --bundle airops-occ` plays a v2 day;
 - v1's, as at v0.2.0: `v1_tasks`, `results`, `v1_references`, `v1_episodes`, and agentenv-hf's `airops_tasks`,
-  `airops_episodes` and the bundle `airops`, so that `agent-env hf run earakely-scale/AirOpsEnv-AgentEnv` plays a v1 day;
+  `airops_episodes` and the bundle `airops`, the dataset's default bundle, so that
+  `agent-env hf run earakely-scale/AirOpsEnv-AgentEnv` with no `--bundle` plays a v1 day;
 - `viewer/`: both versions' episodes as the viewer reads them, with their traffic, the airport stages, the radar
   frames, the hub twins and the list's stills.
 

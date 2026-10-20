@@ -150,8 +150,8 @@ All parquet, one config per table, a split per split of the pack (`eval`, `contr
 | `v1_tasks`, `results`, `v1_references`, `v1_episodes` | AirOpsEnv v1, as published in v0.2.0 (below) |
 
 And agentenv-hf's for v1's bundle `airops`, exactly as `agent-env hf publish` writes them: `airops_tasks` and
-`airops_episodes`; `raw/airops.jsonl` holds each v1 run's record and native trajectory, and `bundles/airops/` the bundle
-`agent-env hf run` plays.
+`airops_episodes`; `raw/airops.jsonl` holds each v1 run's record and native trajectory. `bundles/airops/` and
+`bundles/airops-occ/` are the two bundles `agent-env hf run` plays, v1's the default.
 
 `results/eval-v2.json` and `results/eval-v1.json` are the eval cards, and `runs/` holds the run folders as recorded:
 each control-center attempt's day record (`days/`) and each desk's transcript (`transcripts/`), and v1's sweep.
@@ -175,22 +175,26 @@ desks[0]["messages"]                                 # a desk's chat transcript,
 
 ## Run it yourself
 
-You need Docker, [uv](https://docs.astral.sh/uv/) and git. Install the plugin, build the env and the desk agent, and
-check the wiring with a day no model plays:
+You need Docker, [uv](https://docs.astral.sh/uv/) and git. Install the plugin, build the env and the desk agent, check
+the wiring with a day no model plays, then play a day straight from this dataset with a model on your LiteLLM endpoint
+(or the Hugging Face router):
 
 ```bash
 uv tool install agentenv-framework \
     --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.0"
 agent-env airops-occ setup
-agent-env airops-occ tasks --noplay           # results/bundles/airops-occ: each eval date, joint and one
-agent-env run results/bundles/airops-occ --task wiring-noplay
-agent-env run results/bundles/airops-occ --task b6-20240713-0400-joint --model openai/gpt-6.1-sol
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.0 --bundle airops-occ --task wiring-noplay
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.0 --bundle airops-occ --task b6-20240713-0400-joint \
+    --model openai/gpt-6.1-sol
 ```
 
-A v1 day plays straight from this dataset with `agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.0 --task
-b6-bos-20250216-1500 --model <model>` once `agent-env airops setup --agent` has built its images; `hf run` downloads
-this card and `bundles/` at the tag's commit, checks that the plugin the card's `agentenv` table names is installed,
-shows what it will run and asks first.
+The bundle `airops-occ` (`bundles/airops-occ/`) holds every date of the pack in both modes, `<task id>-joint` and
+`<task id>-one`, the very task files the board ran (each desk capped at $5 in a two-desk run, $8 for one agent), and
+`wiring-noplay`, which runs the first eval date with no desk. This dataset's default bundle is v1's `airops`: with no
+`--bundle`, `agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.0 --task b6-bos-20250216-1500 --model <model>`
+plays a v1 day, once `agent-env airops setup --agent` has built its images. `hf run` downloads this card and
+`bundles/` at the tag's commit, checks that the plugin the card's `agentenv` table names is installed, shows what it
+will run and asks first.
 
 ---
 
