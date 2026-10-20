@@ -1,7 +1,9 @@
 import copy
 import gzip
 import importlib.util
+import itertools
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -105,22 +107,25 @@ def at_fraction(shot, t):
 
 def test_a_control_center_day_cuts_between_the_room_and_the_airport_in_time_order():
     ep, traffic = day()
-    shots = record.direct(ep, traffic, seconds=60)
+    shots = record.direct(ep, traffic, seconds=70)
     assert [(s.name, s.camera) for s in shots] == [
-        ("establish", "harbour"), ("ask", "room-desks"), ("cancelled", "gate"), ("faa", "tower"), ("crew", "crew"),
-        ("push", "push"), ("takeoff", "takeoff"), ("map", "map"), ("ask", "room-desks"), ("landing", "landing"),
-        ("end", "harbour")]
-    assert 59 <= sum(s.seconds for s in shots) <= 61
+        ("open", "room"), ("establish", "harbour"), ("ask", "room-desks"), ("cancelled", "gate"), ("faa", "tower"),
+        ("crew", "crew"), ("push", "push"), ("takeoff", "takeoff"), ("map", "map"), ("ask", "room-desks"),
+        ("landing", "landing"), ("end", "harbour")]
+    assert 69 <= sum(s.seconds for s in shots) <= 71
     assert all(a.t1 <= b.t0 for a, b in zip(shots[:-1], shots[1:-1], strict=False))
     assert all((a.camera, a.key) != (b.camera, b.key) for a, b in zip(shots, shots[1:], strict=False))
     assert all(max(s.speed) <= record.FAST[s.camera] for s in shots)
-    assert shots[0].subline.startswith("Two desks") and "control center" in shots[0].caption
-    assert shots[-1].cards == ("end",) and shots[-1].seconds == record.SECONDS["close"]
+    assert shots[0].kicker == "AirOpsEnv v2 · the ops control center" and "control center" in shots[0].caption
+    assert shots[0].subline == ("Boston Logan · Sun 16 Feb 2025 · 09:02 · Two desks, an ops controller for the flights "
+                                "and a crew scheduler for the crews")
+    assert (shots[1].caption, shots[1].cards) == ("First light over Boston Logan", ())
+    assert shots[-1].cards == ("end",) and shots[-1].seconds >= record.SECONDS["close"]
 
 
 def test_a_cancel_the_desks_agree_is_asked_and_answered_in_the_room_then_stays_at_its_gate():
     ep, traffic = day()
-    ask, gate = record.direct(ep, traffic, seconds=60)[1:3]
+    ask, gate = record.direct(ep, traffic, seconds=70)[2:4]
     assert (ask.desk, ask.ref, ask.cards, ask.at) == ("crew", "R1", (), 612)
     assert frames(ask)[0] <= 606 and frames(ask)[-1] >= 612 + record.REPLY - 0.1
     assert ask.caption == "The crew scheduler asks the ops controller to cancel B6 20 to New York"
@@ -135,8 +140,9 @@ def test_a_cancel_the_desks_agree_is_asked_and_answered_in_the_room_then_stays_a
 
 def test_a_cover_plays_out_as_the_covered_flight_lands_with_the_crew_found():
     ep, traffic = day()
-    shots = record.direct(ep, traffic, seconds=60)
-    ask, landing = shots[8], shots[9]
+    shots = record.direct(ep, traffic, seconds=70)
+    k = next(i for i, s in enumerate(shots) if s.ref == "R2")
+    ask, landing = shots[k], shots[k + 1]
     assert (ask.ref, ask.desk) == ("R2", "ops") and frames(ask)[0] <= 728 and ask.t1 >= 736 + record.REPLY - 0.1
     assert ask.caption == "The ops controller asks the crew scheduler to find a crew for B6 30 from Detroit"
     assert ask.subline == "The crew scheduler accepts and puts pilots 0754 on it"
@@ -146,7 +152,7 @@ def test_a_cover_plays_out_as_the_covered_flight_lands_with_the_crew_found():
 
 def test_the_crew_a_flight_waits_for_walks_up_to_its_gate_then_it_leaves():
     ep, traffic = day()
-    shots = {s.name: s for s in record.direct(ep, traffic, seconds=60)}
+    shots = {s.name: s for s in record.direct(ep, traffic, seconds=70)}
     crew, push = shots["crew"], shots["push"]
     assert (crew.key, crew.ref, crew.path) == ("N1", "out-B610-688", ((60, 0), (20, 10)))
     assert (crew.speed, crew.cards) == ((6, 6), ("tags",))
@@ -159,7 +165,7 @@ def test_the_crew_a_flight_waits_for_walks_up_to_its_gate_then_it_leaves():
 def test_without_crews_a_flight_waits_at_its_gate_for_one_then_leaves():
     ep, traffic = day()
     del traffic["crews"]
-    shots = {s.name: s for s in record.direct(ep, traffic, seconds=60)}
+    shots = {s.name: s for s in record.direct(ep, traffic, seconds=70)}
     wait, push = shots["wait"], shots["push"]
     assert wait.key == push.key == "N1" and wait.t1 < push.t0
     assert wait.caption == "B6 10 to Miami waits at gate 11 for a crew"
@@ -172,7 +178,7 @@ def test_without_crews_a_flight_waits_at_its_gate_for_one_then_leaves():
 
 def test_the_map_shows_the_network_briefly_without_cards():
     ep, traffic = day()
-    m = next(s for s in record.direct(ep, traffic, seconds=60) if s.name == "map")
+    m = next(s for s in record.direct(ep, traffic, seconds=70) if s.name == "map")
     assert (m.camera, m.cards, m.at) == ("map", (), 720) and frames(m)[0] < 720 < frames(m)[-1]
     assert m.caption == "2 JetBlue flights in the air, 1 of them bound for Boston Logan"
     assert m.kicker == "12:00 · The network"
@@ -180,7 +186,7 @@ def test_the_map_shows_the_network_briefly_without_cards():
 
 def test_without_the_3d_room_its_beats_go_on_the_rooms_card_over_the_map():
     ep, traffic = day()
-    shots = record.direct(ep, traffic, seconds=60, room=False)
+    shots = record.direct(ep, traffic, seconds=70, room=False)
     asks = [s for s in shots if s.name == "ask"]
     assert [a.ref for a in asks] == ["R1", "R2"]
     assert all(a.camera == "map" and a.cards == ("head", "desk") and a.speed == (4, 4) for a in asks)
@@ -194,12 +200,12 @@ def test_one_agent_at_both_desks_cancels_several_flights_at_once_on_the_wall():
     ep["occ"] |= {"mode": "one", "label": "one agent", "desks": ["one"], "requests": []}
     for d in ep["occ"]["decisions"]:
         d.update(desk="one", ref=None)
-    shots = record.direct(ep, traffic, seconds=60)
+    shots = record.direct(ep, traffic, seconds=70)
     wall = next(s for s in shots if s.name == "cancels")
     assert (wall.camera, wall.at, wall.desk) == ("room-wall", 760, "one")
     assert wall.caption == "GPT-6.1 Sol cancels 3 flights at once"
     assert wall.subline == "B6 50 to LaGuardia, B6 51 from LaGuardia, B6 60 to Washington National"
-    assert shots[0].subline == "One agent at both desks: the flights and the crews"
+    assert shots[0].subline.endswith("One agent at both desks, the flights and the crews")
     assert "taxi" in {s.name for s in shots}
 
 
@@ -209,6 +215,8 @@ def test_the_desks_words_are_quoted_only_when_they_read_plainly():
     assert c.quote("Cancel f2 now: no crew can reach it. Keep f1.") == "Cancel B6 20 now: no crew can reach it"
     assert c.quote("Own delay1289m exceeds04:42+1 deadline; cancel now.") == ""
     assert c.quote("Can cover f4 with DTW P0754") == ""
+    assert c.quote("Checked recovery saves 116,123 pax-min against 101,000 for a cancellation of the flight and its "
+                   "partner") == ""
     assert c.unit("RP-A32X-BOS-A0") == "Boston Logan standby reserve pilots" and c.unit("P-A32X-0413") == "pilots 0413"
     assert c.unit("RC-E190-MIA-S2") == "Miami short-call reserve cabin crew"
     assert (record.behind(-8), record.behind(0), record.behind(90)) == ("8 min early", "on time", "1 h 30 min late")
@@ -217,8 +225,8 @@ def test_the_desks_words_are_quoted_only_when_they_read_plainly():
 def test_the_end_card_and_title_name_the_control_center_not_v1():
     ep, _ = day()
     card = record.end_card(ep)
-    assert card["title"] == "AirOpsEnv" and "control center" in card["sub"] and "two desks" in card["who"]
-    assert record.title(ep).startswith("AirOpsEnv · GPT-6.1 Sol")
+    assert card["title"] == "AirOpsEnv v2" and "control center" in card["sub"] and "two desks" in card["who"]
+    assert record.title(ep).startswith("AirOpsEnv v2 · GPT-6.1 Sol")
     v1 = {k: v for k, v in copy.deepcopy(ep).items() if k != "occ"}
     assert record.end_card(v1)["title"] == "AirOpsEnv v1"
 
@@ -226,17 +234,89 @@ def test_the_end_card_and_title_name_the_control_center_not_v1():
 @pytest.mark.skipif(not EPISODES, reason="no control-center episodes are built under cache/occ/viewer/episodes")
 @pytest.mark.parametrize("path", EPISODES, ids=lambda p: p.stem.split(".")[0] + "." + p.stem.split(".")[-1])
 @pytest.mark.parametrize("room", [True, False], ids=["room", "card"])
-def test_every_control_center_day_makes_a_minute_long_film(path, room):
+def test_every_control_center_day_makes_a_film_of_about_seventy_seconds(path, room):
     ep = json.loads(path.read_text())
     traffic = json.loads(gzip.decompress((path.parent / ep["stage"]["traffic"]).read_bytes()))
-    shots = record.direct(ep, traffic, seconds=60, room=room)
-    assert 55 <= sum(s.seconds for s in shots) <= 61
-    assert shots[0].name == "establish" and shots[-1].name == "end"
+    shots = record.direct(ep, traffic, seconds=70, room=room, light=330)
+    assert all(s.t0 >= 330 for s in shots[:-1] if s.camera not in (*record.ROOM, "map"))
+    assert 60 <= sum(s.seconds for s in shots) <= 71
+    assert shots[0].name == ("open" if room else "establish") and shots[-1].name == "end"
     assert {"faa", "push", "takeoff"} <= {s.name for s in shots} and {"wait", "crew"} & {s.name for s in shots}
     assert all(a.t1 <= b.t0 for a, b in zip(shots[:-1], shots[1:-1], strict=False))
     assert all((a.camera, a.key) != (b.camera, b.key) for a, b in zip(shots, shots[1:], strict=False))
     assert all(max(s.speed) <= record.FAST[s.camera] for s in shots)
     assert all(traffic["span"][0] <= s.t0 and s.t1 <= traffic["span"][1] for s in shots)
     accepted = [r for r in ep["occ"]["requests"] if r["type"] != "TEXT" and r["status"] == "accepted"]
-    assert bool(accepted) <= any(s.name == "ask" for s in shots)
-    assert all(not any(w in s.caption + s.subline + s.kicker for w in ("v2", "f1", "f2")) for s in shots)
+    assert bool(accepted and room) <= any(s.name == "ask" for s in shots)
+    assert not any(re.search(r"\bf\d+\b", s.caption + s.subline + s.kicker) for s in shots)
+
+
+def test_the_airport_waits_for_first_light_while_the_room_opens_the_day():
+    ep, traffic = day()
+    shots = record.direct(ep, traffic, seconds=70, light=650)
+    assert shots[0].camera == "room" and shots[0].t0 < 600
+    airport = [s for s in shots[:-1] if s.camera not in (*record.ROOM, "map")]
+    assert airport[0].name == "establish" and all(s.t0 >= 650 for s in airport)
+    assert "cancelled" not in {s.name for s in shots} and any(s.ref == "R1" for s in shots)
+
+
+def test_a_held_flight_pushes_back_at_its_hold_and_a_crew_leaves_for_the_hotel_by_van():
+    ep, traffic = day()
+    ep["occ"]["requests"].append(request("R9", "crew", "HOLD", 1, 640, 646, 652, "Hold f1 to 11:40 for its crew."))
+    ep["occ"]["requests"][-1]["time"] = 700
+    ep["occ"]["units"] = {"P-A32X-0007": {"duties": [{"legs": [[3, 440, 630]]}], "hotels": [
+        {"station": "BOS", "from": 650, "to": 1300}]}}
+    traffic["crews"].append({"key": "hotel-B69-640", "kind": "hotel", "crew": [2, 4], "flights": ["B6 9"],
+                             "stand": "C-11", "segs": [{"do": "walk", "t": [640, 643], "p": [[20, 10], [5, 5]]},
+                                                       {"do": "van", "t": [644, 645], "p": [[5, 5], [0, 90]],
+                                                        "v": "hotel", "dir": "out"}]})
+    c = record.Center(ep, traffic, None, None)
+    room, push = next(b for b in c.asks(("HOLD",)) if b[0].ref == "R9")
+    assert push.caption == "B6 10 to Miami, held until 11:40, pushes back" and push.t0 > room.t1
+    (van,), = c.van()
+    assert (van.camera, van.ref, van.speed) == ("van", "hotel-B69-640", (10, 10)) and van.t0 < 644 < van.t1
+    assert van.caption == "The crew of B6 9 from Miami leave for the hotel"
+    assert van.subline == "6 crew members, resting until 21:40"
+
+
+def test_the_end_card_board_is_each_mode_s_mean_over_the_board_days(tmp_path):
+    ep, _ = day()
+    rows = []
+    for k, (mode, run, reward, std) in enumerate([("two desks", "occ-board-sol-joint", 0.6, 0.3),
+                                                  ("two desks", "occ-board-sol-joint", 0.8, 0.4),
+                                                  ("one agent at both desks", "occ-board-sol-one", 0.5, 0.3),
+                                                  ("two desks", "occ-pilot-sol-joint", 0.1, 0.1)]):
+        url = f"{run}.{k}.json"
+        (tmp_path / url).write_text(json.dumps({"occ": {"refs": [{"label": "Standard crew desk", "reward": std}]}}))
+        rows.append({"url": url, "task_id": f"day{k % 2}", "run": run, "occ": mode, "reward": reward})
+    (tmp_path / "index.json").write_text(json.dumps({"episodes": rows}))
+    b = record.board(tmp_path / "index.json", ep)
+    assert b["title"] == "GPT-6.1 Sol on the 2 eval days"
+    assert b["rows"] == [["Two desks", pytest.approx(0.7), True], ["One agent at both desks", 0.5, False],
+                         ["Best plan found", 1.0, False], ["Standard crew desk", pytest.approx(0.35), False]]
+    assert record.board(tmp_path / "missing.json", ep) is None
+
+
+def test_the_webp_of_a_control_center_film_is_a_request_where_it_plays_out_a_crew_and_the_takeoff():
+    ep, traffic = day()
+    shots = record.direct(ep, traffic, seconds=70)
+    start = dict(zip((id(s) for s in shots), itertools.accumulate((s.seconds for s in shots), initial=0),
+                     strict=False))
+    parts = record.highlight(shots)
+    ask, gate, crew, up = (next(s for s in shots if s.name == n) for n in ("ask", "cancelled", "crew", "takeoff"))
+    assert parts == [(start[id(ask)], ask.seconds), (start[id(gate)], gate.seconds), (start[id(crew)], crew.seconds),
+                     (start[id(up)] + 2, 4.5)]
+    assert 15 <= sum(d for _, d in parts) <= 21
+
+
+def test_a_program_the_desks_hear_of_before_it_starts_is_announced_from_its_start():
+    ep, traffic = day()
+    gdp = {"kind": "advisory", "at": 575, "text": "GDP BOS", "data": {
+        "element": "BOS", "kind": "gdp", "program_period": [720, 899], "program_rate": [30, 34]}}
+    ep["news"].append(gdp)
+    c = record.Center(ep, traffic, None, None)
+    (faa,), = [b for b in c.faa(540) if b[0].at == 600]
+    assert faa.kicker == "10:00 · Ground delay program"
+    assert faa.caption == "From 12:00, the FAA holds arrivals at Boston Logan to 30–34 an hour until 15:00"
+    ep["news"].append({"kind": "advisory", "at": 590, "text": "GDP CNX", "data": {"element": "BOS", "kind": "gdp_cnx"}})
+    assert not [b for b in record.Center(ep, traffic, None, None).faa(540) if b[0].at == 600]
