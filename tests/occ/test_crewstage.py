@@ -1,7 +1,7 @@
-"""The crews at the hub in 3D: the display-only crew room, walkway and curb inferred from the home terminal, and each
-crew's moves there from its duties: from the crew room or the gate it came in at to its departure's jet bridge, gate to
-gate on a short connection and aboard on the same aircraft, reporting by shuttle, off duty or to the hotel van, late
-to a flight short of a crew, and the crews moving together as one group."""
+"""The crews at the hub in 3D: the display-only crew room, walkway, curb and apron-bus points inferred from the home
+terminal, and each crew's moves there from its duties: from the crew room or the gate it came in at to its departure's
+jet bridge, gate to gate on a short connection and aboard on the same aircraft, reporting by shuttle, off duty or to
+the hotel van, late to a flight short of a crew, and the crews moving together as one group."""
 
 import pytest
 
@@ -11,10 +11,11 @@ WALK = 3.5
 
 
 def stage() -> dict:
-    """Eight Terminal 5 gates 45 m apart facing north into a terminal along y = 25..90, each with its jet bridge, and
-    a Terminal 4 gate past it."""
+    """Eight Terminal 5 gates 45 m apart facing north into a terminal along y = 25..90, each with its jet bridge, a
+    Terminal 4 gate past it and a remote stand out on the apron."""
     stands = [{"ref": f"T5-{i + 1}", "terminal": "T5", "xy": [45.0 * i, 0.0], "heading": 0.0} for i in range(8)]
-    stands.append({"ref": "T4-1", "terminal": "T4", "xy": [1200.0, 0.0], "heading": 0.0})
+    stands += [{"ref": "T4-1", "terminal": "T4", "xy": [1200.0, 0.0], "heading": 0.0},
+               {"ref": "H1", "terminal": "remote", "xy": [100.0, -300.0], "heading": 180.0}]
     bridges = [{"line": [[45.0 * i + 5, 25.0], [45.0 * i + 5, 12.0], [45.0 * i + 3, 6.0]], "stand": f"T5-{i + 1}"}
                for i in range(8)]
     return {"hub": "JFK", "stands": stands, "jet_bridges": bridges,
@@ -72,6 +73,8 @@ def test_the_crew_room_and_curb_sit_past_the_end_gate_nearer_the_middle_and_walk
     out = site.route(site.door("T5-8"), site.curb)
     assert all(not (-60 < x < 900 and 25 < y < 90) for x, y in out)
     assert max(x for x, _ in out) <= 320 and site.lane[0][0] < -60 and site.lane[-1][1] > site.lane[0][1]
+    remote = site.door("H1")
+    assert remote.bus and remote.xy == pytest.approx((104, 25 - WALK), abs=0.5)
 
 
 def test_a_crew_from_the_crew_room_walks_to_its_gate_and_waits_to_board_and_pilots_and_cabin_go_together():

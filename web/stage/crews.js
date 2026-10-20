@@ -64,6 +64,7 @@ export function buildCrews(list = []) {
     /** Pose the crews about at minute T; rate is the replay's clock rate (0 paused), wall the wall clock in seconds. */
     update(T, wall, rate = 0) {
       const n = { pilot: 0, cabin: 0, head: 0, leg: 0, bag: 0 };
+      const huddles = new Map();
       let v = 0;
       live = [];
       for (const it of items) {
@@ -84,9 +85,13 @@ export function buildCrews(list = []) {
         const k = it.segs.findIndex((s) => s.do !== "van" && T >= s.t[0] && T <= s.t[1]);
         if (k >= 0) {
           const s = it.segs[k];
+          const w = s.do === "wait" ? s : it.segs[k + 1]?.do === "wait" ? it.segs[k + 1] : null;
+          const spot = w && `${Math.round(w.p[0][0])},${Math.round(w.p[0][1])}`;
+          const shift = spot ? huddles.get(spot) || 0 : 0;
+          if (spot) huddles.set(spot, shift + Math.min(it.people.length, 3) * 0.75 + 0.9);
           for (const p of it.people) {
             if (n.head >= CAP) break;
-            if (!personAt(it, k, T, p, at)) continue;
+            if (!personAt(it, k, T, p, at, shift)) continue;
             const walking = at[4] === 1;
             const phase = rate > 20 ? wall * 11.5 + p.seed * 6.28 : at[2];
             const swing = walking ? 0.42 * Math.sin(phase) : 0;
@@ -170,11 +175,11 @@ function prepare(raw) {
 
 /** Person p of a group at T in its segment k: [x, y, gait phase, heading] into out; false while it is not in sight
  * (not yet out of the door it comes from, or through the one it goes in at). */
-function personAt(it, k, T, p, out) {
+function personAt(it, k, T, p, out, shift = 0) {
   const s = it.segs[k];
   const next = it.segs[k + 1];
   if (s.do === "wait" || (next?.do === "wait" && T >= s.t[1] - 0.05)) {
-    huddle(it, next?.do === "wait" ? next : s, p, out);
+    huddle(it, next?.do === "wait" ? next : s, p, out, shift);
     return true;
   }
   const u = Math.min(1, Math.max(0, (T - s.t[0]) / Math.max(1e-6, s.t[1] - s.t[0])));
@@ -182,7 +187,7 @@ function personAt(it, k, T, p, out) {
   if (d < 0) return false;
   if (d > s.len) {
     if (next?.do !== "wait") return false;
-    huddle(it, next, p, out);
+    huddle(it, next, p, out, shift);
     return true;
   }
   sample(s.p, s.cum, d, p.side, out);
@@ -191,15 +196,16 @@ function personAt(it, k, T, p, out) {
   return true;
 }
 
-/** Where person p of a waiting group stands: a loose huddle a little out from the door it boards at, facing it. */
-function huddle(it, s, p, out) {
+/** Where person p of a waiting group stands: a loose huddle a little out from the door it boards at, facing it, moved
+ * along by `shift` metres when another group already waits there. */
+function huddle(it, s, p, out, shift = 0) {
   const n = it.people.length;
   const i = it.people.indexOf(p);
   const front = Math.ceil(n / 2);
   const row = n > 3 && i >= front ? 1 : 0;
   const inRow = row ? n - front : n > 3 ? front : n;
   const j = row ? i - front : i;
-  const lat = (j - (inRow - 1) / 2) * 0.72 + (p.seed - 0.5) * 0.2;
+  const lat = (j - (inRow - 1) / 2) * 0.72 + (p.seed - 0.5) * 0.2 + shift;
   const back = 1.1 + row * 0.85 + (p.seed - 0.5) * 0.25;
   const h = (s.h ?? 0) * (Math.PI / 180);
   const fx = Math.sin(h);
@@ -207,7 +213,7 @@ function huddle(it, s, p, out) {
   out[0] = s.p[0][0] - fx * back + fy * lat;
   out[1] = s.p[0][1] - fy * back - fx * lat;
   out[2] = 0;
-  out[3] = (s.h ?? 0) - lat * 14 + (p.seed - 0.5) * 30;
+  out[3] = (s.h ?? 0) - (lat - shift) * 14 + (p.seed - 0.5) * 30;
   out[4] = 0;
 }
 
@@ -321,7 +327,6 @@ function buildVan() {
     colored(box(2.0, 0.95, 0.9), "#f3f3f0", 0, 0.95, -2.85),
     colored(box(1.96, 0.72, 0.1), "#1c252c", 0, 1.78, -2.36),
     colored(box(2.05, 0.55, 4.2), "#232c33", 0, 1.86, 0.55),
-    colored(box(2.05, 0.12, 5.6), "#2f6db3", 0, 1.02, 0.25),
     colored(box(2.04, 0.18, 0.2), "#2a2c2e", 0, 0.48, -3.28),
     colored(box(1.9, 0.12, 0.08), "#ffd9a0", 0, 0.98, -3.31),
     wheel(-0.92, -2.0),

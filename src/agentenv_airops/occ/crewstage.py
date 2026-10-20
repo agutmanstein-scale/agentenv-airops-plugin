@@ -32,6 +32,9 @@ CURB = 11.0
 ROOM_ALONG, CURB_ALONG, ROAD = 25.0, 110.0, 140.0
 """The crew room this far past the end gate into the landside face, the curb this far past the gate and the vans'
 road on along the face from the curb this far."""
+RAMP = 60.0
+"""A stand without a jet bridge farther than this from the walkway is a remote one, reached by the apron bus from the
+walkway point nearest it."""
 CUT = 45.0
 """A walk cuts through the building (a pier's root) across a gap this narrow."""
 LEAVE, BOARD, DEADHEAD, DEPLANE, CONNECT = 50, 35, 30, 10, 75
@@ -153,7 +156,7 @@ def to_gate(me: Mapping, flight: str, deadhead: bool, g: Mapping, t: float, site
     board = round(min(board, max(arrive, t - 3)), 1)
     face = round(math.degrees(math.atan2(dest.face[0] - dest.xy[0], dest.face[1] - dest.xy[1])) % 360)
     segs = [w] + ([{"do": "wait", "t": [arrive, board], "at": w["p"][-1], "h": face}] if board > arrive else [])
-    return move(me, "out", flight, g["stand"], segs, deadhead=deadhead, inbound=inbound)
+    return move(me, "out", flight, g["stand"], segs, deadhead=deadhead, inbound=inbound, bus=dest.bus)
 
 
 def short(rows: Sequence[Sequence] | None, t: float) -> bool:
@@ -247,7 +250,8 @@ def say(g: Mapping, s: Mapping) -> str:
         return f"Deadheading crew · boarding {flight} with the passengers"
     if g["kind"] == "out":
         head = f"Reserve {who} for {flight}" if reserve else f"Crew of {flight}"
-        return f"{head} · {'to' if s['do'] == 'walk' else 'at'} {gate_name(g['stand'])}"
+        where = f"the bus to stand {g['stand']}" if note.get("bus") else gate_name(g["stand"])
+        return f"{head} · {'to' if s['do'] == 'walk' else 'at'} {where}"
     if g["kind"] == "hotel":
         until = f"rest until {hhmm(note['until'])}" if note.get("until") is not None else "layover"
         return f"Crew to the hotel · {'timed out' if note.get('timed_out') else until}"
@@ -283,8 +287,8 @@ class Place:
     """Where a crew stands (xy), the walkway point it reaches it from (walk), that point's arc length on the
     terminal's outline (s) and what it faces while it waits there (face)."""
 
-    def __init__(self, xy: Point, s: float, walk: Point, face: Point | None = None):
-        self.xy, self.s, self.walk, self.face = xy, s, walk, face or xy
+    def __init__(self, xy: Point, s: float, walk: Point, face: Point | None = None, bus: bool = False):
+        self.xy, self.s, self.walk, self.face, self.bus = xy, s, walk, face or xy, bus
 
 
 class Site:
@@ -332,7 +336,8 @@ class Site:
         self.lane = [ring.at(curb_s, CURB), *coarse.between(c0, c1, CURB, sign > 0), coarse.at(c1, CURB)]
 
     def door(self, ref: str) -> Place:
-        """The walkway point under a stand's jet bridge, else (no bridge on the terminal) its aircraft's front door."""
+        """The walkway point under a stand's jet bridge, else (no bridge on the terminal) its aircraft's front door, or
+        for a remote stand the walkway point its apron bus leaves from."""
         root = self.roots.get(ref)
         if root is not None:
             s, d = self.ring.project(root)
@@ -343,8 +348,11 @@ class Site:
         h = math.radians(st["heading"])
         fx, fy = math.sin(h), math.cos(h)
         xy = (st["xy"][0] - fx * 6 - fy * 4, st["xy"][1] - fy * 6 + fx * 4)
-        s, _ = self.ring.project(xy)
-        return Place(xy, s, self.ring.at(s, WALKWAY), tuple(st["xy"]))
+        s, d = self.ring.project(xy)
+        w = self.ring.at(s, WALKWAY)
+        if d > RAMP:
+            return Place(w, s, w, tuple(st["xy"]), bus=True)
+        return Place(xy, s, w, tuple(st["xy"]))
 
     def route(self, a: Place, b: Place) -> list[Point]:
         """From a to b along the walkway, the airside way round."""
