@@ -151,7 +151,7 @@ export class ControlCenter {
   state() {
     const ms = this.frameMs.slice().sort((a, b) => a - b);
     const shot = this.rig.kind === "shot" ? { from: this.rig.from, to: this.rig.to, at: this.rig.at, fov: this.rig.fov, desk: this.rig.desk, ref: this.rig.ref } : null;
-    return { t: this.T, view: this.rig.name, turn: this.pods?.active(this.T) ?? null, cards: this.cards, shot,
+    return { t: this.T, view: this.rig.name, desks: this.pods?.desks ?? [], turn: this.pods?.active(this.T) ?? null, cards: this.cards, shot,
       frame: ms.length ? { median: ms[ms.length >> 1], p95: ms[Math.floor(ms.length * 0.95)] } : null };
   }
 

@@ -368,10 +368,10 @@ function interiors(lounges, floor, ceil) {
       front.push([x + nx * 0.06, y + ny * 0.06]);
       back.push([x + nx * lg.depth, y + ny * lg.depth]);
     }
-    floors.push(band(front, back, floor, true));
-    ceilings.push(band(front, back, ceil - 0.05, false));
-    walls.push(wall(back, floor, ceil, true));
-    walls.push(wall([front[0], back[0]], floor, ceil, false), wall([front.at(-1), back.at(-1)], floor, ceil, true));
+    floors.push(band(front, back, floor, true, "#5f6672", "#474d58"));
+    ceilings.push(band(front, back, ceil - 0.05, false, "#f3eee4", "#d9d3c7"));
+    walls.push(wall(back, floor, ceil, true, "#a8a195", "#d6d0c4"));
+    walls.push(wall([front[0], back[0]], floor, ceil, false, "#b3aca0", "#d6d0c4"), wall([front.at(-1), back.at(-1)], floor, ceil, true, "#b3aca0", "#d6d0c4"));
     glass.push(wall(lg.p.map(([x, y], i) => [x + lg.n[i][0] * 0.03, y + lg.n[i][1] * 0.03]), floor, ceil, false));
   }
   const add = (geos, m) => {
@@ -381,9 +381,10 @@ function interiors(lounges, floor, ceil) {
     g.add(mesh);
     return mesh;
   };
-  add(floors, new THREE.MeshLambertMaterial({ color: "#454c57", emissive: "#2a2e35", side: THREE.DoubleSide }));
-  add(ceilings, new THREE.MeshBasicMaterial({ color: "#e9e2d4", side: THREE.DoubleSide, toneMapped: true }));
-  add(walls, new THREE.MeshLambertMaterial({ color: "#cfc8bb", emissive: "#6b655c", side: THREE.DoubleSide }));
+  const lit = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, toneMapped: false });
+  add(floors, lit);
+  add(ceilings, lit);
+  add(walls, lit);
   const pane = add(glass, new THREE.MeshStandardMaterial({ color: "#a9c2d2", transparent: true, opacity: 0.16, roughness: 0.04, metalness: 0.7, depthWrite: false, side: THREE.DoubleSide }));
   pane.renderOrder = 2;
   const seats = lounges.flatMap((lg) => lg.benches);
@@ -416,29 +417,43 @@ function interiors(lounges, floor, ceil) {
   return g;
 }
 
-function band(a, b, y, up) {
+/** A floor or ceiling strip between the glass line a and the back line b, shaded from near (glass) to far. */
+function band(a, b, y, up, near = "#ffffff", far = near) {
   const pos = [];
+  const col = [];
+  const [cn, cf] = [new THREE.Color(near), new THREE.Color(far)];
   for (let i = 0; i + 1 < a.length; i++) {
     const q = [a[i], a[i + 1], b[i + 1], b[i]].map(([x, z]) => [x, y, -z]);
     const tri = up ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2];
-    for (const k of tri) pos.push(...q[k]);
+    for (const k of tri) {
+      pos.push(...q[k]);
+      col.push(...(k < 2 ? cn : cf).toArray());
+    }
   }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  geo.computeVertexNormals();
-  return geo;
+  return strip(pos, col);
 }
 
-function wall(line, y0, y1, flip) {
+/** A wall along line from y0 to y1, shaded from its foot to its head. */
+function wall(line, y0, y1, flip, foot = "#ffffff", head = foot) {
   const pos = [];
+  const col = [];
+  const [cf, ch] = [new THREE.Color(foot), new THREE.Color(head)];
   for (let i = 0; i + 1 < line.length; i++) {
     const [ax, ay] = line[i];
     const [bx, by] = line[i + 1];
     const q = [[ax, y0, -ay], [bx, y0, -by], [bx, y1, -by], [ax, y1, -ay]];
-    for (const k of flip ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3]) pos.push(...q[k]);
+    for (const k of flip ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3]) {
+      pos.push(...q[k]);
+      col.push(...(k < 2 ? cf : ch).toArray());
+    }
   }
+  return strip(pos, col);
+}
+
+function strip(pos, col) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   geo.computeVertexNormals();
   return geo;
 }
@@ -543,7 +558,7 @@ function figureKit() {
 function figureMaterial() {
   const m = new THREE.MeshLambertMaterial({ vertexColors: true });
   m.onBeforeCompile = (sh) => {
-    sh.fragmentShader = sh.fragmentShader.replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * 0.32;");
+    sh.fragmentShader = sh.fragmentShader.replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * 0.42;");
   };
   m.customProgramCacheKey = () => "pax-lit";
   return m;
