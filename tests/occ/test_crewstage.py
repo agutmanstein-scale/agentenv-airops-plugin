@@ -12,13 +12,16 @@ WALK = 3.5
 
 def stage() -> dict:
     """Eight Terminal 5 gates 45 m apart facing north into a terminal along y = 25..90, each with its jet bridge, a
-    Terminal 4 gate past it and a remote stand out on the apron."""
+    Terminal 4 gate past it and a remote stand facing south out on the apron, its lead off a taxilane."""
     stands = [{"ref": f"T5-{i + 1}", "terminal": "T5", "xy": [45.0 * i, 0.0], "heading": 0.0} for i in range(8)]
     stands += [{"ref": "T4-1", "terminal": "T4", "xy": [1200.0, 0.0], "heading": 0.0},
                {"ref": "H1", "terminal": "remote", "xy": [100.0, -300.0], "heading": 180.0}]
     bridges = [{"line": [[45.0 * i + 5, 25.0], [45.0 * i + 5, 12.0], [45.0 * i + 3, 6.0]], "stand": f"T5-{i + 1}"}
                for i in range(8)]
+    nodes = [[-40, -120], [100, -120], [300, -120], [300, -1000], [100, -300]]
+    edges = [[0, 1, 140, "taxilane"], [1, 2, 200, "taxilane"], [2, 3, 880, "runway"], [1, 4, 180, "lead"]]
     return {"hub": "JFK", "stands": stands, "jet_bridges": bridges,
+            "taxi_graph": {"nodes": nodes, "edges": edges, "stand_nodes": {"H1": 4}, "thresholds": {}},
             "terminals": [{"name": "Terminal 5", "outer": [[-60, 25], [900, 25], [900, 90], [-60, 90]], "holes": []},
                           {"name": "Terminal 4", "outer": [[1100, 25], [1300, 25], [1300, 60], [1100, 60]]}]}
 
@@ -76,8 +79,8 @@ def test_the_crew_room_and_curb_sit_past_the_end_gate_nearer_the_middle_and_walk
     assert all(not (-60 < x < 900 and 25 < y < 90) for x, y in out)
     assert max(x for x, _ in out) <= 320 and site.lane[0][0] < -60 and site.lane[-1][1] > site.lane[0][1]
     remote = site.door("H1")
-    assert remote.bus and remote.xy == pytest.approx((104, 25 - WALK - cs.STOP), abs=0.5)
-    assert remote.door == pytest.approx((104, -294)) and remote.near == pytest.approx((104, -294 + cs.ALIGHT))
+    assert remote.bus and remote.xy == pytest.approx(site.stop) and remote.walk == site.room.walk
+    assert remote.door == pytest.approx((102.5, -299)) and remote.near == pytest.approx((102.5 + cs.ALIGHT, -302))
 
 
 def test_a_crew_from_the_crew_room_walks_to_its_gate_and_waits_to_board_and_pilots_and_cabin_go_together():
@@ -147,12 +150,14 @@ def test_no_crews_without_the_room_or_a_home_terminal():
     assert cs.crews(episode({"P-1": unit()}), sidecar(), stage() | {"hub": "LGA"}) == []
 
 
-def test_a_crew_for_a_remote_stand_rides_the_apron_bus_out_to_its_aircraft():
+def test_a_crew_for_a_remote_stand_rides_the_apron_bus_along_the_taxilanes_and_round_the_wingtip_to_its_door():
     [_, group] = run({"P-1": unit(duties=[{"report": 600, "at": "JFK", "legs": [[6, 800, 900]], "release": 915}])})
     walk, bus, alight, wait = group["segs"]
-    assert (bus["do"], bus["v"], bus["dir"]) == ("van", "bus", "via")
-    assert bus["p"] == [walk["p"][-1], alight["p"][0]] and bus["t"][0] == walk["t"][1] + 1
-    assert alight["p"][-1] == pytest.approx([104, -294]) and wait["t"][1] == 800 - cs.BOARD
+    assert (bus["do"], bus["v"], bus["dir"]) == ("van", "bus", "via") and bus["t"][0] == walk["t"][1] + 1
+    wing, side = 100 + 36 / 2 + cs.CLEAR, 102.5 + cs.ALIGHT
+    assert bus["p"] == [walk["p"][-1], [-40, -120], [100, -120], [wing, -256], [wing, -314], [side, -312],
+                        alight["p"][0]]
+    assert alight["p"][-1] == pytest.approx([102.5, -299]) and wait["t"][1] == 800 - cs.BOARD
     assert [x["say"] for x in (walk, bus, wait)] == ["Crew of B6 606 · to the bus to stand H1",
                                                    "Crew of B6 606 · on the bus to stand H1",
                                                    "Crew of B6 606 · at stand H1"]

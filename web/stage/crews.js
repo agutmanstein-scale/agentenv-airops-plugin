@@ -49,6 +49,11 @@ export function buildCrews(list = []) {
     bag: mesh(kit.bag, CAP),
     flightbag: mesh(kit.flightbag, CAP),
   };
+  M.blob = new THREE.InstancedMesh(new THREE.CircleGeometry(0.5 * FIG, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: "#000", transparent: true, opacity: 0.32, depthWrite: false }), CAP);
+  M.blob.frustumCulled = false;
+  M.blob.renderOrder = -1;
+  M.blob.count = 0;
+  group.add(M.blob);
   const byKey = new Map(items.map((it) => [it.key, it]));
   const S = new THREE.Matrix4().makeScale(FIG, FIG, FIG);
   M.head.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CAP * 3), 3).setUsage(THREE.DynamicDrawUsage);
@@ -69,7 +74,7 @@ export function buildCrews(list = []) {
     },
     /** Pose the crews about at minute T; rate is the replay's clock rate (0 paused), wall the wall clock in seconds. */
     update(T, wall, rate = 0) {
-      const n = { pilot: 0, cabin: 0, head: 0, leg: 0, bag: 0, flightbag: 0 };
+      const n = { pilot: 0, cabin: 0, head: 0, leg: 0, bag: 0, flightbag: 0, blob: 0 };
       const huddles = new Map();
       let v = 0;
       live = [];
@@ -104,6 +109,7 @@ export function buildCrews(list = []) {
             const bob = walking ? 0.025 * Math.abs(Math.cos(phase)) : 0;
             B.makeRotationY(-at[3] * (Math.PI / 180)).multiply(S).setPosition(at[0], 0.04 + bob, -at[1]);
             M[p.kind].setMatrixAt(n[p.kind]++, B);
+            M.blob.setMatrixAt(n.blob++, X.makeTranslation(at[0], 0.05, -at[1]));
             M.head.setMatrixAt(n.head, out.multiplyMatrices(B, X.makeTranslation(0, 1.76, 0)));
             M.head.setColorAt(n.head++, p.skin);
             for (const side of [-1, 1]) {
@@ -156,8 +162,9 @@ export function buildCrews(list = []) {
         moving: true,
       }));
     },
-    /** Where group `key` is at T for a camera: {x, y, heading (degrees), kind: walk | wait | van, moving}, held at its
-     * first place before it appears and its last after it is gone; null for a key it does not know. */
+    /** Where group `key` is at T for a camera: {x, y, heading (degrees), kind: walk | wait | van, moving; a van's bus
+     * flag and road [curb, far end]}, held at its first place before it appears and its last after it is gone; null
+     * for a key it does not know. */
     focus(key, T) {
       const it = byKey.get(key);
       return it ? focusOf(it, T) : null;
@@ -168,6 +175,15 @@ export function buildCrews(list = []) {
       const near = items.filter((it) => it.to >= T && it.from <= T + 60);
       const score = (it) => (it.flights.some((f) => flights.has(f)) ? -1000 : 0) + Math.max(0, it.from - T);
       return near.sort((a, b) => score(a) - score(b))[0]?.key ?? null;
+    },
+    /** The vans and buses in the scene now as [x0, y0, x1, y1, half width] ENU metres, for a camera to keep clear of. */
+    vehicles() {
+      return vans.filter((g) => g.visible).map((g) => {
+        const h = -g.rotation.y;
+        const half = g.userData.looks.bus.visible ? 6.6 : g.userData.looks.shuttle.visible ? 4.3 : 3.3;
+        const [dx, dy] = [Math.sin(h) * half, Math.cos(h) * half];
+        return [g.position.x - dx, -g.position.z - dy, g.position.x + dx, -g.position.z + dy, 1.5];
+      });
     },
     /** Every group, for a director: {key, kind, crew, flights, stand, from, to, says}. */
     list() {
@@ -203,6 +219,7 @@ function focusOf(it, T) {
   const segs = it.segs;
   let k = segs.findIndex((s) => T >= s.t[0] && T <= s.t[1]);
   let u = null;
+  if (k < 0) k = segs.findIndex((s) => s.do === "van" && T >= s.t[0] - (s.dir !== "in" ? s.park : 0) && T <= s.t[1] + (s.dir !== "out" ? s.park : 0));
   if (k < 0) {
     k = T < it.from ? 0 : Math.max(0, segs.findLastIndex((s) => s.t[1] <= T));
     u = T < it.from && !(segs[0].do === "van" && segs[0].dir === "out") ? 0 : 1;
@@ -216,7 +233,9 @@ function focusOf(it, T) {
   }
   if (s.do === "van") {
     const v = vanAt(s, Math.min(s.t[1], Math.max(s.t[0], tt)));
-    return { x: v.x, y: v.y, heading: v.heading, kind: "van", moving: tt > s.t[0] && tt < s.t[1], fade: v.fade };
+    const ends = [s.p[0], s.p[s.p.length - 1]];
+    const road = s.dir === "via" ? null : s.dir === "out" ? ends : ends.reverse();
+    return { x: v.x, y: v.y, heading: v.heading, kind: "van", bus: s.v === "bus", road, moving: tt > s.t[0] && tt < s.t[1], fade: v.fade };
   }
   const f = Math.min(1, Math.max(0, (tt - s.t[0]) / Math.max(1e-6, s.t[1] - s.t[0])));
   const d = Math.min(s.len, Math.max(0, f * (s.len + it.tail) - it.tail / 2));
