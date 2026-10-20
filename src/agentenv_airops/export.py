@@ -16,6 +16,7 @@ from . import stage as hub_stage
 from .core.known import known_caps, known_lb
 from .core.model import Caps, Flight, Task
 from .core.sim import AUTO_CANCELLED, CANCELLED, FLOWN, execute
+from .occ import crewstage
 from .schedule import Watch, timetable
 
 WEB = Path(str(files("agentenv_airops") / "web"))
@@ -191,6 +192,8 @@ def sidecar(ep: Mapping, cache: Path, stages: dict[str, dict] | None = None) -> 
     traffic = json.loads(gzip.decompress((cache / "traffic" / f"{task_id}.json.gz").read_bytes()))
     crew = {int(i): rows for i, rows in (ep.get("occ") or {}).get("crew", {}).items()}
     doc = hub_stage.sidecar(ep["task"], ep["executed"], traffic, stages[hub], crew)
+    if ep.get("occ"):
+        doc["crews"] = crewstage.crews(ep, doc, stages[hub])
     return gzip.compress(json.dumps(doc, ensure_ascii=False, separators=(",", ":")).encode(), mtime=0)
 
 

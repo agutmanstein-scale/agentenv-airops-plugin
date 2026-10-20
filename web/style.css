@@ -32,6 +32,8 @@ button, select { font: inherit; color: inherit; }
 .ep { position: fixed; inset: 0; overflow: hidden; }
 .view { position: absolute; overflow: hidden; background: #20262d; }
 .view.main { inset: 0; z-index: 0; }
+.view.behind { inset: 0; z-index: -1; visibility: hidden; }
+.view .room-host { position: absolute; inset: 0; }
 .view.corner { right: var(--gap); bottom: calc(var(--tl) + var(--gap) * 2); width: var(--inset-w); height: var(--inset-h); z-index: 4;
   border-radius: 10px; border: 2px solid rgba(255, 255, 255, 0.92); box-shadow: 0 8px 26px rgba(4, 16, 26, 0.45); cursor: pointer; }
 .view .map, .view .stage-host { position: absolute; inset: 0; }

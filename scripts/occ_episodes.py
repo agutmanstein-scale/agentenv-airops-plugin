@@ -14,6 +14,7 @@ import argparse
 import json
 import shutil
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from agentenv_airops import export
@@ -43,6 +44,14 @@ EXPOSE 80
 """
 
 
+def expand(runs: Path, arg: str) -> list[str]:
+    """FOLDER/RUN as given, or every scored run of FOLDER."""
+    if "/" in arg:
+        return [arg]
+    rows = [json.loads(line) for line in (runs / arg / "results.jsonl").read_text().splitlines() if line.strip()]
+    return [f"{arg}/{r}" for r in dict.fromkeys(r["run"] for r in rows if r["outcome"] == "scored")]
+
+
 def load(runs: Path, name: str) -> tuple[dict, dict, dict]:
     """A run named <folder>/<run>: its day record (the scored attempt's), its results row and the folder's manifest."""
     folder, run = name.split("/", 1)
@@ -55,14 +64,20 @@ def load(runs: Path, name: str) -> tuple[dict, dict, dict]:
     return data, row, manifest
 
 
+def replay_all(names: list[str], runs: Path, cache: Path, workers: int) -> None:
+    """Every run's projections into the cache, `workers` replays at once."""
+    with ProcessPoolExecutor(workers) as pool:
+        for name in pool.map(project, names, [runs] * len(names), [cache] * len(names)):
+            print(f"{name}: projected", flush=True)
+
+
 def build(names: list[str], runs: Path, inputs: Path, cache: Path, hub: str | None, replay: bool) -> list[dict]:
     pack, out = Pack(), []
     for name in names:
         data, row, manifest = load(runs, name)
         world = pack.world(data["task_id"])
         folder = name.split("/", 1)[0]
-        projected = projections(world, data, cache / "occ" / "projections" / f"{folder}.{row['run']}.json") \
-            if replay else None
+        projected = projections(world, data, projection_path(cache, name, row)) if replay else None
         record = {"folder": folder, "run": row["run"], "attempt": row["attempt"], "cost_usd": row.get("cost_usd"),
                   "wall_seconds": row.get("wall_seconds"), "desks": row.get("desks")}
         ep = episode.episode(world, data, model=manifest["model"], run=f"{folder}-{data['mode']}", inputs=inputs,
@@ -75,6 +90,17 @@ def build(names: list[str], runs: Path, inputs: Path, cache: Path, hub: str | No
               f"{len(doc['aircraft'])} other aircraft at the hub -> {path}")
         out.append(ep)
     return out
+
+
+def project(name: str, runs: Path, cache: Path) -> str:
+    """One run's projections into the cache (a worker of --workers)."""
+    data, row, _ = load(runs, name)
+    projections(Pack().world(data["task_id"]), data, projection_path(cache, name, row))
+    return name
+
+
+def projection_path(cache: Path, name: str, row: dict) -> Path:
+    return cache / "occ" / "projections" / f"{name.split('/', 1)[0]}.{row['run']}.json"
 
 
 def projections(world, data: dict, path: Path) -> list[list[dict]]:
@@ -104,20 +130,31 @@ def space(files: dict[str, bytes], out: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("runs_named", nargs="+", metavar="FOLDER/RUN", help="e.g. occ-pilot-sol/b6-20230709-0400-joint")
+    p.add_argument("runs_named", nargs="+", metavar="FOLDER[/RUN]",
+                   help="e.g. occ-pilot-sol/b6-20230709-0400-joint, or occ-board-sol for all its scored runs")
     p.add_argument("--runs", type=Path, default=ROOT / "results" / "runs")
     p.add_argument("--inputs", type=Path, default=ROOT / "cache" / "inputs",
                    help="The raw inputs the pack was built from: BTS on-time, the FAA registry, ATCSCC, IEM METARs.")
     p.add_argument("--cache", type=Path, default=ROOT / "cache",
                    help="Where the airport stages and hub twins are; the traffic is baked into its traffic/.")
-    p.add_argument("--out", type=Path, required=True, help="The viewer folder to write.")
+    p.add_argument("--out", type=Path, help="The viewer folder to write.")
     p.add_argument("--space-out", type=Path, help="Assemble the static Space here too, with its Dockerfile.")
     p.add_argument("--hub", choices=("JFK", "BOS"), help="The airport shown in 3D; default the task's.")
     p.add_argument("--replay", action="store_true",
-                   help="Replay each day to give every watch the desks' projection (about 20 min a day, kept under "
-                        "--cache/occ/projections); else the board shows how the day flew.")
+                   help="Replay each day's changes to give every watch the desks' projection (a few minutes a day, "
+                        "kept under --cache/occ/projections); else the board shows how the day flew.")
+    p.add_argument("--workers", type=int, default=1, help="Replay this many days at once.")
+    p.add_argument("--projections-only", action="store_true",
+                   help="Only replay the runs into --cache/occ/projections (the slow part), e.g. on a large machine.")
     args = p.parse_args(argv)
-    episodes = build(args.runs_named, args.runs, args.inputs, args.cache, args.hub, args.replay)
+    names = [n for arg in args.runs_named for n in expand(args.runs, arg)]
+    if args.replay or args.projections_only:
+        replay_all(names, args.runs, args.cache, args.workers)
+    if args.projections_only:
+        return 0
+    if args.out is None:
+        p.error("--out is required unless --projections-only")
+    episodes = build(names, args.runs, args.inputs, args.cache, args.hub, args.replay)
     files = export.folder(episodes, args.cache)
     shutil.rmtree(args.out, ignore_errors=True)
     write(files, args.out)

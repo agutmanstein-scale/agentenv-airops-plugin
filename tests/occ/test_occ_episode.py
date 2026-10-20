@@ -1,5 +1,7 @@
 """A recorded control-center day as the viewer's episode: v1's shape with the room in `occ`, valid under the schema and
-listed as such; the crew tags at the gate by the desks' flag rule; each watch's projection from an exact replay."""
+listed as such, the turns spread over the hour after their watch; the crews with their legal limits; the crew tags at
+the gate by the desks' flag rule; each watch's projection from a replay of the calls that change the day, as the exact
+replay has it."""
 
 import json
 
@@ -8,6 +10,9 @@ from occ_helpers import play, scripted, storm
 
 from agentenv_airops import export
 from agentenv_airops.occ import episode
+from agentenv_airops.occ.day import OccDay
+from agentenv_airops.occ.replay import replay
+from agentenv_airops.programs import crews
 
 
 @pytest.fixture(scope="module")
@@ -26,8 +31,16 @@ def test_a_played_day_is_an_episode_the_viewer_reads_with_the_room_in_it(played,
     cancel = next(r for r in ep["occ"]["requests"] if r["type"] == "CANCEL")
     assert (cancel["sender"], cancel["receiver"], cancel["flight"], cancel["status"], cancel["reply"]) == (
         "crew", "ops", 2, "accepted", "accept")
-    assert {"t": 0, "desk": "ops", "action": "cancel", "flight": 2, "detail": None, "ref": cancel["id"],
-            "via": "accept"} in ep["occ"]["decisions"]
+    [decision] = ep["occ"]["decisions"]
+    assert decision == {"t": 0, "shown": cancel["answered"], "desk": "ops", "action": "cancel", "flight": 2,
+                        "detail": None, "ref": cancel["id"], "via": "accept", "tool": "ops_reply"}
+    turns = ep["occ"]["turns"]
+    assert all(u["t"] + episode.ROOM[0] <= u["from"] < u["to"] <= u["t"] + episode.ROOM[1] for u in turns)
+    assert [u["desk"] for u in turns[:2]] == ["crew", "ops"] and turns[0]["to"] == turns[1]["from"]
+    assert turns[0]["from"] < cancel["shown"] < turns[0]["to"] <= cancel["answered"] < turns[1]["to"]
+    c1, p1 = ep["occ"]["units"]["C1"], ep["occ"]["units"]["P1"]
+    assert c1["duties"][0]["limit"] == 840 + crews.CABIN_DUTY - crews.DEBRIEF and c1["size"] == 4
+    assert p1["duties"][0]["ext"] - p1["duties"][0]["limit"] == crews.EXTENSION
     assert [c["id"] for c in ep["watches"][0]["changes"] if c["action"] == "cancel"] == [2]
     assert ep["stage"] is None and [r["reward"] for r in ep["occ"]["refs"]][0] == 1.0
     index = json.loads(export.folder([ep], tmp_path)["episodes/index.json"])
@@ -49,8 +62,18 @@ def test_a_gate_tag_shows_no_crew_and_a_crew_clock_only_near_the_flights_departu
                                                    "3": [[240, "times out", 720], [420, None, None]]}
 
 
-def test_each_watch_projects_the_plan_it_left_from_an_exact_replay(played):
+def test_each_watch_projects_the_plan_it_left_as_an_exact_replay_does(played):
     w, data = played
     out = episode.projections(w, data)
+    exact = []
+
+    class Watched(OccDay):
+        def _close(self):
+            super()._close()
+            flights = self.project(self.plan).day.run.flights
+            exact.append([(i, r.status, r.dep, r.arr) for i, r in sorted(flights.items())])
+
+    assert replay(w, data, Watched).exact and exact == [[(r["id"], r["status"], r["dep"], r["arr"]) for r in p]
+                                                        for p in out]
     assert len(out) == len(data["estimates"]) and all(len(p) == len(w.task.flights) for p in out)
     assert next(r for r in out[0] if r["id"] == 2)["status"] == "cancelled"

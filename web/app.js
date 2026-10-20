@@ -12,13 +12,15 @@ const params = new URLSearchParams(location.search);
 const RECORD = params.get("record") === "1";
 const SPEEDS = [0.25, 1, 2, 5, 10, 20, 40];
 const STAGE_VIEWS = ["tower", "gate", "threshold", "harbour", "follow"];
-const ALIASES = { hub: "tower", region: "network", map: "network" };
-const KEYS = { 1: "tower", 2: "gate", 3: "threshold", 4: "harbour", 5: "follow", m: "network" };
+const ROOM_VIEWS = ["room", "room-desks", "room-wall"];
+const ALIASES = { hub: "tower", region: "network", map: "network", center: "room" };
+const KEYS = { 1: "tower", 2: "gate", 3: "threshold", 4: "harbour", 5: "follow", 6: "room", m: "network" };
 const CARRIERS = { AA: "an American", AS: "an Alaska", DL: "a Delta", UA: "a United", WN: "a Southwest", NK: "a Spirit", F9: "a Frontier", G4: "an Allegiant",
   SY: "a Sun Country", HA: "a Hawaiian", MX: "a Breeze", YX: "a Republic", "9E": "an Endeavor", OH: "a PSA", MQ: "an Envoy", OO: "a SkyWest", YV: "a Mesa",
   C5: "a CommuteAir", ZW: "an Air Wisconsin", PT: "a Piedmont", G7: "a GoJet", QX: "a Horizon" };
 const CAMERAS = { tower: ["Tower", "From the control tower"], gate: ["Gate", "At JetBlue's gates"], threshold: ["Runway", "At the end of the runway in use"],
-  harbour: ["Harbour", "Across the water"], follow: ["Follow", "Behind an aircraft (or click one)"], network: ["Map", "The US map, full screen"] };
+  harbour: ["Harbour", "Across the water"], follow: ["Follow", "Behind an aircraft (or click one)"], network: ["Map", "The US map, full screen"],
+  room: ["Room", "The control center, where the desks work"] };
 
 let resolveReady, rejectReady;
 window.airops = {
@@ -111,6 +113,7 @@ async function episodePage(app, url) {
   document.title = `${HUB_NAMES[task.hub] ?? task.hub} ${task.date} · ${model} · ${brand}`;
   app.innerHTML = `<div class="ep">
     <div class="view view-stage"><div class="stage-host"></div><div class="inset-caption">The airport · click to swap</div></div>
+    ${ep.occ ? `<div class="view view-room" hidden><div class="room-host"></div><div class="inset-caption">The control center · click to swap</div></div>` : ""}
     <div class="view view-map"><div class="map"></div><div class="inset-caption">US radar and JetBlue's flights in the air · click to swap</div>
       <div class="radar-key" ${P.radar ? "" : "hidden"}><span>Radar: light</span><i></i><span>heavy</span></div></div>
     <div class="cards left"><section class="card head"></section><section class="card desk"></section></div>
@@ -133,7 +136,20 @@ async function episodePage(app, url) {
       stage = null;
     }
   }
-  const views = new Views(root, P, { stage, interactive: !RECORD, onSwap: (main) => setView(main === "map" ? "network" : stageView) });
+  let center = null;
+  if (ep.occ) {
+    try {
+      const { ControlCenter } = await import("./center/center.js");
+      center = new ControlCenter(root.querySelector(".room-host"), { P, ep, base: url.href, manual: RECORD, controls: !RECORD });
+      await center.ready;
+    } catch (e) {
+      console.error("the control-center room failed:", e);
+      center?.dispose?.();
+      center = null;
+    }
+  }
+  const views = new Views(root, P, { stage, room: center, interactive: !RECORD,
+    onSwap: (main) => setView(main === "map" ? "network" : main === "room" ? roomView : stageView) });
   const ctx = { task, earlier: P.news, city: cityOf, hub: task.hub, sched: P.sched, flightOf: (ref) => P.sched.get(Number(String(ref).replace(/^f/, "")))?.flight };
   const header = new Header(root.querySelector(".head"), P, { model: ep.occ ? `${model} · ${ep.occ.label}` : model, weather: stage ? traffic.weather : null, brand });
   const desk = ep.occ ? new Room(root.querySelector(".desk"), P, { model }) : new Desk(root.querySelector(".desk"), P, { model, city: cityOf });
@@ -142,8 +158,8 @@ async function episodePage(app, url) {
     scope: ep.occ ? "all of its flights here" : "the task's flights" });
   const expertEl = root.querySelector(".expert");
   let expert = null;
-  const cameras = (stage ? [...STAGE_VIEWS, "network"] : []).map((id, i) => ({ id, label: id === "harbour" && task.hub === "JFK" ? "Bay" : CAMERAS[id][0],
-    title: `${CAMERAS[id][1]} (${id === "network" ? "m" : i + 1})` }));
+  const cameras = [...(stage ? STAGE_VIEWS : []), ...(center ? ["room"] : []), ...(stage || center ? ["network"] : [])].map((id) => ({ id,
+    label: id === "harbour" && task.hub === "JFK" ? "Bay" : CAMERAS[id][0], title: `${CAMERAS[id][1]} (${Object.keys(KEYS).find((k) => KEYS[k] === id)})` }));
   const speed0 = SPEEDS.includes(Number(params.get("speed"))) ? Number(params.get("speed")) : 5;
   const timeline = new Timeline(root.querySelector(".timeline"), P, { bands: programBands(P), speeds: SPEEDS, speed: speed0, cameras });
   root.querySelector(".credit").textContent = `${stage ? "Gates, taxi routes and runways in use are inferred, for display · airport © OpenStreetMap contributors (ODbL), imagery USGS · " : ""}${ATTRIBUTION} · flights BTS · weather NWS, IEM`;
@@ -151,8 +167,8 @@ async function episodePage(app, url) {
 
   const moves = ep.executed.filter((e) => e.status === "flown").flatMap((e) => [P.sched.get(e.id).orig === task.hub ? e.dep : null, P.sched.get(e.id).dest === task.hub ? e.arr : null]).filter((m) => m != null);
   const quiet = (m) => m > P.lastWatch + 60 && !moves.some((x) => x >= m - 5 && x <= m + 30);
-  let t = clamp(Number(params.get("t") ?? P.lo)), step = null, viewName = stage ? "tower" : "network", stageView = "tower", following = null;
-  let playing = false, speed = speed0, rate = null, boost = 1, last = performance.now(), lastMap = -1, busy = false;
+  let t = clamp(Number(params.get("t") ?? P.lo)), step = null, viewName = stage ? "tower" : center ? "room" : "network", stageView = "tower", roomView = "room", following = null;
+  let playing = false, speed = speed0, rate = null, boost = 1, last = performance.now(), lastMap = -1, busy = false, busyRoom = false;
 
   function clamp(m) {
     return Math.max(P.lo, Math.min(P.hi, Number.isFinite(m) ? m : P.lo));
@@ -168,7 +184,7 @@ async function episodePage(app, url) {
     if (expert && !expertEl.hidden) expert.render(m, flights, step);
     if (force || RECORD || Math.abs(m - lastMap) >= 0.25) {
       lastMap = m;
-      views.map.update({ positions: positionsAt(P, flights, m), rings: rings(P, m), radar: views.radar?.at(m) ?? null });
+      views.map.update({ positions: positionsAt(P, flights, m), rings: rings(P, m), radar: views.radar?.at(m) ?? null, t: m });
     }
     if (following) followChip.innerHTML = followText(m);
   }
@@ -183,7 +199,12 @@ async function episodePage(app, url) {
 
   async function setView(name, opts = {}) {
     name = ALIASES[name] ?? name;
-    if (name === "network" || !stage) {
+    if (center && ROOM_VIEWS.includes(name)) {
+      views.show("room");
+      viewName = roomView = name;
+      following = null;
+      await center.view(name, opts);
+    } else if (name === "network" || !stage) {
       views.show("map");
       viewName = "network";
       following = null;
@@ -195,7 +216,7 @@ async function episodePage(app, url) {
       await stage.view(viewName, opts);
     }
     followChip.hidden = !following;
-    timeline.camera(viewName);
+    timeline.camera(viewName.startsWith("room") ? "room" : viewName);
     draw(t, { force: true });
     return viewName;
   }
@@ -251,7 +272,7 @@ async function episodePage(app, url) {
     else if (k === "+" || k === "=" || k === "-") {
       speed = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, SPEEDS.indexOf(speed) + (k === "-" ? -1 : 1)))];
       root.querySelector(".speed").value = String(speed);
-    } else if (KEYS[k] && (stage || KEYS[k] === "network")) setView(KEYS[k]);
+    } else if (KEYS[k] && (KEYS[k] === "network" || (KEYS[k] === "room" ? center : stage))) setView(KEYS[k]);
     else if (k === "Escape" && following) setView("tower");
     else if (k === "x") setExpert(expertEl.hidden);
   });
@@ -266,9 +287,13 @@ async function episodePage(app, url) {
     }
     rate = playing ? speed * 60 * boost : null;
     draw(t);
-    if (stage && !busy) {
+    if (stage && !busy && views.visible("stage")) {
       busy = true;
       Promise.resolve(stage.time(t, { dt, speed: rate ?? 0 })).finally(() => (busy = false));
+    }
+    if (center && !busyRoom && views.visible("room")) {
+      busyRoom = true;
+      Promise.resolve(center.time(t, { dt, speed: rate ?? 0 })).finally(() => (busyRoom = false));
     }
     requestAnimationFrame(tick);
   }
@@ -278,6 +303,7 @@ async function episodePage(app, url) {
   if (params.get("expert") === "1") setExpert(true);
   draw(t, { force: true });
   if (stage) await stage.time(t, { dt: 0, speed: 0 });
+  if (center) await center.time(t, { dt: 0, speed: 0 });
   await settle();
   if (!RECORD) {
     if (params.get("play") === "1") play(true);
@@ -290,7 +316,8 @@ async function episodePage(app, url) {
       t = clamp(Number(m));
       rate = opts.speed ?? null;
       draw(t);
-      if (stage) await stage.time(t, { dt: opts.dt ?? 1 / 30, speed: rate ?? 0 });
+      if (stage && views.visible("stage")) await stage.time(t, { dt: opts.dt ?? 1 / 30, speed: rate ?? 0 });
+      if (center && views.visible("room")) await center.time(t, { dt: opts.dt ?? 1 / 30, speed: rate ?? 0 });
       if (RECORD) await settle();
       return t;
     },
@@ -304,9 +331,14 @@ async function episodePage(app, url) {
       if (step != null) t = clamp(P.steps[step].t);
       draw(t, { force: true });
       if (stage && step != null) await stage.time(t, { dt: 0, speed: 0 });
+      if (center && step != null) await center.time(t, { dt: 0, speed: 0 });
       if (RECORD) await settle();
     },
     async shot(spec) {
+      if (spec?.room && center) {
+        views.show("room");
+        return center.shot(spec);
+      }
       views.show("stage");
       return stage?.shot(spec);
     },
@@ -314,11 +346,12 @@ async function episodePage(app, url) {
     events: () => stage?.events?.() ?? [],
     state: () => ({ t, view: viewName, main: views.main, step, following, expert: !expertEl.hidden, watch: watchAt(P, t),
       airborne: positionsAt(P, flightsAt(P, t), t).length, board: root.querySelectorAll(".board li:not(.none)").length,
-      stage: stage?.state?.() ?? null }),
+      stage: stage?.state?.() ?? null, room: center?.state?.() ?? null }),
     stage,
+    room: center,
     map: views.map,
   };
   resolveReady({ steps: P.steps.length, watches: P.watches.map((w) => w.t), start: task.start, t0: P.lo, end: P.hi, horizon: P.hi,
-    last_watch: P.lastWatch, views: [...(stage ? STAGE_VIEWS : []), "network"], radar: views.radar?.count ?? 0, twin: !!ep.twin,
-    stage: !!stage, span: [P.lo, P.hi], featured: traffic?.featured ?? [], hub: task.hub });
+    last_watch: P.lastWatch, views: [...(stage ? STAGE_VIEWS : []), ...(center ? ROOM_VIEWS : []), "network"], radar: views.radar?.count ?? 0, twin: !!ep.twin,
+    stage: !!stage, room: !!center, span: [P.lo, P.hi], featured: traffic?.featured ?? [], hub: task.hub });
 }

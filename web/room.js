@@ -1,6 +1,6 @@
 // The control-center card of a two-desk day (episode.occ): the requests between the ops controller and the crew
 // scheduler as they are sent and answered, each desk's decisions in time order and the note it left at the end of its
-// last turn, all as of the clock. Flights read as their numbers; crews by their ids, said in words.
+// last turn, as the room shows them (each watch's turns spread over the hour after it). Flights read as their numbers; crews by their ids, said in words.
 import { esc } from "./model.js";
 import { clock } from "./plain.js";
 
@@ -19,6 +19,9 @@ export function unitName(id) {
   const u = /^([PC])-[A-Z0-9]+-(\d+)$/.exec(id);
   return u ? `${u[1] === "P" ? "pilots" : "cabin crew"} ${u[2]}` : id;
 }
+
+/** Whether a request has its answer by t: when the room shows it, else at the minute it was given. */
+const done = (r, t) => (r.answered != null ? r.answered <= t : r.replied != null && r.replied <= t);
 
 export class Room {
   constructor(el, P, { model }) {
@@ -54,37 +57,37 @@ export class Room {
   render(t) {
     const m = Math.floor(t + 1e-6), occ = this.occ;
     if (occ.mode !== "one") {
-      const sent = occ.requests.filter((r) => r.sent <= m), answered = sent.filter((r) => r.replied != null && r.replied <= m).length;
-      this.slot("reqs", `${sent.length}|${answered}|${Math.floor(m / FRESH)}`, () => this.requests(sent, m));
+      const sent = occ.requests.filter((r) => (r.shown ?? r.sent) <= t), answered = sent.filter((r) => done(r, t)).length;
+      this.slot("reqs", `${sent.length}|${answered}|${Math.floor(m / FRESH)}`, () => this.requests(sent, t));
     } else this.slot("reqs", "one", () => "");
     for (const d of this.desks) {
-      const done = occ.decisions.filter((c) => c.t <= m && (d === "one" || c.desk === d));
-      const note = (occ.notes ?? []).filter((n) => n.t <= m && (d === "one" || n.desk === d)).at(-1);
-      this.slot(`desk-${d}`, `${done.length}|${note?.t}|${note?.desk}|${Math.floor(m / FRESH)}`, () => this.decisions(d, done, note, m));
+      const made = occ.decisions.filter((c) => (c.shown ?? c.t) <= t && (d === "one" || c.desk === d));
+      const note = (occ.notes ?? []).filter((n) => (n.shown ?? n.t) <= t && (d === "one" || n.desk === d)).at(-1);
+      this.slot(`desk-${d}`, `${made.length}|${note?.t}|${note?.desk}|${Math.floor(m / FRESH)}`, () => this.decisions(d, made, note, t));
     }
   }
 
-  requests(sent, m) {
+  requests(sent, t) {
     if (!sent.length) return `<h5>Between the desks</h5><p class="quiet">No requests yet.</p>`;
-    const items = sent.slice(-REQUESTS).reverse().map((r) => {
-      const typed = r.type !== "TEXT", answered = r.replied != null && r.replied <= m;
+    const items = [...sent].sort((a, b) => (a.shown ?? a.sent) - (b.shown ?? b.sent)).slice(-REQUESTS).reverse().map((r) => {
+      const typed = r.type !== "TEXT", answered = done(r, t);
       const reply = !typed ? "" : answered
         ? `<div class="reply ${esc(r.reply)}"><b>${r.reply === "accept" ? "Accepted" : "Declined"}</b> by ${SHORT[r.receiver]} at ${clock(r.replied)}${r.reply_text ? ` · ${esc(this.words(r.reply_text))}` : ""}</div>`
         : `<div class="reply wait">Waiting for ${SHORT[r.receiver]}'s answer</div>`;
       const what = r.flight != null ? ` · ${esc(this.flight(r.flight))}` : "";
       const when = r.time != null ? ` by ${clock(r.time)}` : "";
-      return `<li class="t-${esc(r.type)}${m - r.sent < FRESH ? " fresh" : ""}" title="Click for the whole message">
+      return `<li class="t-${esc(r.type)}${t - (r.shown ?? r.sent) < FRESH ? " fresh" : ""}" title="Click for the whole message">
         <span class="when">${clock(r.sent)} · ${SHORT[r.sender]} → ${SHORT[r.receiver]} · ${esc(r.id)}</span>
         <b>${TYPES[r.type] ?? esc(r.type)}${what}${when}</b><div class="txt">${esc(this.words(r.text))}</div>${reply}</li>`;
     }).join("");
-    const open = sent.filter((r) => r.type !== "TEXT" && !(r.replied != null && r.replied <= m)).length;
+    const open = sent.filter((r) => r.type !== "TEXT" && !done(r, t)).length;
     return `<h5>Between the desks <small>${sent.length} sent${open ? ` · ${open} waiting` : ""}</small></h5><ul class="reqs">${items}</ul>`;
   }
 
-  decisions(d, done, note, m) {
-    const items = done.slice(-DECISIONS).reverse().map((c) => `<li class="d-${esc(c.action)}${m - c.t < FRESH ? " fresh" : ""}"><span class="t">${clock(c.t)}</span>${esc(this.decision(c))}</li>`).join("");
+  decisions(d, made, note, t) {
+    const items = made.slice(-DECISIONS).reverse().map((c) => `<li class="d-${esc(c.action)}${t - (c.shown ?? c.t) < FRESH ? " fresh" : ""}"><span class="t">${clock(c.t)}</span>${esc(this.decision(c))}</li>`).join("");
     const said = note ? `<blockquote><span>${clock(note.t)}</span> ${esc(this.words(note.note).slice(0, 240))}</blockquote>` : "";
-    return `<h5>${DESKS[d]} <small>${done.length ? `${done.length} decision${done.length === 1 ? "" : "s"} so far` : "no decisions yet"}</small></h5>
+    return `<h5>${DESKS[d]} <small>${made.length ? `${made.length} decision${made.length === 1 ? "" : "s"} so far` : "no decisions yet"}</small></h5>
       ${items ? `<ul class="decs">${items}</ul>` : ""}${said}`;
   }
 

@@ -5,7 +5,11 @@ status over the day for the tags at the gate.
 
 The flights fly as the grade's executed rows (the day as it happened under the desks' plan); each watch's `projected`,
 when given, is the plan as that watch left it on the day as known (`projections`, a replay). The FAA's advisories and
-the hub's METARs are read from the raw inputs the pack was built from (cache/inputs), as v1's pack reads them."""
+the hub's METARs are read from the raw inputs the pack was built from (cache/inputs), as v1's pack reads them.
+
+The crews come from the day's crew log: each unit's duties with their legal limits, hotels and deadheads, the reserves
+by base and the desks' pages. The desks act at a watch's minute, in turns; the room spreads each watch's turns over the
+hour that follows (`shown`, display only) so that the requests, replies and decisions can be watched one by one."""
 
 import gzip
 import json
@@ -20,10 +24,11 @@ from ..build import weather
 from ..build.pack import utc_days
 from ..core.model import parse_hhmm
 from ..core.sim import FLOWN
+from ..programs import crews as rules
 from ..programs import occ as programs
-from .day import OccDay, reward
+from .day import MUTATING, SHARED, OccDay, reward
 from .pack import World
-from .replay import replay
+from .replay import ROLE
 
 SOON = 60
 """A crew's clock is worth a tag once the flight leaves within this many minutes of its last legal departure, as the
@@ -31,6 +36,10 @@ desks' crew flags read it (run.flags)."""
 LOOKBACK = 720
 MODES = {"joint": "two desks", "one": "one agent at both desks"}
 OPS_CHANGES = {"cancel": "cancel", "cancel_pair": "cancel", "hold": "hold", "release": "release"}
+ROOM = (2, 50)
+"""The minutes after a watch over which the room shows its turns."""
+TURN = (6, 24)
+"""A turn's share of them, at least and at most, before they are scaled to fit."""
 SOURCES = export.SOURCES | {"crews": "Pairings and reserves generated from the published schedule under FAR 117 and "
                                      "14 CFR 121.467 (stand-ins, not JetBlue's)"}
 
@@ -81,25 +90,124 @@ def episode(world: World, data: Mapping, *, model: str, run: str, inputs: Path, 
         "stage": None,
         "end_reason": grade["end_reason"], "audit": data["audit"], "record": dict(record or {}),
         "sources": SOURCES,
-        "occ": {
-            "mode": data["mode"], "label": MODES.get(data["mode"], data["mode"]), "desks": list(data["desks"]),
-            "requests": [request(r) for r in data["requests"]],
-            "decisions": [{"t": c["t"], "desk": c["desk"], "action": c["action"], "flight": c["target"],
-                           "detail": c["detail"], "ref": c["ref"], "via": c["via"]} for c in data["changes"]],
-            "notes": [{"t": u["t"], "desk": u["desk"], "kind": u["kind"], "note": u["note"]}
-                      for u in data["turns"] if u.get("note")],
-            "absent": data["absent"],
-            "crew": crew_tags(data["status"] or {}, {x["id"]: x for x in executed}),
-            "refs": [{"label": "Best plan found", "reward": 1.0, "note": "the best plan over aircraft and crews found "
-                                                                       "in hindsight"},
-                     {"label": "Standard crew desk", "reward": round(reward(b0, best, b0), 6),
-                      "note": "scripted standard crew-desk practice, aircraft doing nothing"}],
-            "grade": {k: grade[k] for k in ("cost", "best", "bound", "B0", "flat", "gap_pct", "over_best_pct",
-                                             "avoidable_share", "counts", "costs") if k in grade},
-        },
+        "occ": room(world, data, executed),
     }
     ep["stage"] = stage_of(ep, cache)
     return ep
+
+
+def room(world: World, data: Mapping, executed: Sequence[Mapping]) -> dict:
+    """What the room did and the crews it moved, for the control-center card, the 3D room, the crews at the airport,
+    the network inset and the expert panes."""
+    grade = data["grade"]
+    best, b0 = grade["best"], grade["B0"]
+    shown, turns = timing(data)
+    calls = {c["seq"]: c for c in data["calls"]}
+    units = crews(world, data["crews"] or {})
+    return {
+        "mode": data["mode"], "label": MODES.get(data["mode"], data["mode"]), "desks": list(data["desks"]),
+        "turns": turns,
+        "requests": [request(r) | answered(r, data["calls"], shown, turns) for r in data["requests"]],
+        "decisions": [{"t": c["t"], "shown": shown.get(c["seq"], c["t"]), "desk": c["desk"], "action": c["action"],
+                       "flight": c["target"], "detail": c["detail"], "ref": c["ref"], "via": c["via"],
+                       "tool": calls[c["seq"]]["tool"] if c["seq"] in calls else None} for c in data["changes"]],
+        "notes": [{"t": u["t"], "shown": turns[u["n"]]["to"], "desk": u["desk"], "kind": u["kind"], "note": u["note"]}
+                  for u in data["turns"] if u.get("note")],
+        "pages": [{"t": p["t"], "watch": p["watch"], "desk": p["desk"], "text": p["text"]} for p in data["pages"]],
+        "absent": data["absent"],
+        "crew": crew_tags(data["status"] or {}, {x["id"]: x for x in executed}),
+        "units": units,
+        "reserves": reserves(units),
+        "hotels": sorted(({"unit": uid, **h} for uid, u in units.items() for h in u["hotels"]),
+                         key=lambda h: (h["from"], h["unit"])),
+        "deadheads": sorted(({"unit": uid, "flight": i, "dep": dep, "arr": arr} for uid, u in units.items()
+                             for d in u["duties"] for i, dep, arr in d["deadheads"]),
+                            key=lambda x: (x["dep"], x["unit"])),
+        "refs": [{"label": "Best plan found", "reward": 1.0, "note": "the best plan over aircraft and crews found "
+                                                                   "in hindsight"},
+                 {"label": "Standard crew desk", "reward": round(reward(b0, best, b0), 6),
+                  "note": "scripted standard crew-desk practice, aircraft doing nothing"}],
+        "grade": {k: grade[k] for k in ("cost", "best", "bound", "B0", "flat", "gap_pct", "over_best_pct",
+                                         "avoidable_share", "counts", "costs") if k in grade},
+    }
+
+
+def timing(data: Mapping) -> tuple[dict[int, int], list[dict]]:
+    """Each turn's window in the hour after its watch, ROOM minutes split between the watch's turns by their calls
+    within TURN, and each call's minute in its turn's window, by seq; display only."""
+    calls: dict[int, list[dict]] = {}
+    for c in data["calls"]:
+        if c["turn"] is not None:
+            calls.setdefault(c["turn"], []).append(c)
+    by_watch: dict[int, list[dict]] = {}
+    for u in data["turns"]:
+        by_watch.setdefault(u["watch"], []).append(u)
+    turns, shown = [], {}
+    for k, group in sorted(by_watch.items()):
+        want = [min(TURN[1], max(TURN[0], 4 + u["calls"])) for u in group]
+        scale = min(1.0, (ROOM[1] - ROOM[0]) / sum(want))
+        at = group[0]["t"] + ROOM[0]
+        for u, w in zip(group, want, strict=True):
+            lo, hi = at, at + w * scale
+            mine = sorted(calls.get(u["n"], []), key=lambda c: c["seq"])
+            for j, c in enumerate(mine):
+                shown[c["seq"]] = round(lo + (j + 1) * (hi - lo) / (len(mine) + 1), 2)
+            turns.append({"n": u["n"], "watch": k, "t": u["t"], "desk": u["desk"], "kind": u["kind"],
+                          "calls": u["calls"], "from": round(lo, 2), "to": round(hi, 2)})
+            at = hi
+    return shown, sorted(turns, key=lambda u: u["n"])
+
+
+def answered(r: Mapping, calls: Sequence[Mapping], shown: Mapping[int, float], turns: Sequence[Mapping]) -> dict:
+    """When the room shows a request sent, at the sender's call that made it, and answered, at the reply call."""
+    asks = [c for c in calls if c["turn"] == r["turn"] and c["tool"].endswith("_request") and c["seq"] in shown
+            and c["args"].get("type") == r["type"] and (c["args"].get("text") or None) == (r.get("text") or None)]
+    reply = [c for c in calls if c["tool"].endswith("_reply") and c["args"].get("request") == r["id"]
+             and c["seq"] in shown]
+    return {"shown": shown[asks[0]["seq"]] if asks else turns[r["turn"]]["to"],
+            "answered": shown[reply[0]["seq"]] if reply else None}
+
+
+def crews(world: World, log: Mapping[str, Mapping]) -> dict[str, dict]:
+    """Each crew unit of the day's log: its kind, group, base and size, its reserve type and call, and each duty with
+    its legs and deadheads ([flight, dep, arr]) and the latest legal block-in, `limit` (FAR 117 Table B for pilots,
+    121.467's scheduled duty for cabin crews) and `ext` (the pilots' 2 h extension); its hotel nights and where it
+    ends the day."""
+    units = {u.id: u for u in world.units}
+    out = {}
+    for uid, u in sorted(log.items()):
+        unit = units.get(uid)
+        duties = []
+        for d in u["duties"]:
+            limit = ext = None
+            if u["kind"] == "pilot":
+                hour = world.local(d["at"], d["report"]) // 60 % 24 if d["at"] in world.airports else \
+                    (d["report"] // 60) % 24
+                rap = unit.rap if unit is not None and d["begins"] == "call" else None
+                limit = rules.pilot_limit(d["report"], hour, max(1, len(d["legs"])), rap, extend=False)
+                ext = limit + rules.EXTENSION
+            else:
+                limit = d["report"] + rules.CABIN_DUTY - rules.DEBRIEF
+            duties.append({"report": d["report"], "at": d["at"], "begins": d["begins"], "legs": d["legs"],
+                           "deadheads": d["deadheads"], "release": d["release"], "limit": limit, "ext": ext})
+        out[uid] = {"kind": u["kind"], "group": u["group"], "home": u["home"],
+                    "size": rules.size(u["kind"], u["group"]), "reserve": u["reserve"] or None, "call": u["call"],
+                    "duties": duties, "hotels": u["hotels"], "end": u["station"]}
+    return out
+
+
+def reserves(units: Mapping[str, Mapping]) -> list[dict]:
+    """The reserves by base: each with its type and when it was taken, `used` (its call, else an hour before the first
+    flight it works or rides), None when it never was."""
+    out = []
+    for uid, u in units.items():
+        if not u["reserve"]:
+            continue
+        deps = [x[1] for d in u["duties"] for x in (*d["legs"], *d["deadheads"])]
+        used = u["call"] if u["call"] is not None else (min(deps) - 60 if deps else None)
+        out.append({"unit": uid, "base": u["home"], "kind": u["kind"], "group": u["group"], "type": u["reserve"],
+                    "used": used})
+    return sorted(out, key=lambda r: (r["base"], r["kind"], r["unit"]))
 
 
 def outcome(task, x: Mapping, entry: Mapping) -> dict:
@@ -223,11 +331,21 @@ def stage_of(ep: Mapping, cache: Path) -> dict | None:
 
 
 def projections(world: World, data: Mapping) -> list[list[dict]]:
-    """Each watch's plan as the watch left it, run on the day as known then (the projection the desks saw), from a
-    replay of the recorded calls; the replay must be exact."""
+    """Each watch's plan as the watch left it, run on the day as known then (the projection the desks saw): the
+    recorded calls that change the day played again in order (lookups and checks left out, pages and reviews not
+    drawn), checked against the recorded plan and cost."""
     out: list[list[dict]] = []
 
-    class Watched(OccDay):
+    class Quick(OccDay):
+        def page(self, desk):
+            return ""
+
+        def review(self, plan):
+            return {}
+
+        def crew_confirm(self, desk, moves):
+            return self.confirmed(desk, moves, self.crew_entry)
+
         def _close(self):
             super()._close()
             flights = self.project(self.plan).day.run.flights
@@ -235,7 +353,17 @@ def projections(world: World, data: Mapping) -> list[list[dict]]:
                          "arr_delay": r.arr - self.task.flight(i).sched_arr if r.status == FLOWN else None,
                          "held": False, "decided": r.decided} for i, r in sorted(flights.items())])
 
-    replayed = replay(world, dict(data), Watched)
-    if not replayed.exact:
-        raise ValueError(f"{data['task_id']} {data['mode']}: the replay differs at {replayed.mismatches[:3]}")
+    day = Quick(world, data["mode"])
+    events = [(c["seq"], "call", c) for c in data["calls"] if c["tool"] in MUTATING or c["tool"] in SHARED] + \
+        [(n["seq"], "notice", n) for n in data["notices"] if n["via"] in ("trigger", "late")]
+    for _, kind, x in sorted(events, key=lambda e: e[0]):
+        if kind == "notice":
+            day.notice(x["news_id"], x["via"])
+        else:
+            day.call(ROLE[x["desk"]], x["tool"], x["args"])
+    if data["done"] and not day.done:
+        day.end()
+    if json.loads(json.dumps({str(k): v for k, v in day.plan.items()})) != data["plan"] or \
+            day.grade["cost"] != data["grade"]["cost"]:
+        raise ValueError(f"{data['task_id']} {data['mode']}: the replay doesn't reach the recorded plan and cost")
     return out
