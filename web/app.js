@@ -65,6 +65,18 @@ async function getJSON(url) {
   return JSON.parse(await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).text());
 }
 
+/** A dynamic import retried twice under a fresh URL, since a browser may keep a failed module fetch in its module map. */
+async function load(path, tries = 2) {
+  for (let n = 0; ; n++) {
+    try {
+      return await import(n ? `${path}?retry=${n}` : path);
+    } catch (e) {
+      if (n >= tries) throw e;
+      await new Promise((r) => setTimeout(r, 800 * (n + 1)));
+    }
+  }
+}
+
 const longDate = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).replace(",", "");
 
 const V2 = { title: "AirOpsEnv v2: the ops control center", sub: "Run an airline's control center through a real storm day",
@@ -148,7 +160,7 @@ async function episodePage(app, url) {
   let stage = null, tagAt = null;
   if (doc) {
     try {
-      const { AirportStage, tagAt: tag } = await import("./stage/stage.js").catch(() => new Promise((r) => setTimeout(r, 800)).then(() => import("./stage/stage.js")));
+      const { AirportStage, tagAt: tag } = await load("./stage/stage.js");
       tagAt = tag;
       stage = new AirportStage(root.querySelector(".stage-host"), { stage: doc, traffic, base: new URL(".", stageUrl).href, manual: RECORD, controls: !RECORD, avoid: () => covered(root) });
       await stage.ready;
@@ -161,7 +173,7 @@ async function episodePage(app, url) {
   let center = null;
   if (ep.occ) {
     try {
-      const { ControlCenter } = await import("./center/center.js").catch(() => new Promise((r) => setTimeout(r, 800)).then(() => import("./center/center.js")));
+      const { ControlCenter } = await load("./center/center.js");
       center = new ControlCenter(root.querySelector(".room-host"), { P, ep, base: url.href, manual: RECORD, controls: !RECORD });
       await center.ready;
     } catch (e) {
