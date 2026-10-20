@@ -1,4 +1,33 @@
-# AirOpsEnv v3: the check against v2 (2026-10-17)
+# AirOpsEnv v3: the check against v2
+
+## On v2 0.3.2 (rebased, 2026-10-20)
+
+v3 rebuilt on `main` at `0ac85d2` (tasks from 04:00, the whole day; MIN_CONTROLLED; the new controls and split) and
+checked by `scripts/v3_check.py` against v2's tasks for the same dates. Pack: 94 storm dates (24 eval, 70 train; 40
+unbuilt on the FAA registry's 403, 22 left out with fewer than 5 JetBlue flights controlled or held) plus 2 controls.
+Fitted on the 70 train dates: unseen scale BOS 0.4, JFK 0.35; ramp-closure rate BOS 0.653, JFK 0.705. Wall: pack 1 h 54
+min, check 1 h 31 min on 14 workers.
+
+| §0 criterion | v2 | v3 | Pass |
+|---|---:|---:|---|
+| 1 Harder: do-nothing's median excess over the anchor (>= 1.4x v2) | 11.1% | 12.1% (1.09x) | fail |
+| 1 Harder: follower's median excess over the anchor (>= 1.5x v2) | 3.11% | 4.00% (1.29x) | fail |
+| 2 Realistic: anchor's cancellations / JetBlue's (>= 35%) | 34.0% | 38.5% | PASS |
+| 2 Realistic: could fly for free (>= 10 points below v2) | 54.3% | 50.1% (-4.3) | fail |
+| 2 Realistic: recorded day's median excess over the anchor (< v2) | 76.5% | 72.4% | PASS |
+| 2 Realistic: replay flies JetBlue's flown flights (>= 97%) | 99.69% | 99.69% | PASS |
+| 2 Realistic: replay departures within 15 min (>= v2) | 97.07% | 97.05% | fail (-0.02) |
+| 3 Sound: anchors proven / replay exactly | | 96/96, 96/96 | PASS |
+| 3 Sound: sim/MIP agreement tests | | 301 passed | PASS |
+| 4 Playable: a fake-LLM agent plays a v3 day through the live server | | 2 passed | PASS |
+
+world_check's gates on the v3 pack: airline_replay 1.000 (0 auto-cancels of 60,547), references and days pass; calm_day
+0.817 (< 0.9); fidelity fails at eval JFK 0.789 (< 0.8; the layers don't touch the unseen-arrivals model it measures);
+controls fail on 2025-01-15, where do-nothing costs 8.9% over the flat anchor (margin 3%; 2024-07-03 is 0.2%), a calm
+day the layers' caps now cost something over the whole day. One follower (2026-01-26) ran past its limit and is left
+out. The sections below are the check of 2026-10-17 on v2 before 0.3.2 (hub windows, 129 dates).
+
+## Before 0.3.2 (2026-10-17)
 
 Code: fork `agutmanstein-scale/agentenv-airops-plugin` at `3329980` (U1-U11). Pack: 129 whole-network storm dates over
 the 19 months (24 eval, 105 train; 40 more storm dates are unbuilt: the FAA registry answers 403 from the build box)
@@ -10,7 +39,7 @@ reserve pool BOS 1, FLL 1, JFK 1, MCO 3; departure-cap rule SHORT 0.9, MIN_SCHED
 Two v3 variants were checked: **v3 with crew** (Edgar's FAR 117 crew model on JetBlue's four bases, plus every v3
 layer) and **v3 layers only** (`--bases none`).
 
-## DESIGN §0, per criterion
+### DESIGN §0, per criterion
 
 | §0 criterion | v2 | v3 with crew | v3 layers only |
 |---|---:|---:|---:|
@@ -38,7 +67,7 @@ world_check's gates on each pack:
 | controls | fail: both controls' recorded day below the anchor (1.19M vs 1.75M; 0.46M vs 1.37M) | PASS |
 | references, days | PASS | PASS |
 
-## Reading
+### Reading
 
 - **The layers are sound but weak on whole-network dates.** Layers alone move every realism measure the right way
   (free share -4.5 points, optimum cancellations 26% -> 31%, recorded excess 71% -> 67%) without touching the replay,
@@ -51,12 +80,12 @@ world_check's gates on each pack:
   FAR 117 limits on schedule (U11 crew diagnostic).
 - **Not met by either variant:** the could-fly-for-free share drops 3.7-4.5 points, not 10.
 
-## Decision (Alec, 2026-10-17)
+### Decision (Alec, 2026-10-17)
 
 v3 is the more realistic successor: layers only, no crews by default (`v3_pack.py --bases none`). Making the
-days harder is v4's goal (docs/v4/DESIGN.md), starting with option 1 below.
+days harder is v4's goal (docs/v4 on agutmanstein-scale/agentenv-airops-plugin), starting with option 1 below.
 
-## What would close it
+### What would close it
 
 The loop paused here (LOOP.md "Pause early": a §0 criterion still failing on the pack after its calibration pass).
 Options, for Alec:
@@ -68,4 +97,4 @@ Options, for Alec:
 3. Ship **v3 with crew** as the harder variant, noting it is stricter than reality.
 
 Raw results: `check.json` and `check.md` in each pack folder (`~/handoff/v3-loop/pack`, `pack-nocrew`, `pack-v2` on the
-devbox).
+devbox; on 0.3.2, `~/handoff/v3-loop/r1/pack-v3`).
