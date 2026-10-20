@@ -338,12 +338,9 @@ async function episodePage(app, url) {
       if (RECORD) await settle();
     },
     async shot(spec) {
-      if (spec?.room && center) {
-        views.show("room");
-        return center.shot(spec);
-      }
-      views.show("stage");
-      return stage?.shot(spec);
+      const room = !!(spec?.room && center);
+      if (views.main !== (room ? "room" : "stage")) await setView(room ? (ROOM_VIEWS.includes(spec.name) ? spec.name : "room") : stageView);
+      return room ? center.shot(spec) : stage?.shot(spec);
     },
     expert: (on = true) => setExpert(on),
     events: () => stage?.events?.() ?? [],
