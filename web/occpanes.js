@@ -7,11 +7,12 @@ import { css, esc } from "./model.js";
 import { clock } from "./plain.js";
 import { unitName } from "./room.js";
 
-const DESKS = { ops: "Ops controller", crew: "Crew scheduler", one: "Both desks" };
-const SHORT = { ops: "Ops", crew: "Crew", one: "Both" };
+const DESKS = { ops: "Ops controller", crew: "Crew scheduler", customer: "Customer desk", one: "Both desks" };
+const SHORT = { ops: "Ops", crew: "Crew", customer: "Customer", one: "Both" };
 const TYPES = { CANCEL: "Cancel", CANCEL_PAIR: "Cancel round trip", HOLD: "Hold", COVER: "Cover", TEXT: "Message" };
 const VERBS = { cancel: "cancelled", cancel_pair: "cancelled the round trip of", hold: "held", claim: "took a slot for", release: "released",
-  assign: "put a crew on", call_reserve: "called a reserve for", deadhead: "flew a crew as passengers on", swap: "swapped a crew onto", rest: "rested the crew of" };
+  assign: "put a crew on", call_reserve: "called a reserve for", deadhead: "flew a crew as passengers on", swap: "swapped a crew onto", rest: "rested the crew of",
+  rebook: "rebooked passengers off", hotel: "booked hotels for passengers off" };
 const ROW = 22, BACK = 13 * 60, AHEAD = 9 * 60, PAD = 6;
 
 const left = (m) => {

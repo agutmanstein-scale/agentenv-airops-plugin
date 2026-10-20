@@ -303,9 +303,10 @@ const FOLK = [
 ];
 
 /** The room shell, the tiers, the rows of background workstations and the ceiling lights; the desks' pods are pods.js's.
- * On a one-agent day the front row closes up around its single pod. Nobody sits just behind the pods, where shots look
+ * On a one-agent day the front row closes up around its single pod, and opens out around three on a day with the
+ * customer desk. Nobody sits just behind the pods, where shots look
  * over the desks' shoulders. */
-export function buildHall({ one = false } = {}) {
+export function buildHall({ one = false, three = false } = {}) {
   const group = new THREE.Group();
   const { w: W, d: D, h: H } = ROOM;
   const carpetTex = texture(carpet(), { repeat: [W / 1, D / 1] });
@@ -352,13 +353,13 @@ export function buildHall({ one = false } = {}) {
 
   const stations = [];
   ROWS.forEach((row, i) => {
-    for (const s of i === 0 && one ? [2.1, 3.9, 5.7, 7.9, 9.7] : row.slots) for (const sx of [-1, 1]) stations.push({ row: i, s, m: stationMatrix(row, sx * s) });
+    for (const s of i === 0 && one ? [2.1, 3.9, 5.7, 7.9, 9.7] : i === 0 && three ? [5.4, 7.2, 9.0, 10.8] : row.slots) for (const sx of [-1, 1]) stations.push({ row: i, s, m: stationMatrix(row, sx * s) });
   });
   const deskMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.05 });
   const desks = new THREE.InstancedMesh(deskGeometry(), deskMat, stations.length);
   const chairs = new THREE.InstancedMesh(chairGeometry(), deskMat, stations.length);
   const r = rng(41);
-  const seated = stations.filter((st) => r() < 0.4 && !(st.row === 1 && st.s < 5));
+  const seated = stations.filter((st) => r() < 0.4 && !(st.row === 1 && st.s < (three ? 6 : 5)));
   const chairAt = new THREE.Matrix4().makeTranslation(0, 0, 0.5);
   stations.forEach((st, k) => {
     desks.setMatrixAt(k, st.m);

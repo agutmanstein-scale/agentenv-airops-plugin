@@ -209,6 +209,28 @@ def test_one_agent_at_both_desks_cancels_several_flights_at_once_on_the_wall():
     assert "taxi" in {s.name for s in shots}
 
 
+def test_the_customer_desk_asks_for_a_hold_for_connecting_passengers_and_rebooks_a_cancelled_flight():
+    ep, traffic = day()
+    occ = ep["occ"]
+    occ |= {"label": "three desks", "desks": ["crew", "ops", "customer"]}
+    occ["requests"] = [r for r in occ["requests"] if r["id"] != "R1"] + [
+        request("R5", "customer", "HOLD", 1, 600, 604, 611, "Hold accepted.") | {"receiver": "ops", "pax": 12}]
+    occ["decisions"].append({"t": 600, "shown": 650, "desk": "customer", "action": "rebook", "flight": 2, "to": 5,
+                             "pax": 40, "detail": None, "ref": None})
+    ep["passengers"] = {"flights": [], "connections": [], "events": []}
+    shots = record.direct(ep, traffic, seconds=70)
+    ask = next(s for s in shots if s.ref == "R5")
+    assert (ask.camera, ask.desk) == ("room-desks", "customer")
+    assert ask.caption == ("The customer desk asks the ops controller to hold B6 10 to Miami for 12 connecting "
+                           "passengers")
+    moved = next(s for s in shots if s.desk == "customer" and s.name == "move")
+    assert moved.camera == "room"
+    assert moved.caption == "The customer desk rebooks 40 passengers off B6 20 to New York"
+    assert moved.subline == "onto B6 50"
+    assert shots[0].subline.endswith("Three desks, an ops controller for the flights, a crew scheduler for the crews "
+                                     "and a customer desk for the passengers")
+
+
 def test_the_desks_words_are_quoted_only_when_they_read_plainly():
     ep, traffic = day()
     c = record.Center(ep, traffic, None, None)

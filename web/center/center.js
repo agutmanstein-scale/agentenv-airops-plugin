@@ -1,6 +1,7 @@
 // The control-center room in 3D, display-only, modelled on real airline system-operations centers: tiered rows of
-// desks facing a video wall of the network, the radar and the FAA's programs, with the model's two desks (the ops
-// controller and the crew scheduler) at their pods in the front row and their requests flying between them.
+// desks facing a video wall of the network, the radar and the FAA's programs, with the model's desks (the ops
+// controller, the crew scheduler and on a day with passengers the customer desk) at their pods in the front row and
+// their requests flying between them.
 // new ControlCenter(host, {P, ep, base, manual, controls}); await ready; then time(t), view(name), shot(spec).
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -57,7 +58,8 @@ export class ControlCenter {
   async #build(controls) {
     const { scene, renderer, P, ep } = this;
     RectAreaLightUniformsLib.init();
-    this.hall = buildHall({ one: ep.occ.mode === "one" || (ep.occ.desks ?? []).length === 1 });
+    const one = ep.occ.mode === "one" || (ep.occ.desks ?? []).length === 1;
+    this.hall = buildHall({ one, three: !one && (ep.occ.desks ?? []).includes("customer") });
     scene.add(this.hall.group);
     this.screen = buildWall(P, ep);
     scene.add(this.screen.group);

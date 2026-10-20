@@ -67,7 +67,7 @@ DAY_SUN = 12
 """Degrees the sun is up for a still to count as a daylight one (--pick day)."""
 DAY_ORDER = ("pushback", "push", "crew", "takeoff", "wait", "taxi", "van")
 """The airport shots a daylight still prefers, aircraft and people first."""
-DESKS = {"ops": "the ops controller", "crew": "the crew scheduler"}
+DESKS = {"ops": "the ops controller", "crew": "the crew scheduler", "customer": "the customer desk"}
 ASKS = {"CANCEL": "to cancel", "CANCEL_PAIR": "to cancel the round trip of", "HOLD": "to hold",
         "COVER": "to find a crew for"}
 CREW_MOVES = ("assign", "call_reserve", "deadhead", "swap")
@@ -447,8 +447,9 @@ class Center(Day):
         time and cut hard from its neighbours, in time order; then the still shots stretch to fill."""
         first, leaver, beats = self.opening(), self.leaver(), []
         groups = (self.dawn, lambda: self.faa(first[-1].t1), lambda: self.asks(("CANCEL", "CANCEL_PAIR")),
-                  lambda: self.asks(("HOLD",)), lambda: self.leave(leaver), lambda: self.wait(beats, leaver),
-                  lambda: self.asks(("COVER",)), self.van, self.map, self.cancels, self.moves, self.landing)
+                  lambda: self.asks(("HOLD",)), self.rebooks, lambda: self.leave(leaver),
+                  lambda: self.wait(beats, leaver), lambda: self.asks(("COVER",)), self.van, self.map, self.cancels,
+                  self.moves, self.landing)
         for options in groups:
             beat = next((b for b in options() if b[0].t0 >= first[-1].t1 and self.clear(first, beats, b)
                          and length([first, *beats, b]) + SECONDS["close"] <= seconds + 1), None)
@@ -474,7 +475,11 @@ class Center(Day):
 
     def opening(self) -> list[Shot]:
         """The room as the desks start their day, with the title; without the 3D room the airport at first light."""
-        desks = ("one agent at both desks, the flights and the crews" if self.one else
+        three = "customer" in (self.occ.get("desks") or [])
+        desks = ("one agent at every desk, the flights, the crews and the passengers" if self.one and
+                 self.ep.get("passengers") else "one agent at both desks, the flights and the crews" if self.one else
+                 "three desks, an ops controller for the flights, a crew scheduler for the crews and a customer desk "
+                 "for the passengers" if three else
                  "two desks, an ops controller for the flights and a crew scheduler for the crews")
         title = {"kicker": f"{BRAND} · the ops control center",
                  "caption": f"{self.model} runs JetBlue's control center through a storm day"}
@@ -530,7 +535,8 @@ class Center(Day):
                        f"{who} accepts and puts {self.unit(moved[0]['detail'])} on it" if moved else f"{who} accepts")
             kw = {"desk": r["sender"], "ref": r["id"], "subline": subline,
                   "caption": f"{upper(self.desk(r['sender']))} asks {self.desk(r['receiver'])} {ASKS[r['type']]} "
-                             f"{self.trip(r['flight'])}"}
+                             f"{self.trip(r['flight'])}"
+                             + (f" for {r['pax']} connecting passengers" if r.get("pax") else "")}
             room = self.in_room("ask", "room-desks", r["answered"], r["shown"] - 0.5, r["answered"] + REPLY, **kw)
             out = self.plays_out(r, room.t1)
             if out is None and (soon := self.plays_out(r, r["answered"] + 0.5)) is not None:
@@ -588,6 +594,28 @@ class Center(Day):
             if parked(a, t0, shot.t1) is not None and tag_at(a, t0) is g and tag_at(a, shot.t1) is g:
                 return shot
         return None
+
+    def rebooks(self) -> list[list[Shot]]:
+        """The customer desk rebooking passengers off a flight, or booking them hotels for the night, in the room (wide,
+        so as not to cut from its own close shot) at its turn, the most passengers first."""
+        turns: dict[tuple, list] = {}
+        for d in self.occ["decisions"]:
+            if d["desk"] == "customer" and d["action"] in ("rebook", "hotel") and d["flight"] in self.sched:
+                turns.setdefault((d["shown"] // 1, d["flight"]), []).append(d)
+        found = []
+        for (_, fid), ds in turns.items():
+            moved = sum(d.get("pax") or 0 for d in ds if d["action"] == "rebook")
+            hotel = sum(d.get("pax") or 0 for d in ds if d["action"] == "hotel")
+            onto = sorted({self.sched[d["to"]]["flight"] for d in ds if d.get("to") in self.sched})
+            at = min(d["shown"] for d in ds)
+            caption = (f"The customer desk rebooks {moved} passengers off {self.trip(fid)}" if moved else
+                       f"The customer desk books hotels for {hotel} passengers off {self.trip(fid)}")
+            subline = ", ".join(x for x in (f"onto {', '.join(onto[:2])}" if onto else "",
+                                            f"{hotel} stranded overnight" if moved and hotel else "") if x)
+            shot = self.in_room("move", "room", at, at - 0.8, at + 4, desk="customer", caption=caption,
+                                subline=subline)
+            found.append(((moved + hotel, self.window[0] <= at <= self.window[1] + 180, -at), [shot]))
+        return [b for _, b in sorted(found, key=lambda f: f[0], reverse=True)]
 
     def cancels(self) -> list[list[Shot]]:
         """The ops desk cancelling three or more flights in one go, on the room's wall, the most first."""
