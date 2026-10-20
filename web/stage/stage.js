@@ -129,6 +129,7 @@ export class AirportStage {
     const n = VIEWS.includes(name) ? name : "tower";
     if (n === "crew") {
       const key = this.crews.focus(opts.key, this.T) ? opts.key : this.crews.pick(this.T, this.#flightsOf(opts.key ?? this.featured));
+      if (!key) return this.#view("gate", {});
       this.featured = this.#aircraftOf(key) ?? this.featured;
       this.rig = { kind: "crew", name: n, key, ...opts, at: `crew:${key}` };
       if (this.controls) this.controls.enabled = false;
@@ -342,6 +343,15 @@ export class AirportStage {
   #aimCrew(dt, key) {
     const cam = this.camera;
     const rig = this.rig;
+    if (rig.kind === "crew" && !rig.from && !this.crews.about(key, this.T) && this.wall - (rig.repicked ?? -1) > 0.5) {
+      rig.repicked = this.wall;
+      const next = this.crews.pick(this.T, this.#flightsOf(this.featured), { now: true });
+      if (next && next !== key) {
+        Object.assign(rig, { key: next, at: `crew:${next}`, choice: null, last: null, pos: null, tgt: null });
+        this.featured = this.#aircraftOf(next) ?? this.featured;
+        key = next;
+      }
+    }
     const f = this.crews.focus(key, this.T);
     if (!f) return;
     const van = f.kind === "van";
@@ -556,9 +566,15 @@ export function crewAt(leg, t) {
 export function tagAt(track, t) {
   const leg = legAt(track, t);
   if (!leg?.tag) return null;
-  const crew = crewAt(leg, t);
-  return { text: crew ? `${leg.tag.split(" · ")[0]} · ${crew}` : leg.tag, tone: crew ? "crew" : leg.tone || "ok", crew: !!crew };
+  const head = leg.tag.split(" · ")[0], crew = crewAt(leg, t);
+  if (crew) return { text: `${head} · ${crew}`, tone: "crew", crew: true };
+  if (leg.tone === "delay" && leg.kind === "dep" && leg.sched != null && t < leg.sched - KNOWN) return { text: `${head} · on time`, tone: "ok", crew: false };
+  return { text: leg.tag, tone: leg.tone || "ok", crew: false };
 }
+
+/** Minutes before its scheduled departure a flight's own delay becomes known, as the env reveals it (core/known.py
+ * LOOK): until then a delayed departure's tag reads on time, as the departures board does. */
+const KNOWN = 120;
 
 /** The leg a task aircraft's tag shows at t: the one it is flying, a cancellation within 45 minutes of when it is cancelled and not before it was decided, else its next. */
 export function legAt(track, t) {

@@ -236,6 +236,7 @@ async function episodePage(app, url) {
       viewName = stageView = STAGE_VIEWS.includes(name) ? name : "tower";
       if (viewName === "follow") opts = { ...opts, key: opts.key ?? following ?? nextFeatured(t) };
       following = viewName === "follow" ? opts.key ?? null : null;
+      await stage.time(t, { dt: 0, speed: 0 });
       await stage.view(viewName, opts);
     }
     followChip.hidden = !following;
