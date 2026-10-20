@@ -15,7 +15,13 @@ import { buildSpray } from "./spray.js";
 import { buildWeather } from "./weather.js";
 
 const DEG = Math.PI / 180;
-const VIEWS = ["tower", "gate", "threshold", "harbour", "follow"];
+const VIEWS = ["tower", "gate", "threshold", "harbour", "follow", "crew"];
+const WALK_TURNS = [18, -18, 35, -35, 160, -160, 60, -60];
+const WAIT_TURNS = [125, -125, 100, -100, 150, -150, 75, -75];
+const VAN_TURNS = [145, -145, 100, -100, 55, -55, 180, 0];
+/** The crew camera's bearings off a group's heading, best first: ahead of a walking group along its walkway, along
+ * the building's face from a waiting one (which faces its door), behind a van; the first clear of the buildings and
+ * the aircraft about, with the group in sight, is taken. */
 const ease = (u) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
 const angDiff = (a, b) => ((((b - a) % 360) + 540) % 360) - 180;
 const forward = (h, out = new THREE.Vector3()) => out.set(Math.sin(h * DEG), 0, -Math.cos(h * DEG));
@@ -109,7 +115,9 @@ export class AirportStage {
     return this.T;
   }
 
-  /** tower | gate | threshold | harbour | follow; opts.key picks the aircraft (follow, gate), opts.stand the gate. */
+  /** tower | gate | threshold | harbour | follow | crew; opts.key picks the aircraft (follow, gate), opts.stand the
+   * gate; for crew, opts.key is a crew group's key (crewGroups()) or an aircraft whose crew it takes, else the
+   * featured aircraft's crew or the next crew about. */
   async view(name, opts = {}) {
     await this.ready;
     return this.#view(name, opts);
@@ -117,6 +125,14 @@ export class AirportStage {
 
   #view(name, opts = {}) {
     const n = VIEWS.includes(name) ? name : "tower";
+    if (n === "crew") {
+      const key = this.crews.focus(opts.key, this.T) ? opts.key : this.crews.pick(this.T, this.#flightsOf(opts.key ?? this.featured));
+      this.featured = this.#aircraftOf(key) ?? this.featured;
+      this.rig = { kind: "crew", name: n, key, ...opts, at: `crew:${key}` };
+      if (this.controls) this.controls.enabled = false;
+      if (this.manual && this.fleet) this.#frame(0);
+      return n;
+    }
     if (n === "gate" && !opts.key && !opts.stand) opts = { ...opts, key: this.#parkedAtHome(this.T) ?? undefined };
     this.featured = opts.key ?? (n === "follow" ? this.traffic.featured?.[0]?.key : this.featured);
     if (n === "follow") {
@@ -133,7 +149,9 @@ export class AirportStage {
     return this.rig.name;
   }
 
-  /** A scripted camera: {from, to?, at: [x, y, up] | key, offset?, lead?, fov, fov1?, t0?, t1?, frame?} in ENU metres. */
+  /** A scripted camera: {from, to?, at: [x, y, up] | key | "crew:<key>", offset?, lead?, fov, fov1?, t0?, t1?, frame?}
+   * in ENU metres; at a crew group with no `from`, the crew camera's own place, framing the group in the clear part of
+   * the page. */
   async shot(spec) {
     this.rig = { kind: "shot", name: spec.name || "shot", ...spec };
     if (typeof spec.at === "string") this.featured = spec.at;
@@ -159,12 +177,18 @@ export class AirportStage {
       snow: this.env?.snowAt(this.T),
       frame: ms.length ? { median: ms[ms.length >> 1], p95: ms[Math.floor(ms.length * 0.95)] } : null,
       crew: this.crews?.count || 0,
+      crewFocus: this.rig.at?.startsWith?.("crew:") ? { key: this.rig.at.slice(5), ...this.crews.focus(this.rig.at.slice(5), this.T) } : null,
     };
   }
 
   pose(t = this.T, key = this.featured) {
     const tr = this.plan.tracks.get(key);
     return tr ? poseAt(tr, t) : null;
+  }
+
+  /** The crew groups at the hub over the day ({key, kind, crew, flights, stand, from, to, says}), for a director. */
+  crewGroups() {
+    return this.crews?.list() ?? [];
   }
 
   events() {
@@ -276,6 +300,8 @@ export class AirportStage {
       this.focusAt = this.controls ? this.controls.target : rig.target;
       return;
     }
+    const crewKey = typeof rig.at === "string" && rig.at.startsWith("crew:") ? rig.at.slice(5) : null;
+    if (crewKey) return this.#aimCrew(dt, crewKey);
     const f = live.find((x) => x.key === (typeof rig.at === "string" ? rig.at : rig.key));
     const centre = new THREE.Vector3();
     if (f) centre.set(0, f.dims.height * 0.3, f.dims.length / 2 - f.dims.nose).applyMatrix4(f.matrix);
@@ -308,10 +334,124 @@ export class AirportStage {
     if (this.controls) this.controls.target.copy(target);
   }
 
+  /** The crew camera, or a shot at a crew group: low and close behind the group's shoulder from the apron side,
+   * following it as it walks (a van from further back and higher), the group in the left-centre of the page's clear
+   * part; a shot with `from` keeps its own place. */
+  #aimCrew(dt, key) {
+    const cam = this.camera;
+    const rig = this.rig;
+    const f = this.crews.focus(key, this.T);
+    if (!f) return;
+    const van = f.kind === "van";
+    const P = new THREE.Vector3(f.x, van ? 1.7 : 1.25, -f.y);
+    const [dist, up, turns] = van ? [30, 9, VAN_TURNS] : f.kind === "wait" ? [15, 2.8, WAIT_TURNS] : [20, 3.4, WALK_TURNS];
+    const hulls = this.#hulls(f.x, f.y, dist + 60);
+    const at = (a) => {
+      const h = (f.heading + a) * DEG;
+      return new THREE.Vector3(f.x + Math.sin(h) * dist, up, -(f.y + Math.cos(h) * dist));
+    };
+    const seen = (c) => {
+      if (this.#indoors(c.x, -c.z) || hulls.some((h) => segDist(c.x, -c.z, h) < h[4] + 2)) return false;
+      for (let i = 1; i < 10; i++) {
+        const u = i / 10;
+        const [x, y] = [c.x + (P.x - c.x) * u, -(c.z + (P.z - c.z) * u)];
+        if (this.#indoors(x, y) || hulls.some((h) => segDist(x, y, h) < h[4])) return false;
+      }
+      return true;
+    };
+    if (rig.turnKind !== f.kind) [rig.turn, rig.turnKind] = [null, f.kind];
+    const turn = [rig.turn, ...turns].find((a) => a != null && seen(at(a)));
+    if (turn != null) rig.turn = turn;
+    const want = turn != null ? at(turn) : rig.pos?.clone() ?? at(turns[0]);
+    const k = !dt || !rig.pos || rig.pos.distanceTo(want) > 80 ? 1 : 1 - Math.exp(-dt / (rig.tau ?? 0.6));
+    rig.pos = rig.pos ? rig.pos.lerp(want, k) : want.clone();
+    rig.tgt = rig.tgt ? rig.tgt.lerp(P, k) : P.clone();
+    const target = rig.tgt.clone();
+    if (rig.offset) target.add(toScene(rig.offset, rig.offset[2]));
+    if (rig.from) {
+      const u = rig.t1 != null ? ease((this.T - rig.t0) / (rig.t1 - rig.t0)) : 0;
+      const a = toScene(rig.from, rig.from[2]);
+      cam.position.lerpVectors(a, rig.to ? toScene(rig.to, rig.to[2]) : a, u);
+      cam.fov = (rig.fov ?? 36) + ((rig.fov1 ?? rig.fov ?? 36) - (rig.fov ?? 36)) * u;
+      cam.updateProjectionMatrix();
+      cam.lookAt(target);
+    } else {
+      cam.position.copy(rig.pos);
+      cam.fov = rig.fov ?? (van ? 40 : 36);
+      cam.updateProjectionMatrix();
+      const [nx, ny] = this.#clearSpot();
+      const dir = target.clone().sub(cam.position);
+      const D = dir.length();
+      dir.normalize();
+      const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
+      const upv = new THREE.Vector3().crossVectors(right, dir);
+      const tanV = Math.tan((cam.fov * DEG) / 2);
+      cam.lookAt(target.clone().addScaledVector(right, -nx * D * tanV * cam.aspect).addScaledVector(upv, -ny * D * tanV));
+    }
+    this.focusAt = target;
+  }
+
+  /** Where in normalised device coordinates the crew camera puts its group: 42 % across the part of the page between
+   * the cards that cover the stage's sides, a little below the middle. */
+  #clearSpot() {
+    if (this.clear && this.wall - this.clear.at < 0.5) return this.clear.spot;
+    const w = this.container.clientWidth || innerWidth;
+    const h = this.container.clientHeight || innerHeight;
+    let [L, R] = [0, w];
+    for (const [x0, y0, x1, y1] of this.avoid ? this.avoid() : []) {
+      if (y1 < h * 0.3 || y0 > h * 0.8) continue;
+      if (x1 <= w * 0.5) L = Math.max(L, x1);
+      else if (x0 >= w * 0.5) R = Math.min(R, x0);
+    }
+    this.clear = { at: this.wall, spot: [(2 * (L + 0.42 * (R - L))) / w - 1, -0.1] };
+    return this.clear.spot;
+  }
+
+  #indoors(x, y) {
+    if (!this.blocks) {
+      const home = homeOf(this.data).centre;
+      const near = (b) => b.outer.some(([px, py]) => Math.hypot(px - home[0], py - home[1]) < 2500);
+      this.blocks = [...this.data.terminals, ...(this.data.hangars || []), ...(this.data.buildings || [])].filter(near).map((b) => {
+        const xs = b.outer.map((p) => p[0]);
+        const ys = b.outer.map((p) => p[1]);
+        return { ring: b.outer, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] };
+      });
+    }
+    return this.blocks.some((b) => x >= b.box[0] && x <= b.box[2] && y >= b.box[1] && y <= b.box[3] && inRing(b.ring, x, y));
+  }
+
+  /** The fuselages of the aircraft about within r of (x, y): [x0, y0, x1, y1, half width] in ENU metres. */
+  #hulls(x, y, r) {
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const out = [];
+    for (const f of this.fleet.live) {
+      if ((f.pose.alt || 0) > 5 || Math.hypot(f.pose.x - x, f.pose.y - y) > r + f.dims.length) continue;
+      a.set(0, 0, -f.dims.nose).applyMatrix4(f.matrix);
+      b.set(0, 0, f.dims.length - f.dims.nose).applyMatrix4(f.matrix);
+      out.push([a.x, -a.z, b.x, -b.z, 2.4]);
+    }
+    return out;
+  }
+
+  #flightsOf(key) {
+    const tr = this.plan.tracks.get(key);
+    return new Set((tr?.visits || []).flatMap((v) => [v.arr?.flight, v.dep?.flight]).filter(Boolean));
+  }
+
+  #aircraftOf(crewKey) {
+    const g = this.crews.list().find((x) => x.key === crewKey);
+    if (!g) return null;
+    for (const tr of this.plan.tracks.values()) {
+      if (tr.task && tr.visits.some((v) => g.flights.includes(v.dep?.flight) && v.stand === g.stand)) return tr.key;
+    }
+    return null;
+  }
+
   #tags(live) {
-    const tr = this.plan.tracks.get(this.featured);
-    const flights = new Set((tr?.visits || []).flatMap((v) => [v.arr?.flight, v.dep?.flight]).filter(Boolean));
-    const out = this.crews.tags(this.camera, flights);
+    const flights = this.#flightsOf(this.featured);
+    const focus = typeof this.rig.at === "string" && this.rig.at.startsWith("crew:") ? this.rig.at.slice(5) : null;
+    const out = this.crews.tags(this.camera, flights, focus);
     for (const f of live) {
       const tr = f.c.track;
       if (!tr.task) continue;
@@ -357,6 +497,23 @@ export function legAt(track, t) {
   const cancelled = legs.find((l) => l.status === "cancelled" && t >= (l.decided ?? -Infinity) && Math.abs(t - at(l)) <= 45);
   if (cancelled) return cancelled;
   return legs.filter((l) => l.status === "flown" && key(l) >= t).sort((a, b) => key(a) - key(b))[0] || null;
+}
+
+function segDist(x, y, [x0, y0, x1, y1]) {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const u = Math.max(0, Math.min(1, ((x - x0) * dx + (y - y0) * dy) / (dx * dx + dy * dy || 1)));
+  return Math.hypot(x0 + dx * u - x, y0 + dy * u - y);
+}
+
+function inRing(ring, x, y) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 function occluders(stage) {

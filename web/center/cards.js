@@ -168,12 +168,42 @@ export function buildCards(P, ep, pods) {
   for (const d of byDesk.keys()) slots(chips.filter((x) => x.desk === d));
 
   const live = new Map();
+  const halo = haloTexture();
   const side = (desk) => (desk === "ops" ? -1 : desk === "crew" ? 1 : -1);
-  const a = new THREE.Vector3(), b = new THREE.Vector3();
+  const a = new THREE.Vector3();
+  const place = (it, t, out) => {
+    const u = t - it.start, rise = clamp01(u / RISE), fly = ease(clamp01((u - RISE) / FLY));
+    out.lerpVectors(a.copy(at(it.from)), at(it.to), fly);
+    out.y += it.slot * (CARD.h + 0.12) + Math.sin(Math.PI * fly) * 0.1 - 0.3 * (1 - rise);
+    return Math.min(rise, clamp01((it.end - t) / FADE));
+  };
+  let marked = null;
   return {
     group,
-    /** Place the cards and chips up at minute t; returns how many cards are in flight or waiting. */
-    update(t) {
+    size: CARD,
+    /** Mark a request's cards (its ask and its answer) to stand out, or none. */
+    mark(ref) {
+      marked = ref ?? null;
+    },
+    /** Where a request's cards are between minutes t0 and t1 (every half minute), for a shot to keep them in frame. */
+    track(ref, t0, t1) {
+      const out = [], mine = cards.filter((it) => it.r.id === ref);
+      for (const it of mine) {
+        const lo = Math.max(t0, it.start + 0.3), hi = Math.min(t1, it.end - 0.3);
+        for (let t = lo; t <= hi + 1e-6; t += Math.max(0.5, (hi - lo) / 24)) {
+          const p = new THREE.Vector3();
+          if (place(it, t, p) > 0.05) out.push(p);
+        }
+      }
+      return out;
+    },
+    /** The minutes a request's cards are up, [start, end], or null. */
+    span(ref) {
+      const mine = cards.filter((it) => it.r.id === ref);
+      return mine.length ? [Math.min(...mine.map((it) => it.start)), Math.max(...mine.map((it) => it.end))] : null;
+    },
+    /** Place the cards and chips up at minute t; a marked card grows to stay readable from the camera. Returns how many cards are up. */
+    update(t, camera) {
       let n = 0;
       const seen = new Set();
       for (const it of cards) {
@@ -182,16 +212,24 @@ export function buildCards(P, ep, pods) {
         let s = live.get(it);
         if (!s) {
           s = sprite(it.kind === "ask" ? drawAsk(it.r) : drawReply(it.r), CARD);
+          s.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: halo, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+          s.halo.renderOrder = 19;
+          s.add(s.halo);
           live.set(it, s);
           group.add(s);
         }
-        const u = t - it.start, lift = it.slot * (CARD.h + 0.12);
-        const rise = clamp01(u / RISE), fly = ease(clamp01((u - RISE) / FLY));
-        a.copy(at(it.from));
-        b.copy(at(it.to));
-        s.position.lerpVectors(a, b, fly);
-        s.position.y += lift + Math.sin(Math.PI * fly) * 0.1 - 0.3 * (1 - rise);
-        s.material.opacity = Math.min(rise, clamp01((it.end - t) / FADE));
+        const alpha = place(it, t, s.position), hot = it.r.id === marked;
+        let k = 1;
+        if (hot && camera) {
+          const h = 2 * camera.position.distanceTo(s.position) * Math.tan((camera.fov * Math.PI) / 360);
+          k = Math.max(1.25, Math.min(2.6, (0.075 * h) / CARD.h));
+        }
+        s.scale.set(CARD.w * k, CARD.h * k, 1);
+        s.renderOrder = hot ? 22 : 20;
+        s.material.opacity = alpha;
+        s.halo.visible = hot;
+        s.halo.scale.set(1.16, 1.5, 1);
+        s.halo.material.opacity = alpha * 0.9;
         n++;
       }
       for (const it of chips) {
@@ -217,10 +255,26 @@ export function buildCards(P, ep, pods) {
           group.remove(s);
           s.material.map.dispose();
           s.material.dispose();
+          s.halo?.material.dispose();
           live.delete(it);
         }
       }
       return n;
     },
   };
+}
+
+function haloTexture() {
+  const c = document.createElement("canvas");
+  c.width = 256;
+  c.height = 128;
+  const g = c.getContext("2d");
+  g.filter = "blur(10px)";
+  g.fillStyle = "rgba(255,214,140,0.85)";
+  g.beginPath();
+  g.roundRect(22, 22, 212, 84, 16);
+  g.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
