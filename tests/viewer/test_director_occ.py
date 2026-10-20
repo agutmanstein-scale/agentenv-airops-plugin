@@ -307,3 +307,16 @@ def test_the_webp_of_a_control_center_film_is_a_request_where_it_plays_out_a_cre
     assert parts == [(start[id(ask)], ask.seconds), (start[id(gate)], gate.seconds), (start[id(crew)], crew.seconds),
                      (start[id(up)] + 2, 4.5)]
     assert 15 <= sum(d for _, d in parts) <= 21
+
+
+def test_a_program_the_desks_hear_of_before_it_starts_is_announced_from_its_start():
+    ep, traffic = day()
+    gdp = {"kind": "advisory", "at": 575, "text": "GDP BOS", "data": {
+        "element": "BOS", "kind": "gdp", "program_period": [720, 899], "program_rate": [30, 34]}}
+    ep["news"].append(gdp)
+    c = record.Center(ep, traffic, None, None)
+    (faa,), = [b for b in c.faa(540) if b[0].at == 600]
+    assert faa.kicker == "10:00 · Ground delay program"
+    assert faa.caption == "From 12:00, the FAA holds arrivals at Boston Logan to 30–34 an hour until 15:00"
+    ep["news"].append({"kind": "advisory", "at": 590, "text": "GDP CNX", "data": {"element": "BOS", "kind": "gdp_cnx"}})
+    assert not [b for b in record.Center(ep, traffic, None, None).faa(540) if b[0].at == 600]

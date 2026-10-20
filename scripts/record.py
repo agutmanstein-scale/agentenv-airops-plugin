@@ -494,7 +494,21 @@ class Center(Day):
         return out
 
     def faa(self, after: float) -> list[list[Shot]]:
-        return [[replace(s, cards=("head", "map")) for s in b] for b in super().faa(after)]
+        """Day's FAA beats, then each program the desks hear of before it starts, at the watch after it is issued:
+        "From 15:30 the FAA holds arrivals …"."""
+        out = [[replace(s, cards=("head", "map")) for s in b] for b in super().faa(after)]
+        for n in self.advisories:
+            d = n["data"]
+            period = d.get({"gs": "gs_period", "gdp": "program_period"}.get(d["kind"], ""))
+            t = next((w["t"] for w in self.watches if w["t"] >= n["at"]), None)
+            if not period or t is None or period[0] <= t + 1 or any(x["data"]["kind"] == f"{d['kind']}_cnx"
+                                                                   and n["at"] < x["at"] <= t for x in self.advisories):
+                continue
+            speed, (what, text) = (6, 6), self.announce(n)
+            out.append([Shot("faa", "tower", max(after, lead_in(t, LEAD, speed, SECONDS["faa"])), SECONDS["faa"],
+                             speed, at=t, cards=("head", "map"), kicker=f"{clock(t)} · {what}",
+                             caption=f"From {clock(period[0])}, {text[0].lower()}{text[1:]}")])
+        return out
 
     def asks(self, types: tuple[str, ...]) -> list[list[Shot]]:
         """The requests of ``types`` the other desk accepted, in the room from as it is sent to its answer, then where
