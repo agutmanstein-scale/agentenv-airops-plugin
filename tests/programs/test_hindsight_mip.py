@@ -4,29 +4,51 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from day_helpers import (
+    PLACES,
+    based,
     broken_day,
     busy_day,
+    capped,
+    capped_day,
+    closed,
+    closed_day,
     crewed,
     day,
     flight,
+    late_pin_day,
     moved_day,
     network_day,
+    outcapped,
+    outcapped_day,
     quick_day,
     random_day,
+    reserve_day,
+    reserved,
     segment,
+    shared_hour_day,
     shortened,
     stop,
     tail,
     three_into_a_program,
     turned_through_day,
+    two_from_jfk,
+    with_crews,
 )
 
-from agentenv_airops.programs import mip, references, sim
+from agentenv_airops.programs import candidates, mip, references, sim
+from agentenv_airops.programs.advisories import HUBS
 from agentenv_airops.programs.cost import cancel_price
+from agentenv_airops.programs.layers import arrcaps, closures, depcaps
 from agentenv_airops.programs.model import Task
 
 RANDOM = range(8)
 NETWORK = range(8)
+CAPPED = range(4)
+TIGHT = {c: {h: h % 3 for h in range(24)} for c in PLACES}
+OUT_TIGHT = {c: {h: h % 3 for h in range(24)} for c in PLACES if c not in HUBS}
+POOLS = {"JFK": 1, "BOS": 0}
+SHUT = {"JFK": ((80, 160, 1, 0), (220, 250, 0, 1)), "BOS": ((180, 230, 0, 1),), "BUF": ((290, 330, 1, 0),),
+        "DCA": ((210, 280, 0, 0),)}
 
 
 def days() -> dict[str, Task]:
@@ -42,7 +64,24 @@ def days() -> dict[str, Task]:
             "lone_quick": replace(quick_day(), tails=quick_day().tails[:1]), "families": families(),
             "crew": crew(), "turned_through": turned_through_day(),
             **{f"random{seed}": random_day(random.Random(seed)) for seed in RANDOM},
-            **{f"network{seed}": network_day(random.Random(seed)) for seed in NETWORK}}
+            **{f"network{seed}": network_day(random.Random(seed)) for seed in NETWORK},
+            "capped": capped_day(), "shared_hour": shared_hour_day(),
+            **{f"capped_random{seed}": capped(random_day(random.Random(seed)), TIGHT) for seed in CAPPED},
+            **{f"capped_network{seed}": capped(network_day(random.Random(seed)), TIGHT) for seed in CAPPED},
+            "closed": closed_day(1), "closed_shut": closed_day(0),
+            **{f"closed_random{seed}": closed(random_day(random.Random(seed)), SHUT) for seed in CAPPED},
+            **{f"closed_network{seed}": closed(network_day(random.Random(seed)), SHUT) for seed in CAPPED},
+            "closed_capped_network1": closed(capped(network_day(random.Random(1)), TIGHT), SHUT),
+            "outcapped": outcapped_day(),
+            **{f"outcapped_random{seed}": outcapped(random_day(random.Random(seed)), OUT_TIGHT) for seed in CAPPED},
+            **{f"outcapped_network{seed}": outcapped(network_day(random.Random(seed)), OUT_TIGHT) for seed in CAPPED},
+            "outcapped_closed_capped_network1": outcapped(closed(capped(network_day(random.Random(1)), TIGHT), SHUT),
+                                                          OUT_TIGHT),
+            "reserves": reserve_day(), "reserves_none": reserved(reserve_day(), {"JFK": 0}),
+            **{f"reserves_random{seed}": with_crews(random_day(random.Random(seed)), random.Random(seed), POOLS)
+               for seed in CAPPED},
+            **{f"reserves_network{seed}": with_crews(network_day(random.Random(seed)), random.Random(seed), POOLS)
+               for seed in CAPPED}}
 
 
 def crew() -> Task:
@@ -67,9 +106,31 @@ def families() -> Task:
     return replace(day(flights, tails, stops=(stop(100, 160),)), turn={"A320": 30, "E190": 25})
 
 
-@pytest.fixture(scope="module", params=["task", "crewed"])
+@pytest.fixture(scope="module")
+def capped_task(task, slice_inputs, tmp_path_factory) -> Task:
+    """The fixture day under the departure caps the slice's BTS pushbacks give it."""
+    return capped(task, depcaps.build(task, candidates.frame(slice_inputs, tmp_path_factory.mktemp("derived"),
+                                                             task.date)))
+
+
+@pytest.fixture(scope="module")
+def closed_task(task) -> Task:
+    """The fixture day with JFK's ramp closed 18:00-19:00 at half its departure and arrival rates."""
+    return closed(task, closures.build(task, {"JFK": [(task.base + 1080, task.base + 1140)]}, {"JFK": 0.5}))
+
+
+@pytest.fixture(scope="module")
+def outcapped_task(task, slice_inputs, tmp_path_factory) -> Task:
+    """The fixture day under the outstation arrival caps the slice's BTS arrivals give it, every hour with one
+    arrival scheduled counted (the slice holds few other carriers' flights)."""
+    return outcapped(task, arrcaps.build(task, candidates.frame(slice_inputs, tmp_path_factory.mktemp("derived"),
+                                                                task.date), min_sched=1))
+
+
+@pytest.fixture(scope="module", params=["task", "crewed", "capped_task", "closed_task", "outcapped_task"])
 def fixture_day(request) -> Task:
-    """The fixture day, and the same day with the crew model."""
+    """The fixture day, the same day with the crew model, under departure caps, with a ramp closure, and under
+    outstation arrival caps."""
     return shortened(request.getfixturevalue(request.param))
 
 
@@ -141,7 +202,11 @@ def test_a_day_with_legs_cancelled_on_either_side_of_its_breaks_is_a_solution_at
     assert sol.deps[3] is None and replays(task, sol)
 
 
-@pytest.mark.parametrize("name", ["slots", "stop", "moved", "broken", "busy", "quick", "crew", "random3", "network2"])
+@pytest.mark.parametrize("name", ["slots", "stop", "moved", "broken", "busy", "quick", "crew", "random3", "network2",
+                                  "capped", "capped_random1", "capped_network2", "closed", "closed_shut",
+                                  "closed_random1", "closed_network0", "closed_capped_network1", "outcapped",
+                                  "outcapped_random1", "outcapped_network2", "outcapped_closed_capped_network1",
+                                  "reserves", "reserves_random1", "reserves_network2"])
 def test_a_day_with_its_history_pinned_is_a_solution_of_the_model_with_those_pins(name):
     task = days()[name]
     first = sim.execute(task, {})
@@ -153,6 +218,112 @@ def test_a_day_with_its_history_pinned_is_a_solution_of_the_model_with_those_pin
     x = net.vector(run)
     assert x is not None and feasible(net, x)
     assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
+
+
+RESERVED = [n for n in days() if n.startswith("reserves")]
+
+
+def reserve_plans(task: Task, rng: random.Random) -> list[dict]:
+    """Random plans that call reserves for most flights, so the pools bind."""
+    return [{f.id: {"cancel": rng.random() < 0.15, "decided": rng.randrange(0, 200),
+                    "not_before": rng.randrange(0, 400), "reserve": rng.random() < 0.7}
+             for f in task.flights if rng.random() < 0.8} for _ in range(10)]
+
+
+@pytest.mark.parametrize("name", RESERVED)
+def test_every_day_that_calls_reserves_from_a_finite_pool_is_a_solution_of_the_model_at_its_cost(name):
+    task = days()[name]
+    for plan in reserve_plans(task, random.Random(13)):
+        run = sim.execute(task, plan)
+        assert run.reserved == sim.granted(task, plan)
+        decided = {f.id: run.flights[f.id].decided for f in task.flights}
+        net = mip.Network(task, price={f.id: cancel_price(f, decided[f.id] or 0) for f in task.flights})
+        x = net.vector(run)
+        assert x is not None and feasible(net, x)
+        assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
+
+
+@pytest.mark.parametrize("name", RESERVED)
+def test_a_reserve_day_with_its_history_pinned_on_its_reserves_is_a_solution_with_those_pins(name):
+    """Pinned flights that called a reserve hold it: the pool row has room for the rest only, and a pinned flight
+    auto-cancelling on a reserve crew is priced at its deadline."""
+    task = days()[name]
+    for plan in reserve_plans(task, random.Random(17))[:5]:
+        first = sim.execute(task, plan)
+        pins = {i for i, r in first.flights.items() if i % 2 == 0 and r.status != "cancelled"}
+        pinned = {i: {"left": first.flights[i].dep} | ({"reserve": True} if plan.get(i, {}).get("reserve") else {})
+                  if first.flights[i].status == "flown" else dict(plan.get(i, {})) for i in pins}
+        run = sim.execute(task, {**plan, **pinned})
+        decided = {f.id: run.flights[f.id].decided for f in task.flights}
+        fixed = {i: run.flights[i].dep for i in pins}
+        lapsed = {i for i in pins if run.flights[i].status == "auto_cancelled"}
+        net = mip.Network(task, price={f.id: cancel_price(f, decided[f.id] or 0) for f in task.flights},
+                          fixed=fixed, lapsed=lapsed, reserved=run.reserved & pins)
+        x = net.vector(run)
+        assert x is not None and feasible(net, x)
+        assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
+
+
+def test_a_binding_pool_is_what_the_optimum_spends_and_its_plan_calls_exactly_those_reserves():
+    """With one reserve at JFK the optimum flies the larger of the two late JFK departures on it and cancels the
+    other; with none it cancels both; the plan calls the reserve it uses and the sim grants it."""
+    one, none = reserve_day(), reserved(reserve_day(), {"JFK": 0})
+    sol = mip.solve(one)
+    assert sol.proven and replays(one, sol) and sol.reserve == {1}
+    assert sol.plan(one.start)[1]["reserve"] and sim.execute(one, sol.plan(one.start)).reserved == {1}
+    assert sol.deps[1] is not None and sol.deps[0] is None
+    nil = mip.solve(none)
+    assert nil.proven and replays(none, nil) and nil.reserve == frozenset()
+    assert nil.deps[0] is None and nil.deps[1] is None and nil.objective > sol.objective
+    unlimited = replace(one, layers=None)
+    free = mip.solve(unlimited)
+    assert free.deps[0] is not None and free.deps[1] is not None and free.objective < sol.objective
+
+
+def test_a_pinned_flight_holding_the_pools_reserve_leaves_none_for_the_rest_of_the_re_solve():
+    """f1 left at 205 on JFK's one reserve: re-solving from that pin, f0 can't fly past its crew deadline (150) too and
+    is cancelled, the re-solve replays with the pin, and it costs more than one that forgets f1's reserve."""
+    task = reserve_day()
+    pin = {1: {"left": 205, "reserve": True}}
+    sol = mip.solve(task, fixed={1: 205}, reserved={1})
+    assert sol.proven and sol.reserve == {1} and sol.deps[0] is None
+    run = sim.execute(task, {**sol.plan(task.start), **pin})
+    assert run.reserved == {1} and run.cost.total == sol.objective and run.flights[0].status != "flown"
+    forgot = mip.solve(task, fixed={1: 205})
+    assert forgot.deps[0] is not None and forgot.objective < sol.objective
+
+
+def test_a_coarse_step_keeps_the_minute_a_pooled_base_crews_rest_ends():
+    """With no reserve left at JFK, f0 (known 100 minutes late, crew deadline 150, rest to 750, deadline 900) leaves
+    when its crew's rest ends, 750, a minute a 7-minute step doesn't reach: the sim's day is still a solution."""
+    task = reserved(day([based(flight(0, "JFK", "BUF", 100, 60, lb=100, deadline=900), 150)],
+                        [tail("N1", "JFK", end="BUF")]),
+                    {"JFK": 0})
+    run = sim.execute(task, {})
+    assert run.flights[0].dep == 750 and task.crew(task.flight(0)).rest == 750
+    net = mip.Network(task, step=7)
+    x = net.vector(run)
+    assert x is not None and feasible(net, x)
+    assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
+    sol = mip.solve(task, step=7)
+    assert sol.proven and replays(task, sol) and sol.objective <= run.cost.total
+
+
+def test_a_day_with_a_departure_pinned_before_its_aircraft_is_ready_is_a_solution_pinned_where_it_left():
+    task = late_pin_day()
+    run = sim.execute(task, {1: {"left": 170}})
+    net = mip.Network(task, fixed={1: run.flights[1].dep})
+    x = net.vector(run)
+    assert x is not None and feasible(net, x)
+    assert round(sum(c * v for c, v in zip(net.m.cost, x, strict=True))) == run.cost.total
+
+
+def test_a_pinned_departure_leaves_the_others_only_the_rest_of_its_hours_cap():
+    task = two_from_jfk()
+    sol = mip.solve(task, fixed={1: 100})
+    run = sim.execute(task, {**sol.plan(task.start), 1: {"left": 100}})
+    assert sol.deps == {0: 120, 1: 100} == {i: r.dep for i, r in run.flights.items()}
+    assert run.cost.total == sol.objective
 
 
 def test_a_canonical_pass_out_of_time_keeps_the_proven_plan_flagged_as_not_canonical(monkeypatch):
@@ -193,6 +364,15 @@ def test_a_coarse_step_keeps_every_slots_edct():
     sol = mip.solve(task, step=7)
     assert sol.objective == mip.solve(task).objective and replays(task, sol)
     assert {d for d in sol.deps.values()} == {120, 180, 240}
+
+
+def test_a_coarse_step_keeps_every_ramp_closures_end():
+    """At a 7-minute step the closure's end, 180, is still a minute flights 0 and 1 may leave JFK at, and with no room
+    for arrivals the end less the block, 120, one flights 3 and 5 may leave for JFK at."""
+    task = closed_day(0)
+    sol = mip.solve(task, step=7)
+    assert sol.proven and replays(task, sol)
+    assert (sol.deps[0], sol.deps[1], sol.deps[3], sol.deps[5]) == (180, 180, 120, 120)
 
 
 def test_pins_and_the_earliest_minute_are_kept(fixture_day):
@@ -267,3 +447,49 @@ def test_a_day_whose_lp_relaxation_is_fractional_proves_through_the_mip_to_the_s
     fast, slow = mip.solve(task), mip.solve(task, fix=False)
     assert fast.proven and fast.canonical and replays(task, fast)
     assert (fast.objective, fast.deps) == (slow.objective, slow.deps)
+
+
+def test_a_ramp_closure_raises_the_optimum_and_the_optimum_replays_under_it():
+    task = closed_day(1)
+    sol = mip.solve(task)
+    assert sol.proven and replays(task, sol)
+    assert sol.objective > mip.solve(closed_day()).objective > mip.solve(replace(task, layers=None)).objective
+    assert sum(sol.deps[i] is not None and 120 <= sol.deps[i] < 180 for i in (0, 1, 2, 4, 6)) <= 1
+    assert sum(sol.deps[i] is not None and 120 <= sol.deps[i] + 60 < 180 for i in (3, 5)) == 1
+
+
+def test_an_outstation_arrival_cap_raises_the_optimum_and_the_optimum_replays_under_it():
+    """BUF takes one arrival in hour 2: the optimum lands the 60-pax flight 1 at 180, at 60 x 50 minutes late, plus
+    its aircraft's 50 minutes."""
+    task = outcapped_day()
+    sol = mip.solve(task)
+    assert sol.proven and replays(task, sol)
+    assert sol.deps == {0: 60, 1: 120, 2: 55} and sol.objective > mip.solve(replace(task, layers=None)).objective == 0
+
+
+def test_a_pinned_arrival_at_an_outstation_leaves_the_others_the_rest_of_its_hour():
+    task = outcapped_day()
+    sol = mip.solve(task, fixed={1: 70})
+    run = sim.execute(task, {**sol.plan(task.start), 1: {"left": 70}})
+    assert sol.deps == {0: 120, 1: 70, 2: 55} == {i: r.dep for i, r in run.flights.items()}
+    assert run.cost.total == sol.objective
+
+
+def test_a_pinned_departure_inside_a_ramp_closure_leaves_the_others_the_rest_of_its_cap():
+    task = closed_day()
+    sol = mip.solve(task, fixed={1: 125})
+    run = sim.execute(task, {**sol.plan(task.start), 1: {"left": 125}})
+    assert all(d is None or not 120 <= d < 180 for i, d in sol.deps.items() if i != 1 and task.flight(i).orig == "JFK")
+    assert {i: r.dep for i, r in run.flights.items() if r.status == "flown"} == {
+        i: d for i, d in sol.deps.items() if d is not None}
+    assert run.cost.total == sol.objective
+
+
+def test_a_pinned_arrival_inside_a_ramp_closure_leaves_the_others_the_rest_of_its_cap():
+    task = closed_day(1)
+    sol = mip.solve(task, fixed={5: 110})
+    run = sim.execute(task, {**sol.plan(task.start), 5: {"left": 110}})
+    assert sol.deps[3] + 60 >= 180
+    assert {i: r.dep for i, r in run.flights.items() if r.status == "flown"} == {
+        i: d for i, d in sol.deps.items() if d is not None}
+    assert run.cost.total == sol.objective
