@@ -17,7 +17,7 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 
 from ..stage import HOME, hhmm, num
-from .crewstage import Gates, Site, dist, length, shortcut
+from .crewstage import Site, dist, length, shortcut
 
 FLOOR = 5.0
 """The departure level's floor above the apron, where the terminal's glass starts (web/stage/buildings.js)."""
@@ -48,11 +48,12 @@ def passengers(ep: Mapping, sidecar: Mapping, stage: Mapping) -> dict | None:
     hub = ep["task"]["hub"]
     sched = {s["id"]: s for s in ep["schedule"]}
     rows = {r["id"]: r for r in pax["flights"]}
-    gates = Gates(sidecar)
     lounges = face.lounges(site, HOME.get(hub))
+    if not lounges:
+        return None
     by_stand = {lg["stand"]: k for k, lg in enumerate(lounges)}
-    counter = face.counter(lounges, gates.legs)
     legs = legs_at(sidecar)
+    counter = face.counter(lounges, legs)
     events = defaultdict(list)
     for e in pax["events"]:
         if e["at"] == hub:
@@ -104,8 +105,7 @@ def passengers(ep: Mapping, sidecar: Mapping, stage: Mapping) -> dict | None:
         a, b = sched.get(c["from"]), sched.get(c["to"])
         if not a or not b:
             continue
-        ga = gates.at(a["flight"], "arr", a["sched_arr"]) or gates.at(a["flight"], "arr", a["sched_arr"] + 240)
-        gb = gates.at(b["flight"], "dep", b["sched_dep"]) or gates.at(b["flight"], "dep", b["sched_dep"] + 240)
+        ga, gb = gate_of(legs, a, "arr"), gate_of(legs, b, "dep")
         if ga is None or ga["stand"] not in by_stand:
             continue
         t0 = ga["at"] + DEPLANE
@@ -122,7 +122,7 @@ def passengers(ep: Mapping, sidecar: Mapping, stage: Mapping) -> dict | None:
             groups.append(group("misconnect", missed, [a["flight"], b["flight"]], segs,
                                 f"{missed} missed {b['flight']} · to the service counter"))
             joins.append((segs[-1]["t"][1], c["to"], missed, None, "misconnect"))
-    line = queue(joins, events, groups, lounges, counter, face, site, sched, by_stand, gates)
+    line = queue(joins, events, groups, lounges, counter, face, site, sched, by_stand, legs)
     tags = {}
     for i, r in rows.items():
         s = sched.get(i)
@@ -146,7 +146,7 @@ def share(t: float, span: Sequence[float]) -> float:
     return 0.0 if t <= a else 1.0 if t >= b else (t - a) / (b - a)
 
 
-def queue(joins, events, groups, lounges, counter, face, site, sched, by_stand, gates) -> list[list[float]]:
+def queue(joins, events, groups, lounges, counter, face, site, sched, by_stand, legs) -> list[list[float]]:
     """The line at the counter as [t, n] steps, and the groups leaving it: to a new gate, out, or to the curb and the
     hotel shuttle."""
     desk = lounges[counter]
@@ -173,8 +173,7 @@ def queue(joins, events, groups, lounges, counter, face, site, sched, by_stand, 
                 steps.append((t, -k))
                 if e["kind"] == "rebook":
                     g = sched.get(e["to"])
-                    gb = g and (gates.at(g["flight"], "dep", g["sched_dep"])
-                                or gates.at(g["flight"], "dep", g["sched_dep"] + 240))
+                    gb = g and gate_of(legs, g, "dep")
                     if gb and gb["stand"] in by_stand and lounges[by_stand[gb["stand"]]] is not desk:
                         groups.append(group("rebook", k, [sched[fid]["flight"], g["flight"]],
                                             face.walk(desk, lounges[by_stand[gb["stand"]]], t, site),
@@ -219,6 +218,17 @@ def group(kind: str, n: int, flights: list[str], segs: list[dict], say: str) -> 
 
 def gate(ref: str) -> str:
     return f"gate {ref.split('-', 1)[1]}" if "-" in ref else f"gate {ref}"
+
+
+def gate_of(legs: Mapping, s: Mapping, kind: str) -> dict | None:
+    """The stand and minute a flight's flown leg at the hub used (an arrival's block-in, a departure's pushback), the
+    sidecar's leg of that flight scheduled when the schedule has it; None when it didn't fly there."""
+    sched = s["sched_arr"] if kind == "arr" else s["sched_dep"]
+    for leg, stand in legs.get((s["flight"], kind), ()):
+        at = leg["in"] if kind == "arr" else leg["out"]
+        if leg["status"] == "flown" and at is not None and abs((leg.get("sched") or sched) - sched) <= 5:
+            return {"stand": stand, "at": at}
+    return None
 
 
 def legs_at(sidecar: Mapping) -> dict[tuple[str, str], list[tuple[dict, str]]]:
@@ -331,9 +341,9 @@ class Face:
         departures over the day."""
         deps = defaultdict(int)
         for (_, kind), found in legs.items():
-            for g in found:
+            for _, stand in found:
                 if kind == "dep":
-                    deps[g["stand"]] += 1
+                    deps[stand] += 1
         k = len(lounges)
         mid = list(range(k // 4, max(k // 4 + 1, 3 * k // 4)))
         return min(mid, key=lambda i: (deps[lounges[i]["stand"]], abs(i - k / 2)))

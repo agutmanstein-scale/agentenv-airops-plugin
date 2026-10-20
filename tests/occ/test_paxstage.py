@@ -11,14 +11,14 @@ SCHEDULE = [
     {"id": 1, "flight": "B6 101", "orig": "BOS", "dest": "JFK", "sched_dep": 520, "sched_arr": 595, "pax": 150},
     {"id": 2, "flight": "B6 202", "orig": "JFK", "dest": "MCO", "sched_dep": 690, "sched_arr": 860, "pax": 160},
     {"id": 3, "flight": "B6 303", "orig": "JFK", "dest": "LAX", "sched_dep": 715, "sched_arr": 1080, "pax": 180},
-    {"id": 4, "flight": "B6 404", "orig": "SFO", "dest": "JFK", "sched_dep": 300, "sched_arr": 690, "pax": 140},
+    {"id": 4, "flight": "B6 404", "orig": "SFO", "dest": "JFK", "sched_dep": 240, "sched_arr": 600, "pax": 140},
     {"id": 5, "flight": "B6 505", "orig": "JFK", "dest": "BUF", "sched_dep": 880, "sched_arr": 960, "pax": 100},
 ]
 
 
 def sidecar() -> dict:
-    """B6 101 in at T5-2 at 10:00, out again as B6 202 at 11:40; B6 303 out of T5-7 at 12:00; B6 404 in late at T5-4
-    at 11:50, after B6 202 has gone; B6 505 there cancelled at 13:00 for 14:40."""
+    """B6 101 in at T5-2 at 10:00, out again as B6 202 at 11:40; B6 303 out of T5-7 at 12:00; B6 404 in 110 minutes
+    late at T5-4 at 11:50, after B6 202 has gone; B6 505 there cancelled at 13:00 for 14:40."""
     late = visit("T5-4", 710, None, arr="B6 404")
     late["dep"] = {"flight": "B6 505", "kind": "dep", "status": "cancelled", "sched": 880, "decided": 780, "out": None}
     return {"span": [240, 1500], "aircraft": [
