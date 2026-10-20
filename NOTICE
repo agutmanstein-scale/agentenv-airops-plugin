@@ -27,6 +27,11 @@ Data sources (see data/*/SOURCE.md for each file):
 Third-party code:
 - PortSimEnv v1 (FineEnvs), Apache-2.0: Three.js scene code (sky, sun, image-based light, haze, water, materials and
   instancing helpers) adapted in web/stage/*.js; each adapted file names its source on its first line.
-- Three.js (MIT) and MapLibre GL JS (BSD-3-Clause), loaded by the viewer from jsDelivr, not bundled; for the
-  control-center room's video wall, topojson-client, us-atlas (US Census Bureau boundaries) and world-atlas
-  (Natural Earth), all ISC, likewise.
+- Vendored in web/vendor/, unmodified, each with its licence file beside it:
+  - Three.js 0.180.0 (MIT, Copyright © 2010-2025 three.js authors): build/three.module.js and three.core.js, and the
+    addons OrbitControls, RectAreaLightUniformsLib with RectAreaLightTexturesLib, Water and BufferGeometryUtils.
+  - MapLibre GL JS 5.24.0 (BSD-3-Clause, Copyright (c) 2023 MapLibre contributors; its LICENSE.txt also carries the
+    notices of the code it bundles): dist/maplibre-gl.js and maplibre-gl.css. web/vendor/maplibre-gl.js, ours, loads it.
+  - For the control-center room's video wall, all ISC and by Michael Bostock: topojson-client 3.1.0 (its src/
+    modules, Copyright 2012-2019), us-atlas 3.0.1 (states-10m.json, from US Census Bureau boundaries) and
+    world-atlas 2.0.2 (land-110m.json, from Natural Earth), both Copyright 2013-2019.

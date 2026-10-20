@@ -1,5 +1,6 @@
 """QA a viewer folder headlessly: open its episode list and each episode it lists in headless Chrome (record.py's
-session), fail on an uncaught exception or a console error, check that the 3D airport, the control-center room and
+session), fail on an uncaught exception, a console error or a script or stylesheet from another host than the
+viewer's (its third-party code is vendored under web/vendor/), check that the 3D airport, the control-center room and
 the US map each come to the front and draw (window.airops.state() and a still that isn't blank) at a few minutes of
 the day, and write the stills, a contact sheet of them and a JSON report.
 
@@ -32,6 +33,8 @@ BLANK = 6.0
 TILE = (480, 270)
 QUIET = re.compile(r"favicon\.ico")
 BLOCKED = re.compile(r"Access to \w+ at '([^']+)' from origin")
+LOCAL = (None, "127.0.0.1", "localhost")
+"""The hosts the QA serves the viewer and its data from (None: data: and blob: URLs)."""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -88,7 +91,7 @@ def page_list(base: str, data: str, chrome: str, width: int, height: int, index:
     result = {"name": "index", "failures": []}
     try:
         with session(f"{base}/viewer/index.html?index={quote(data + '/episodes/index.json')}", chrome, width,
-                     height, "auto", enable=("Runtime", "Log")) as (page, ready, _):
+                     height, "auto", enable=("Runtime", "Log", "Network")) as (page, ready, _):
             cards = page.js("document.querySelectorAll('.ep-card').length")
             thumbs = page.js("document.querySelectorAll('.ep-card .thumb:not(.none)').length")
             result |= {"cards": cards, "thumbs": thumbs}
@@ -112,7 +115,7 @@ def episode(base: str, data: str, chrome: str, width: int, height: int, entry: d
     url = (f"{base}/viewer/index.html?record=1&t={minutes[0]}"
            f"&episode={quote(data + '/episodes/' + entry['url'])}")
     try:
-        with session(url, chrome, width, height, "auto", enable=("Runtime", "Log")) as (page, ready, gl):
+        with session(url, chrome, width, height, "auto", enable=("Runtime", "Log", "Network")) as (page, ready, gl):
             result |= {"gl": gl, "views": ready["views"], "stage": ready["stage"], "room": ready["room"]}
             wanted = ["tower" if ep.get("stage") else None, "room" if ep.get("occ") and room else None, "network"]
             for missing in [v for v in wanted if v and v != "network" and v not in ready["views"]]:
@@ -143,12 +146,16 @@ def episode(base: str, data: str, chrome: str, width: int, height: int, entry: d
 
 
 def errors(page, ignore, notes: list | None = None) -> list[str]:
-    """The page's uncaught exceptions and console and log errors, but those ``ignore`` lets pass; another host's
-    resource that failed to load or came without CORS headers (map tiles, imagery) goes to ``notes``, counted by
-    host."""
+    """The page's uncaught exceptions and console and log errors, but those ``ignore`` lets pass, and any script or
+    stylesheet it loaded from another host; another host's resource that failed to load or came without CORS headers
+    (map tiles, imagery) goes to ``notes``, counted by host."""
     out, away = [], {}
     for e in page.events:
         m, p = e["method"], e.get("params", {})
+        if m == "Network.requestWillBeSent":
+            if p.get("type") in ("Script", "Stylesheet") and urlparse(p["request"]["url"]).hostname not in LOCAL:
+                out.append(f"third-party {p['type'].lower()}: {p['request']['url']}")
+            continue
         if m == "Runtime.exceptionThrown":
             d = p["exceptionDetails"]
             text = d.get("exception", {}).get("description") or d.get("text", "")
@@ -158,7 +165,7 @@ def errors(page, ignore, notes: list | None = None) -> list[str]:
             text = f"{p['entry'].get('text', '')} {p['entry'].get('url', '')}".strip()
             blocked = BLOCKED.search(p["entry"].get("text", ""))
             host = urlparse(blocked.group(1) if blocked else p["entry"].get("url", "")).hostname
-            if (p["entry"].get("source") == "network" or blocked) and host not in (None, "127.0.0.1", "localhost"):
+            if (p["entry"].get("source") == "network" or blocked) and host not in LOCAL:
                 away[host] = away.get(host, 0) + 1
                 continue
         else:

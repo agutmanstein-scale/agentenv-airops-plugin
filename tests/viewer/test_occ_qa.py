@@ -15,7 +15,7 @@ class Page:
         self.events = events
 
 
-def test_console_errors_and_exceptions_fail_but_the_waived_ones():
+def test_console_errors_exceptions_and_third_party_scripts_fail_but_the_waived_ones():
     page = Page([
         {"method": "Runtime.consoleAPICalled", "params": {"type": "error", "args": [
             {"type": "string", "value": "the control-center room failed:"}, {"type": "object", "description": "E"}]}},
@@ -29,12 +29,19 @@ def test_console_errors_and_exceptions_fail_but_the_waived_ones():
           for i in range(3)),
         *({"method": "Log.entryAdded", "params": {"entry": {"level": "error", "source": "javascript", "text":
             f"Access to fetch at '{url}' from origin 'http://127.0.0.1:5000' has been blocked by CORS policy"}}}
-          for url in ("https://tiles.example.org/9.png", "http://127.0.0.1:5001/data/stage/ortho.jpg"))])
+          for url in ("https://tiles.example.org/9.png", "http://127.0.0.1:5001/data/stage/ortho.jpg")),
+        *({"method": "Network.requestWillBeSent", "params": {"type": kind, "request": {"url": url}}}
+          for kind, url in (("Script", "http://127.0.0.1:5000/viewer/vendor/three-0.180.0/build/three.module.js"),
+                            ("Script", "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"),
+                            ("Stylesheet", "https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css"),
+                            ("Image", "https://tiles.example.org/1.png"), ("Script", "blob:http://127.0.0.1:5000/w")))])
     notes = []
     assert qa.errors(page, [qa.QUIET, re.compile("room failed")], notes) == [
         "console: TypeError: x is undefined", "console: 404 /viewer/x.js",
         "console: Access to fetch at 'http://127.0.0.1:5001/data/stage/ortho.jpg' from origin 'http://127.0.0.1:5000' "
-        "has been blocked by CORS policy"]
+        "has been blocked by CORS policy",
+        "third-party script: https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "third-party stylesheet: https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css"]
     assert notes == ["4 resources from tiles.example.org failed to load"] and page.events == []
 
 
