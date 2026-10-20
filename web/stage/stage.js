@@ -346,16 +346,19 @@ export class AirportStage {
     const P = new THREE.Vector3(f.x, van ? 1.7 : 1.25, -f.y);
     const [dist, up, turns] = van ? [30, 9, VAN_TURNS] : f.kind === "wait" ? [15, 2.8, WAIT_TURNS] : [20, 3.4, WALK_TURNS];
     const hulls = this.#hulls(f.x, f.y, dist + 60);
+    const posts = this.bridges.obstacles().filter(([x, y]) => Math.hypot(x - f.x, y - f.y) < dist + 10);
     const at = (a) => {
       const h = (f.heading + a) * DEG;
       return new THREE.Vector3(f.x + Math.sin(h) * dist, up, -(f.y + Math.cos(h) * dist));
     };
     const seen = (c) => {
       if (this.#indoors(c.x, -c.z) || hulls.some((h) => segDist(c.x, -c.z, h) < h[4] + 2)) return false;
-      for (let i = 1; i < 10; i++) {
-        const u = i / 10;
+      for (let i = 1; i < 24; i++) {
+        const u = i / 24;
         const [x, y] = [c.x + (P.x - c.x) * u, -(c.z + (P.z - c.z) * u)];
+        if (u > 0.9 && !van) break;
         if (this.#indoors(x, y) || hulls.some((h) => segDist(x, y, h) < h[4])) return false;
+        if (c.y + (P.y - c.y) * u < 4.4 && posts.some(([px, py, r]) => Math.hypot(px - x, py - y) < r)) return false;
       }
       return true;
     };

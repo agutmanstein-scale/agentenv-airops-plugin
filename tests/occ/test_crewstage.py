@@ -36,6 +36,7 @@ SCHEDULE = [
     {"id": 3, "flight": "B6 303", "orig": "JFK", "dest": "LAX"},
     {"id": 4, "flight": "B6 404", "orig": "SFO", "dest": "JFK"},
     {"id": 5, "flight": "B6 505", "orig": "JFK", "dest": "BUF"},
+    {"id": 6, "flight": "B6 606", "orig": "JFK", "dest": "ORD"},
 ]
 
 
@@ -45,6 +46,7 @@ def sidecar(crew=None) -> dict:
         {"key": "N2", "task": True, "visits": [visit("T5-7", 560, 720, dep="B6 303")]},
         {"key": "N3", "task": True, "visits": [visit("T5-4", 650, 900, arr="B6 404", dep="B6 505")]},
         {"key": "N4", "task": False, "visits": [visit("T4-1", 600, 700, dep="B6 202")]},
+        {"key": "N5", "task": True, "visits": [visit("H1", 500, 800, dep="B6 606")]},
     ]}
 
 
@@ -74,7 +76,8 @@ def test_the_crew_room_and_curb_sit_past_the_end_gate_nearer_the_middle_and_walk
     assert all(not (-60 < x < 900 and 25 < y < 90) for x, y in out)
     assert max(x for x, _ in out) <= 320 and site.lane[0][0] < -60 and site.lane[-1][1] > site.lane[0][1]
     remote = site.door("H1")
-    assert remote.bus and remote.xy == pytest.approx((104, 25 - WALK), abs=0.5)
+    assert remote.bus and remote.xy == pytest.approx((104, 25 - WALK - cs.STOP), abs=0.5)
+    assert remote.door == pytest.approx((104, -294)) and remote.near == pytest.approx((104, -294 + cs.ALIGHT))
 
 
 def test_a_crew_from_the_crew_room_walks_to_its_gate_and_waits_to_board_and_pilots_and_cabin_go_together():
@@ -142,3 +145,14 @@ def test_a_deadheading_crew_boards_with_the_passengers_and_a_flight_short_of_cre
 def test_no_crews_without_the_room_or_a_home_terminal():
     assert cs.crews({"task": {"hub": "JFK"}, "schedule": []}, sidecar(), stage()) == []
     assert cs.crews(episode({"P-1": unit()}), sidecar(), stage() | {"hub": "LGA"}) == []
+
+
+def test_a_crew_for_a_remote_stand_rides_the_apron_bus_out_to_its_aircraft():
+    [_, group] = run({"P-1": unit(duties=[{"report": 600, "at": "JFK", "legs": [[6, 800, 900]], "release": 915}])})
+    walk, bus, alight, wait = group["segs"]
+    assert (bus["do"], bus["v"], bus["dir"]) == ("van", "bus", "via")
+    assert bus["p"] == [walk["p"][-1], alight["p"][0]] and bus["t"][0] == walk["t"][1] + 1
+    assert alight["p"][-1] == pytest.approx([104, -294]) and wait["t"][1] == 800 - cs.BOARD
+    assert [x["say"] for x in (walk, bus, wait)] == ["Crew of B6 606 · to the bus to stand H1",
+                                                   "Crew of B6 606 · on the bus to stand H1",
+                                                   "Crew of B6 606 · at stand H1"]

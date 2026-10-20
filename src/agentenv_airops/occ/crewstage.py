@@ -35,6 +35,9 @@ road on along the face from the curb this far."""
 RAMP = 60.0
 """A stand without a jet bridge farther than this from the walkway is a remote one, reached by the apron bus from the
 walkway point nearest it."""
+BUS, STOP, ALIGHT = 300.0, 6.0, 9.0
+"""The apron bus drives this many metres a minute between its stop this far out from the walkway and a point this far
+short of the aircraft's door."""
 CUT = 45.0
 """A walk cuts through the building (a pier's root) across a gap this narrow."""
 LEAVE, BOARD, DEADHEAD, DEPLANE, CONNECT = 50, 35, 30, 10, 75
@@ -85,7 +88,7 @@ def moves(uid: str, u: Mapping, hub: str, flights: Mapping[int, Mapping], gates:
             first = next((e[4][0]["flight"] for e in events[i + 1:] if e[2] == "out"), None)
             out.append(move(me, "report", None, None, [
                 site.van("in", at_curb, "hotel" if stay else "shuttle"),
-                seg("walk", at_curb + 0.5, site.route(site.curb, site.room))], report=t, stay=stay is not None,
+                *site.trip(site.curb, site.room, at_curb + 0.5)], report=t, stay=stay is not None,
                 first=first))
             where = ("room", out[-1]["segs"][-1]["t"][1])
         elif what == "in":
@@ -101,10 +104,10 @@ def moves(uid: str, u: Mapping, hub: str, flights: Mapping[int, Mapping], gates:
                 out.append(to_hotel(me, flight, g["stand"], site, door, t0, nxt[3], hotel(u, hub, nxt[0], "from")))
                 where = ("away",)
             elif nxt and nxt[2] == "release":
-                out.append(move(me, "off", flight, g["stand"], [seg("walk", t0, site.route(door, site.room))]))
+                out.append(move(me, "off", flight, g["stand"], site.trip(door, site.room, t0)))
                 where = ("away",)
             else:
-                out.append(move(me, "in", flight, g["stand"], [seg("walk", t0, site.route(door, site.room))]))
+                out.append(move(me, "in", flight, g["stand"], site.trip(door, site.room, t0)))
                 where = ("room", out[-1]["segs"][-1]["t"][1])
         elif what == "out":
             f, dh = ride
@@ -145,17 +148,19 @@ def to_gate(me: Mapping, flight: str, deadhead: bool, g: Mapping, t: float, site
     dest = site.door(g["stand"])
     late = short(g["crew"], t - BOARD)
     if where[0] == "door":
-        w, inbound = seg("walk", where[2], site.route(where[1], dest)), where[3]
+        segs, inbound = site.trip(where[1], dest, where[2]), where[3]
     else:
-        path = site.route(site.room, dest)
         start = max(t - LEAVE, where[1] + 1) if where[0] == "room" else t - LEAVE
-        w, inbound = seg("walk", max(start, t - LATE - length(path) / WALK) if late else start, path), None
-    arrive = w["t"][1]
+        if late:
+            took = site.trip(site.room, dest, 0)[-1]["t"][1]
+            start = max(start, t - LATE - took)
+        segs, inbound = site.trip(site.room, dest, start), None
+    arrive = segs[-1]["t"][1]
     board = max(t - (LATE if late else DEADHEAD if deadhead else BOARD), arrive,
                 g["from"] + DOCKED if g["from"] is not None else 0)
     board = round(min(board, max(arrive, t - 3)), 1)
     face = round(math.degrees(math.atan2(dest.face[0] - dest.xy[0], dest.face[1] - dest.xy[1])) % 360)
-    segs = [w] + ([{"do": "wait", "t": [arrive, board], "at": w["p"][-1], "h": face}] if board > arrive else [])
+    segs += [{"do": "wait", "t": [arrive, board], "at": segs[-1]["p"][-1], "h": face}] if board > arrive else []
     return move(me, "out", flight, g["stand"], segs, deadhead=deadhead, inbound=inbound, bus=dest.bus)
 
 
@@ -167,9 +172,9 @@ def short(rows: Sequence[Sequence] | None, t: float) -> bool:
 
 def to_hotel(me: Mapping, flight: str | None, stand: str | None, site: "Site", src: "Place", t0: float,
              duty: Mapping, stay: Mapping | None) -> dict:
-    w = seg("walk", t0, site.route(src, site.curb))
+    segs = site.trip(src, site.curb, t0)
     timed_out = duty.get("limit") is not None and duty["release"] >= duty["limit"] - TIMED_OUT
-    return move(me, "hotel", flight, stand, [w, site.van("out", w["t"][1] + 1, "hotel")],
+    return move(me, "hotel", flight, stand, [*segs, site.van("out", segs[-1]["t"][1] + 1, "hotel")],
                 timed_out=timed_out, until=stay["to"] if stay else None)
 
 
@@ -198,7 +203,7 @@ def merged(raw: list[dict]) -> list[dict]:
     out, keys = [], set()
     curb: list[tuple[float, float, int]] = []
     for g in sorted(groups.values(), key=lambda g: (g["segs"][0]["t"][0], g["kind"], g["flight"] or "")):
-        g["segs"] = [bay(s, curb) if s["do"] == "van" else s for s in g["segs"]]
+        g["segs"] = [bay(s, curb) if s["do"] == "van" and s["dir"] != "via" else s for s in g["segs"]]
         key = f"{g['kind']}-{(g['flight'] or 'x').replace(' ', '')}-{round(g['segs'][0]['t'][0])}"
         while key in keys:
             key += "+"
@@ -250,8 +255,10 @@ def say(g: Mapping, s: Mapping) -> str:
         return f"Deadheading crew · boarding {flight} with the passengers"
     if g["kind"] == "out":
         head = f"Reserve {who} for {flight}" if reserve else f"Crew of {flight}"
-        where = f"the bus to stand {g['stand']}" if note.get("bus") else gate_name(g["stand"])
-        return f"{head} · {'to' if s['do'] == 'walk' else 'at'} {where}"
+        if note.get("bus"):
+            verb = "on the bus to" if s["do"] == "van" else "to the bus to" if s is g["segs"][0] else "at"
+            return f"{head} · {verb} stand {g['stand']}"
+        return f"{head} · {'to' if s['do'] == 'walk' else 'at'} {gate_name(g['stand'])}"
     if g["kind"] == "hotel":
         until = f"rest until {hhmm(note['until'])}" if note.get("until") is not None else "layover"
         return f"Crew to the hotel · {'timed out' if note.get('timed_out') else until}"
@@ -285,10 +292,13 @@ class Gates:
 
 class Place:
     """Where a crew stands (xy), the walkway point it reaches it from (walk), that point's arc length on the
-    terminal's outline (s) and what it faces while it waits there (face)."""
+    terminal's outline (s) and what it faces while it waits there (face); for a remote stand, xy is the apron bus's
+    stop, door the aircraft's door and near where the bus sets down by it."""
 
-    def __init__(self, xy: Point, s: float, walk: Point, face: Point | None = None, bus: bool = False):
-        self.xy, self.s, self.walk, self.face, self.bus = xy, s, walk, face or xy, bus
+    def __init__(self, xy: Point, s: float, walk: Point, face: Point | None = None,
+                 door: Point | None = None, near: Point | None = None):
+        self.xy, self.s, self.walk, self.face, self.door, self.near = xy, s, walk, face or xy, door, near
+        self.bus = door is not None
 
 
 class Site:
@@ -351,8 +361,29 @@ class Site:
         s, d = self.ring.project(xy)
         w = self.ring.at(s, WALKWAY)
         if d > RAMP:
-            return Place(w, s, w, tuple(st["xy"]), bus=True)
+            stop = self.ring.at(s, WALKWAY + STOP)
+            k = ALIGHT / (dist(stop, xy) or 1.0)
+            near = (xy[0] + (stop[0] - xy[0]) * k, xy[1] + (stop[1] - xy[1]) * k)
+            return Place(stop, s, w, tuple(st["xy"]), door=xy, near=near)
         return Place(xy, s, w, tuple(st["xy"]))
+
+    def trip(self, a: Place, b: Place, t0: float) -> list[dict]:
+        """A crew's way from a to b from t0: along the walkway, by the apron bus to or from a remote stand."""
+        segs = []
+        if a.bus:
+            segs.append(seg("walk", t0, [a.door, a.near]))
+            segs.append(self.bus(a.near, a.xy, segs[-1]["t"][1] + 0.5))
+            t0 = segs[-1]["t"][1] + 0.5
+        segs.append(seg("walk", t0, self.route(a, b)))
+        if b.bus:
+            segs.append(self.bus(b.xy, b.near, segs[-1]["t"][1] + 1))
+            segs.append(seg("walk", segs[-1]["t"][1] + 0.5, [b.near, b.door]))
+        return segs
+
+    def bus(self, a: Point, b: Point, t0: float) -> dict:
+        """The apron bus straight across the apron from a to b, leaving at t0 and standing a minute at each end."""
+        return {"do": "van", "t": [round(t0, 1), round(t0 + dist(a, b) / BUS, 1)],
+                "p": [[num(a[0]), num(a[1])], [num(b[0]), num(b[1])]], "v": "bus", "dir": "via", "park": 1.0}
 
     def route(self, a: Place, b: Place) -> list[Point]:
         """From a to b along the walkway, the airside way round."""

@@ -6,7 +6,7 @@ const CAP = 420;
 const FIG = 1.2;
 /** Figures are drawn this much over life size so that people read as people from the gate and crew cameras (display
  * only, like the walkway they keep to). */
-const VANS = 6;
+const VANS = 8;
 const SAY = 2;
 const NEAR = 1400;
 const ROW = 1.7;
@@ -292,13 +292,14 @@ function sample(p, cum, d, side, out) {
  * crew off or before it picks one up; null when it is not there. */
 function vanAt(s, T) {
   const [t0, t1] = s.t;
-  if (T < t0 - (s.dir === "out" ? s.park : 0) || T > t1 + (s.dir === "in" ? s.park : 0)) return null;
+  const via = s.dir === "via";
+  if (T < t0 - (s.dir !== "in" ? s.park : 0) || T > t1 + (s.dir !== "out" ? s.park : 0)) return null;
   const u = Math.min(1, Math.max(0, (T - t0) / Math.max(1e-6, t1 - t0)));
-  const e = s.dir === "out" ? u * u * (1.6 - 0.6 * u) : 1 - (1 - u) * (1 - u) * (1.6 - 0.6 * (1 - u));
+  const e = via ? u * u * (3 - 2 * u) : s.dir === "out" ? u * u * (1.6 - 0.6 * u) : 1 - (1 - u) * (1 - u) * (1.6 - 0.6 * (1 - u));
   const d = e * s.len;
   const o = [0, 0, 0, 0];
   sample(s.p, s.cum, d, 0, o);
-  const far = s.dir === "out" ? s.len - d : d;
+  const far = via ? FADE : s.dir === "out" ? s.len - d : d;
   return { x: o[0], y: o[1], heading: o[3], fade: Math.min(1, far / FADE) };
 }
 
@@ -306,7 +307,7 @@ function placeVan(g, s, pose) {
   g.visible = pose.fade > 0.02;
   g.position.set(pose.x, 0.02, -pose.y);
   g.rotation.set(0, -pose.heading * (Math.PI / 180), 0);
-  const kind = s.v === "hotel" ? "hotel" : "shuttle";
+  const kind = s.v === "hotel" || s.v === "bus" ? s.v : "shuttle";
   for (const [name, m] of Object.entries(g.userData.looks)) m.visible = name === kind;
   g.userData.mat.opacity = pose.fade;
   g.userData.mat.transparent = pose.fade < 1;
@@ -399,8 +400,23 @@ function buildVan() {
     wheel(-1.08, 2.9),
     wheel(1.08, 2.9),
   ]);
+  const bus = mergeGeometries([
+    colored(box(2.9, 0.5, 13.2), "#d9dcdf", 0, 0.55, 0),
+    colored(box(2.92, 1.75, 13.0), "#a9c4d4", 0, 1.68, 0),
+    colored(box(2.95, 0.3, 13.2), "#e9ecee", 0, 2.7, 0),
+    colored(box(2.75, 0.22, 12.8), "#cfd3d6", 0, 2.95, 0),
+    colored(box(2.96, 1.75, 0.6), "#e9ecee", 0, 1.68, -3.0),
+    colored(box(2.96, 1.75, 0.6), "#e9ecee", 0, 1.68, 1.6),
+    colored(box(2.96, 1.75, 0.5), "#e9ecee", 0, 1.68, 5.5),
+    colored(box(2.96, 0.14, 13.22), "#2d5f9a", 0, 0.86, 0),
+    colored(box(2.6, 0.12, 0.08), "#ffd9a0", 0, 0.62, -6.62),
+    wheel(-1.25, -4.8),
+    wheel(1.25, -4.8),
+    wheel(-1.25, 4.8),
+    wheel(1.25, 4.8),
+  ]);
   const looks = {};
-  for (const [name, geo] of Object.entries({ hotel, shuttle })) {
+  for (const [name, geo] of Object.entries({ hotel, shuttle, bus })) {
     const m = new THREE.Mesh(geo, mat);
     m.castShadow = true;
     m.receiveShadow = true;
