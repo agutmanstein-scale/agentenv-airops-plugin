@@ -26,11 +26,16 @@ def test_console_errors_and_exceptions_fail_but_the_waived_ones():
         {"method": "Log.entryAdded", "params": {"entry": {"level": "error", "text": "404", "url": "/viewer/x.js"}}},
         *({"method": "Log.entryAdded", "params": {"entry": {"level": "error", "source": "network", "text": "ERR",
                                                             "url": f"https://tiles.example.org/{i}.png"}}}
-          for i in range(3))])
+          for i in range(3)),
+        *({"method": "Log.entryAdded", "params": {"entry": {"level": "error", "source": "javascript", "text":
+            f"Access to fetch at '{url}' from origin 'http://127.0.0.1:5000' has been blocked by CORS policy"}}}
+          for url in ("https://tiles.example.org/9.png", "http://127.0.0.1:5001/data/stage/ortho.jpg"))])
     notes = []
     assert qa.errors(page, [qa.QUIET, re.compile("room failed")], notes) == [
-        "console: TypeError: x is undefined", "console: 404 /viewer/x.js"]
-    assert notes == ["3 resources from tiles.example.org failed to load"] and page.events == []
+        "console: TypeError: x is undefined", "console: 404 /viewer/x.js",
+        "console: Access to fetch at 'http://127.0.0.1:5001/data/stage/ortho.jpg' from origin 'http://127.0.0.1:5000' "
+        "has been blocked by CORS policy"]
+    assert notes == ["4 resources from tiles.example.org failed to load"] and page.events == []
 
 
 def test_the_minutes_checked_are_the_story_and_the_first_answer_between_the_desks():
