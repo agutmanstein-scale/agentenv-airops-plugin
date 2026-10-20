@@ -2,6 +2,7 @@
 // programs in plain English), the desk (the watch: its news, what the agent did, its own words when it said any), the
 // scoreboard, the departures and arrivals board, and the timeline with the cameras.
 import { HUB_NAMES, boardAt, esc, flagged, programsAt, rewardOf, scoreAt, short, utcAt, watchAt, zoneName } from "./model.js";
+import { paxAt, paxIndex, strandedPaxAt } from "./paxdata.js";
 import * as plain from "./plain.js";
 
 const REFS = [["follower", "Re-planning every hour", "the reference: a MIP re-solved at each watch on the day as known"],
@@ -156,6 +157,30 @@ export class Score extends Card {
   }
 }
 
+/** The customer pane of a day with passengers: how many have missed a connection, been rebooked onto a later flight
+ * or put up in a hotel overnight so far, the departures held for connecting passengers and where they are stranded. */
+export class Passengers extends Card {
+  constructor(el, P) {
+    super(el);
+    this.X = paxIndex(P);
+    el.innerHTML = `<h5 data-s="title"></h5><div class="kpis" data-s="kpis"></div><p class="pax-line" data-s="line"></p>`;
+  }
+
+  render(t) {
+    const a = paxAt(this.X, t), done = t >= this.X.end;
+    this.slot("title", done, `${done ? "The day's passengers" : "Passengers so far"} <small>the customer desk</small>`);
+    this.slot("kpis", `${a.missed}|${a.rebooked}|${a.stranded}`, () => `
+      <div><b>${fmt(a.missed)}</b><span>missed connections</span></div>
+      <div><b>${fmt(a.rebooked)}</b><span>rebooked</span></div>
+      <div><b>${fmt(a.stranded)}</b><span>stranded overnight</span></div>`);
+    const where = [...strandedPaxAt(this.X, t)].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]));
+    const line = [a.held ? `Held ${a.held} departure${a.held > 1 ? "s" : ""} for ${fmt(a.heldPax)} connecting` : "",
+      where.length ? `in hotels at ${where.slice(0, 3).map(([c, n]) => `${esc(c)} ${fmt(n)}`).join(", ")}${where.length > 3 ? ` and ${where.length - 3} more` : ""}` : ""].filter(Boolean);
+    const text = line.join("; ");
+    this.slot("line", text, () => (text ? `${text[0].toUpperCase()}${text.slice(1)}` : "No departure held for connections yet"));
+  }
+}
+
 export class Board extends Card {
   constructor(el, P, { city, stands, terminal = null, rows = 6, scene = false, scope = "the task's flights" }) {
     super(el);
@@ -166,7 +191,7 @@ export class Board extends Card {
     el.innerHTML = `<div class="board-h"><b>${esc(HUB_NAMES[P.task.hub] ?? P.task.hub)}</b> <span>JetBlue${terminal ? ` · Terminal ${esc(terminal)}` : ""} · ${esc(scope)}</span></div>
       <section><h6><span>Departures</span><span>To</span><span>Gate</span><span>Status</span></h6><ol data-s="dep"></ol></section>
       <section><h6><span>Arrivals</span><span>From</span><span>Gate</span><span>Status</span></h6><ol data-s="arr"></ol></section>
-      <p class="legend"><i class="ok"></i>on time <i class="delay"></i>delayed <i class="hold"></i>held <i class="cancel"></i>cancelled${P.ep.occ ? ' <i class="crew"></i>crew' : ""}${scene ? `<span>In 3D ${P.ep.occ ? "JetBlue's aircraft carry tags, with their crews' status at the gate" : "the task's aircraft carry tags"}; other airlines are grey</span>` : ""}</p>`;
+      <p class="legend"><i class="ok"></i>on time <i class="delay"></i>delayed <i class="hold"></i>held <i class="cancel"></i>cancelled${P.ep.occ ? ' <i class="crew"></i>crew' : ""}${scene ? `<span>In 3D ${P.ep.passengers ? "JetBlue's aircraft carry tags, with their crews' status and connecting passengers at the gate" : P.ep.occ ? "JetBlue's aircraft carry tags, with their crews' status at the gate" : "the task's aircraft carry tags"}; other airlines are grey</span>` : ""}</p>`;
   }
 
   render(t, flights) {

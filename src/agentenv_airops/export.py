@@ -217,7 +217,8 @@ def entry(ep: Mapping, url: str, cache: Path = CACHE) -> dict:
             "model_label": ep["model_label"], "run": ep["run"], "reward": ep["reward"], "cost": ep["cost"]["total"],
             "anchor": ep["reference"]["anchor"]} | ({"thumb": f"../{thumb}"} if (cache / thumb).is_file() else {}) \
         | ({"occ": ep["occ"]["label"], "reward_L": ep["occ"]["grade"].get("reward_L"),
-            "gap_pct": ep["reference"].get("gap_pct"), "open": opening(ep)} if ep.get("occ") else {})
+            "gap_pct": ep["reference"].get("gap_pct"), "open": opening(ep)} if ep.get("occ") else {}) \
+        | ({"passengers": True} if ep.get("passengers") else {})
 
 
 def opening(ep: Mapping) -> int:

@@ -52,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     index = json.loads((src / "index.json").read_text()) if (src / "index.json").is_file() else {"episodes": []}
     row = next((e for e in index["episodes"] if e["url"] == a.episode.name), {})
     row = {k: v for k, v in row.items() if k != "thumb"}
-    row |= {"url": f"{stem}.json", "run": a.run, "occ": ep["occ"]["label"]}
+    row |= {"url": f"{stem}.json", "run": a.run, "occ": ep["occ"]["label"], "passengers": True}
     (out / "index.json").write_text(json.dumps({"version": 1, "episodes": [row]}, indent=1))
     for name in ("stage", "radar", "twin", "thumbs"):
         link = a.out / name

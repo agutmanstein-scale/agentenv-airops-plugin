@@ -1,9 +1,10 @@
 // The expert drawer of a control-center day, in tabs: each crew on duty against its legal limit (the duty clocks), the
-// full log of requests between the desks, and the page each desk read at its latest turn; v1's tail chart and tool
-// calls stay as the last tab. A crew picked in the duty clocks is announced as "airops:crew" for the map and the chart,
+// full log of requests between the desks, on a day with passengers the flights whose passengers' day changed, and the
+// page each desk read at its latest turn; v1's tail chart and tool calls stay as the last tab. A crew picked in the duty clocks is announced as "airops:crew" for the map and the chart,
 // a request picked in the log as "airops:seek" for the timeline.
 import { CREW_INK, crewIndex, dutiesAt, whereAt } from "./crewdata.js";
 import { css, esc } from "./model.js";
+import { PAX_INK, disrupted, paxAt, paxIndex } from "./paxdata.js";
 import { clock } from "./plain.js";
 import { unitName } from "./room.js";
 
@@ -31,13 +32,15 @@ export class OccDrawer {
     this.sel = null;
     this.t = null;
     const reqs = this.occ.requests?.length > 0 || this.occ.mode !== "one";
-    this.tabs = [["duty", "Duty clocks"], ...(reqs ? [["reqs", "Requests"]] : []), ["pages", "Pages"], ["v1", "Aircraft and tool calls"]];
+    this.X = paxIndex(P);
+    this.tabs = [["duty", "Duty clocks"], ...(reqs ? [["reqs", "Requests"]] : []), ...(this.X ? [["pax", "Passengers"]] : []), ["pages", "Pages"], ["v1", "Aircraft and tool calls"]];
     this.tab = this.tabs.some(([k]) => k === tab) ? tab : "duty";
     el.classList.add("xo");
     el.innerHTML = `<nav class="xo-tabs">${this.tabs.map(([k, label]) => `<button type="button" data-tab="${k}">${label}</button>`).join("")}<span class="xo-note"></span></nav>
       <div class="xo-pane xo-duty" data-p="duty"><div class="dc-main"><div class="dc-head"></div><div class="dc-axis"></div><div class="dc-list"><div class="dc-spacer"><div class="dc-rows"></div></div></div></div>
         <aside class="dc-side"></aside></div>
       <div class="xo-pane xo-reqs" data-p="reqs"></div>
+      <div class="xo-pane xo-pax" data-p="pax"></div>
       <div class="xo-pane xo-pages" data-p="pages"></div>
       <div class="xo-pane xo-v1" data-p="v1">${v1}</div>`;
     this.list = el.querySelector(".dc-list");
@@ -87,6 +90,7 @@ export class OccDrawer {
     if (this.tab === "duty") this.duty(t, flights);
     else if (this.tab === "reqs") this.requests(t);
     else if (this.tab === "pages") this.pages(t);
+    else if (this.tab === "pax") this.passengers(t);
   }
 
   set(name, key, fn) {
@@ -212,6 +216,38 @@ export class OccDrawer {
     }
   }
 
+  // Passengers
+
+  passengers(t) {
+    const X = this.X, P = this.P, a = paxAt(X, t), rows = this.rows ??= disrupted(X, P);
+    const past = rows.filter((x) => x.evs[0].t <= t).length;
+    const pane = this.el.querySelector(".xo-pax");
+    const fresh = this.set("pax", `${Math.floor(t)}|${past}|${a.missed}|${a.rebooked}|${a.stranded}|${a.home}`, () => {
+      const fl = (id) => P.sched.get(id)?.flight ?? `f${id}`;
+      const body = rows.map((x, i) => {
+        const r = x.r ?? {}, first = x.evs[0].t, later = first > t, sum = (k) => x.evs.filter((e) => e.kind === k && e.t <= t).reduce((s, e) => s + e.pax, 0);
+        const onto = x.evs.filter((e) => e.kind === "rebook" && e.t <= t).map((e) => `${esc(fl(e.to))} <small>${e.pax}</small>`).join(", ");
+        const hotel = sum("hotel"), stations = [...new Set(x.evs.filter((e) => e.kind === "hotel").map((e) => e.at))].join(", ");
+        const cancelled = P.exec.get(x.s.id)?.status !== "flown";
+        const divider = i === past && past > 0 && past < rows.length ? `<tr class="rq-now"><td colspan="9"><span>now ${clock(t)}</span></td></tr>` : "";
+        return `${divider}<tr class="${later ? "later" : "past"}" data-t="${first}" title="Go to ${clock(first)}">
+          <td class="fl"><b>${esc(x.s.flight)}</b><small>${esc(x.s.orig)}–${esc(x.s.dest)} · ${clock(x.s.sched_dep)}${cancelled ? " · cancelled" : ""}</small></td>
+          <td class="n">${r.booked ?? x.s.pax}${r.added ? `<small>+${r.added} rebooked on</small>` : ""}</td><td class="n">${r.conn_in ?? 0} / ${r.conn_out ?? 0}</td>
+          <td class="n">${cancelled ? "–" : r.flown ?? ""}</td><td class="n">${sum("misconnect") || ""}</td><td class="onto">${onto}</td>
+          <td class="n">${hotel || ""}${hotel ? `<small>${esc(stations)}</small>` : ""}</td><td class="n">${sum("home") || ""}</td><td class="n">${r.hold ? `${r.hold} min` : ""}</td></tr>`;
+      }).join("");
+      pane.innerHTML = `<div class="px-head"><span><b>${a.missed.toLocaleString("en-US")}</b> missed connections</span><span><b>${a.rebooked.toLocaleString("en-US")}</b> rebooked onto later flights</span>
+        <span><b>${a.stranded.toLocaleString("en-US")}</b> stranded overnight, in hotels</span><span><b>${a.home.toLocaleString("en-US")}</b> went home or took a refund</span>
+        ${a.held ? `<span><b>${a.held}</b> departures held for ${a.heldPax} connecting</span>` : ""}<em>by ${clock(t)}</em></div>
+        <table class="rq px"><thead><tr><th>Flight</th><th>Booked</th><th>Connecting in / out</th><th>Flew it</th><th>Missed connection</th><th>Rebooked onto</th><th>Hotels</th><th>Home</th><th>Held for them</th></tr></thead><tbody>${body}</tbody></table>`;
+    });
+    if (fresh && !this.scrolled) {
+      this.scrolled = true;
+      const row = pane.querySelectorAll("tr.past").item(past - 1);
+      if (row) pane.scrollTop = Math.max(0, row.offsetTop - pane.clientHeight / 2);
+    }
+  }
+
   // Pages
 
   pages(t) {
@@ -317,7 +353,16 @@ const STYLE = `
 .dc-key .k-dh { background: repeating-linear-gradient(135deg, ${CREW_INK} 0 3px, rgba(201, 155, 255, 0.45) 3px 6px); }
 .dc-key .k-lim { width: 2px; height: 12px; background: var(--cancel); }
 .dc-key .k-ext { width: 0; height: 12px; border-left: 2px dotted var(--delay); border-radius: 0; }
-.xo-reqs { overflow: auto; scrollbar-width: thin; }
+.xo-reqs, .xo-pax { overflow: auto; scrollbar-width: thin; }
+.px-head { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; padding: 8px 10px; font-size: 12px; color: #c9d6dc;
+  background: #0d1720; border-bottom: 1px solid var(--line); }
+.px-head b { font-size: 15px; color: ${PAX_INK}; font-variant-numeric: tabular-nums; }
+.px-head em { margin-left: auto; font-style: normal; color: var(--faint); }
+table.px th { top: 37px; }
+table.px td.n { white-space: nowrap; font: 600 11.5px var(--mono); }
+table.px td small { display: block; font: 400 10.5px var(--sans); color: var(--faint); }
+table.px td.onto { font-family: var(--mono); font-size: 11px; }
+table.px td.onto small { display: inline; }
 table.rq { width: 100%; border-collapse: collapse; font-size: 12px; }
 table.rq th { position: sticky; top: 0; z-index: 1; padding: 6px 8px; text-align: left; font-size: 10px; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase;
   color: #9fb5c0; background: #0d1720; border-bottom: 1px solid var(--line); }
