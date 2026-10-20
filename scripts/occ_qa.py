@@ -44,6 +44,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--ignore", action="append", default=[], metavar="REGEX", help="Console errors to let pass.")
     p.add_argument("--size", default="1280x720")
     p.add_argument("--chrome", help="Chrome or Chromium binary.")
+    p.add_argument("--cross-origin", action="store_true",
+                   help="Serve the folder from another origin than the viewer, with CORS headers as huggingface.co "
+                        "sends them, as the Space reads the dataset: an image loaded without crossOrigin then "
+                        "taints its WebGL texture and fails the check.")
     args = p.parse_args(argv)
     width, height = (int(v) for v in args.size.lower().split("x"))
     args.out.mkdir(parents=True, exist_ok=True)
@@ -51,13 +55,13 @@ def main(argv: list[str] | None = None) -> int:
     chrome = find_chrome(args.chrome)
     index = json.loads((args.folder / "episodes" / "index.json").read_text())
     report, stills = {"index": None, "episodes": []}, []
-    with serve(args.web, args.folder) as base:
-        report["index"] = page_list(base, chrome, width, height, index, ignore, args.out, stills)
+    with serve(args.web, args.folder, args.cross_origin) as (base, data):
+        report["index"] = page_list(base, data, chrome, width, height, index, ignore, args.out, stills)
         for entry in index["episodes"]:
             ep = json.loads((args.folder / "episodes" / entry["url"]).read_text())
             minutes = [float(m) for m in args.minutes.split(",")] if args.minutes else default_minutes(ep)
-            report["episodes"].append(episode(base, chrome, width, height, entry, ep, minutes, not args.no_room,
-                                              ignore, args.out, stills))
+            report["episodes"].append(episode(base, data, chrome, width, height, entry, ep, minutes,
+                                              not args.no_room, ignore, args.out, stills))
     contact(stills, args.out / "contact.jpg")
     (args.out / "qa.json").write_text(json.dumps(report, indent=1))
     failed = [f"{r['name']}: {e}" for r in [report["index"], *report["episodes"]] for e in r["failures"]]
@@ -77,11 +81,12 @@ def default_minutes(ep: dict) -> list[float]:
     return sorted({round((lo + hi) / 2), *([round(min(answered)) + 1] if answered else [])})
 
 
-def page_list(base: str, chrome: str, width: int, height: int, index: dict, ignore, out: Path, stills) -> dict:
+def page_list(base: str, data: str, chrome: str, width: int, height: int, index: dict, ignore, out: Path,
+              stills) -> dict:
     """The episode list: it loads without errors and has a card per episode, noting those without a thumbnail."""
     result = {"name": "index", "failures": []}
     try:
-        with session(f"{base}/viewer/index.html?index={quote(base + '/data/episodes/index.json')}", chrome, width,
+        with session(f"{base}/viewer/index.html?index={quote(data + '/episodes/index.json')}", chrome, width,
                      height, "auto", enable=("Runtime", "Log")) as (page, ready, _):
             cards = page.js("document.querySelectorAll('.ep-card').length")
             thumbs = page.js("document.querySelectorAll('.ep-card .thumb:not(.none)').length")
@@ -98,13 +103,13 @@ def page_list(base: str, chrome: str, width: int, height: int, index: dict, igno
     return result
 
 
-def episode(base: str, chrome: str, width: int, height: int, entry: dict, ep: dict, minutes: list[float],
+def episode(base: str, data: str, chrome: str, width: int, height: int, entry: dict, ep: dict, minutes: list[float],
             room: bool, ignore, out: Path, stills) -> dict:
     """One episode: ready without errors, then each view in front and drawing at each minute."""
     name = Path(entry["url"]).stem
     result = {"name": name, "failures": [], "notes": [], "checks": []}
     url = (f"{base}/viewer/index.html?record=1&t={minutes[0]}"
-           f"&episode={quote(base + '/data/episodes/' + entry['url'])}")
+           f"&episode={quote(data + '/episodes/' + entry['url'])}")
     try:
         with session(url, chrome, width, height, "auto", enable=("Runtime", "Log")) as (page, ready, gl):
             result |= {"gl": gl, "views": ready["views"], "stage": ready["stage"], "room": ready["room"]}
@@ -186,28 +191,41 @@ def contact(stills: list[tuple[str, Path]], out: Path, cols: int = 4) -> None:
 
 
 @contextmanager
-def serve(web: Path, folder: Path):
-    """The viewer at /viewer/ and the folder at /data/, as the Space lays them out."""
-    handler = functools.partial(Handler, web=web.resolve(), data=folder.resolve())
-    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+def serve(web: Path, folder: Path, cross: bool = False):
+    """The viewer at /viewer/ and the folder at /data/, as the Space lays them out; with ``cross`` the folder from a
+    second server, another origin, sending Access-Control-Allow-Origin as huggingface.co does. Yields the viewer's
+    base URL and the folder's."""
+    servers = [ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Handler, web=web.resolve(),
+                                                                         data=folder.resolve()))]
+    if cross:
+        servers.append(ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Handler, web=None,
+                                                                             data=folder.resolve(), cors=True)))
+    for server in servers:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}"
+        base = f"http://127.0.0.1:{servers[0].server_port}"
+        yield base, f"http://127.0.0.1:{servers[-1].server_port}/data" if cross else f"{base}/data"
     finally:
-        server.shutdown()
+        for server in servers:
+            server.shutdown()
 
 
 class Handler(SimpleHTTPRequestHandler):
-    def __init__(self, *args, web: Path, data: Path, **kw):
-        self.web, self.data = web, data
+    def __init__(self, *args, web: Path | None, data: Path, cors: bool = False, **kw):
+        self.web, self.data, self.cors = web, data, cors
         super().__init__(*args, **kw)
 
     def translate_path(self, path: str) -> str:
         p = unquote(path.split("?", 1)[0].split("#", 1)[0])
         for prefix, root in (("/viewer/", self.web), ("/data/", self.data)):
-            if p.startswith(prefix):
+            if root is not None and p.startswith(prefix):
                 return str(root / p[len(prefix):])
-        return str(self.web / "__missing__")
+        return str(self.data / "__missing__")
+
+    def end_headers(self) -> None:
+        if self.cors:
+            self.send_header("Access-Control-Allow-Origin", "*")
+        super().end_headers()
 
     def log_message(self, *args) -> None:
         pass

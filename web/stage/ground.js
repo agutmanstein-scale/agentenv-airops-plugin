@@ -611,6 +611,7 @@ async function heldImage(url, tries = 4) {
   for (let k = 1; ; k++) {
     const img = new Image();
     HELD.add(img);
+    img.crossOrigin = "anonymous";
     img.src = url;
     try {
       await img.decode();
