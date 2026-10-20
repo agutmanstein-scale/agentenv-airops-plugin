@@ -80,7 +80,7 @@ async function load(path, tries = 2) {
 const longDate = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).replace(",", "");
 
 const V2 = { title: "AirOpsEnv v2: the ops control center", sub: "Run an airline's control center through a real storm day",
-  intro: "Each run puts a model in JetBlue's operations control center for a whole storm day, from 04:00: an ops controller runs the flights, a crew scheduler the pilots and flight attendants, and they ask each other for holds, cancellations and cover. The day is flown on what really happened and scored against the best plan found. Pick one to replay it." };
+  intro: "Each run puts a model in JetBlue's operations control center for a whole storm day, from 04:00, as two desks (an ops controller for the flights, a crew scheduler for the crews, asking each other for holds, cancellations and cover) or as one agent at both desks. The day is flown on what really happened and scored against the best plan found. Pick one to replay it." };
 const V1 = { title: "AirOpsEnv v1: the operations desk", sub: "Recover an airline's storm day at JFK or Boston",
   intro: "Each run puts a model at JetBlue's operations desk through a real storm day. Every hour it reads the FAA's advisories and the weather and may cancel or hold flights; the day is then flown on what really happened and scored against the best plan in hindsight. Pick one to replay it." };
 
@@ -122,7 +122,7 @@ function note(list) {
   const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
   const parts = [...by].sort((a, b) => mean(b[1]) - mean(a[1])).map(([label, rs]) => `${mean(rs).toFixed(3)} with ${label}`);
   const days = new Set(runs.map((e) => e.task_id)).size, model = runs[0].model_label ?? runs[0].model;
-  return `<p class="note">The board: ${esc(model)} on ${days} storm days scores a mean reward of ${esc(parts.join(" and "))}. 1 is the best plan found; the standard crew desk scores about 0.31.</p>`;
+  return `<p class="note">The board: ${esc(model)} on ${days} storm days scores a mean reward of ${esc(parts.join(" and "))}. 1 is the best plan found; the standard crew desk scores about 0.31. The two desks used about twice the compute, so this doesn't show that talking helps.</p>`;
 }
 
 async function episodePage(app, url) {
