@@ -13,7 +13,7 @@ const ROW = 1.7;
 const STEP = 0.78;
 const FADE = 30;
 const SKIN = ["#f0c8a8", "#e0b08c", "#c48a62", "#9a6644", "#6e4630", "#d8a07a"].map((c) => new THREE.Color(c));
-const UNIFORM = { navy: "#1a2b58", jacket: "#1f3466", trousers: "#15234a", shirt: "#f6f7f8", tie: "#0e1630", gold: "#dcb45c", scarf: "#6cb2ee", shoe: "#0b0b0c", hair: "#2b2019", bag: "#2a2e35", bagTop: "#3d434c", metal: "#9aa0a6", flightbag: "#151515" };
+const UNIFORM = { vest: "#d2e83a", stripe: "#c3c8cc", navy: "#1a2b58", jacket: "#1f3466", trousers: "#15234a", shirt: "#f6f7f8", tie: "#0e1630", gold: "#dcb45c", scarf: "#6cb2ee", shoe: "#0b0b0c", hair: "#2b2019", bag: "#2a2e35", bagTop: "#3d434c", metal: "#9aa0a6", flightbag: "#151515" };
 const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
 const hash = (s) => {
   let h = 2166136261;
@@ -23,8 +23,8 @@ const hash = (s) => {
 
 /** The crews at the hub (traffic.crews, from occ/crewstage.py): pilots and cabin crews in uniform pulling their bags
  * along the terminal's airside face between the crew room, the gates and the curb, standing at the jet bridge until
- * they board, and the white vans at the curb. The crew room, the walkway, the curb and the vans' road are display-only
- * inferences from the stage's geometry. */
+ * they board, a pilot in a hi-vis vest walking round each departing aircraft, and the white vans at the curb. The crew
+ * room, the walkway, the curb and the vans' road are display-only inferences from the stage's geometry. */
 export function buildCrews(list = []) {
   const group = new THREE.Group();
   group.name = "crews";
@@ -48,6 +48,7 @@ export function buildCrews(list = []) {
     leg: mesh(kit.leg, CAP * 2),
     bag: mesh(kit.bag, CAP),
     flightbag: mesh(kit.flightbag, CAP),
+    vest: mesh(kit.vest, CAP),
   };
   M.blob = new THREE.InstancedMesh(new THREE.CircleGeometry(0.5 * FIG, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: "#000", transparent: true, opacity: 0.32, depthWrite: false }), CAP);
   M.blob.frustumCulled = false;
@@ -66,6 +67,8 @@ export function buildCrews(list = []) {
   const out = new THREE.Matrix4();
   const at = [0, 0, 0, 0, 0];
   let live = [];
+  let drawn = new Map();
+  let now = 0;
 
   return {
     group,
@@ -74,10 +77,12 @@ export function buildCrews(list = []) {
     },
     /** Pose the crews about at minute T; rate is the replay's clock rate (0 paused), wall the wall clock in seconds. */
     update(T, wall, rate = 0) {
-      const n = { pilot: 0, cabin: 0, head: 0, leg: 0, bag: 0, flightbag: 0, blob: 0 };
+      const n = { pilot: 0, cabin: 0, head: 0, leg: 0, bag: 0, flightbag: 0, vest: 0, blob: 0 };
       const huddles = new Map();
       let v = 0;
       live = [];
+      drawn = new Map();
+      now = T;
       for (const it of items) {
         if (it.from - 3 > T) break;
         if (it.to + 2 < T) continue;
@@ -100,10 +105,14 @@ export function buildCrews(list = []) {
           const spot = w && `${Math.round(w.p[0][0])},${Math.round(w.p[0][1])}`;
           const shift = spot ? huddles.get(spot) || 0 : 0;
           if (spot) huddles.set(spot, shift + Math.min(it.people.length, 3) * 0.85 * FIG + 1);
+          const sum = [0, 0, 0];
           for (const p of it.people) {
             if (n.head >= CAP) break;
             if (!personAt(it, k, T, p, at, shift)) continue;
             const walking = at[4] === 1;
+            sum[0] += at[0];
+            sum[1] += at[1];
+            sum[2] += walking;
             const phase = rate > 20 ? wall * 11.5 + p.seed * 6.28 : at[2];
             const swing = walking ? 0.42 * Math.sin(phase) : 0;
             const bob = walking ? 0.025 * Math.abs(Math.cos(phase)) : 0;
@@ -116,10 +125,13 @@ export function buildCrews(list = []) {
               X.makeTranslation(side * 0.1, 0.9, 0).multiply(Y.makeRotationX(side * swing));
               M.leg.setMatrixAt(n.leg++, out.multiplyMatrices(B, X));
             }
-            if (walking) X.makeTranslation(0.3, 0, 0.52).multiply(Y.makeRotationX(-0.52));
-            else X.makeTranslation(0.36, 0, 0.06);
-            M.bag.setMatrixAt(n.bag++, out.multiplyMatrices(B, X));
-            if (p.kind === "pilot") M.flightbag.setMatrixAt(n.flightbag++, out);
+            if (it.kind === "walkaround") M.vest.setMatrixAt(n.vest++, B);
+            else {
+              if (walking) X.makeTranslation(0.3, 0, 0.52).multiply(Y.makeRotationX(-0.52));
+              else X.makeTranslation(0.36, 0, 0.06);
+              M.bag.setMatrixAt(n.bag++, out.multiplyMatrices(B, X));
+              if (p.kind === "pilot") M.flightbag.setMatrixAt(n.flightbag++, out);
+            }
             g.shown++;
             if (!g.anchor || g.van) {
               g.anchor = [at[0], at[1], 2.1 * FIG];
@@ -127,6 +139,7 @@ export function buildCrews(list = []) {
               g.van = false;
             }
           }
+          if (g.shown) drawn.set(it.key, { n: g.shown, x: sum[0] / g.shown, y: sum[1] / g.shown, walking: sum[2] > 0 });
         }
         if (g.anchor) live.push(g);
       }
@@ -138,13 +151,20 @@ export function buildCrews(list = []) {
       for (; v < VANS; v++) vans[v].visible = false;
       return live;
     },
-    /** A few tags over the crews near the camera: the one a crew camera follows (focus) as the featured tag, then the
-     * featured aircraft's flights' crews, then the nearest; at most SAY. */
-    tags(camera, flights = new Set(), focus = null) {
+    /** A few tags over the crews near the camera: the one a crew camera follows (focus) as the featured tag, saying
+     * when it comes out while it is yet to (over `at`, where the camera waits for it, if given), then the featured
+     * aircraft's flights' crews, then the nearest; at most SAY. */
+    tags(camera, flights = new Set(), focus = null, at = null) {
       const cam = camera.position;
       const c = [];
+      const next = focus && !drawn.has(focus) ? byKey.get(focus) : null;
+      const out = next?.segs.find((s) => s.do !== "van" && s.t[0] > now);
+      if (out) {
+        const f = at ?? (next.segs.some((x) => x.do === "van" && vanAt(x, now)) ? focusOf(next, now) : { x: out.p[0][0], y: out.p[0][1] });
+        c.push({ g: { it: next, anchor: [f.x, f.y, 2.1 * FIG], say: `${out.say} · out at ${hhmm(out.t[0])}` }, d: 0, rank: 2 });
+      }
       for (const g of live) {
-        if (!g.say) continue;
+        if (!g.say || (out && g.it === next)) continue;
         const d = Math.hypot(g.anchor[0] - cam.x, g.anchor[2] - cam.y, -g.anchor[1] - cam.z);
         const rank = g.it.key === focus ? 2 : g.it.flights.some((f) => flights.has(f)) ? 1 : 0;
         if (!rank && d > NEAR) continue;
@@ -169,20 +189,38 @@ export function buildCrews(list = []) {
       const it = byKey.get(key);
       return it ? focusOf(it, T) : null;
     },
-    /** The group a crew camera takes at T: one about now, walking first, the featured aircraft's flights' first;
-     * else (unless `now`) the next one to appear within the hour; null when none is. */
-    pick(T, flights = new Set(), { now = false } = {}) {
-      const near = items.filter((it) => it.to >= T && it.from <= T + (now ? 0 : 60));
+    /** The group a crew camera takes at T: of those drawn now (and that `ok` lets pass), the one in sight longest,
+     * putting first those in sight for `hold` minutes or more, then the featured aircraft's flights' and those
+     * walking; else the next to come into sight within the hour; null when none is. */
+    pick(T, flights = new Set(), { ok = null, hold = 0 } = {}) {
       const score = (it) => {
-        const now = it.from <= T;
-        return (now ? 0 : 1000 + it.from - T) - (now && focusOf(it, T).moving ? 100 : 0) - (it.flights.some((f) => flights.has(f)) ? 50 : 0);
+        const left = Math.min(inSightUntil(it, T) - T, 60);
+        return (left >= hold ? 0 : 1000) - left - (it.flights.some((f) => flights.has(f)) ? 15 : 0) - (drawn.get(it.key).walking ? 8 : 0);
       };
-      return near.sort((a, b) => score(a) - score(b))[0]?.key ?? null;
+      const now = items.filter((it) => drawn.has(it.key)).sort((a, b) => score(a) - score(b));
+      const best = now.find((it) => !ok || ok(it.key));
+      if (best) return best.key;
+      let next = null;
+      for (const it of items) {
+        if (it.from > T + 60) break;
+        const t = it.segs.find((s) => s.do !== "van" && s.t[0] > T)?.t[0];
+        if (t != null && t <= T + 60 && (!next || t < next[1])) next = [it.key, t];
+      }
+      return next?.[0] ?? null;
     },
-    /** Whether a group is still about at T (it hasn't boarded, left or gone in). */
-    about(key, T) {
+    /** Where group `key`'s people drawn in the last update are: {n, x, y (their middle, ENU metres), walking}; null
+     * when none is (not yet out of its door, gone in, boarded or in a van). */
+    shown(key) {
+      return drawn.get(key) ?? null;
+    },
+    /** Where group `key`'s people first come out on foot after T, as focus() gives a place: {x, y, heading, kind:
+     * walk, moving: false, path: the walk's}; null when they don't, or while the van bringing them is about. */
+    comesOut(key, T) {
       const it = byKey.get(key);
-      return !!it && T <= it.to;
+      const s = it?.segs.find((x) => x.do !== "van" && x.t[0] > T);
+      if (!s || it.segs.some((x) => x.do === "van" && vanAt(x, T))) return null;
+      const [a, b] = [s.p[0], s.p[1] ?? s.p[0]];
+      return { x: a[0], y: a[1], heading: (Math.atan2(b[0] - a[0], b[1] - a[1]) * 180) / Math.PI, kind: "walk", moving: false, path: s.p };
     },
     /** The vans and buses in the scene now as [x0, y0, x1, y1, half width] ENU metres, for a camera to keep clear of. */
     vehicles() {
@@ -199,6 +237,8 @@ export function buildCrews(list = []) {
     },
   };
 }
+
+const hhmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(Math.floor(m % 60)).padStart(2, "0")}`;
 
 function prepare(raw) {
   const segs = raw.segs.map((s) => {
@@ -221,6 +261,15 @@ function prepare(raw) {
     p.side = (alone ? 0 : (i % 2 ? 0.4 : -0.4) + (p.seed - 0.5) * 0.12) * FIG;
   });
   return { ...raw, segs, people, tail: (rows - 1) * ROW + 0.3, from: segs[0].t[0], to: segs[segs.length - 1].t[1] };
+}
+
+/** The minute until which a group's people stay in sight from T on: the end of the walks and waits it is in. */
+function inSightUntil(it, T) {
+  let k = it.segs.findIndex((s) => s.do !== "van" && T >= s.t[0] && T <= s.t[1]);
+  if (k < 0) return T;
+  let end = it.segs[k].t[1];
+  while (it.segs[k + 1] && it.segs[k + 1].do !== "van" && it.segs[k + 1].t[0] <= end + 0.5) end = it.segs[++k].t[1];
+  return end;
 }
 
 function focusOf(it, T) {
@@ -352,7 +401,8 @@ function colored(geo, col, x = 0, y = 0, z = 0) {
 
 /** A pilot (navy jacket with gold stripes, white shirt and tie, cap) and a cabin crew member (navy, blue scarf) above
  * the hips (feet at y = 0, facing -z), one leg hanging from its hip, a head at its centre, a roller bag standing on its
- * wheels and the pilot's flight bag riding on it. */
+ * wheels, the pilot's flight bag riding on it, and the high-visibility vest a pilot walking round the aircraft wears
+ * on the ramp. */
 function figureKit() {
   const U = UNIFORM;
   const torso = (col) => [
@@ -397,7 +447,12 @@ function figureKit() {
     colored(box(0.22, 0.03, 0.03), "#111", 0, 1.0, 0.08),
   ]);
   const flightbag = mergeGeometries([colored(box(0.4, 0.27, 0.17), U.flightbag, 0, 0.8, -0.01), colored(box(0.16, 0.03, 0.04), U.metal, 0, 0.95, -0.01)]);
-  return { pilot, cabin, head, leg, bag, flightbag };
+  const vest = mergeGeometries([
+    colored(box(0.45, 0.46, 0.27), U.vest, 0, 1.36, 0),
+    colored(box(0.46, 0.04, 0.28), U.stripe, 0, 1.24, 0),
+    colored(box(0.46, 0.04, 0.28), U.stripe, 0, 1.44, 0),
+  ]);
+  return { pilot, cabin, head, leg, bag, flightbag, vest };
 }
 
 function buildVan() {

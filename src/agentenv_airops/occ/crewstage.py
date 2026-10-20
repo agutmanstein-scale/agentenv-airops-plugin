@@ -8,7 +8,8 @@ to the crew room; it leaves the room LEAVE minutes before pushback, walks to the
 minutes before (a deadheading crew DEADHEAD minutes before, with the passengers). An arriving crew deplanes DEPLANE
 minutes after block-in and walks to its next stand when it leaves within CONNECT minutes (it stays aboard when that is
 the same stand), else to the crew room; released at the hub, it goes off duty by the employee exit beside the crew
-room, or, away from base or resting at a hub hotel, to the curb and the hotel van."""
+room, or, away from base or resting at a hub hotel, to the curb and the hotel van. Before each departure one of its
+pilots walks round the aircraft at the stand."""
 
 import heapq
 import json
@@ -47,6 +48,12 @@ first."""
 CUT = 45.0
 """A walk cuts through the building (a pier's root) across a gap this narrow."""
 LEAVE, BOARD, DEADHEAD, DEPLANE, CONNECT = 50, 35, 30, 10, 75
+AROUND, AROUND_BY = 40, 10
+"""A first officer starts the walk round the aircraft at the stand (the exterior preflight inspection) once the crew
+is aboard but no sooner than this many minutes before pushback, and is back aboard this many minutes before it; a turn
+too short for that has none shown."""
+LOOK = {"nose": 1.0, "engine": 1.5, "gear": 1.0, "tail": 1.0}
+"""Minutes the walk round stops to look at each of these."""
 LATE = 12
 """A flight still short of a legal crew when boarding would start (its gate tag waits for crew) has its crew from
 the crew room walk up and board this many minutes before pushback; the rest of its crew waits at the gate."""
@@ -66,7 +73,7 @@ Point = tuple[float, float]
 
 def crews(ep: Mapping, sidecar: Mapping, stage: Mapping) -> list[dict]:
     """The crews' movements at the hub, a group per crew or per crews moving together: `key`, `kind` (report, out,
-    in, off, hotel), `crew` ([pilots, cabin crew]), the `flights` it relates to, `stand` and `segs`, each {do: walk |
+    in, off, hotel, walkaround), `crew` ([pilots, cabin crew]), the `flights` it relates to, `stand` and `segs`, each {do: walk |
     wait | van, t: [from, to] minutes, p: path ([x, y] metres) or at: [x, y], say: its tag}, a van's with v: shuttle |
     hotel and dir: in | out."""
     occ = ep.get("occ") or {}
@@ -118,8 +125,12 @@ def moves(uid: str, u: Mapping, hub: str, flights: Mapping[int, Mapping], gates:
         elif what == "out":
             f, dh = ride
             g = gates.at(f["flight"], "dep", t)
+            aboard = (g["from"] or t - 60) + DEPLANE if g is not None else None
             if g is not None and where[0] != "aboard":
                 out.append(to_gate(me, f["flight"], dh, g, t, site, where))
+                aboard = out[-1]["segs"][-1]["t"][1]
+            if g is not None and u["kind"] == "pilot" and not dh:
+                out.extend(walkaround(me, f["flight"], g, t, aboard, site))
             where = ("away",)
         elif what == "release":
             stay = hotel(u, hub, t, "from")
@@ -170,6 +181,15 @@ def to_gate(me: Mapping, flight: str, deadhead: bool, g: Mapping, t: float, site
     return move(me, "out", flight, g["stand"], segs, deadhead=deadhead, inbound=inbound, bus=dest.bus)
 
 
+def walkaround(me: Mapping, flight: str, g: Mapping, t: float, aboard: float, site: "Site") -> list[dict]:
+    """A departure's walk round by one of its pilots, a minute after its crew is aboard but no sooner than AROUND
+    minutes before pushback; none when it would end later than AROUND_BY minutes before pushback."""
+    segs = site.walkaround(g["stand"], g["dims"], max(aboard + 1, t - AROUND))
+    if segs[-1]["t"][1] > t - AROUND_BY:
+        return []
+    return [move(me | {"size": 1}, "walkaround", flight, g["stand"], segs)]
+
+
 def short(rows: Sequence[Sequence] | None, t: float) -> bool:
     """Whether a departure's crew log has it short of a legal crew at t."""
     row = next((r for r in reversed(rows or ()) if r[0] <= t), None)
@@ -214,8 +234,8 @@ def merged(raw: list[dict]) -> list[dict]:
         while key in keys:
             key += "+"
         keys.add(key)
-        out.append({"key": key, "kind": g["kind"],
-                    "crew": [sum(u["size"] for u in g["units"] if u["kind"] == k) for k in ("pilot", "cabin")],
+        crew = [sum(u["size"] for u in g["units"] if u["kind"] == k) for k in ("pilot", "cabin")]
+        out.append({"key": key, "kind": g["kind"], "crew": [1, 0] if g["kind"] == "walkaround" else crew,
                     "flights": sorted({f for m in g["also"] for f in (m["flight"], m["note"].get("inbound")) if f}),
                     "stand": g["stand"], "segs": [s | {"say": say(g, s)} for s in g["segs"]]})
     return out
@@ -270,6 +290,8 @@ def say(g: Mapping, s: Mapping) -> str:
         return f"Crew to the hotel · {'timed out' if note.get('timed_out') else until}"
     if g["kind"] == "off":
         return f"Crew of {flight} · off duty"
+    if g["kind"] == "walkaround":
+        return f"First officer of {flight} · walk round the aircraft"
     return f"Crew of {flight} · to the crew room"
 
 
@@ -380,6 +402,51 @@ class Site:
             drive = self.roads.way(self.stop, lead, aside[0]) + aside
             return Place(self.stop, self.room.s, self.room.walk, tuple(nose), door=xy, near=aside[-1], drive=drive)
         return Place(xy, s, w, tuple(st["xy"]))
+
+    def walkaround(self, ref: str, dims: tuple[float, float], t0: float) -> list[dict]:
+        """A pilot's walk round the aircraft (length, span: dims) at a stand from t0: down the jet bridge's stairs by
+        the front door, round the nose, stopping at the nose gear, the right engine, the right main gear, the tail, the
+        left main gear and the left engine, and back up the stairs. The engines, gear and tail are placed by the
+        aircraft's length and span, as an A320's are."""
+        st = self.stands[ref]
+        h = math.radians(st["heading"])
+        fx, fy = math.sin(h), math.cos(h)
+        long, span = dims
+        nose = 0.13 * long
+
+        def at(back: float, out: float) -> Point:
+            return st["xy"][0] - fx * back + fy * out, st["xy"][1] - fy * back - fx * out
+
+        eng, gear, tip, tail = 0.33 * long - nose, 0.47 * long - nose, 0.6 * long - nose, long - nose
+        e_out, g_out = 0.17 * span, 0.11 * span
+        stairs = at(DOOR[0] + 1.0, -(DOOR[1] + 2.0))
+        route: list = [stairs, at(-nose - 3.5, -2.5), at(-nose - 3.5, 2.5),
+                       (at(-1.5, 1.8), at(0.0, 0.0), "nose"),
+                       (at(eng - 3.0, e_out + 1.5), at(eng, e_out), "engine"),
+                       at(tip, span / 2 + 2.5),
+                       (at(gear + 3.0, g_out + 2.0), at(gear, g_out), "gear"),
+                       (at(tail + 3.0, 1.5), at(tail, 0.0), "tail"),
+                       (at(gear + 3.0, -g_out - 2.0), at(gear, -g_out), "gear"),
+                       at(tip, -span / 2 - 2.5),
+                       (at(eng - 3.0, -e_out - 1.5), at(eng, -e_out), "engine"),
+                       stairs]
+        segs: list[dict] = []
+        path: list[Point] = []
+        t = t0
+        for step in route:
+            if isinstance(step[0], float):
+                path.append(step)
+                continue
+            stand, sees, what = step
+            segs.append(seg("walk", t, [*path, stand]))
+            face = math.atan2(sees[0] - stand[0], sees[1] - stand[1])
+            spot = (stand[0] + math.sin(face) * 1.2, stand[1] + math.cos(face) * 1.2)
+            t = segs[-1]["t"][1]
+            segs.append({"do": "wait", "t": [t, round(t + LOOK[what], 1)], "at": [num(spot[0]), num(spot[1])],
+                         "h": round(math.degrees(face) % 360)})
+            t, path = segs[-1]["t"][1], [stand]
+        segs.append(seg("walk", t, path))
+        return segs
 
     def trip(self, a: Place, b: Place, t0: float) -> list[dict]:
         """A crew's way from a to b from t0: along the walkway, by the apron bus to or from a remote stand."""

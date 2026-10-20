@@ -31,6 +31,7 @@ BLANK = 6.0
 """The least spread of grey levels a still may have, below which it is blank."""
 TILE = (480, 270)
 QUIET = re.compile(r"favicon\.ico")
+BLOCKED = re.compile(r"Access to \w+ at '([^']+)' from origin")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -143,7 +144,8 @@ def episode(base: str, data: str, chrome: str, width: int, height: int, entry: d
 
 def errors(page, ignore, notes: list | None = None) -> list[str]:
     """The page's uncaught exceptions and console and log errors, but those ``ignore`` lets pass; another host's
-    resource that failed to load (map tiles, imagery) goes to ``notes``, counted by host."""
+    resource that failed to load or came without CORS headers (map tiles, imagery) goes to ``notes``, counted by
+    host."""
     out, away = [], {}
     for e in page.events:
         m, p = e["method"], e.get("params", {})
@@ -154,8 +156,9 @@ def errors(page, ignore, notes: list | None = None) -> list[str]:
             text = " ".join(str(a.get("value", a.get("description", ""))) for a in p.get("args", []))
         elif m == "Log.entryAdded" and p["entry"]["level"] == "error":
             text = f"{p['entry'].get('text', '')} {p['entry'].get('url', '')}".strip()
-            host = urlparse(p["entry"].get("url", "")).hostname
-            if p["entry"].get("source") == "network" and host not in (None, "127.0.0.1", "localhost"):
+            blocked = BLOCKED.search(p["entry"].get("text", ""))
+            host = urlparse(blocked.group(1) if blocked else p["entry"].get("url", "")).hostname
+            if (p["entry"].get("source") == "network" or blocked) and host not in (None, "127.0.0.1", "localhost"):
                 away[host] = away.get(host, 0) + 1
                 continue
         else:
