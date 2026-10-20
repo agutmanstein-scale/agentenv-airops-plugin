@@ -8,6 +8,7 @@ import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUnifo
 import { buildCards } from "./cards.js";
 import { ROOM, buildHall } from "./hall.js";
 import { buildPods } from "./pods.js";
+import { compose } from "./shots.js";
 import { WALL, buildWall } from "./wall.js";
 
 const VIEWS = {
@@ -133,15 +134,18 @@ export class ControlCenter {
     await this.ready;
     const n = VIEWS[name] ? name : "room";
     this.rig = { kind: "preset", name: n, set: false };
+    this.flying.mark(null);
     if (this.controls) this.controls.enabled = true;
     if (this.manual) this.#frame(0, true);
     return n;
   }
 
-  /** A scripted camera in room metres: {name, from: [x, y, z], at: [x, y, z], fov, to?, fov1?, t0?, t1?}. */
+  /** A film shot: {name: room | room-desks | room-wall, desk?: ops | crew | one, ref?: "R11", t0?, t1?, at?} framed for the
+   * desk and the request's cards, pushing in between t0 and t1; or explicit {from, at, fov, to?, fov1?} in room metres. */
   async shot(spec) {
     await this.ready;
-    this.rig = { kind: "shot", name: spec.name || "shot", ...spec };
+    this.rig = { kind: "shot", ...compose(spec, { pods: this.pods.pods, cards: this.flying, aspect: this.camera.aspect, T: this.T }) };
+    this.flying.mark(this.rig.ref);
     if (this.controls) this.controls.enabled = false;
     if (this.manual) this.#frame(0, true);
     return this.rig.name;
@@ -149,7 +153,8 @@ export class ControlCenter {
 
   state() {
     const ms = this.frameMs.slice().sort((a, b) => a - b);
-    return { t: this.T, view: this.rig.name, turn: this.pods?.active(this.T) ?? null, cards: this.cards,
+    const shot = this.rig.kind === "shot" ? { from: this.rig.from, to: this.rig.to, at: this.rig.at, fov: this.rig.fov, desk: this.rig.desk, ref: this.rig.ref } : null;
+    return { t: this.T, view: this.rig.name, turn: this.pods?.active(this.T) ?? null, cards: this.cards, shot,
       frame: ms.length ? { median: ms[ms.length >> 1], p95: ms[Math.floor(ms.length * 0.95)] } : null };
   }
 
@@ -180,8 +185,8 @@ export class ControlCenter {
     const t0 = performance.now(), T = this.T;
     this.screen.update(T, { force });
     this.pods.update(T, this.wall);
-    this.cards = this.flying.update(T);
     this.#aim();
+    this.cards = this.flying.update(T, this.camera);
     this.renderer.render(this.scene, this.camera);
     this.frameMs.push(performance.now() - t0);
     if (this.frameMs.length > 120) this.frameMs.shift();

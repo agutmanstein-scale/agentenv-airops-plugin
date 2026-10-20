@@ -97,7 +97,7 @@ class Pod {
     signTex.colorSpace = THREE.SRGBColorSpace;
     signTex.anisotropy = 8;
     this.signMat = new THREE.MeshBasicMaterial({ map: signTex, toneMapped: false, color: 0x9a9a9a });
-    const sw = desk === "one" ? 1.9 : 1.45, sh = sw * 0.1875;
+    const sw = desk === "one" ? 1.6 : 1.15, sh = sw * 0.1875;
     sign.add(new THREE.Mesh(new THREE.BoxGeometry(sw + 0.04, sh + 0.04, 0.04), new THREE.MeshStandardMaterial({ color: 0x0b0d10 })));
     for (const side of [1, -1]) {
       const face = new THREE.Mesh(new THREE.PlaneGeometry(sw, sh), this.signMat);
@@ -108,7 +108,7 @@ class Pod {
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.3), new THREE.MeshStandardMaterial({ color: 0x2a2d31 }));
     post.position.y = -sh / 2 - 0.12;
     sign.add(post);
-    sign.position.set(0, 1.83, -0.66);
+    sign.position.set(0, 1.78, -0.66);
     sign.applyMatrix4(m);
     group.add(sign);
 
@@ -121,6 +121,8 @@ class Pod {
     this.lamp = lamp;
 
     this.anchor = new THREE.Vector3(0, 2.3, -0.3).applyMatrix4(m);
+    this.points = [[-1.05, 0.95, -0.5], [1.05, 0.95, -0.5], [-1.05, 1.45, -0.5], [1.05, 1.45, -0.5], [0, 1.35, 0.55], [0, 0.75, 0.75], [0, 2.02, -0.66]]
+      .map((p) => new THREE.Vector3(...p).applyMatrix4(m));
     this.key = null;
     this.paint(null);
   }
