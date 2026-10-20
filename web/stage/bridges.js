@@ -125,6 +125,7 @@ export function buildBridges(stage, plan) {
     const s = Math.max(lo + 1, q.len - 4.5);
     const top = at(s);
     const n = [-dir(q.ang)[1], dir(q.ang)[0]];
+    b.legs = [top[0], top[1]];
     for (const [k, sg] of [[0, -1], [1, 1]]) parts.leg.setMatrixAt(i * 2 + k, beam([top[0] + n[0] * sg * 1.0, top[1] + n[1] * sg * 1.0, 0.7], [top[0] + n[0] * sg * 1.0, top[1] + n[1] * sg * 1.0, top[2]], 0.42, 0.42));
     parts.bogie.setMatrixAt(i, beam([top[0] - dir(q.ang)[0] * 0.7, top[1] - dir(q.ang)[1] * 0.7, 0.55], [top[0] + dir(q.ang)[0] * 0.7, top[1] + dir(q.ang)[1] * 0.7, 0.55], 3.0, 1.1));
   }
@@ -134,6 +135,11 @@ export function buildBridges(stage, plan) {
     group,
     list,
     docked,
+    /** What stands on the apron under the bridges now, for a camera to keep clear of: [x, y, radius] ENU metres for
+     * each rotunda's column and each pair of legs. */
+    obstacles() {
+      return list.flatMap((b) => [[b.P[0], b.P[1], 1.3], ...(b.legs ? [[b.legs[0], b.legs[1], 2.0]] : [])]);
+    },
     update(t, live, s) {
       uSnow.value = s.snow;
       const ts = t * 60;

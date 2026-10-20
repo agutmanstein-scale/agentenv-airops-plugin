@@ -173,7 +173,8 @@ def test_a_run_over_the_traffic_tags_its_flights_and_keeps_cancelled_ones_at_the
                  "held": False, "decided": 800}]
     task = {"task_id": "t", "hub": "JFK", "date": "2024-01-09", "tz": "America/New_York", "start": 600,
             "window": [660, 900]}
-    doc = stage.sidecar(task, executed, run_traffic(), synthetic_stage())
+    crew = {1: [[700, "times out", 770]], 2: [[600, "no crew", None]], 3: [[700, "no crew", None], [790, None, None]]}
+    doc = stage.sidecar(task, executed, run_traffic(), synthetic_stage(), crew)
     assert doc["span"] == [600, 805 + 15 + stage.MARGIN]
     n1, n2 = (next(a for a in doc["aircraft"] if a["key"] == k) for k in ("N1", "N2"))
     assert (n1["task"], n1["jetblue"], n1["class"]) == (True, True, "a321")
@@ -189,6 +190,8 @@ def test_a_run_over_the_traffic_tags_its_flights_and_keeps_cancelled_ones_at_the
     assert (cancelled["arr"]["tag"], cancelled["arr"]["decided"], cancelled["dep"]["tag"], cancelled["dep"]["off"]) == (
         "B6 30 from Orlando · cancelled", 800, "B6 22 → Boston · delayed 5 min", 820)
     assert landed["stand"] == cancelled["stand"]
+    assert (held["dep"]["crew"], cancelled["dep"]["crew"]) == (crew[1], crew[3])
+    assert "crew" not in landed["arr"] and "crew" not in gate["dep"]
     assert doc["runways"] == [{"t": 600, "arrivals": "13L", "departures": "13R"}]
     assert doc["weather"][0]["plain"] == "Light rain · visibility 7 mi · cloud at 5,000 ft · wind ESE 20 mph gusting 31"
     assert [(f["reason"], f["key"], f["flight"], f["t"]) for f in doc["featured"]] == [("held", "N1", "B6 12", 760)]
