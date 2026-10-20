@@ -77,3 +77,11 @@ def test_each_watch_projects_the_plan_it_left_as_an_exact_replay_does(played):
                                                         for p in out]
     assert len(out) == len(data["estimates"]) and all(len(p) == len(w.task.flights) for p in out)
     assert next(r for r in out[0] if r["id"] == 2)["status"] == "cancelled"
+
+
+def test_a_desks_words_read_with_flight_numbers_and_their_glued_fragments_apart(played):
+    w, _ = played
+    f0, f2 = (w.task.flight(i).flight for i in (0, 2))
+    assert episode.prose("f0 waits; f212:40 cancel, DHf2 now; delay1289m,f2 ok; f99", w.task) == \
+        f"{f0} waits; {f2} 12:40 cancel, DH {f2} now; delay 1289m, {f2} ok; f99"
+    assert episode.prose(None, w.task) is None

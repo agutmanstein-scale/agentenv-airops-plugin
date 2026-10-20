@@ -13,6 +13,7 @@ hour that follows (`shown`, display only) so that the requests, replies and deci
 
 import gzip
 import json
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
@@ -36,6 +37,11 @@ desks' crew flags read it (run.flags)."""
 LOOKBACK = 720
 MODES = {"joint": "two desks", "one": "one agent at both desks"}
 OPS_CHANGES = {"cancel": "cancel", "cancel_pair": "cancel", "hold": "hold", "release": "release"}
+GLUED_ID = re.compile(r"([A-Za-z]{2,})(f\d)")
+TIMED_ID = re.compile(r"\bf(\d{1,3}?)(\d{2}:\d{2}(?:\+\d)?)")
+FLIGHT_ID = re.compile(r"\bf(\d{1,3})\b()")
+GLUED_WORD = re.compile(r"\b([a-z]{2,})(\d)")
+LISTED = re.compile(r",(?=[A-Z][A-Z0-9] \d)")
 ROOM = (2, 50)
 """The minutes after a watch over which the room shows its turns."""
 TURN = (6, 24)
@@ -107,11 +113,12 @@ def room(world: World, data: Mapping, executed: Sequence[Mapping]) -> dict:
     return {
         "mode": data["mode"], "label": MODES.get(data["mode"], data["mode"]), "desks": list(data["desks"]),
         "turns": turns,
-        "requests": [request(r) | answered(r, data["calls"], shown, turns) for r in data["requests"]],
+        "requests": [request(r, world.task) | answered(r, data["calls"], shown, turns) for r in data["requests"]],
         "decisions": [{"t": c["t"], "shown": shown.get(c["seq"], c["t"]), "desk": c["desk"], "action": c["action"],
                        "flight": c["target"], "detail": c["detail"], "ref": c["ref"], "via": c["via"],
                        "tool": calls[c["seq"]]["tool"] if c["seq"] in calls else None} for c in data["changes"]],
-        "notes": [{"t": u["t"], "shown": turns[u["n"]]["to"], "desk": u["desk"], "kind": u["kind"], "note": u["note"]}
+        "notes": [{"t": u["t"], "shown": turns[u["n"]]["to"], "desk": u["desk"], "kind": u["kind"],
+                   "note": prose(u["note"], world.task)}
                   for u in data["turns"] if u.get("note")],
         "pages": [{"t": p["t"], "watch": p["watch"], "desk": p["desk"], "text": p["text"]} for p in data["pages"]],
         "absent": data["absent"],
@@ -241,14 +248,31 @@ def changes(task, log: Sequence[Mapping], k: int) -> list[dict]:
     return [out[i] for i in sorted(out)]
 
 
-def request(r: Mapping) -> dict:
+def request(r: Mapping, task) -> dict:
     p = r.get("params") or {}
     return {"id": r["id"], "sender": r["sender"], "receiver": r["receiver"], "type": r["type"],
-            "flight": p.get("flight"), "time": p.get("time"), "text": r.get("text"), "sent": r["sent"],
+            "flight": p.get("flight"), "time": p.get("time"), "text": prose(r.get("text"), task), "sent": r["sent"],
             "status": r["status"], "reply": r.get("reply"), "replied": r.get("replied"),
-            "reply_text": r.get("reply_text"),
+            "reply_text": prose(r.get("reply_text"), task),
             "actions": [{"desk": a["desk"], "action": a["action"], "flight": a.get("target"), "t": a.get("minute")}
                         for a in r.get("actions") or []]}
+
+
+def prose(text: str | None, task) -> str | None:
+    """A desk's words for display: its flight ids (f483) as the flights' numbers, split from a time run into them
+    (f52618:32 is f526 at 18:32), and a word run into a number or a flight id given its space (cost169,847, DHf354)."""
+    if not text:
+        return text
+    by_id = task.by_id
+
+    def flight(m: re.Match) -> str:
+        i = int(m[1])
+        return f"{by_id[i].flight}{' ' + m[2] if m[2] else ''}" if i in by_id else m[0]
+
+    text = GLUED_ID.sub(r"\1 \2", text)
+    text = TIMED_ID.sub(lambda m: flight(m) if int(m[1]) in by_id else m[0], text)
+    text = FLIGHT_ID.sub(flight, text)
+    return LISTED.sub(", ", GLUED_WORD.sub(r"\1 \2", text))
 
 
 def crew_tags(status: Mapping[str, Sequence[Mapping]], executed: Mapping[int, Mapping]) -> dict[str, list]:

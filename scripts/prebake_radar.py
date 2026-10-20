@@ -7,6 +7,7 @@ usage: uv run --no-project --with pillow --with numpy python scripts/prebake_rad
 
 import argparse
 import hashlib
+import http.client
 import io
 import json
 import math
@@ -129,7 +130,7 @@ def raw(stamp: datetime, raw_dir: Path | None) -> bytes | None:
         try:
             with urllib.request.urlopen(request, timeout=120) as r:
                 return r.read()
-        except OSError:
+        except (OSError, http.client.HTTPException):
             continue
     return None
 
