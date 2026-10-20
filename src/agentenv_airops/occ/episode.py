@@ -254,8 +254,9 @@ def request(r: Mapping, task) -> dict:
             "flight": p.get("flight"), "time": p.get("time"), "text": prose(r.get("text"), task), "sent": r["sent"],
             "status": r["status"], "reply": r.get("reply"), "replied": r.get("replied"),
             "reply_text": prose(r.get("reply_text"), task),
-            "actions": [{"desk": a["desk"], "action": a["action"], "flight": a.get("target"), "t": a.get("minute")}
-                        for a in r.get("actions") or []]}
+            "actions": list({json.dumps(x, sort_keys=True): x for x in (
+                {"desk": a["desk"], "action": a["action"], "flight": a.get("target"), "t": a.get("minute")}
+                for a in r.get("actions") or [])}.values())}
 
 
 def prose(text: str | None, task) -> str | None:
