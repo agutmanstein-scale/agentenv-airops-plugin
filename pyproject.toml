@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agentenv-airops"
-version = "0.2.0"
-description = "AirOpsEnv as an AgentEnv environment: an airline operations desk recovers a real storm day at a JetBlue hub, live on AgentEnv's virtual clock, graded against a proven hindsight optimum."
+version = "0.3.0"
+description = "AirOpsEnv as AgentEnv environments: two desks of an airline's control center, ops and crews, run JetBlue's whole network through a real storm day (v2), and one desk recovers a storm window at a hub (v1), live on AgentEnv's virtual clock, graded against hindsight."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.11.4"
-keywords = ["agentenv", "mcp", "reinforcement-learning", "llm-agents", "airline-operations", "disruption-recovery", "scheduling"]
+keywords = ["agentenv", "mcp", "reinforcement-learning", "llm-agents", "multi-agent", "airline-operations", "crew-scheduling", "disruption-recovery", "scheduling"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
