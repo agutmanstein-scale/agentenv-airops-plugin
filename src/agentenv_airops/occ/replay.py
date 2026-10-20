@@ -20,9 +20,9 @@ class Replayed:
         return not self.mismatches
 
 
-def replay(world: World, data: dict) -> Replayed:
-    """`data` is the env's data/get record of a day."""
-    day = OccDay(world, data["mode"])
+def replay(world: World, data: dict, make: type[OccDay] = OccDay) -> Replayed:
+    """`data` is the env's data/get record of a day; `make` the day class to play it on."""
+    day = make(world, data["mode"])
     events = [(c["seq"], "call", c) for c in data["calls"]] + \
         [(n["seq"], "notice", n) for n in data["notices"] if n["via"] in ("trigger", "late")]
     out = []

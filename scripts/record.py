@@ -1,10 +1,12 @@
 """Film an episode on the viewer: headless Chrome over the DevTools protocol drives window.airops frame by frame, each
 frame a JPEG piped to ffmpeg for an H.264 MP4, optionally an animated WebP for a README. --director cuts the day into
-shots on the 3D airport (direct()); without it the clock sweeps from watch to watch. --shots writes stills, --thumb a
-640x360 list thumbnail, --still one frame without cards or tags.
+shots on the 3D airport (direct()), a control-center day between the room where the desks decide and the airport where
+it plays out (Center); without it the clock sweeps from watch to watch. --shots writes stills, --thumb a 640x360 list
+thumbnail, --still one frame without cards or tags.
 
 usage: .venv/bin/python scripts/record.py --episode cache/episodes/NAME.json --director --out cache/films/NAME.mp4 \
            [--webp assets/NAME.webp] [--seconds 66]
+       ... --episode cache/occ/viewer/episodes/NAME.json --director --out cache/films/NAME.mp4   (a control-center day)
        ... --episode E.json --shots cache/shots [--director]
        ... --episode E.json --thumb cache/thumbs/STEM.jpg
        ... --episode E.json --size 1920x640 --scale 1.5 --still assets/airops-banner.jpg --pick push:0.6
@@ -53,11 +55,21 @@ RENDERER = ("(() => { const g = document.createElement('canvas').getContext('web
             "const e = g && g.getExtension('WEBGL_debug_renderer_info'); "
             "return g ? (e ? g.getParameter(e.UNMASKED_RENDERER_WEBGL) : 'webgl2') : null; })()")
 HUBS = {"BOS": "Boston Logan", "JFK": "New York JFK"}
-FAST = {"harbour": 10, "tower": 10, "gate": 6, "push": 6, "taxi": 20, "takeoff": 4, "landing": 4}
+FAST = {"harbour": 10, "tower": 10, "gate": 6, "push": 6, "taxi": 20, "takeoff": 4, "landing": 4, "map": 300,
+        "room": 180, "room-desks": 180, "room-wall": 180, "crew": 6}
 """The fastest clock each camera films at, in seconds of the day per second of film, so that nothing in frame zips."""
 SECONDS = {"establish": 5.5, "faa": 6, "decide": 6, "flip": 5, "push": 4.5, "taxi": 4.5, "takeoff": 8, "landing": 7,
-           "inbound": 7, "end": 7}
+           "inbound": 7, "end": 7, "map": 4, "ask": 5.5, "cancels": 5, "move": 5, "wait": 4.5, "cancelled": 4.5,
+           "close": 6, "crew": 4.5}
 STRETCH = ("establish", "faa", "decide", "flip")
+ROOM = ("room", "room-desks", "room-wall")
+DESKS = {"ops": "the ops controller", "crew": "the crew scheduler"}
+ASKS = {"CANCEL": "to cancel", "CANCEL_PAIR": "to cancel the round trip of", "HOLD": "to hold",
+        "COVER": "to find a crew for"}
+CREW_MOVES = ("assign", "call_reserve", "deadhead", "swap")
+REPLY = 5.5
+"""Minutes from a request's answer to its card landing back at the asking desk in the room (web/center/cards.js)."""
+GLUED = re.compile(r"[a-z]\d|\d[a-z]{2}|\d{2}:\d{2}\+1|\b[A-Z]\d{3,}")
 ROLLOUT = {"acted": 4.0, "quiet": 2.2}
 """Seconds of the rollout a watch gets: where the model acted or the FAA's news arrived, and where neither did."""
 PLANNING = ("check_plan", "confirm_changes")
@@ -73,8 +85,9 @@ SUFFIX = re.compile(r" (International|Intl|Regional|Municipal|Metropolitan|Count
 @dataclass(frozen=True)
 class Shot:
     """One shot: a camera from minute ``t0`` for ``seconds`` at a clock of ``speed`` (seconds of the day per second,
-    ramped from the first to the second), the cards it shows and its caption; ``at`` is the moment it is about and
-    ``reach`` how near the weather brings a wide camera, in metres."""
+    ramped from the first to the second), the cards it shows and its caption; ``at`` is the moment it is about,
+    ``reach`` how near the weather brings a wide camera, in metres, and ``path`` the last leg of a crew's walk in the
+    stage's metres; ``desk`` and ``ref`` are the desk and the request (a room shot) or crew group it is about."""
     name: str
     camera: str
     t0: float
@@ -86,6 +99,10 @@ class Shot:
     kicker: str = ""
     caption: str = ""
     reach: float | None = None
+    subline: str = ""
+    desk: str | None = None
+    ref: str | None = None
+    path: tuple | None = None
 
     def clock(self, fps: int) -> list[tuple[float, float]]:
         """(minute, rate) of each frame."""
@@ -107,11 +124,16 @@ def lead_in(at: float, seconds: float, speed: tuple[float, float], total: float)
 
 
 def direct(ep: Mapping, traffic: Mapping, events: Sequence[Mapping] | None = None,
-           poses: Callable[[str, float, float], list] | None = None, seconds: float = 40) -> list[Shot]:
+           poses: Callable[[str, float, float], list] | None = None, seconds: float = 40,
+           room: bool = True) -> list[Shot]:
     """The film of a day about ``seconds`` long, in the order it happened: the hub across the water as the desk opens,
     the FAA's program arriving over a quiet field, a cancellation landing at its gate and on the board, a held flight
-    finally pushing back, taxiing and taking off, then the day's score. ``events`` are the stage's movements
-    (AirportStage.events(), else the sidecar's times) and ``poses(key, a, b)`` the stage's [[minute, phase, speed]]."""
+    finally pushing back, taxiing and taking off, then the day's score; a control-center day cuts to the room when the
+    desks decide or talk (Center), to its 2D card over the tower without a 3D ``room``. ``events`` are the stage's
+    movements (AirportStage.events(), else the sidecar's times) and ``poses(key, a, b)`` the stage's
+    [[minute, phase, speed]]."""
+    if ep.get("occ"):
+        return Center(ep, traffic, events, poses, room).film(seconds)
     return Day(ep, traffic, events, poses).film(seconds)
 
 
@@ -329,6 +351,8 @@ class Day:
         a, _, g, reason, push, off = leaver
         if reason == "first_after_stop":
             text = f"{g['flight']} to {g['city']}, the first JetBlue departure after the stop"
+        elif reason == "crew":
+            text = f"{g['flight']} to {g['city']} pushes back {late(g['out'] - g['sched'])} late, its crew aboard"
         elif reason == "held":
             text = f"{g['flight']} to {g['city']}, held until {clock(self.held.get(g['flight'], push))}, pushes back"
         else:
@@ -395,6 +419,336 @@ class Day:
     def event(self, key: str, kind: str, flight: str) -> float | None:
         return next((e["t"] for e in self.events if e["key"] == key and e["kind"] == kind and e["flight"] == flight),
                     None)
+
+
+class Center(Day):
+    """A control-center day as the director reads it (O39): the room when the desks decide or talk, at the display
+    minutes the room shows each request and decision (``shown``, ``answered``), then the airport where it plays out.
+    Without a 3D ``room`` its beats go on the room's 2D card over the tower."""
+
+    def __init__(self, ep: Mapping, traffic: Mapping, events: Sequence[Mapping] | None, poses, room: bool = True):
+        super().__init__(ep, traffic, events, poses)
+        self.occ, self.room = ep["occ"], room
+        self.one = self.occ["mode"] == "one"
+        self.sched = {s["id"]: s for s in ep["schedule"]}
+
+    def film(self, seconds: float) -> list[Shot]:
+        """The beats that fit in ``seconds``, most needed first, each the first of its options clear of the others in
+        time and cut hard from its neighbours, in time order; then the still shots stretch to fill."""
+        first, leaver, beats = self.establish(), self.leaver(), []
+        groups = (lambda: self.faa(first[-1].t1), lambda: self.asks(("CANCEL", "CANCEL_PAIR")),
+                  lambda: self.asks(("COVER", "HOLD")), lambda: self.leave(leaver), lambda: self.wait(beats, leaver),
+                  self.map, self.cancels, self.moves, self.landing)
+        for options in groups:
+            beat = next((b for b in options() if b[0].t0 >= first[-1].t1 and self.clear(first, beats, b)
+                         and length([first, *beats, b]) + SECONDS["close"] <= seconds + 1), None)
+            if beat:
+                beats.append(beat)
+        taxi = next(iter(Day.leave(self, leaver)), None)
+        if taxi and taxi[::2] in beats and length([first, *beats]) + taxi[1].seconds + SECONDS["close"] <= seconds + 1:
+            beats[beats.index(taxi[::2])] = taxi
+        shots = [*first, *(s for b in sorted(beats, key=lambda b: b[0].t0) for s in b)]
+        return fill([*shots, self.end(max(s.t1 for s in shots))], seconds)
+
+    @staticmethod
+    def clear(first: list[Shot], beats: list[list[Shot]], beat: list[Shot]) -> bool:
+        if any(overlap(beat, b) for b in beats):
+            return False
+        shots = sorted((s for b in (first, *beats, beat) for s in b), key=lambda s: s.t0)
+        return all((a.camera, a.key) != (b.camera, b.key) for a, b in zip(shots, shots[1:], strict=False))
+
+    def end(self, after: float) -> Shot:
+        return replace(super().end(after), seconds=SECONDS["close"])
+
+    def establish(self) -> list[Shot]:
+        desks = ("One agent at both desks: the flights and the crews" if self.one else
+                 "Two desks: an ops controller for the flights, a crew scheduler for the pilots and cabin crews")
+        return [replace(s, caption=f"{self.model} runs JetBlue's control center through a storm day", subline=desks)
+                for s in super().establish()]
+
+    def faa(self, after: float) -> list[list[Shot]]:
+        return [[replace(s, cards=("head", "map")) for s in b] for b in super().faa(after)]
+
+    def asks(self, types: tuple[str, ...]) -> list[list[Shot]]:
+        """The requests of ``types`` the other desk accepted, in the room from as it is sent to its answer, then where
+        it plays out at the airport: those that play out first, in the story's hours, the latest first."""
+        found = []
+        for r in self.occ["requests"]:
+            if r["type"] not in types or r["status"] != "accepted" or r.get("answered") is None \
+                    or r["flight"] not in self.sched:
+                continue
+            said = self.quote(r.get("reply_text"))
+            moved = [d for d in self.occ["decisions"] if d.get("ref") == r["id"] and d["action"] in CREW_MOVES]
+            who = upper(self.desk(r["receiver"]))
+            subline = (f"{who} accepts: “{said}”" if said else
+                       f"{who} accepts and puts {self.unit(moved[0]['detail'])} on it" if moved else f"{who} accepts")
+            room = self.in_room("ask", "room-desks", r["answered"], r["shown"] - 0.5, r["answered"] + REPLY,
+                                desk=r["sender"], ref=r["id"], subline=subline,
+                                caption=f"{upper(self.desk(r['sender']))} asks {self.desk(r['receiver'])} "
+                                        f"{ASKS[r['type']]} {self.trip(r['flight'])}")
+            out = self.plays_out(r, room.t1)
+            story = self.window[0] <= r["sent"] <= self.window[1] + 180
+            found.append(((out is not None, story, r["sent"]), [room, *([out] if out else [])]))
+        return [b for _, b in sorted(found, key=lambda f: f[0], reverse=True)]
+
+    def plays_out(self, r: Mapping, after: float) -> Shot | None:
+        """Where a request plays out at the airport after ``after``: the cancelled flight at its gate, the held or
+        covered departure pushing back, the covered arrival landing, within two hours."""
+        s = self.sched[r["flight"]]
+        kind = "dep" if s["orig"] == self.hub else "arr" if s["dest"] == self.hub else None
+        if kind is None or (entry := self.legs.get((s["flight"], kind))) is None:
+            return None
+        a, _, g = entry
+        if r["type"] in ("CANCEL", "CANCEL_PAIR"):
+            return self.cancelled(a, g, after, r["sender"])
+        if kind == "dep":
+            push = self.event(a["key"], "pushback", g["flight"])
+            if push is None or not after < push - 1 <= after + 120:
+                return None
+            speed = (FAST["push"],) * 2
+            return Shot("pushback", "push", lead_in(push, 1.0, speed, SECONDS["push"]), SECONDS["push"], speed,
+                        key=a["key"], at=push, kicker=clock(push),
+                        caption=f"{g['flight']} to {g['city']} pushes back {behind(g['out'] - g['sched'])}")
+        on = self.event(a["key"], "landing", g["flight"])
+        if on is None or not after < on - 5 <= after + 120:
+            return None
+        moved = [d for d in self.occ["decisions"] if d.get("ref") == r["id"] and d["action"] in CREW_MOVES]
+        shot = self.touchdown("landing", a["key"], on, f"{g['flight']} from {g['city']} lands "
+                                                       f"{behind(g['in'] - g['sched'])}")[0]
+        return replace(shot, subline=f"Flown by {self.unit(moved[0]['detail'])}, the cover the desks agreed"
+                       if moved else "")
+
+    def cancelled(self, a: Mapping, g: Mapping, after: float, asked: str | None = None) -> Shot | None:
+        """The cancelled leg's aircraft at its gate with its tag saying so, from just after ``after``."""
+        if g["status"] != "cancelled":
+            return None
+        why = " at the crew scheduler's request" if asked == "crew" else ""
+        row = next((r for r in reversed(g.get("crew") or []) if r[0] <= (g.get("decided") or g["sched"])), None)
+        why += ", with no legal crew to fly it" if row and row[1] == "no crew" else ""
+        for k in range(40):
+            t0 = after + 0.3 + k
+            shot = Shot("cancelled", "gate", t0, SECONDS["cancelled"], (4, 4), key=a["key"], at=t0, cards=("tags",),
+                        kicker=clock(t0), caption=f"{g['flight']} {'to' if g['kind'] == 'dep' else 'from'} "
+                                                  f"{g['city']} stays at {self.gate(a, t0)}",
+                        subline=f"Cancelled{why}")
+            if parked(a, t0, shot.t1) is not None and tag_at(a, t0) is g and tag_at(a, shot.t1) is g:
+                return shot
+        return None
+
+    def cancels(self) -> list[list[Shot]]:
+        """The ops desk cancelling three or more flights in one go, on the room's wall, the most first."""
+        turns: dict[tuple, list] = {}
+        for d in self.occ["decisions"]:
+            if d["action"] in ("cancel", "cancel_pair") and d["flight"] in self.sched:
+                turns.setdefault((d["shown"], d["desk"]), []).append(d)
+        found = []
+        for (shown, desk), ds in turns.items():
+            if len(ds) < 3:
+                continue
+            trips = [self.trip(d["flight"]) for d in ds]
+            more = f" and {len(trips) - 3} more" if len(trips) > 3 else ""
+            shot = self.in_room("cancels", "room-wall", shown, shown - 0.8, shown + 4, desk=desk,
+                                caption=f"{upper(self.desk(desk))} cancels {len(ds)} flights at once",
+                                subline=", ".join(trips[:3]) + more)
+            found.append(((len(ds), self.window[0] <= shown <= self.window[1] + 180, -shown), [shot]))
+        return [b for _, b in sorted(found, key=lambda f: f[0], reverse=True)]
+
+    def moves(self) -> list[list[Shot]]:
+        """The crew desk putting a crew on a departure from the hub, in the room, then the departure pushing back
+        within two hours, the soonest first."""
+        found = []
+        for d in self.occ["decisions"]:
+            s = self.sched.get(d["flight"])
+            if d["action"] not in CREW_MOVES or s is None or s["orig"] != self.hub:
+                continue
+            ride = d["action"] == "deadhead"
+            room = self.in_room("move", "room-desks", d["shown"], d["shown"] - 0.8, d["shown"] + 4, desk=d["desk"],
+                                caption=f"{upper(self.desk(d['desk']))} {'flies' if ride else 'puts'} "
+                                        f"{self.unit(d['detail'])}{' as passengers on' if ride else ' on'} "
+                                        f"{self.trip(d['flight'])}")
+            out = self.plays_out({"flight": d["flight"], "type": "HOLD", "id": None}, room.t1)
+            if out is not None:
+                aboard = f"With {self.unit(d['detail'])} aboard{' as passengers' if ride else ''}"
+                found.append(((d["action"] == "assign", -(out.t0 - room.t1)), [room, replace(out, subline=aboard)]))
+        return [b for _, b in sorted(found, key=lambda f: f[0], reverse=True)]
+
+    def in_room(self, name: str, camera: str, at: float, a: float, b: float, **kw) -> Shot:
+        """A shot in the room about minute ``at`` showing minutes ``a`` to ``b`` (from a request rising at its desk to
+        its answer landing back), the end of them if that is faster than the room's fastest clock; without a 3D room
+        its 2D card over the US map, slowly."""
+        seconds = SECONDS[name]
+        kicker = f"{clock(at)} · {'The control center' if self.room else 'In the control center'}"
+        if not self.room:
+            speed = (4, 4)
+            return Shot(name, "map", lead_in(at, LEAD, speed, seconds), seconds, speed, at=at, kicker=kicker,
+                        cards=("head", "desk"), **kw)
+        v = min(FAST[camera], max(60.0, (b - a) * 60 / seconds))
+        return Shot(name, camera, b - seconds * v / 60, seconds, (v, v), at=at, kicker=kicker, cards=(), **kw)
+
+    def leaver(self) -> tuple | None:
+        """The departure to watch leave: the one that waited longest at its gate for a crew in the story's hours,
+        else as Day picks."""
+        waited = sorted(((a, v, g) for (_, kind), (a, v, g) in self.legs.items() if kind == "dep" and waits(g)),
+                        key=lambda e: (not self.window[0] <= e[2]["out"] <= self.window[1] + 180,
+                                       -sum(b - a for a, b in waits(e[2]))))
+        for a, v, g in waited:
+            push, off = (self.event(a["key"], k, g["flight"]) for k in ("pushback", "takeoff"))
+            if push is not None and off is not None and self.span[0] <= push < off <= self.span[1]:
+                return a, v, g, "crew", push, off
+        return super().leaver()
+
+    def leave(self, leaver: tuple | None) -> list[list[Shot]]:
+        """Day's pushback and takeoff; film() puts the taxi between them if there is time."""
+        return [beat[::2] for beat in super().leave(leaver)]
+
+    def wait(self, beats: Sequence[Sequence[Shot]], leaver: tuple | None) -> list[list[Shot]]:
+        """A departure waiting at its gate for a crew while its tag says so: the crew of the one the film sees leave
+        walking up to it first, then that one, then in the story's hours, the longest waits first; a few moments of
+        each wait to choose from."""
+        follow = leaver[2]["flight"] if leaver else None
+        found = [((True, True, math.inf, 1), [shot]) for shot in self.walk(leaver)]
+        for (flight, kind), (a, _, g) in self.legs.items():
+            spans = waits(g) if kind == "dep" else []
+            total = sum(b - x for x, b in spans)
+            for x, b in spans:
+                for f in (1 / 3, 1 / 6, 1 / 2, 2 / 3):
+                    t0 = x + (b - x) * f
+                    shot = Shot("wait", "gate", t0, SECONDS["wait"], (4, 4), key=a["key"], at=t0, cards=("tags",),
+                                kicker=clock(t0), caption=f"{flight} to {g['city']} waits at {self.gate(a, t0)} for "
+                                                          f"a crew",
+                                subline=f"{self.pax(flight)} passengers wait with it" if self.pax(flight) else "")
+                    if shot.t1 < b and parked(a, t0, shot.t1) is not None and tag_at(a, t0) is g \
+                            and tag_at(a, shot.t1) is g:
+                        story = self.window[0] <= t0 <= self.window[1] + 180
+                        found.append(((flight == follow, story, total, -f), [shot]))
+        return [b for _, b in sorted(found, key=lambda f: f[0], reverse=True)]
+
+    def walk(self, leaver: tuple | None) -> list[Shot]:
+        """The departure's crew walking up to its gate while it waits for them (the sidecar's crews, display-only), the
+        last to arrive first: from across their walk, the aircraft beyond them, the camera on the group (its ``ref``),
+        at a walker's pace, until they go in."""
+        if leaver is None:
+            return []
+        a, _, g, *_ = leaver
+        spans, out = waits(g), []
+        walks = sorted(((c, s) for c in self.traffic.get("crews") or [] if c["kind"] == "out"
+                        and g["flight"] in c["flights"] for s in c["segs"] if s["do"] == "walk" and len(s["p"]) > 1),
+                       key=lambda e: -e[1]["t"][1])
+        for c, s in walks:
+            end, speed = s["t"][1] - 0.05, (FAST["crew"],) * 2
+            t0 = end - SECONDS["crew"] * speed[0] / 60
+            if not any(x <= t0 and end <= b for x, b in spans) or tag_at(a, t0) is not g:
+                continue
+            pilots, cabin = c["crew"]
+            who = "pilots" if not cabin else "cabin crew" if not pilots else "crew"
+            gate = self.gate(a, t0)
+            out.append(Shot("crew", "crew", t0, SECONDS["crew"], speed, key=a["key"], at=end, cards=("tags",),
+                            kicker=clock(t0), caption=f"The {who} of {g['flight']} to {g['city']} walk up to {gate}",
+                            subline=f"{self.pax(g['flight'])} passengers have waited {late(end - spans[0][0])}"
+                            if self.pax(g["flight"]) else "", ref=c["key"],
+                            path=(tuple(s["p"][-2]), tuple(s["p"][-1]))))
+        return out
+
+    def map(self) -> list[list[Shot]]:
+        """The US map briefly, radar and JetBlue's flights in the air, no cards: as the FAA's programs reach the desk,
+        then at each watch of the story's hours, the most flights in the air first."""
+        speed, out = (180, 180), []
+        news = [(s.at, s.kicker.split(" · ")[-1].lower()) for (s,) in super().faa(self.span[0])]
+        busy = sorted((w["t"] for w in self.watches if self.window[0] <= w["t"] <= self.window[1]),
+                      key=lambda t: -len(self.airborne(t)))
+        for t, what in [*news, *((t, None) for t in busy)]:
+            up = self.airborne(t)
+            if not up:
+                continue
+            bound = sum(s["dest"] == self.hub for s in up)
+            gs, gdp = self.programs(t)
+            stop = what == "ground stop" if what else gs is not None
+            held = (f"The FAA's ground stop keeps {self.where}'s other arrivals at their departure airports" if stop
+                    else f"The FAA's delay program holds {self.where}'s other arrivals to their slots"
+                    if what or gdp else "")
+            out.append([Shot("map", "map", lead_in(t, LEAD, speed, SECONDS["map"]), SECONDS["map"], speed, at=t,
+                             cards=(), kicker=f"{clock(t)} · The network",
+                             caption=f"{len(up)} JetBlue flight{'s' * (len(up) != 1)} in the air"
+                                     + (f", {bound} of them bound for {self.where}" if bound else ""),
+                             subline=held)])
+        return out
+
+    def airborne(self, t: float) -> list[dict]:
+        return [self.sched[e["id"]] for e in self.ep["executed"]
+                if e["status"] == "flown" and e["dep"] is not None and e["dep"] <= t < e["arr"]]
+
+    def desk(self, d: str) -> str:
+        return self.model if self.one or d not in DESKS else DESKS[d]
+
+    def trip(self, fid: int) -> str:
+        s = self.sched[fid]
+        if s["orig"] == self.hub:
+            return f"{s['flight']} to {self.cities.get(s['dest'], s['dest'])}"
+        if s["dest"] == self.hub:
+            return f"{s['flight']} from {self.cities.get(s['orig'], s['orig'])}"
+        return f"{s['flight']} {self.cities.get(s['orig'], s['orig'])}–{self.cities.get(s['dest'], s['dest'])}"
+
+    def pax(self, flight: str) -> int | None:
+        return next((s.get("pax") for s in self.ep["schedule"] if s["flight"] == flight), None)
+
+    def unit(self, uid: str | None) -> str:
+        """A crew unit in words, as the room's card says them (web/room.js unitName), with the reserve's city."""
+        r = re.match(r"^R([PC])-[A-Z0-9]+-([A-Z]{3})-([AS])\d+$", uid or "")
+        if r:
+            base = self.where if r[2] == self.hub else self.cities.get(r[2], r[2])
+            return f"{base} {'standby' if r[3] == 'A' else 'short-call'} reserve " \
+                   f"{'pilots' if r[1] == 'P' else 'cabin crew'}"
+        u = re.match(r"^([PC])-[A-Z0-9]+-(\d+)$", uid or "")
+        return f"{'pilots' if u[1] == 'P' else 'cabin crew'} {u[2]}" if u else uid or "a crew"
+
+    def quote(self, text: str | None) -> str:
+        """The first clause of a desk's words if it reads as plain words, flights by their numbers, else ''."""
+        words = re.sub(r"\bf(\d{1,4})\b", lambda m: self.sched[int(m[1])]["flight"] if int(m[1]) in self.sched
+                       else m[0], text or "")
+        first = re.split(r"(?<=[.;])\s|,\s(?=and\b)", words.strip())[0].rstrip(".;")
+        if len(first) > 84:
+            first = first[:first.rfind(",", 0, 84)] if "," in first[:84] else ""
+        return "" if not first or GLUED.search(first) else first
+
+    def gate(self, a: Mapping, t: float) -> str:
+        v = parked(a, t, t)
+        return f"gate {v['stand'].split('-')[-1]}" if v and v.get("stand") else "its gate"
+
+
+def upper(text: str) -> str:
+    return text[:1].upper() + text[1:]
+
+
+def behind(minutes: float) -> str:
+    return f"{late(minutes)} late" if round(minutes) > 0 else "on time" if round(minutes) == 0 else \
+        f"{late(-minutes)} early"
+
+
+def waits(g: Mapping) -> list[tuple[float, float]]:
+    """The spans in which a flown departure's tag says "waiting for crew" (web/stage/stage.js crewAt)."""
+    if not g.get("crew") or g["kind"] != "dep" or g["status"] != "flown" or g["out"] is None:
+        return []
+    rows, out = g["crew"], []
+    for i, (t, what, _) in enumerate(rows):
+        a, b = max(t, (g["sched"] if g["sched"] is not None else g["out"]) - 40), \
+            min(rows[i + 1][0] if i + 1 < len(rows) else math.inf, g["out"])
+        if what == "no crew" and a < b:
+            out.append((a, b))
+    return out
+
+
+def fill(shots: list[Shot], seconds: float) -> list[Shot]:
+    """Longer still shots and end card to bring the film to ``seconds``, by at most a third each, none past the next
+    shot's first minute."""
+    still = [i for i, s in enumerate(shots) if s.name in (*STRETCH, "map", "wait", "cancelled", "end")]
+    total = sum(shots[i].seconds for i in still)
+    k = min(4 / 3, max(1.0, 1 + (seconds - sum(s.seconds for s in shots)) / total)) if total else 1.0
+    out = list(shots)
+    for i in still:
+        s, nxt = out[i], out[i + 1] if i + 1 < len(out) else None
+        cap = (nxt.t0 - s.t0) * 60 / ((s.speed[0] + s.speed[1]) / 2) if nxt and sum(s.speed) else math.inf
+        out[i] = replace(s, seconds=round(max(s.seconds, min(s.seconds * k, cap - 0.05)), 2))
+    return out
 
 
 def sidecar_events(traffic: Mapping) -> list[dict]:
@@ -479,6 +833,8 @@ html.film .timeline, html.film .credit, html.film .follow-chip, html.film .radar
 html.film:not([data-cards~="map"]) .view.corner { visibility: hidden; }
 html.film:not([data-cards~="tags"]) .ao-tags { visibility: hidden; }
 html.film .view.corner { bottom: 14px; }
+html.film .cm-key { top: 18px !important; bottom: auto !important; left: 50% !important; right: auto !important;
+  transform: translateX(-50%); }
 html.film .cards.right { bottom: auto; }
 #film-cap { position: absolute; z-index: 9; left: 50%; bottom: 46px; transform: translateX(-50%); max-width: 1180px;
   width: max-content; padding: 11px 26px 13px; border-radius: 12px; text-align: center;
@@ -487,6 +843,9 @@ html.film .cards.right { bottom: auto; }
 #film-cap small { display: block; margin-bottom: 3px; font-size: 13px; font-weight: 650; letter-spacing: 0.08em;
   text-transform: uppercase; color: #9fc2d2; }
 #film-cap b { display: block; font-size: 27px; font-weight: 600; line-height: 1.25; color: #fff; }
+#film-cap span { display: block; margin-top: 5px; font-size: 18px; line-height: 1.3; color: #c9dbe3; }
+#film-cap span:empty { display: none; }
+html.film[data-cards~="desk"] #film-cap { left: calc(50% + 215px); max-width: calc(100% - 480px); }
 #film-end { position: absolute; inset: 0; z-index: 9; display: none; flex-direction: column; align-items: center;
   justify-content: center;
   background: radial-gradient(ellipse at center, rgba(8, 18, 28, 0.45), rgba(8, 18, 28, 0.8)); }
@@ -509,10 +868,9 @@ FILM_JS = """
   document.head.appendChild(style);
   html.classList.add("film");
   const cap = Object.assign(document.createElement("div"), { id: "film-cap" });
-  cap.innerHTML = "<small></small><b></b>";
+  cap.innerHTML = "<small></small><b></b><span></span>";
   const end = Object.assign(document.createElement("div"), { id: "film-end" });
-  end.innerHTML = "<h1>AirOpsEnv v1</h1><h2>Recover an airline's storm day at JFK or Boston</h2><p></p><div></div>"
-    + "<div class='credit-line'></div>";
+  end.innerHTML = "<h1></h1><h2></h2><p></p><div></div><div class='credit-line'></div>";
   root.append(cap, end);
   const D = Math.PI / 180, dir = (h) => [Math.sin(h * D), Math.cos(h * D)];
   const add = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k];
@@ -526,13 +884,16 @@ FILM_JS = """
     return (p[0] - home[0]) * l[0] + (p[1] - home[1]) * l[1] >= 0 ? l : [-l[0], -l[1]];
   };
   window.film = {
-    look(cards, kicker, caption, who) {
+    look(cards, kicker, caption, subline, card) {
       html.dataset.cards = cards.join(" ");
       cap.querySelector("small").textContent = kicker;
       cap.querySelector("b").textContent = caption;
+      cap.querySelector("span").textContent = subline;
       cap.hidden = !caption;
       if (!cards.includes("end")) return;
-      end.querySelector("p").textContent = who;
+      end.querySelector("h1").textContent = card.title;
+      end.querySelector("h2").textContent = card.sub;
+      end.querySelector("p").textContent = card.who;
       end.querySelector("div").append(root.querySelector(".card.score"));
       end.querySelector(".credit-line").textContent = root.querySelector(".credit").textContent;
     },
@@ -566,6 +927,13 @@ FILM_JS = """
         const at = c.key ? { at: c.key, offset: [0, 0, 3] } : { at: [...add(st.xy, hd, -6), 3.5] };
         return { from: [...from, 11], to: [...to, 10], ...at, fov: c.camera === "push" ? 40 : 44, ...span };
       }
+      if (c.camera === "crew") {
+        const [[x0, y0], [x1, y1]] = c.path, n = Math.hypot(x1 - x0, y1 - y0) || 1, d = [(x1 - x0) / n, (y1 - y0) / n];
+        const sd = [-d[1], d[0]], a = S.data.stands.find((s) => s.ref === ref)?.xy ?? [x1, y1];
+        const k = (a[0] - x1) * sd[0] + (a[1] - y1) * sd[1] >= 0 ? -1 : 1;
+        const at = add([x1, y1], d, -22), from = add(add(at, sd, 21 * k), d, 10);
+        return { from: [...from, 4.5], to: [...add(from, d, 4), 4.5], at: [...at, 1.6], fov: 48, fov1: 46, ...span };
+      }
       const p = S.pose(T, c.key);
       if (!p || p.phase === "absent") return null;
       const fw = dir(p.heading), sd = away([p.x, p.y], p.heading, home.centre);
@@ -595,7 +963,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--director", action="store_true", help="Cut the day into shots on the 3D airport.")
     p.add_argument("--rollout", action="store_true",
                    help="Film every watch from the tower instead, then the score; the WebP is the whole film.")
-    p.add_argument("--seconds", type=float, help="The film's length: 40 by default, 55 with --rollout.")
+    p.add_argument("--seconds", type=float,
+                   help="The film's length: 40 by default, 60 for a control-center day, 55 with --rollout.")
     p.add_argument("--webp", type=Path, help="Also write an animated WebP clip here.")
     p.add_argument("--webp-width", type=int, default=960)
     p.add_argument("--webp-fps", type=int, default=15)
@@ -607,8 +976,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--shots", type=Path, help="Write stills (PNG) here: one per shot with --director, else per view.")
     p.add_argument("--thumb", type=Path, help="Write a 640x360 JPEG of the poster frame here.")
     p.add_argument("--still", type=Path, help="Write the poster frame without cards or tags here (JPEG or PNG).")
-    p.add_argument("--pick", default="taxi:0.5", metavar="SHOT:FRACTION",
-                   help="The poster frame: a shot of the director's and how far through it.")
+    p.add_argument("--pick", metavar="SHOT:FRACTION",
+                   help="The poster frame: a shot of the director's and how far through it; by default the first in "
+                        "the control-center room, else the taxi, takeoff or pushback halfway.")
     p.add_argument("--size", default="1920x1080")
     p.add_argument("--scale", type=float, default=1, help="Device pixels per CSS pixel.")
     p.add_argument("--fps", type=int, default=30)
@@ -641,7 +1011,7 @@ def main(argv: list[str] | None = None) -> int:
         with session(url, find_chrome(args.chrome), width, height, args.gl, args.scale) as (page, ready, gl):
             print(f"viewer ready: {len(ready['watches'])} watches · {', '.join(ready['views'])} · WebGL {gl}")
             if directed:
-                shots = director(page, episode, path, args.seconds, args.rollout)
+                shots = director(page, episode, path, args.seconds, args.rollout, bool(ready.get("room")))
                 if args.shots:
                     stills(page, episode, shots, args.shots)
                 if args.thumb or args.still:
@@ -661,8 +1031,10 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def director(page, ep: Mapping, path: Path, seconds: float | None, rollout: bool = False) -> list[Shot]:
-    """The director's shots for the episode on the page, or its rollout, with the film helper loaded into it."""
+def director(page, ep: Mapping, path: Path, seconds: float | None, rollout: bool = False,
+             room: bool = False) -> list[Shot]:
+    """The director's shots for the episode on the page, or its rollout, with the film helper loaded into it; a
+    control-center day films its ``room`` if the page has the 3D one."""
     if not page.js(FILM_JS.replace("__CSS__", json.dumps(FILM_CSS))):
         raise SystemExit("the film helper did not load")
     traffic = json.loads(gzip.decompress((path.parent / ep["stage"]["traffic"]).read_bytes()))
@@ -672,9 +1044,10 @@ def director(page, ep: Mapping, path: Path, seconds: float | None, rollout: bool
 
     events = page.js("airops.events()")
     day = Day(ep, traffic, events, poses)
-    shots = day.rollout(seconds or 55) if rollout else direct(ep, traffic, events, poses, seconds or 40)
+    shots = day.rollout(seconds or 55) if rollout else \
+        direct(ep, traffic, events, poses, seconds or (60 if ep.get("occ") else 40), room)
     for s in shots:
-        print(f"  {s.name:<9} {s.camera:<8} {clock(s.t0)}–{clock(s.t1)} {s.seconds:4.1f} s "
+        print(f"  {s.name:<9} {s.camera:<10} {clock(s.t0)}–{clock(s.t1)} {s.seconds:4.1f} s "
               f"×{s.speed[0]:g}–{s.speed[1]:g} {s.key or ''} {s.caption}")
     print(f"{len(shots)} shots, {sum(s.seconds for s in shots):.1f} s")
     return shots
@@ -682,20 +1055,42 @@ def director(page, ep: Mapping, path: Path, seconds: float | None, rollout: bool
 
 def setup(page, ep: Mapping, shot: Shot, bare: bool = False, camera: Mapping | None = None) -> None:
     """The shot's cards, caption and camera, a rollout watch's from ``camera`` if given; the end card shows the day's
-    final score."""
-    t = ep["task"]
-    who = f"{ep.get('model_label') or ep['model']} · {HUBS.get(t['hub'], t['hub'])} · {long_date(t['date'])}"
-    cards, kicker, caption = ((), "", "") if bare else (shot.cards, shot.kicker, shot.caption)
-    page.js(f"film.look({json.dumps(list(cards))}, {json.dumps(kicker)}, {json.dumps(caption)}, {json.dumps(who)})")
+    final score; the map and the control-center room are views of their own."""
+    cards, kicker, caption, subline = ((), "", "", "") if bare else (shot.cards, shot.kicker, shot.caption,
+                                                                      shot.subline)
+    page.js(f"film.look({json.dumps(list(cards))}, {json.dumps(kicker)}, {json.dumps(caption)}, "
+            f"{json.dumps(subline)}, {json.dumps(end_card(ep))})")
     if shot.name == "end":
         page.js("airops.ready.then((r) => airops.time(r.end, {dt: 0, speed: 0}))")
     if camera and shot.name == "watch":
         page.js(f"airops.shot({json.dumps(camera)})")
         return
-    cam = {"camera": shot.camera, "key": shot.key, "t0": shot.t0, "t1": shot.t1, "at": shot.at, "reach": shot.reach}
+    if shot.camera == "map":
+        page.js("airops.view('network')")
+        return
+    if shot.camera in ROOM:
+        spec = {"room": True, "name": shot.camera, "desk": shot.desk, "ref": shot.ref, "t0": shot.t0, "t1": shot.t1}
+        page.js(f"airops.view({json.dumps(shot.camera)}).then(() => airops.shot({json.dumps(spec)}))")
+        return
+    cam = {"camera": shot.camera, "key": shot.key, "t0": shot.t0, "t1": shot.t1, "at": shot.at, "reach": shot.reach,
+           "path": shot.path}
     if (spec := page.js(f"film.camera({json.dumps(cam)})")) is None:
         raise SystemExit(f"no camera for the {shot.name} shot at {clock(shot.t0)}")
+    if shot.camera == "crew":
+        spec["at"] = f"crew:{shot.ref}"
     page.js(f"airops.shot({json.dumps(spec)})")
+    if shot.camera == "crew":
+        page.js(f"airops.stage.featured = {json.dumps(shot.key)}")
+
+
+def end_card(ep: Mapping) -> dict:
+    t, model = ep["task"], ep.get("model_label") or ep["model"]
+    where = f"{HUBS.get(t['hub'], t['hub'])} · {long_date(t['date'])}"
+    if ep.get("occ"):
+        return {"title": "AirOpsEnv", "sub": "Run an airline's control center through a real storm day",
+                "who": f"{model} · {ep['occ']['label']} · {where}"}
+    return {"title": "AirOpsEnv v1", "sub": "Recover an airline's storm day at JFK or Boston",
+            "who": f"{model} · {where}"}
 
 
 def frame_at(page, shot: Shot, t: float, rate: float, dt: float) -> None:
@@ -740,8 +1135,12 @@ def stills(page, ep: Mapping, shots: Sequence[Shot], out: Path) -> None:
         print(f"wrote {path}")
 
 
-def poster(page, ep: Mapping, shots: Sequence[Shot], pick: str, thumb: Path | None, still: Path | None) -> None:
+def poster(page, ep: Mapping, shots: Sequence[Shot], pick: str | None, thumb: Path | None,
+           still: Path | None) -> None:
     """The picked frame of the film without cards or tags: full size to ``still``, 640x360 to ``thumb``."""
+    names = {s.name for s in shots}
+    pick = pick or next((f"{s.name}:0.6" for s in shots if s.camera in ROOM), None) or \
+        next((f"{n}:0.5" for n in ("taxi", "takeoff", "push") if n in names), "taxi:0.5")
     name, _, fraction = pick.partition(":")
     shot = next((s for s in shots if s.name == name), None) or next(s for s in shots if s.name != "end")
     setup(page, ep, shot, bare=True)
@@ -774,7 +1173,8 @@ def highlight(shots: Sequence[Shot]) -> list[tuple[float, float]] | None:
 
 def title(ep: Mapping) -> str:
     t = ep["task"]
-    return f"AirOpsEnv v1 · {ep.get('model_label') or ep['model']} · {HUBS.get(t['hub'], t['hub'])} {t['date']}"
+    model = ep.get("model_label") or ep["model"]
+    return f"{end_card(ep)['title']} · {model} · {HUBS.get(t['hub'], t['hub'])} {t['date']}"
 
 
 def timeline(episode: dict, ready: dict, args) -> list[Frame]:
@@ -904,18 +1304,20 @@ class Quiet(SimpleHTTPRequestHandler):
 
 
 class Page:
-    """One page target over the DevTools protocol."""
+    """One page target over the DevTools protocol, keeping the events of the domains enabled on it."""
 
     def __init__(self, ws):
         self.ws = ws
         self.ids = itertools.count(1)
+        self.events: list[dict] = []
 
     def call(self, method: str, **params) -> dict:
         i = next(self.ids)
         self.ws.send(json.dumps({"id": i, "method": method, "params": params}))
         try:
             while (message := json.loads(self.ws.recv(timeout=ANSWER_SECONDS))).get("id") != i:
-                pass
+                if "method" in message:
+                    self.events.append(message)
         except TimeoutError as e:
             raise SystemExit(f"Chrome did not answer {method} in {ANSWER_SECONDS} s") from e
         if "error" in message:
@@ -938,8 +1340,9 @@ def chrome_args(chrome: str, profile: Path, width: int, height: int, swiftshader
 
 
 @contextmanager
-def session(url: str, chrome: str, width: int, height: int, gl: str, scale: float = 1):
-    """The viewer at ``url`` in headless Chrome once ``airops.ready``: the GPU first, SwiftShader without WebGL2."""
+def session(url: str, chrome: str, width: int, height: int, gl: str, scale: float = 1, enable: Sequence[str] = ()):
+    """The viewer at ``url`` in headless Chrome once ``airops.ready``: the GPU first, SwiftShader without WebGL2;
+    ``enable`` names DevTools domains (Runtime, Log) whose events the page keeps from before it loads."""
     for swiftshader in ([gl == "swiftshader"] if gl != "auto" else [False, True]):
         with tempfile.TemporaryDirectory() as profile:
             browser = subprocess.Popen(chrome_args(chrome, Path(profile), width, height, swiftshader),
@@ -952,6 +1355,8 @@ def session(url: str, chrome: str, width: int, height: int, gl: str, scale: floa
                         continue
                     page.call("Emulation.setDeviceMetricsOverride", width=width, height=height,
                               deviceScaleFactor=scale, mobile=False)
+                    for domain in enable:
+                        page.call(f"{domain}.enable")
                     page.call("Page.navigate", url=url)
                     page.js("new Promise(r => { const f = () => window.airops ? r() : setTimeout(f, 50); f(); })")
                     ready = page.js("airops.ready")

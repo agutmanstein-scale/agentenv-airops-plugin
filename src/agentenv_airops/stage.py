@@ -123,13 +123,15 @@ def traffic(task: Task, inputs: Path) -> dict:
             "stops": stops(task)}
 
 
-def sidecar(task: Mapping, executed: Sequence[Mapping], traffic: Mapping, stage: Mapping) -> dict:
+def sidecar(task: Mapping, executed: Sequence[Mapping], traffic: Mapping, stage: Mapping,
+            crew: Mapping[int, list] | None = None) -> dict:
     """The traffic sidecar of web/stage for a run: ``task`` is the episode's task, ``executed`` its executed rows (the
-    plan flown on the truth), ``traffic`` what ``traffic`` baked for the task and ``stage`` the hub's stage. The span
-    runs from the first watch to the run's last movement at the hub; every visit in it gets a stand."""
+    plan flown on the truth), ``traffic`` what ``traffic`` baked for the task and ``stage`` the hub's stage; ``crew``,
+    by flight id, the crew status its departure tag shows over time (occ.episode.crew_tags). The span runs from the
+    first watch to the run's last movement at the hub; every visit in it gets a stand."""
     if traffic["task_id"] != task["task_id"] or stage["hub"] != task["hub"]:
         raise ValueError(f"traffic for {traffic['task_id']} and the {stage['hub']} stage don't match {task['task_id']}")
-    ours, cancelled = task_aircraft(task, executed, traffic)
+    ours, cancelled = task_aircraft(task, executed, traffic, crew or {})
     moves = [t for a in ours for v in a["visits"] for t in times(v)] + [cancelled_at(c[1]) for c in cancelled]
     span = [task["start"], round(max(moves + [task["start"]]) + MARGIN)]
     host(ours, cancelled)
@@ -146,9 +148,11 @@ def sidecar(task: Mapping, executed: Sequence[Mapping], traffic: Mapping, stage:
             "featured": featured(aircraft, traffic["stops"], span, task["window"])}
 
 
-def task_aircraft(task: Mapping, executed: Sequence[Mapping], traffic: Mapping) -> tuple[list[dict], list]:
-    """The task's tails at the hub on the run's flown legs and the frozen ones, tagged; and its cancelled legs there,
-    each with the flight's family and planned tail, for ``host`` to hang on a parked aircraft."""
+def task_aircraft(task: Mapping, executed: Sequence[Mapping], traffic: Mapping,
+                  crew: Mapping[int, list] | None = None) -> tuple[list[dict], list]:
+    """The task's tails at the hub on the run's flown legs and the frozen ones, tagged, each departure with its crew
+    status from ``crew``; and its cancelled legs there, each with the flight's family and planned tail, for ``host``
+    to hang on a parked aircraft."""
     hub, cities, start = task["hub"], traffic["cities"], task["start"]
     flights = {f["id"]: f for f in traffic["flights"]}
     legs: dict[str, list[Leg]] = {}
@@ -167,13 +171,15 @@ def task_aircraft(task: Mapping, executed: Sequence[Mapping], traffic: Mapping) 
             if (f["orig"] if kind == "dep" else f["dest"]) != hub:
                 continue
             other, sched = (f["dest"], f["sched_dep"]) if kind == "dep" else (f["orig"], f["sched_arr"])
+            status = {"crew": crew[x["id"]]} if kind == "dep" and crew and x["id"] in crew else {}
             if x["status"] != "flown":
                 leg = task_leg(f["flight"], kind, other, cities, sched, None, None, traffic)
-                cancelled.append((f, leg | {"decided": num(x.get("decided"))}))
+                cancelled.append((f, leg | {"decided": num(x.get("decided"))} | status))
                 continue
             hold = x.get("not_before") if kind == "dep" and x.get("held") else None
             at = x["dep"] if kind == "dep" else x["arr"]
-            legs.setdefault(x["tail"], []).append(task_leg(f["flight"], kind, other, cities, sched, at, hold, traffic))
+            legs.setdefault(x["tail"], []).append(
+                task_leg(f["flight"], kind, other, cities, sched, at, hold, traffic) | status)
     out = []
     for t in traffic["tails"]:
         mine = sorted(legs.get(t["tail"], []), key=leg_time)

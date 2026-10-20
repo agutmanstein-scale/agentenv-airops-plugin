@@ -276,7 +276,7 @@ def test_the_dry_build_copies_the_twin_and_stage_the_viewer_episodes_point_at_wi
     (stage_dir / "stage.json.gz").write_bytes(gzip.compress(json.dumps({"hub": "JFK"}).encode()))
     (stage_dir / "ortho.jpg").write_bytes(b"\xff\xd8\xff\xd9")
     (cache / "traffic" / f"{ID}.json.gz").write_bytes(gzip.compress(json.dumps({"task_id": ID}).encode()))
-    monkeypatch.setattr(stage, "sidecar", lambda task, executed, traffic, hub_stage: {
+    monkeypatch.setattr(stage, "sidecar", lambda task, executed, traffic, hub_stage, crew: {
         "hub": hub_stage["hub"], "task_id": traffic["task_id"], "legs": len(executed)})
     out = _dry_build(hub, tmp_path, monkeypatch, "--pack", str(DAY))
     [entry] = json.loads((out / "viewer/episodes/index.json").read_text())["episodes"]

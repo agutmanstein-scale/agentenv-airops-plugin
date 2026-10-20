@@ -16,6 +16,7 @@ from . import stage as hub_stage
 from .core.known import known_caps, known_lb
 from .core.model import Caps, Flight, Task
 from .core.sim import AUTO_CANCELLED, CANCELLED, FLOWN, execute
+from .occ import crewstage
 from .schedule import Watch, timetable
 
 WEB = Path(str(files("agentenv_airops") / "web"))
@@ -189,7 +190,10 @@ def sidecar(ep: Mapping, cache: Path, stages: dict[str, dict] | None = None) -> 
     if hub not in stages:
         stages[hub] = json.loads(gzip.decompress((cache / "stage" / hub / "stage.json.gz").read_bytes()))
     traffic = json.loads(gzip.decompress((cache / "traffic" / f"{task_id}.json.gz").read_bytes()))
-    doc = hub_stage.sidecar(ep["task"], ep["executed"], traffic, stages[hub])
+    crew = {int(i): rows for i, rows in (ep.get("occ") or {}).get("crew", {}).items()}
+    doc = hub_stage.sidecar(ep["task"], ep["executed"], traffic, stages[hub], crew)
+    if ep.get("occ"):
+        doc["crews"] = crewstage.crews(ep, doc, stages[hub])
     return gzip.compress(json.dumps(doc, ensure_ascii=False, separators=(",", ":")).encode(), mtime=0)
 
 
@@ -209,7 +213,8 @@ def entry(ep: Mapping, url: str, cache: Path = CACHE) -> dict:
     t, thumb = ep["task"], f"thumbs/{file_name(ep)[:-5]}.jpg"
     return {"url": url, "task_id": t["task_id"], "hub": t["hub"], "date": t["date"], "model": ep["model"],
             "model_label": ep["model_label"], "run": ep["run"], "reward": ep["reward"], "cost": ep["cost"]["total"],
-            "anchor": ep["reference"]["anchor"]} | ({"thumb": f"../{thumb}"} if (cache / thumb).is_file() else {})
+            "anchor": ep["reference"]["anchor"]} | ({"thumb": f"../{thumb}"} if (cache / thumb).is_file() else {}) \
+        | ({"occ": ep["occ"]["label"]} if ep.get("occ") else {})
 
 
 def folder(episodes: list[dict], cache: Path = CACHE, index: Mapping | None = None) -> dict[str, bytes]:

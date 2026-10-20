@@ -3,6 +3,7 @@
 // view(name), show(step), shot(spec), state()} lets a recorder drive it frame by frame.
 import { HUB_NAMES, cities, esc, flightsAt, positionsAt, prepare, programBands, watchAt } from "./model.js";
 import { Board, Desk, Header, Score, Timeline } from "./cards.js";
+import { Room } from "./room.js";
 import { Views } from "./inset.js";
 import { ATTRIBUTION, rings } from "./map.js";
 import { CREDIT, Expert } from "./panel.js";
@@ -10,14 +11,16 @@ import { CREDIT, Expert } from "./panel.js";
 const params = new URLSearchParams(location.search);
 const RECORD = params.get("record") === "1";
 const SPEEDS = [0.25, 1, 2, 5, 10, 20, 40];
-const STAGE_VIEWS = ["tower", "gate", "threshold", "harbour", "follow"];
-const ALIASES = { hub: "tower", region: "network", map: "network" };
-const KEYS = { 1: "tower", 2: "gate", 3: "threshold", 4: "harbour", 5: "follow", m: "network" };
+const STAGE_VIEWS = ["tower", "gate", "threshold", "harbour", "follow", "crew"];
+const ROOM_VIEWS = ["room", "room-desks", "room-wall"];
+const ALIASES = { hub: "tower", region: "network", map: "network", center: "room" };
+const KEYS = { 1: "tower", 2: "gate", 3: "threshold", 4: "harbour", 5: "follow", 6: "room", 7: "crew", m: "network" };
 const CARRIERS = { AA: "an American", AS: "an Alaska", DL: "a Delta", UA: "a United", WN: "a Southwest", NK: "a Spirit", F9: "a Frontier", G4: "an Allegiant",
   SY: "a Sun Country", HA: "a Hawaiian", MX: "a Breeze", YX: "a Republic", "9E": "an Endeavor", OH: "a PSA", MQ: "an Envoy", OO: "a SkyWest", YV: "a Mesa",
   C5: "a CommuteAir", ZW: "an Air Wisconsin", PT: "a Piedmont", G7: "a GoJet", QX: "a Horizon" };
 const CAMERAS = { tower: ["Tower", "From the control tower"], gate: ["Gate", "At JetBlue's gates"], threshold: ["Runway", "At the end of the runway in use"],
-  harbour: ["Harbour", "Across the water"], follow: ["Follow", "Behind an aircraft (or click one)"], network: ["Map", "The US map, full screen"] };
+  harbour: ["Harbour", "Across the water"], follow: ["Follow", "Behind an aircraft (or click one)"], network: ["Map", "The US map, full screen"],
+  room: ["Room", "The control center, where the desks work"], crew: ["Crew", "With a crew at the airport"] };
 
 let resolveReady, rejectReady;
 window.airops = {
@@ -65,21 +68,26 @@ const longDate = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB
 
 async function indexPage(app, url) {
   const index = await getJSON(url);
+  const room = index.episodes.length > 0 && index.episodes.every((e) => e.occ);
   document.documentElement.classList.add("light");
-  document.title = "AirOpsEnv v1 · episodes";
+  document.title = `${room ? "AirOpsEnv" : "AirOpsEnv v1"} · episodes`;
   const card = (e) => {
     const href = `?episode=${encodeURIComponent(new URL(e.url, url).href)}`;
     const gap = e.anchor ? (100 * (e.cost - e.anchor)) / e.anchor : null;
     const thumb = e.thumb ? ` style="background-image:url('${esc(new URL(e.thumb, url).href)}')"` : "";
     return `<a class="ep-card" href="${href}"><div class="thumb${e.thumb ? "" : " none"}"${thumb}><span>${esc(e.hub)}</span></div>
-      <div class="body"><h2>${esc(HUB_NAMES[e.hub] ?? e.hub)} · ${esc(longDate(e.date))}</h2><p class="model">${esc(e.model_label ?? e.model)}</p>
-      <dl><div><dt>Reward</dt><dd>${e.reward?.toFixed(3) ?? "–"}</dd></div><div><dt>Cost vs hindsight</dt><dd>${gap != null ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}%` : "–"}</dd></div></dl>
+      <div class="body"><h2>${esc(HUB_NAMES[e.hub] ?? e.hub)} · ${esc(longDate(e.date))}</h2><p class="model">${esc(e.model_label ?? e.model)}${e.occ ? ` · ${esc(e.occ)}` : ""}</p>
+      <dl><div><dt>Reward</dt><dd>${e.reward?.toFixed(3) ?? "–"}</dd></div><div><dt>${e.occ ? "Cost vs best plan" : "Cost vs hindsight"}</dt><dd>${gap != null ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}%` : "–"}</dd></div></dl>
       <p class="id">${esc(e.task_id)} · ${esc(e.run)}</p></div></a>`;
   };
-  app.innerHTML = `<div class="list"><header><h1>AirOpsEnv v1</h1><p class="sub">Recover an airline's storm day at JFK or Boston</p>
-    <p class="intro">Each run puts a model at JetBlue's operations desk through a real storm day. Every hour it reads the FAA's advisories and the weather and may cancel or hold flights; the day is then flown on what really happened and scored against the best plan in hindsight. Pick one to replay it.</p></header>
+  const head = room
+    ? `<h1>AirOpsEnv</h1><p class="sub">Run an airline's control center through a real storm day</p>
+    <p class="intro">Each run puts a model in JetBlue's operations control center for a whole storm day, from 04:00: an ops controller runs the flights, a crew scheduler the pilots and flight attendants, and they ask each other for holds, cancellations and cover. The day is flown on what really happened and scored against the best plan found. Pick one to replay it.</p>`
+    : `<h1>AirOpsEnv v1</h1><p class="sub">Recover an airline's storm day at JFK or Boston</p>
+    <p class="intro">Each run puts a model at JetBlue's operations desk through a real storm day. Every hour it reads the FAA's advisories and the weather and may cancel or hold flights; the day is then flown on what really happened and scored against the best plan in hindsight. Pick one to replay it.</p>`;
+  app.innerHTML = `<div class="list"><header>${head}</header>
     <div class="grid">${[...index.episodes].sort((a, b) => (b.reward ?? -1) - (a.reward ?? -1)).map(card).join("")}</div>
-    <p class="credit">Reward from 0.2 to 1: 1 is the best plan in hindsight. Cost in passenger-minutes. ${esc(CREDIT)}</p></div>`;
+    <p class="credit">Reward from 0.2 to 1: 1 is the best plan ${room ? "found" : "in hindsight"}. Cost in passenger-minutes. ${esc(CREDIT)}</p></div>`;
   resolveReady({ episodes: index.episodes.length });
 }
 
@@ -93,7 +101,7 @@ async function episodePage(app, url) {
   }
   P.lo = traffic?.span?.[0] ?? task.start;
   P.hi = traffic?.span?.[1] ?? P.end;
-  const city = cities(task, traffic), cityOf = (c) => city.get(c) ?? c, model = ep.model_label ?? ep.model;
+  const city = cities(task, traffic), cityOf = (c) => city.get(c) ?? c, model = ep.model_label ?? ep.model, brand = ep.occ ? "AirOpsEnv" : "AirOpsEnv v1";
   const stands = new Map(), terminals = new Map();
   for (const ac of traffic?.aircraft ?? []) {
     if (!ac.task) continue;
@@ -102,9 +110,10 @@ async function episodePage(app, url) {
   for (const ref of stands.values()) if (ref.includes("-")) terminals.set(ref.split("-")[0], (terminals.get(ref.split("-")[0]) ?? 0) + 1);
   const home = [...terminals].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   for (const [k, ref] of stands) stands.set(k, home && ref.startsWith(`${home}-`) ? ref.slice(home.length + 1) : ref.replace("-", " "));
-  document.title = `${HUB_NAMES[task.hub] ?? task.hub} ${task.date} · ${model} · AirOpsEnv v1`;
+  document.title = `${HUB_NAMES[task.hub] ?? task.hub} ${task.date} · ${model} · ${brand}`;
   app.innerHTML = `<div class="ep">
     <div class="view view-stage"><div class="stage-host"></div><div class="inset-caption">The airport · click to swap</div></div>
+    ${ep.occ ? `<div class="view view-room" hidden><div class="room-host"></div><div class="inset-caption">The control center · click to swap</div></div>` : ""}
     <div class="view view-map"><div class="map"></div><div class="inset-caption">US radar and JetBlue's flights in the air · click to swap</div>
       <div class="radar-key" ${P.radar ? "" : "hidden"}><span>Radar: light</span><i></i><span>heavy</span></div></div>
     <div class="cards left"><section class="card head"></section><section class="card desk"></section></div>
@@ -114,11 +123,11 @@ async function episodePage(app, url) {
     <footer class="timeline"></footer>
     <div class="credit"></div></div>`;
   const root = app.querySelector(".ep");
-  let stage = null, legAt = null;
+  let stage = null, tagAt = null;
   if (doc) {
     try {
-      const { AirportStage, legAt: leg } = await import("./stage/stage.js");
-      legAt = leg;
+      const { AirportStage, tagAt: tag } = await import("./stage/stage.js");
+      tagAt = tag;
       stage = new AirportStage(root.querySelector(".stage-host"), { stage: doc, traffic, base: new URL(".", stageUrl).href, manual: RECORD, controls: !RECORD, avoid: () => covered(root) });
       await stage.ready;
     } catch (e) {
@@ -127,25 +136,42 @@ async function episodePage(app, url) {
       stage = null;
     }
   }
-  const views = new Views(root, P, { stage, interactive: !RECORD, onSwap: (main) => setView(main === "map" ? "network" : stageView) });
+  let center = null;
+  if (ep.occ) {
+    try {
+      const { ControlCenter } = await import("./center/center.js");
+      center = new ControlCenter(root.querySelector(".room-host"), { P, ep, base: url.href, manual: RECORD, controls: !RECORD });
+      await center.ready;
+    } catch (e) {
+      console.error("the control-center room failed:", e);
+      center?.dispose?.();
+      center = null;
+    }
+  }
+  const views = new Views(root, P, { stage, room: center, interactive: !RECORD,
+    onSwap: (main) => setView(main === "map" ? "network" : main === "room" ? roomView : stageView) });
   const ctx = { task, earlier: P.news, city: cityOf, hub: task.hub, sched: P.sched, flightOf: (ref) => P.sched.get(Number(String(ref).replace(/^f/, "")))?.flight };
-  const header = new Header(root.querySelector(".head"), P, { model, weather: stage ? traffic.weather : null });
-  const desk = new Desk(root.querySelector(".desk"), P, { model, city: cityOf });
+  const header = new Header(root.querySelector(".head"), P, { model: ep.occ ? `${model} · ${ep.occ.label}` : model, weather: stage ? traffic.weather : null, brand });
+  const desk = ep.occ ? new Room(root.querySelector(".desk"), P, { model }) : new Desk(root.querySelector(".desk"), P, { model, city: cityOf });
   const score = new Score(root.querySelector(".score"), P, { model });
-  const board = new Board(root.querySelector(".board"), P, { city: cityOf, stands, terminal: home?.replace(/^T/, ""), rows: 8, scene: !!stage });
+  const board = new Board(root.querySelector(".board"), P, { city: cityOf, stands, terminal: home?.replace(/^T/, ""), rows: 8, scene: !!stage,
+    scope: ep.occ ? "all of its flights here" : "the task's flights" });
   const expertEl = root.querySelector(".expert");
   let expert = null;
-  const cameras = (stage ? [...STAGE_VIEWS, "network"] : []).map((id, i) => ({ id, label: id === "harbour" && task.hub === "JFK" ? "Bay" : CAMERAS[id][0],
-    title: `${CAMERAS[id][1]} (${id === "network" ? "m" : i + 1})` }));
+  const crews = !!traffic?.crews?.length;
+  const cameras = [...(stage ? STAGE_VIEWS.filter((v) => v !== "crew" || crews) : []), ...(center ? ["room"] : []), ...(stage || center ? ["network"] : [])].map((id) => ({ id,
+    label: id === "harbour" && task.hub === "JFK" ? "Bay" : CAMERAS[id][0], title: `${CAMERAS[id][1]} (${Object.keys(KEYS).find((k) => KEYS[k] === id)})` }));
   const speed0 = SPEEDS.includes(Number(params.get("speed"))) ? Number(params.get("speed")) : 5;
   const timeline = new Timeline(root.querySelector(".timeline"), P, { bands: programBands(P), speeds: SPEEDS, speed: speed0, cameras });
-  root.querySelector(".credit").textContent = `${stage ? "Gates, taxi routes and runways in use are inferred, for display · airport © OpenStreetMap contributors (ODbL), imagery USGS · " : ""}${ATTRIBUTION} · flights BTS · weather NWS, IEM`;
+  const shown = ep.occ ? "Gates, taxi routes, runways in use, the crew room, crews' walks, van routes and the control-center room are inferred, for display"
+    : "Gates, taxi routes and runways in use are inferred, for display";
+  root.querySelector(".credit").textContent = `${stage ? `${shown} · airport © OpenStreetMap contributors (ODbL), imagery USGS · ` : ""}${ATTRIBUTION} · flights BTS · weather NWS, IEM${ep.occ ? " · crews: generated pairings under FAR 117 and 14 CFR 121.467" : ""}`;
   const followChip = root.querySelector(".follow-chip");
 
   const moves = ep.executed.filter((e) => e.status === "flown").flatMap((e) => [P.sched.get(e.id).orig === task.hub ? e.dep : null, P.sched.get(e.id).dest === task.hub ? e.arr : null]).filter((m) => m != null);
   const quiet = (m) => m > P.lastWatch + 60 && !moves.some((x) => x >= m - 5 && x <= m + 30);
-  let t = clamp(Number(params.get("t") ?? P.lo)), step = null, viewName = stage ? "tower" : "network", stageView = "tower", following = null;
-  let playing = false, speed = speed0, rate = null, boost = 1, last = performance.now(), lastMap = -1, busy = false;
+  let t = clamp(Number(params.get("t") ?? P.lo)), step = null, viewName = stage ? "tower" : center ? "room" : "network", stageView = "tower", roomView = "room", following = null;
+  let playing = false, speed = speed0, rate = null, boost = 1, last = performance.now(), lastMap = -1, busy = false, busyRoom = false;
 
   function clamp(m) {
     return Math.max(P.lo, Math.min(P.hi, Number.isFinite(m) ? m : P.lo));
@@ -161,7 +187,7 @@ async function episodePage(app, url) {
     if (expert && !expertEl.hidden) expert.render(m, flights, step);
     if (force || RECORD || Math.abs(m - lastMap) >= 0.25) {
       lastMap = m;
-      views.map.update({ positions: positionsAt(P, flights, m), rings: rings(P, m), radar: views.radar?.at(m) ?? null });
+      views.map.update({ positions: positionsAt(P, flights, m), rings: rings(P, m), radar: views.radar?.at(m) ?? null, t: m });
     }
     if (following) followChip.innerHTML = followText(m);
   }
@@ -169,14 +195,19 @@ async function episodePage(app, url) {
   function followText(m) {
     const ac = traffic?.aircraft.find((a) => a.key === following);
     if (!ac) return "";
-    const leg = ac.task ? legAt?.(ac, m) : null;
-    const what = leg?.tag ?? (ac.task ? "a JetBlue aircraft of the task" : ac.jetblue ? "a JetBlue aircraft outside the task" : `${CARRIERS[ac.carrier] ?? ac.carrier} aircraft`);
+    const tag = ac.task ? tagAt?.(ac, m) : null;
+    const what = tag?.text ?? (ac.task ? "a JetBlue aircraft of the task" : ac.jetblue ? "a JetBlue aircraft outside the task" : `${CARRIERS[ac.carrier] ?? ac.carrier} aircraft`);
     return `Following <b>${esc(what)}</b> <span>${esc(ac.type ?? "")} ${esc(ac.tail)}</span> <button type="button">Stop · Esc</button>`;
   }
 
   async function setView(name, opts = {}) {
     name = ALIASES[name] ?? name;
-    if (name === "network" || !stage) {
+    if (center && ROOM_VIEWS.includes(name)) {
+      views.show("room");
+      viewName = roomView = name;
+      following = null;
+      await center.view(name, opts);
+    } else if (name === "network" || !stage) {
       views.show("map");
       viewName = "network";
       following = null;
@@ -188,7 +219,7 @@ async function episodePage(app, url) {
       await stage.view(viewName, opts);
     }
     followChip.hidden = !following;
-    timeline.camera(viewName);
+    timeline.camera(viewName.startsWith("room") ? "room" : viewName);
     draw(t, { force: true });
     return viewName;
   }
@@ -226,6 +257,7 @@ async function episodePage(app, url) {
   timeline.on("seek", seek).on("play", () => play()).on("speed", (v) => (speed = v)).on("camera", (id) => setView(id))
     .on("expert", () => setExpert(expertEl.hidden));
   followChip.addEventListener("click", (e) => e.target.closest("button") && setView("tower"));
+  root.addEventListener("airops:seek", (e) => seek(Number(e.detail?.t)));
   stage?.onPick?.((key) => key && setView("follow", { key }));
   addEventListener("resize", () => views.resize());
   document.addEventListener("keydown", (e) => {
@@ -244,7 +276,7 @@ async function episodePage(app, url) {
     else if (k === "+" || k === "=" || k === "-") {
       speed = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, SPEEDS.indexOf(speed) + (k === "-" ? -1 : 1)))];
       root.querySelector(".speed").value = String(speed);
-    } else if (KEYS[k] && (stage || KEYS[k] === "network")) setView(KEYS[k]);
+    } else if (KEYS[k] && (KEYS[k] === "network" || (KEYS[k] === "room" ? center : KEYS[k] === "crew" ? stage && crews : stage))) setView(KEYS[k]);
     else if (k === "Escape" && following) setView("tower");
     else if (k === "x") setExpert(expertEl.hidden);
   });
@@ -259,9 +291,13 @@ async function episodePage(app, url) {
     }
     rate = playing ? speed * 60 * boost : null;
     draw(t);
-    if (stage && !busy) {
+    if (stage && !busy && views.visible("stage")) {
       busy = true;
       Promise.resolve(stage.time(t, { dt, speed: rate ?? 0 })).finally(() => (busy = false));
+    }
+    if (center && !busyRoom && views.visible("room")) {
+      busyRoom = true;
+      Promise.resolve(center.time(t, { dt, speed: rate ?? 0 })).finally(() => (busyRoom = false));
     }
     requestAnimationFrame(tick);
   }
@@ -271,6 +307,7 @@ async function episodePage(app, url) {
   if (params.get("expert") === "1") setExpert(true);
   draw(t, { force: true });
   if (stage) await stage.time(t, { dt: 0, speed: 0 });
+  if (center) await center.time(t, { dt: 0, speed: 0 });
   await settle();
   if (!RECORD) {
     if (params.get("play") === "1") play(true);
@@ -283,7 +320,8 @@ async function episodePage(app, url) {
       t = clamp(Number(m));
       rate = opts.speed ?? null;
       draw(t);
-      if (stage) await stage.time(t, { dt: opts.dt ?? 1 / 30, speed: rate ?? 0 });
+      if (stage && views.visible("stage")) await stage.time(t, { dt: opts.dt ?? 1 / 30, speed: rate ?? 0 });
+      if (center && views.visible("room")) await center.time(t, { dt: opts.dt ?? 1 / 30, speed: rate ?? 0 });
       if (RECORD) await settle();
       return t;
     },
@@ -297,21 +335,24 @@ async function episodePage(app, url) {
       if (step != null) t = clamp(P.steps[step].t);
       draw(t, { force: true });
       if (stage && step != null) await stage.time(t, { dt: 0, speed: 0 });
+      if (center && step != null) await center.time(t, { dt: 0, speed: 0 });
       if (RECORD) await settle();
     },
     async shot(spec) {
-      views.show("stage");
-      return stage?.shot(spec);
+      const room = !!(spec?.room && center);
+      if (views.main !== (room ? "room" : "stage")) await setView(room ? (ROOM_VIEWS.includes(spec.name) ? spec.name : "room") : stageView);
+      return room ? center.shot(spec) : stage?.shot(spec);
     },
     expert: (on = true) => setExpert(on),
     events: () => stage?.events?.() ?? [],
     state: () => ({ t, view: viewName, main: views.main, step, following, expert: !expertEl.hidden, watch: watchAt(P, t),
       airborne: positionsAt(P, flightsAt(P, t), t).length, board: root.querySelectorAll(".board li:not(.none)").length,
-      stage: stage?.state?.() ?? null }),
+      stage: stage?.state?.() ?? null, room: center?.state?.() ?? null }),
     stage,
+    room: center,
     map: views.map,
   };
   resolveReady({ steps: P.steps.length, watches: P.watches.map((w) => w.t), start: task.start, t0: P.lo, end: P.hi, horizon: P.hi,
-    last_watch: P.lastWatch, views: [...(stage ? STAGE_VIEWS : []), "network"], radar: views.radar?.count ?? 0, twin: !!ep.twin,
-    stage: !!stage, span: [P.lo, P.hi], featured: traffic?.featured ?? [], hub: task.hub });
+    last_watch: P.lastWatch, views: [...(stage ? STAGE_VIEWS : []), ...(center ? ROOM_VIEWS : []), "network"], radar: views.radar?.count ?? 0, twin: !!ep.twin,
+    stage: !!stage, room: !!center, span: [P.lo, P.hi], featured: traffic?.featured ?? [], hub: task.hub });
 }
