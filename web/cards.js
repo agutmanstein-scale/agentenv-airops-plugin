@@ -1,7 +1,7 @@
 // The cards over the scene: the header (the run, the airport and the day, the local clock, the weather and the FAA's
 // programs in plain English), the desk (the watch: its news, what the agent did, its own words when it said any), the
 // scoreboard, the departures and arrivals board, and the timeline with the cameras.
-import { HUB_NAMES, boardAt, esc, programsAt, rewardOf, scoreAt, short, utcAt, watchAt, zoneName } from "./model.js";
+import { HUB_NAMES, boardAt, esc, flagged, programsAt, rewardOf, scoreAt, short, utcAt, watchAt, zoneName } from "./model.js";
 import * as plain from "./plain.js";
 
 const REFS = [["follower", "Re-planning every hour", "the reference: a MIP re-solved at each watch on the day as known"],
@@ -135,13 +135,14 @@ export class Score extends Card {
     const ep = P.ep, ref = ep.reference ?? {};
     const refs = ep.occ?.refs ? ep.occ.refs.map((r) => [r.label, r.reward, false, r.note ?? ""]) : REFS.map(([k, label, note]) => [label, rewardOf(ref, ref[k]), false, note]);
     const rows = [[model, ep.reward, true, "this run"], ...refs].filter((r) => r[1] != null);
+    const under = ep.occ ? flagged(ep.cost.total, ep.reference?.anchor, ep.reference?.gap_pct, ep.occ.grade?.reward_L) : null;
     const unit = ep.occ ? "Cost in passenger-minutes: passengers' delay and cancellations (more the later they are decided), and the airline's aircraft and crew minutes at FAA rates."
       : "Cost in passenger-minutes: each minute a passenger lands late counts 1, each cancelled passenger 523.";
     const top = ep.occ ? "Final reward (1 = the best plan found)" : "Final reward (1 = the best plan in hindsight)";
     el.innerHTML = `<h5 data-s="title"></h5>
       <div class="kpis" data-s="kpis"></div><div class="costbar" data-s="bar"></div>
       <p class="unit">${esc(unit)}</p>
-      <div class="refs" title="Reward from 0.2 to 1"><div class="refs-h">${esc(top)}</div>${rows.map(([label, r, me, note]) => `<div class="ref${me ? " me" : ""}" title="${esc(note)}"><span>${esc(label)}</span><i><b style="width:${(100 * (r - 0.2)) / 0.8}%"></b></i><em>${r.toFixed(3)}</em></div>`).join("")}</div>`;
+      <div class="refs" title="Reward from 0.2 to 1"><div class="refs-h">${esc(top)}</div>${rows.map(([label, r, me, note]) => `<div class="ref${me ? " me" : ""}" title="${esc(note)}"><span>${esc(label)}</span><i><b style="width:${(100 * (r - 0.2)) / 0.8}%"></b></i><em>${r.toFixed(3)}${me && under ? "*" : ""}</em></div>`).join("")}</div>${under ? `<p class="flag">* ${esc(under)}</p>` : ""}`;
   }
 
   render(t) {
@@ -151,7 +152,7 @@ export class Score extends Card {
       <div><b>${fmt(s.delayedPax)}</b><span>passengers delayed 15 min or more</span></div>
       <div><b>${s.cancelled}</b><span>flights cancelled · ${fmt(s.cancelPax)} passengers</span></div>
       <div><b>${short(s.cost)}</b><span>${s.done ? `the day's cost${best ? `, ${((100 * (s.cost - best)) / best).toFixed(1)}% over the best ${P.ep.occ ? "plan found" : "possible"}` : ""}` : "cost so far"}</span></div>`);
-    this.slot("bar", `${Math.round((200 * s.cost) / top)}|${s.done}`, () => `<i class="fill" style="width:${(100 * s.cost) / top}%"></i>${best ? `<i class="best" style="left:${(100 * best) / top}%"><span>${P.ep.occ ? "best plan found" : "best possible day"} ${short(best)}</span></i>` : ""}`);
+    this.slot("bar", `${Math.round((200 * s.cost) / top)}|${s.done}`, () => `<i class="fill" style="width:${(100 * s.cost) / top}%"></i>${best ? `<i class="best" style="left:${(100 * best) / top}%"><span style="transform:translateX(${(100 * best) / top > 72 ? -100 : -60}%)">${P.ep.occ ? "best plan found" : "best possible day"} ${short(best)}</span></i>` : ""}`);
   }
 }
 

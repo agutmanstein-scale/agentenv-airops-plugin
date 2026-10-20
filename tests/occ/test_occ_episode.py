@@ -43,8 +43,11 @@ def test_a_played_day_is_an_episode_the_viewer_reads_with_the_room_in_it(played,
     assert p1["duties"][0]["ext"] - p1["duties"][0]["limit"] == crews.EXTENSION
     assert [c["id"] for c in ep["watches"][0]["changes"] if c["action"] == "cancel"] == [2]
     assert ep["stage"] is None and [r["reward"] for r in ep["occ"]["refs"]][0] == 1.0
-    index = json.loads(export.folder([ep], tmp_path)["episodes/index.json"])
-    assert index["episodes"][0]["occ"] == "two desks" and index["episodes"][0]["task_id"] == w.task.task_id
+    [entry] = json.loads(export.folder([ep], tmp_path)["episodes/index.json"])["episodes"]
+    assert (entry["occ"], entry["task_id"], entry["reward_L"]) == ("two desks", w.task.task_id,
+                                                                   data["grade"]["reward_L"])
+    assert entry["open"] == max(w.task.start, round(min(r["shown"] for r in ep["occ"]["requests"]
+                                                         if r["type"] != "TEXT")) - 6)
 
 
 def test_a_gate_tag_shows_no_crew_and_a_crew_clock_only_near_the_flights_departure():

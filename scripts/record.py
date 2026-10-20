@@ -63,6 +63,10 @@ SECONDS = {"establish": 5.5, "faa": 6, "decide": 6, "flip": 5, "push": 4.5, "tax
            "close": 7, "crew": 4.5, "van": 4.5}
 STRETCH = ("establish", "faa", "decide", "flip")
 ROOM = ("room", "room-desks", "room-wall")
+DAY_SUN = 12
+"""Degrees the sun is up for a still to count as a daylight one (--pick day)."""
+DAY_ORDER = ("pushback", "push", "crew", "takeoff", "wait", "taxi", "van")
+"""The airport shots a daylight still prefers, aircraft and people first."""
 DESKS = {"ops": "the ops controller", "crew": "the crew scheduler"}
 ASKS = {"CANCEL": "to cancel", "CANCEL_PAIR": "to cancel the round trip of", "HOLD": "to hold",
         "COVER": "to find a crew for"}
@@ -1082,8 +1086,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-room", action="store_true",
                    help="Film a control-center day whose page has no 3D room on the room's 2D card instead of failing.")
     p.add_argument("--pick", metavar="SHOT:FRACTION",
-                   help="The poster frame: a shot of the director's and how far through it; by default the first in "
-                        "the control-center room, else the taxi, takeoff or pushback halfway.")
+                   help="The poster frame: a shot of the director's and how far through it, or 'day' for its first "
+                        "airport shot in daylight; by default the first in the control-center room, else the taxi, "
+                        "takeoff or pushback halfway.")
     p.add_argument("--size", default="1920x1080")
     p.add_argument("--scale", type=float, default=1, help="Device pixels per CSS pixel.")
     p.add_argument("--fps", type=int, default=30)
@@ -1279,6 +1284,8 @@ def poster(page, ep: Mapping, shots: Sequence[Shot], pick: str | None, thumb: Pa
     """The picked frame of the film without cards or tags: full size to ``still``, 640x360 to ``thumb``; ``titled``
     puts the env's name and line over it in the films' caption."""
     names = {s.name for s in shots}
+    if pick == "day":
+        pick = daylight(page, shots)
     pick = pick or next((f"{s.name}:0.6" for s in shots if s.camera in ROOM), None) or \
         next((f"{n}:0.5" for n in ("taxi", "takeoff", "push") if n in names), "taxi:0.5")
     name, _, fraction = pick.partition(":")
@@ -1302,6 +1309,17 @@ def poster(page, ep: Mapping, shots: Sequence[Shot], pick: str | None, thumb: Pa
         else:
             shown.save(path)
         print(f"wrote {path}: {shown.width}x{shown.height}, {path.stat().st_size / 1e3:.0f} kB")
+
+
+def daylight(page, shots: Sequence[Shot], sun: float = DAY_SUN) -> str | None:
+    """The first airport shot of the film, its people and aircraft first, whose middle has the sun ``sun`` degrees up
+    or more (the stage's sun at the hub), as NAME:0.5; None when the day has none."""
+    ranked = sorted((s for s in shots if s.camera not in ROOM and s.name not in ("end", "map", "open")),
+                    key=lambda s: (DAY_ORDER.index(s.name) if s.name in DAY_ORDER else len(DAY_ORDER), s.t0))
+    for s in ranked:
+        if (page.js(f"airops.stage?.env?.sunAt({s.t0 + s.seconds * s.speed[0] / 120})?.el ?? -90") or -90) >= sun:
+            return f"{s.name}:0.5"
+    return None
 
 
 def highlight(shots: Sequence[Shot]) -> list[tuple[float, float]] | None:

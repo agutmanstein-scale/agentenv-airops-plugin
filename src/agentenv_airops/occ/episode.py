@@ -135,7 +135,7 @@ def room(world: World, data: Mapping, executed: Sequence[Mapping]) -> dict:
                  {"label": "Standard crew desk", "reward": round(reward(b0, best, b0), 6),
                   "note": "scripted standard crew-desk practice, aircraft doing nothing"}],
         "grade": {k: grade[k] for k in ("cost", "best", "bound", "B0", "flat", "gap_pct", "over_best_pct",
-                                         "avoidable_share", "counts", "costs") if k in grade},
+                                         "reward_L", "avoidable_share", "counts", "costs") if k in grade},
     }
 
 

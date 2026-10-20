@@ -214,7 +214,15 @@ def entry(ep: Mapping, url: str, cache: Path = CACHE) -> dict:
     return {"url": url, "task_id": t["task_id"], "hub": t["hub"], "date": t["date"], "model": ep["model"],
             "model_label": ep["model_label"], "run": ep["run"], "reward": ep["reward"], "cost": ep["cost"]["total"],
             "anchor": ep["reference"]["anchor"]} | ({"thumb": f"../{thumb}"} if (cache / thumb).is_file() else {}) \
-        | ({"occ": ep["occ"]["label"]} if ep.get("occ") else {})
+        | ({"occ": ep["occ"]["label"], "reward_L": ep["occ"]["grade"].get("reward_L"),
+            "gap_pct": ep["reference"].get("gap_pct"), "open": opening(ep)} if ep.get("occ") else {})
+
+
+def opening(ep: Mapping) -> int:
+    """The minute a control-center day's link opens on: just before the room shows its first typed request, else the
+    day's start."""
+    shown = [r["shown"] for r in ep["occ"]["requests"] if r["type"] != "TEXT"]
+    return max(ep["task"]["start"], round(min(shown)) - 6) if shown else ep["task"]["start"]
 
 
 def folder(episodes: list[dict], cache: Path = CACHE, index: Mapping | None = None) -> dict[str, bytes]:

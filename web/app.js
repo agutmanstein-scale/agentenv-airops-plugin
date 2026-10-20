@@ -1,7 +1,7 @@
 // AirOpsEnv v1 viewer: ?episode=<url> replays one episode on its clock, the 3D airport filling the screen with the US
 // map in a corner, cards over them and a timeline below; ?index=<url> lists episodes. window.airops {ready, time(t),
 // view(name), show(step), shot(spec), state()} lets a recorder drive it frame by frame.
-import { HUB_NAMES, cities, esc, flightsAt, positionsAt, prepare, programBands, watchAt } from "./model.js";
+import { HUB_NAMES, cities, esc, flagged, flightsAt, positionsAt, prepare, programBands, watchAt } from "./model.js";
 import { Board, Desk, Header, Score, Timeline } from "./cards.js";
 import { Room } from "./room.js";
 import { Views } from "./inset.js";
@@ -14,13 +14,14 @@ const SPEEDS = [0.25, 1, 2, 5, 10, 20, 40];
 const STAGE_VIEWS = ["tower", "gate", "threshold", "harbour", "follow", "crew"];
 const ROOM_VIEWS = ["room", "room-desks", "room-wall"];
 const ALIASES = { hub: "tower", region: "network", map: "network", center: "room" };
-const KEYS = { 1: "tower", 2: "gate", 3: "threshold", 4: "harbour", 5: "follow", 6: "room", 7: "crew", m: "network" };
+const KEYS = { 1: "tower", 2: "gate", 3: "threshold", 4: "harbour", 5: "follow", 6: "room", 7: "crew", 8: "room-desks", m: "network" };
 const CARRIERS = { AA: "an American", AS: "an Alaska", DL: "a Delta", UA: "a United", WN: "a Southwest", NK: "a Spirit", F9: "a Frontier", G4: "an Allegiant",
   SY: "a Sun Country", HA: "a Hawaiian", MX: "a Breeze", YX: "a Republic", "9E": "an Endeavor", OH: "a PSA", MQ: "an Envoy", OO: "a SkyWest", YV: "a Mesa",
   C5: "a CommuteAir", ZW: "an Air Wisconsin", PT: "a Piedmont", G7: "a GoJet", QX: "a Horizon" };
 const CAMERAS = { tower: ["Tower", "From the control tower"], gate: ["Gate", "At JetBlue's gates"], threshold: ["Runway", "At the end of the runway in use"],
   harbour: ["Harbour", "Across the water"], follow: ["Follow", "Behind an aircraft (or click one)"], network: ["Map", "The US map, full screen"],
-  room: ["Room", "The control center, where the desks work"], crew: ["Crew", "With a crew at the airport"] };
+  room: ["Room", "The control center, where the desks work"], "room-desks": ["Desks", "Close on the two desks and their requests"],
+  crew: ["Crew", "With a crew at the airport"] };
 
 let resolveReady, rejectReady;
 window.airops = {
@@ -64,10 +65,22 @@ async function getJSON(url) {
   return JSON.parse(await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).text());
 }
 
+/** A dynamic import retried twice under a fresh URL, since a browser may keep a failed module fetch in its module map. */
+async function load(path, tries = 2) {
+  for (let n = 0; ; n++) {
+    try {
+      return await import(n ? `${path}?retry=${n}` : path);
+    } catch (e) {
+      if (n >= tries) throw e;
+      await new Promise((r) => setTimeout(r, 800 * (n + 1)));
+    }
+  }
+}
+
 const longDate = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).replace(",", "");
 
 const V2 = { title: "AirOpsEnv v2: the ops control center", sub: "Run an airline's control center through a real storm day",
-  intro: "Each run puts a model in JetBlue's operations control center for a whole storm day, from 04:00: an ops controller runs the flights, a crew scheduler the pilots and flight attendants, and they ask each other for holds, cancellations and cover. The day is flown on what really happened and scored against the best plan found. Pick one to replay it." };
+  intro: "Each run puts a model in JetBlue's operations control center for a whole storm day, from 04:00, as two desks (an ops controller for the flights, a crew scheduler for the crews, asking each other for holds, cancellations and cover) or as one agent at both desks. The day is flown on what really happened and scored against the best plan found. Pick one to replay it." };
 const V1 = { title: "AirOpsEnv v1: the operations desk", sub: "Recover an airline's storm day at JFK or Boston",
   intro: "Each run puts a model at JetBlue's operations desk through a real storm day. Every hour it reads the FAA's advisories and the weather and may cancel or hold flights; the day is then flown on what really happened and scored against the best plan in hindsight. Pick one to replay it." };
 
@@ -77,13 +90,14 @@ async function indexPage(app, url) {
   document.documentElement.classList.add("light");
   document.title = `${v2.length ? V2.title : "AirOpsEnv v1"} · episodes`;
   const card = (e) => {
-    const href = `?episode=${encodeURIComponent(new URL(e.url, url).href)}`;
+    const href = `?episode=${encodeURIComponent(new URL(e.url, url).href)}${e.occ ? `&t=${e.open ?? ""}&view=room&play=1&speed=2` : ""}`;
     const gap = e.anchor ? (100 * (e.cost - e.anchor)) / e.anchor : null;
+    const under = e.occ ? flagged(e.cost, e.anchor, e.gap_pct, e.reward_L) : null;
     const thumb = e.thumb ? ` style="background-image:url('${esc(new URL(e.thumb, url).href)}')"` : "";
     return `<a class="ep-card" href="${href}"><div class="thumb${e.thumb ? "" : " none"}"${thumb}><span>${esc(e.hub)}</span>${e.featured ? "<em>Featured</em>" : ""}</div>
       <div class="body"><h2>${esc(HUB_NAMES[e.hub] ?? e.hub)} · ${esc(longDate(e.date))}</h2><p class="model">${esc(e.model_label ?? e.model)}${e.occ ? ` · ${esc(e.occ)}` : ""}</p>
-      <dl><div><dt>Reward</dt><dd>${e.reward?.toFixed(3) ?? "–"}</dd></div><div><dt>${e.occ ? "Cost vs best plan" : "Cost vs hindsight"}</dt><dd>${gap != null ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}%` : "–"}</dd></div></dl>
-      <p class="id">${esc(e.task_id)} · ${esc(e.run)}</p></div></a>`;
+      <dl><div><dt>Reward</dt><dd>${e.reward?.toFixed(3) ?? "–"}${under ? "*" : ""}</dd></div><div><dt>${e.occ ? "Cost vs best plan" : "Cost vs hindsight"}</dt><dd>${gap != null ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}%` : "–"}</dd></div></dl>
+      ${under ? `<p class="flag">* ${esc(under)}</p>` : ""}<p class="id">${esc(e.task_id)} · ${esc(e.run)}</p></div></a>`;
   };
   const board = (e) => (e.run ?? "").startsWith("occ-board");
   const rank = (e) => (e.occ ? [e.featured ? 0 : 1, e.featured ?? 0, board(e) ? 0 : 1, e.date, e.occ === "two desks" ? 0 : 1] : [0, 0, 0, "", -(e.reward ?? -1)]);
@@ -108,7 +122,7 @@ function note(list) {
   const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
   const parts = [...by].sort((a, b) => mean(b[1]) - mean(a[1])).map(([label, rs]) => `${mean(rs).toFixed(3)} with ${label}`);
   const days = new Set(runs.map((e) => e.task_id)).size, model = runs[0].model_label ?? runs[0].model;
-  return `<p class="note">The board: ${esc(model)} on ${days} storm days scores a mean reward of ${esc(parts.join(" and "))}. 1 is the best plan found; the standard crew desk scores about 0.31.</p>`;
+  return `<p class="note">The board: ${esc(model)} on ${days} storm days scores a mean reward of ${esc(parts.join(" and "))}. 1 is the best plan found; the standard crew desk scores about 0.31. The two desks used about twice the compute, so this doesn't show that talking helps.</p>`;
 }
 
 async function episodePage(app, url) {
@@ -146,7 +160,7 @@ async function episodePage(app, url) {
   let stage = null, tagAt = null;
   if (doc) {
     try {
-      const { AirportStage, tagAt: tag } = await import("./stage/stage.js").catch(() => new Promise((r) => setTimeout(r, 800)).then(() => import("./stage/stage.js")));
+      const { AirportStage, tagAt: tag } = await load("./stage/stage.js");
       tagAt = tag;
       stage = new AirportStage(root.querySelector(".stage-host"), { stage: doc, traffic, base: new URL(".", stageUrl).href, manual: RECORD, controls: !RECORD, avoid: () => covered(root) });
       await stage.ready;
@@ -159,7 +173,7 @@ async function episodePage(app, url) {
   let center = null;
   if (ep.occ) {
     try {
-      const { ControlCenter } = await import("./center/center.js").catch(() => new Promise((r) => setTimeout(r, 800)).then(() => import("./center/center.js")));
+      const { ControlCenter } = await load("./center/center.js");
       center = new ControlCenter(root.querySelector(".room-host"), { P, ep, base: url.href, manual: RECORD, controls: !RECORD });
       await center.ready;
     } catch (e) {
@@ -179,7 +193,7 @@ async function episodePage(app, url) {
   const expertEl = root.querySelector(".expert");
   let expert = null;
   const crews = !!traffic?.crews?.length;
-  const cameras = [...(stage ? STAGE_VIEWS.filter((v) => v !== "crew" || crews) : []), ...(center ? ["room"] : []), ...(stage || center ? ["network"] : [])].map((id) => ({ id,
+  const cameras = [...(stage ? STAGE_VIEWS.filter((v) => v !== "crew" || crews) : []), ...(center ? ["room", "room-desks"] : []), ...(stage || center ? ["network"] : [])].map((id) => ({ id,
     label: id === "harbour" && task.hub === "JFK" ? "Bay" : CAMERAS[id][0], title: `${CAMERAS[id][1]} (${Object.keys(KEYS).find((k) => KEYS[k] === id)})` }));
   const speed0 = SPEEDS.includes(Number(params.get("speed"))) ? Number(params.get("speed")) : 5;
   const timeline = new Timeline(root.querySelector(".timeline"), P, { bands: programBands(P), speeds: SPEEDS, speed: speed0, cameras });
@@ -236,10 +250,11 @@ async function episodePage(app, url) {
       viewName = stageView = STAGE_VIEWS.includes(name) ? name : "tower";
       if (viewName === "follow") opts = { ...opts, key: opts.key ?? following ?? nextFeatured(t) };
       following = viewName === "follow" ? opts.key ?? null : null;
+      await stage.time(t, { dt: 0, speed: 0 });
       await stage.view(viewName, opts);
     }
     followChip.hidden = !following;
-    timeline.camera(viewName.startsWith("room") ? "room" : viewName);
+    timeline.camera(viewName === "room-wall" ? "room" : viewName);
     draw(t, { force: true });
     return viewName;
   }
@@ -296,7 +311,7 @@ async function episodePage(app, url) {
     else if (k === "+" || k === "=" || k === "-") {
       speed = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, SPEEDS.indexOf(speed) + (k === "-" ? -1 : 1)))];
       root.querySelector(".speed").value = String(speed);
-    } else if (KEYS[k] && (KEYS[k] === "network" || (KEYS[k] === "room" ? center : KEYS[k] === "crew" ? stage && crews : stage))) setView(KEYS[k]);
+    } else if (KEYS[k] && (KEYS[k] === "network" || (KEYS[k].startsWith("room") ? center : KEYS[k] === "crew" ? stage && crews : stage))) setView(KEYS[k]);
     else if (k === "Escape" && following) setView("tower");
     else if (k === "x") setExpert(expertEl.hidden);
   });

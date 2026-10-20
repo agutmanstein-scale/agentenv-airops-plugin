@@ -68,6 +68,7 @@ export class NetworkMap {
     this.focus = null;
     this.map = new maplibregl.Map({ container: el, style: style(), bounds: bounds(P), fitBoundsOptions: { padding: 20 }, attributionControl: false,
       fadeDuration: 0, interactive, renderWorldCopies: false, canvasContextAttributes: { preserveDrawingBuffer: true, antialias: true } });
+    this.map.on("error", (e) => console.warn("map:", e.error?.message ?? e));
     this.loaded = new Promise((resolve) => this.map.once("load", resolve)).then(() => this.setup());
   }
 

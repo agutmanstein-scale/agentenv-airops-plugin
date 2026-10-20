@@ -169,12 +169,20 @@ export function buildCrews(list = []) {
       const it = byKey.get(key);
       return it ? focusOf(it, T) : null;
     },
-    /** The group a crew camera takes at T: of those about within the next hour, the featured aircraft's flights'
-     * first, else the one seen soonest; null when none is. */
-    pick(T, flights = new Set()) {
-      const near = items.filter((it) => it.to >= T && it.from <= T + 60);
-      const score = (it) => (it.flights.some((f) => flights.has(f)) ? -1000 : 0) + Math.max(0, it.from - T);
+    /** The group a crew camera takes at T: one about now, walking first, the featured aircraft's flights' first;
+     * else (unless `now`) the next one to appear within the hour; null when none is. */
+    pick(T, flights = new Set(), { now = false } = {}) {
+      const near = items.filter((it) => it.to >= T && it.from <= T + (now ? 0 : 60));
+      const score = (it) => {
+        const now = it.from <= T;
+        return (now ? 0 : 1000 + it.from - T) - (now && focusOf(it, T).moving ? 100 : 0) - (it.flights.some((f) => flights.has(f)) ? 50 : 0);
+      };
       return near.sort((a, b) => score(a) - score(b))[0]?.key ?? null;
+    },
+    /** Whether a group is still about at T (it hasn't boarded, left or gone in). */
+    about(key, T) {
+      const it = byKey.get(key);
+      return !!it && T <= it.to;
     },
     /** The vans and buses in the scene now as [x0, y0, x1, y1, half width] ENU metres, for a camera to keep clear of. */
     vehicles() {
