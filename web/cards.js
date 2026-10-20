@@ -152,7 +152,7 @@ export class Score extends Card {
       <div><b>${fmt(s.delayedPax)}</b><span>passengers delayed 15 min or more</span></div>
       <div><b>${s.cancelled}</b><span>flights cancelled · ${fmt(s.cancelPax)} passengers</span></div>
       <div><b>${short(s.cost)}</b><span>${s.done ? `the day's cost${best ? `, ${((100 * (s.cost - best)) / best).toFixed(1)}% over the best ${P.ep.occ ? "plan found" : "possible"}` : ""}` : "cost so far"}</span></div>`);
-    this.slot("bar", `${Math.round((200 * s.cost) / top)}|${s.done}`, () => `<i class="fill" style="width:${(100 * s.cost) / top}%"></i>${best ? `<i class="best" style="left:${(100 * best) / top}%"><span>${P.ep.occ ? "best plan found" : "best possible day"} ${short(best)}</span></i>` : ""}`);
+    this.slot("bar", `${Math.round((200 * s.cost) / top)}|${s.done}`, () => `<i class="fill" style="width:${(100 * s.cost) / top}%"></i>${best ? `<i class="best" style="left:${(100 * best) / top}%"><span style="transform:translateX(${(100 * best) / top > 72 ? -100 : -60}%)">${P.ep.occ ? "best plan found" : "best possible day"} ${short(best)}</span></i>` : ""}`);
   }
 }
 
