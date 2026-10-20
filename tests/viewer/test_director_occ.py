@@ -231,6 +231,17 @@ def test_the_customer_desk_asks_for_a_hold_for_connecting_passengers_and_rebooks
                                      "and a customer desk for the passengers")
 
 
+def test_the_line_at_the_service_counter_is_filmed_through_its_lounge_s_glass_at_its_longest():
+    ep, traffic = day()
+    ep["passengers"] = {"flights": [], "connections": [], "events": []}
+    traffic["passengers"] = {"lounges": [{"stand": "C-12", "door": [10.0, 26.0], "n": [[0.0, 1.0], [0.0, 1.0]]}],
+                             "counter": 0, "queue": [[560, 4], [610, 30], [640, 12], [700, 0]], "groups": []}
+    [[shot]] = record.Center(ep, traffic, None, None).counter()
+    assert (shot.name, shot.camera, shot.at) == ("counter", "lounge", 611)
+    assert shot.caption == "30 passengers wait at the service counter to be rebooked"
+    assert shot.subline == "After B6 20 to New York was cancelled" and shot.path == ((10.0, 26.0), (10.0, 25.0))
+
+
 def test_the_desks_words_are_quoted_only_when_they_read_plainly():
     ep, traffic = day()
     c = record.Center(ep, traffic, None, None)
