@@ -251,10 +251,10 @@ watch by watch:
   travels to the other as a card, then its answer comes back; each desk's words at the end of its turn appear at its
   pod.
 - **The airport**, in 3D as in v1, now with its crews: pilots and flight attendants in uniform walk from the crew room
-  to their gates, ride the apron bus to remote stands, board as passengers when deadheading, and leave in the hotel van
-  when they time out. An aircraft waiting for its crew sits at the gate tagged "waiting for crew", and tags show the
-  crew clock ("crew times out 22:40"). Every airline's flights move on their real times; the task's flights follow the
-  desks' decisions. The crew camera (key 7) stays with a crew.
+  to their gates, ride the apron bus to remote stands, board as passengers when deadheading, and take the hotel van when
+  their duty ends away from base. An aircraft waiting for its crew sits at the gate tagged "waiting for crew", and tags
+  show the crew clock ("crew times out 22:40"). Every airline's flights move on their real times; the task's flights
+  follow the desks' decisions. The crew camera (key 7) stays with a crew.
 - **The US map**: the radar and the aircraft in the air, and the crews: resting in hotels away from base, the reserves
   still on call at each base, crews riding as passengers.
 - **Expert panes**: each crew on duty against its legal limit (FAR 117 or 121.467), the full log of requests between
@@ -302,7 +302,7 @@ twice, and reports every scored run replayed and audited; this is how the board 
 
 ```bash
 agent-env airops-occ pilot my-board --run b6-20240713-0400-joint --run b6-20240713-0400-one \
-    --cap-joint 5 --cap-one 8 --budget 20 --request-margin 0.75 --parallel 2
+    --cap-joint 5 --cap-one 8 --budget 25 --request-margin 0.75 --parallel 2
 agent-env airops-occ report my-board          # results/runs/my-board/report.json
 ```
 
