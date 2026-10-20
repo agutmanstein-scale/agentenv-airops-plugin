@@ -35,7 +35,8 @@ def request(rid, sender, kind, fid, sent, shown, answered, reply_text, status="a
 
 def day():
     """A two-desk storm day at Boston: at 10:00 the crew desk asks the ops desk to cancel B6 20 to New York, which
-    stays at its gate; B6 10 to Miami waits at its gate for a crew until it pushes back at 11:40; a ground stop
+    stays at its gate; B6 10 to Miami waits at its gate for a crew, whose pilots walk up at 11:32, until it pushes
+    back at 11:40; a ground stop
     arrives at the 11:00 watch; at 12:00 the ops desk asks the crew desk to cover B6 30 from Detroit, which lands at
     13:05 with the pilots it found; at 12:40 the ops desk cancels three flights at once."""
     task = {"task_id": "b6-20250216-0400", "carrier": "B6", "hub": "BOS", "date": "2025-02-16",
@@ -84,7 +85,12 @@ def day():
                         status="cancelled", decided=600)}]},
         {"key": "N4", "tail": "N4", "carrier": "B6", "jetblue": True, "task": True, "visits": [
             {"stand": "C-14", "from": 790, "to": None, "dep": None,
-             "arr": leg("B6 30", "arr", "DTW", "Detroit", 760, 790, 5)}]}], "featured": []}
+             "arr": leg("B6 30", "arr", "DTW", "Detroit", 760, 790, 5)}]}], "featured": [],
+        "crews": [
+            {"key": "out-B610-688", "kind": "out", "crew": [2, 0], "flights": ["B6 10"], "stand": "C-11", "segs": [
+                {"do": "walk", "t": [688, 692], "p": [[100, 0], [60, 0], [20, 10]], "say": "to gate 11"}]},
+            {"key": "in-B69-640", "kind": "in", "crew": [2, 4], "flights": ["B6 9"], "stand": "C-11", "segs": [
+                {"do": "walk", "t": [640, 642], "p": [[20, 10], [100, 0]], "say": "to the crew room"}]}]}
     return ep, traffic
 
 
@@ -101,8 +107,8 @@ def test_a_control_center_day_cuts_between_the_room_and_the_airport_in_time_orde
     ep, traffic = day()
     shots = record.direct(ep, traffic, seconds=60)
     assert [(s.name, s.camera) for s in shots] == [
-        ("establish", "harbour"), ("ask", "room-desks"), ("cancelled", "gate"), ("faa", "tower"), ("wait", "gate"),
-        ("push", "push"), ("takeoff", "takeoff"), ("ask", "room-desks"), ("landing", "landing"), ("map", "map"),
+        ("establish", "harbour"), ("ask", "room-desks"), ("cancelled", "gate"), ("faa", "tower"), ("crew", "crew"),
+        ("push", "push"), ("takeoff", "takeoff"), ("map", "map"), ("ask", "room-desks"), ("landing", "landing"),
         ("end", "harbour")]
     assert 59 <= sum(s.seconds for s in shots) <= 61
     assert all(a.t1 <= b.t0 for a, b in zip(shots[:-1], shots[1:-1], strict=False))
@@ -116,7 +122,7 @@ def test_a_cancel_the_desks_agree_is_asked_and_answered_in_the_room_then_stays_a
     ep, traffic = day()
     ask, gate = record.direct(ep, traffic, seconds=60)[1:3]
     assert (ask.desk, ask.ref, ask.cards, ask.at) == ("ops", "R1", (), 612)
-    assert frames(ask)[0] <= 606 and at_fraction(ask, 612) == pytest.approx(0.7, abs=0.02)
+    assert frames(ask)[0] <= 606 and frames(ask)[-1] >= 612 + record.REPLY - 0.1
     assert ask.caption == "The crew scheduler asks the ops controller to cancel B6 20 to New York"
     assert ask.subline == ("The ops controller accepts: “Accept cancellation: no legal crew after the stop moved its "
                            "relief”")
@@ -130,16 +136,28 @@ def test_a_cancel_the_desks_agree_is_asked_and_answered_in_the_room_then_stays_a
 def test_a_cover_plays_out_as_the_covered_flight_lands_with_the_crew_found():
     ep, traffic = day()
     shots = record.direct(ep, traffic, seconds=60)
-    ask, landing = shots[7], shots[8]
-    assert (ask.ref, ask.desk) == ("R2", "crew") and frames(ask)[0] <= 728
+    ask, landing = shots[8], shots[9]
+    assert (ask.ref, ask.desk) == ("R2", "crew") and frames(ask)[0] <= 728 and ask.t1 >= 736 + record.REPLY - 0.1
     assert ask.caption == "The ops controller asks the crew scheduler to find a crew for B6 30 from Detroit"
     assert ask.subline == "The crew scheduler accepts and puts pilots 0754 on it"
     assert (landing.key, landing.at) == ("N4", 785) and landing.caption == "B6 30 from Detroit lands 30 min late"
     assert landing.subline == "Flown by pilots 0754, the cover the desks agreed"
 
 
-def test_a_flight_waits_at_its_gate_for_a_crew_then_leaves_with_it():
+def test_the_crew_a_flight_waits_for_walks_up_to_its_gate_then_it_leaves():
     ep, traffic = day()
+    shots = {s.name: s for s in record.direct(ep, traffic, seconds=60)}
+    crew, push = shots["crew"], shots["push"]
+    assert (crew.key, crew.path, crew.speed, crew.cards) == ("N1", ((60, 0), (20, 10)), (6, 6), ("tags",))
+    assert frames(crew)[-1] < 692 < push.t0 and crew.t0 > 680
+    assert crew.caption == "The pilots of B6 10 to Miami walk up to gate 11"
+    assert crew.subline == "140 passengers have waited 1 h 32 min"
+    assert push.caption == "B6 10 to Miami pushes back 1 h 30 min late, its crew aboard"
+
+
+def test_without_crews_a_flight_waits_at_its_gate_for_one_then_leaves():
+    ep, traffic = day()
+    del traffic["crews"]
     shots = {s.name: s for s in record.direct(ep, traffic, seconds=60)}
     wait, push = shots["wait"], shots["push"]
     assert wait.key == push.key == "N1" and wait.t1 < push.t0
@@ -154,9 +172,9 @@ def test_a_flight_waits_at_its_gate_for_a_crew_then_leaves_with_it():
 def test_the_map_shows_the_network_briefly_without_cards():
     ep, traffic = day()
     m = next(s for s in record.direct(ep, traffic, seconds=60) if s.name == "map")
-    assert (m.camera, m.cards, m.at) == ("map", (), 840) and frames(m)[0] < 840 < frames(m)[-1]
-    assert m.caption == "1 JetBlue flight in the air"
-    assert m.kicker == "14:00 · The network"
+    assert (m.camera, m.cards, m.at) == ("map", (), 720) and frames(m)[0] < 720 < frames(m)[-1]
+    assert m.caption == "2 JetBlue flights in the air, 1 of them bound for Boston Logan"
+    assert m.kicker == "12:00 · The network"
 
 
 def test_without_the_3d_room_its_beats_go_on_the_rooms_card_over_the_map():
@@ -213,7 +231,7 @@ def test_every_control_center_day_makes_a_minute_long_film(path, room):
     shots = record.direct(ep, traffic, seconds=60, room=room)
     assert 55 <= sum(s.seconds for s in shots) <= 61
     assert shots[0].name == "establish" and shots[-1].name == "end"
-    assert {"faa", "push", "takeoff", "wait"} <= {s.name for s in shots}
+    assert {"faa", "push", "takeoff"} <= {s.name for s in shots} and {"wait", "crew"} & {s.name for s in shots}
     assert all(a.t1 <= b.t0 for a, b in zip(shots[:-1], shots[1:-1], strict=False))
     assert all((a.camera, a.key) != (b.camera, b.key) for a, b in zip(shots, shots[1:], strict=False))
     assert all(max(s.speed) <= record.FAST[s.camera] for s in shots)
