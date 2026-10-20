@@ -280,6 +280,11 @@ html.bare .cards, html.bare .timeline, html.bare .credit, html.bare .follow-chip
 }
 @media (max-height: 820px) {
   :root { --inset-w: min(320px, 20vw); }
+  .card.pax { padding-top: 6px; padding-bottom: 6px; }
+  .pax h5, .pax-line { display: none; }
+  .pax .kpis { display: flex; flex-wrap: wrap; gap: 2px 12px; }
+  .pax .kpis b { display: inline; font-size: 15px; margin-right: 4px; }
+  .pax .kpis span { display: inline; font-size: 11px; white-space: nowrap; }
 }
 
 html.light, html.light body { background: #eef1f4; color: #14202b; overflow: auto; color-scheme: light; }

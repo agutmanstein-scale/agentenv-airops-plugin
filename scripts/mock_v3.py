@@ -72,7 +72,9 @@ def mock(ep: dict, rng: random.Random) -> None:
     flew = lambda i: ex[i]["status"] == "flown"  # noqa: E731
     conns = connections(sched, rng)
     occ = ep["occ"]
-    turns = customer_turns(occ, ep["watches"])
+    one = occ["mode"] == "one"
+    desk = "one" if one else "customer"
+    turns = [u for u in occ["turns"] if u["desk"] == "one"] if one else customer_turns(occ, ep["watches"])
     requests, decisions, events = [], [], []
     holds: dict[int, list] = defaultdict(list)
     for c in conns:
@@ -138,7 +140,7 @@ def mock(ep: dict, rng: random.Random) -> None:
             rows[i]["rebooked"].append({"to": g["id"], "pax": k})
             rows[g["id"]]["added"] += k
             events.append({"t": tr, "kind": "rebook", "at": at, "flight": i, "to": g["id"], "pax": k})
-            decisions.append({"t": turn["t"], "shown": tr, "desk": "customer", "action": "rebook", "flight": i,
+            decisions.append({"t": turn["t"], "shown": tr, "desk": desk, "action": "rebook", "flight": i,
                               "to": g["id"], "pax": k, "detail": None, "ref": None, "via": "rebook"})
         if left <= 0:
             continue
@@ -148,7 +150,7 @@ def mock(ep: dict, rng: random.Random) -> None:
             rows[i]["stranded"] += away
             events.append({"t": th, "kind": "hotel", "at": at, "flight": i, "pax": away,
                            "until": 1440 + 300 + rng.randrange(0, 120, 15)})
-            decisions.append({"t": turn["t"], "shown": tr + 0.5, "desk": "customer", "action": "hotel", "flight": i,
+            decisions.append({"t": turn["t"], "shown": tr + 0.5, "desk": desk, "action": "hotel", "flight": i,
                               "pax": away, "at": at, "detail": None, "ref": None, "via": "hotel"})
         if left - away:
             rows[i]["home"] += left - away
@@ -181,13 +183,17 @@ def mock(ep: dict, rng: random.Random) -> None:
                          "turn": next_turn(occ["turns"], turn, "crew"),
                          "text": f"{s['flight']} crew is legal to {hhmm(ex[big]['dep'] + 40)}: a 15-minute hold "
                                  "is fine."})
-    occ["requests"] = merge_requests(occ["requests"], requests, occ["turns"], turns)
     occ["decisions"] = sorted([*occ["decisions"], *decisions], key=lambda d: (d["shown"], d["desk"]))
-    occ["turns"] = renumber([*occ["turns"], *turns])
-    occ["pages"] = sorted([*occ["pages"], *pages(ep, turns, rows, events, conns)], key=lambda x: (x["t"], x["desk"]))
-    occ["notes"] = sorted([*occ["notes"], *notes(turns, events, sched)], key=lambda x: (x["shown"], x["desk"]))
-    occ["desks"] = [*occ["desks"], "customer"]
-    occ["label"] = "three desks"
+    if one:
+        occ["label"] = "one agent at every desk"
+    else:
+        occ["requests"] = merge_requests(occ["requests"], requests, occ["turns"], turns)
+        occ["turns"] = renumber([*occ["turns"], *turns])
+        occ["pages"] = sorted([*occ["pages"], *pages(ep, turns, rows, events, conns)],
+                              key=lambda x: (x["t"], x["desk"]))
+        occ["notes"] = sorted([*occ["notes"], *notes(turns, events, sched)], key=lambda x: (x["shown"], x["desk"]))
+        occ["desks"] = [*occ["desks"], "customer"]
+        occ["label"] = "three desks"
     ep["passengers"] = {"flights": [r for r in rows.values() if r["booked"] or r["added"]],
                         "connections": [{k: c[k] for k in ("from", "to", "at", "pax", "made")} for c in conns],
                         "events": sorted(events, key=lambda e: (e["t"], e["kind"], e["flight"]))}
