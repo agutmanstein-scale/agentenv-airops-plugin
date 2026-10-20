@@ -23,7 +23,8 @@ sensitivity):
   present), under P against their v2 cost.
 Layers (--layers on, Alec's world layers) are not in this tree; the switch is kept for the 2x2.
 Every job writes dates/<date>-k<k>.json as it finishes (--resume keeps those written); guards.json and report.md are
-recomputed from those files alone (--summarize does only that).
+recomputed from those files alone (--summarize does only that). The Sol board's days live on the laptop
+(results/runs, not in git): --crew rescores the crew world into the k = 1 files written elsewhere, with no MIP.
 """
 
 import argparse
@@ -62,12 +63,21 @@ def main() -> None:
     ap.add_argument("--pack", type=Path, default=None)
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--summarize", action="store_true")
+    ap.add_argument("--crew", action="store_true", help="only (re)score the crew world into the k = 1 files")
     a = ap.parse_args()
     if a.layers == "on":
         sys.exit("--layers on: the world layers are not in this tree")
     days = a.out / "dates"
     days.mkdir(parents=True, exist_ok=True)
-    if not a.summarize:
+    if a.crew:
+        for f in sorted(days.glob("*-k1.json")):
+            row = json.loads(f.read_text())
+            if "error" not in row:
+                w, passengers = booked(row["date"], 1.0, a)
+                row["crew"] = crew_world(w, passengers, a.board)
+                f.write_text(json.dumps(row, indent=1))
+                print(f"{row['date']}: crew world {len(row['crew'])} days", file=sys.stderr)
+    elif not a.summarize:
         tasks = Pack(a.pack).tasks
         only = set(filter(None, a.only.split(",")))
         dates = sorted(v["date"] for v in tasks.values() if (a.split == "all" or v["split"] == a.split)
@@ -95,15 +105,19 @@ def path(days: Path, date: str, k: float) -> Path:
     return days / f"{date}-k{k:g}.json"
 
 
-def job(date: str, k: float, a: argparse.Namespace) -> dict:
-    t0 = time.monotonic()
+def booked(date: str, k: float, a: argparse.Namespace):
     pack = Pack(a.pack)
-    tid = next(t for t, v in pack.tasks.items() if v["date"] == date)
-    w = pack.world(tid)
-    task = w.task
+    w = pack.world(next(t for t, v in pack.tasks.items() if v["date"] == date))
     flows = pax.Flows.load(date)
     flows = flows if k == 1 else flows.scaled(k)
-    passengers = pax.book(task, flows, pax.Dwell.load(), nextday.seats(task, a.inputs, a.derived))
+    return w, pax.book(w.task, flows, pax.Dwell.load(), nextday.seats(w.task, a.inputs, a.derived))
+
+
+def job(date: str, k: float, a: argparse.Namespace) -> dict:
+    t0 = time.monotonic()
+    w, passengers = booked(date, k, a)
+    task, tid = w.task, w.task.task_id
+    split = Pack(a.pack).tasks[tid]["split"]
     proxy = pax.Proxy(task, passengers)
     t1 = time.monotonic()
     anchor, _ = references.anchor(task)
@@ -127,7 +141,7 @@ def job(date: str, k: float, a: argparse.Namespace) -> dict:
     room = p["naive"] - p["pax_optimal"]
     levers = {"plan": p["v2"] - p["pax"], "rebooking": p["pax"] - p["pax_optimal"],
               "combined": p["v2"] - p["pax_optimal"]}
-    row = {"date": date, "task_id": tid, "split": pack.tasks[tid]["split"], "k": k, "flows": flows.label,
+    row = {"date": date, "task_id": tid, "split": split, "k": k, "flows": passengers.source,
            "passengers": counts(passengers), "P": p, "avoidable": room, "levers": levers,
            "shares": {n: v / room if room > 0 else None for n, v in levers.items()},
            "anchor": anchor.to_dict(), "mip": {**sol.to_dict(), "proxy_replay": round(proxy.cost(best), 1),
