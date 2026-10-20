@@ -1,17 +1,22 @@
 """The hindsight MIP (HiGHS): v1's time-line network (refs.mip) by split family, inside the programs.
 
 Each flight gets a copy per departure minute (every `step` minutes, at the EDCT of every slot into its destination, the
-slot less its scheduled block, and at the end of its crew's rest) from its earliest to its deadline, the hub cutoff
+slot less its scheduled block, at the end of every ramp closure at its origin, at the end of every one at its
+destination less its block, and at the end of its crew's rest) from its earliest to its deadline, the hub cutoff
 included, less the minutes the world forbids: those a ground stop holds it, those at which a segment governs it with
 its slot time (the minute plus the scheduled block) inside the period but on none of JetBlue's slots, and those after
 its crew deadline before its crew's rest ends. A copy on a slot counts in that slot's row, at most one flight per slot;
-any other copy into a hub counts in the nominal row of its arrival hour (the minute plus the block). A copy costs its
-pax x minutes late at arrival and its aircraft's minutes (cost.flown_price: the minute's gate delay, and the world's
-block overrun, the same for every copy of a flight); a cancellation costs `price`, the notice price at the solve time,
-which keeps the model linear, less the cancellation's saving, and a caller pins a cancellation the sim decides (an
-auto-cancel, `lapsed`) at the price the sim gives it (Task.auto_at). With `flat` every cancellation, the desk's or an
-auto-cancel, costs the flat price less the saving, as Cost.flat prices it. Pinned flights keep their minute, their
-cancellation or their auto-cancel, and use up the slots and nominal room they take.
+any other copy into a hub, or into an outstation in an hour it caps (Layers.arr_caps, which join the nominal caps),
+counts in the nominal row of its arrival hour (the minute plus the block); and any copy, slotted or not, leaving in an
+hour its origin caps (Layers.dep_caps) counts in that hour's departure row, one leaving inside a ramp closure at its
+origin (Layers.closures) in that closure's departure row, and one arriving (the minute plus the block) inside a ramp
+closure at its destination in that closure's arrival row. A copy costs its pax x minutes late at arrival and its
+aircraft's minutes (cost.flown_price: the minute's gate delay, and the world's block overrun, the same for every copy
+of a flight); a cancellation costs `price`, the notice price at the solve time, which keeps the model linear, less the
+cancellation's saving, and a caller pins a cancellation the sim decides (an auto-cancel, `lapsed`) at the price the
+sim gives it (Task.auto_at). With `flat` every cancellation, the desk's or an auto-cancel, costs the flat price less
+the saving, as Cost.flat prices it. Pinned flights keep their minute, their cancellation or their auto-cancel, and use
+up the slots, nominal, departure and closure room they take.
 
 Aircraft flow as in v1, over nodes per (family, station) at every event time; a copy of a leg with a busy block
 reaches its destination's node at the block's ready time when that is later than its turn. A leg JetBlue turned into
@@ -29,6 +34,13 @@ price: it leaves a leg not cancelled that carries no aircraft, and a plan holds 
 sim to decide it. Overnight nodes feed v1's ferries onto tomorrow's needs (Task.needed). Every solution is a day
 sim.execute reproduces from its departure minutes as holds, at the same cost, and every day sim.execute runs is a
 solution (`Network.vector`), which also starts the search.
+
+With a finite reserve pool at a crew base (Layers.reserves, docs/v3/DESIGN.md §3.4) each departure from it that is
+not pinned and has a copy past its crew deadline (Task.crew) before its crew's rest ends, or that may auto-cancel on
+a line, gets a 0/1 reserve column, which bounds those copies (and, on a line, a column auto-cancelling it on the
+reserve crew, at its deadline) and joins its base's pool row: room = the pool less the pinned flights the caller says
+hold a reserve (`reserved`, sim.granted's of them), whose own auto-cancel is then priced at its deadline. The copies of
+a reservable flight are Edgar's base departure's, every minute to its deadline, plus one at its crew's rest end.
 
 Proven to GAP (0.01%); `canonical` then re-solves among the optimal plans for the one with the earliest weighted
 departures (v1's second pass, started from the first), so the plan, not only its cost, is the same on every run. Within
@@ -71,6 +83,7 @@ class Solution:
     started: bool
     canonical: bool
     lapsed: dict[int, int]
+    reserve: frozenset[int] = frozenset()
 
     @property
     def proven(self) -> bool:
@@ -78,9 +91,10 @@ class Solution:
 
     def plan(self, decided: int) -> dict[int, dict]:
         """The solution as holds to each departure minute, its cancellations decided at `decided`; a flight it lets
-        auto-cancel is held past its deadline."""
-        return {i: {"not_before": self.lapsed[i]} if i in self.lapsed else {"cancel": True, "decided": decided}
-                if d is None else {"not_before": d} for i, d in self.deps.items()}
+        auto-cancel is held past its deadline; one it flies past its crew deadline on a reserve crew calls one."""
+        out = {i: {"not_before": self.lapsed[i]} if i in self.lapsed else {"cancel": True, "decided": decided}
+               if d is None else {"not_before": d} for i, d in self.deps.items()}
+        return {i: e | {"reserve": True} if i in self.reserve else e for i, e in out.items()}
 
     def to_dict(self) -> dict:
         return {"status": self.status, "objective": self.objective, "bound": round(self.bound, 1),
@@ -92,12 +106,12 @@ def solve(task: Task, world: sim.World | None = None, price: Mapping[int, int] |
           fixed: Mapping[int, int | None] | None = None, earliest: int | None = None, step: int = 1,
           time_limit: float = 600.0, gap: float = GAP, threads: int = 1, canonical: bool = True,
           start: sim.Execution | None = None, lapsed: Collection[int] = (), fix: bool = True,
-          flat: bool = False) -> Solution:
+          flat: bool = False, reserved: Collection[int] = ()) -> Solution:
     """The optimum in `world` (the truth by default) with each cancel arc at `price` (default: notice-priced at the
     first watch, or flat with `flat`). `fixed` pins flights to a departure minute (None: cancelled, or auto-cancelled
     for those in `lapsed`); the others leave at or after `earliest`. `start` is a day sim.execute ran in `world` that
-    the model holds, to start the search from."""
-    net = Network(task, world, price, fixed, earliest, step, lapsed, flat)
+    the model holds, to start the search from; `reserved` are the pinned flights holding a reserve crew."""
+    net = Network(task, world, price, fixed, earliest, step, lapsed, flat, reserved)
     return net.solve(time_limit, gap, threads, canonical, None if start is None else net.vector(start), fix)
 
 
@@ -123,7 +137,7 @@ class Network:
 
     def __init__(self, task: Task, world: sim.World | None = None, price: Mapping[int, int] | None = None,
                  fixed: Mapping[int, int | None] | None = None, earliest: int | None = None, step: int = 1,
-                 lapsed: Collection[int] = (), flat: bool = False):
+                 lapsed: Collection[int] = (), flat: bool = False, reserved: Collection[int] = ()):
         self.task = task
         self.world = world = sim.truth(task) if world is None else world
         if price is None:
@@ -141,8 +155,11 @@ class Network:
             else:
                 lo = max(task.earliest(f, world.lb[f.id]), earliest or 0)
                 jumps = {s - f.sched_block for seg in world.segments.get(f.dest, ()) for s in seg.slots}
-                if f.crew and f.crew.rest is not None:
-                    jumps.add(f.crew.rest)
+                jumps |= {b for _, b, _, _ in world.closures.get(f.orig, ())}
+                jumps |= {b - world.block[f.id] for _, b, _, _ in world.closures.get(f.dest, ())}
+                crew = task.crew(f)
+                if crew and crew.rest is not None:
+                    jumps.add(crew.rest)
                 minutes = set(range(lo, f.deadline + 1, step)) | {d for d in jumps if lo <= d <= f.deadline}
                 copies[f.id] = [(d, at) for d in sorted(minutes)
                                 if rules.held(f, d) == d and f.legal(d) == d and (at := _place(f, d, rules, pools))]
@@ -217,6 +234,10 @@ class Network:
         self.xs: dict[tuple[int, int], int] = {}
         self.cancel: dict[int, int] = {}
         self.lapsed: dict[int, int] = {}
+        self.reserve: dict[int, int] = {}
+        self.on_reserve: dict[int, int] = {}
+        self.reserved = frozenset(i for i in reserved if i in fixed and task.reservable(task.flight(i)))
+        calls: dict[str, dict[int, int]] = defaultdict(dict)
         rows: dict[tuple, dict[int, int]] = defaultdict(dict)
         pinned: Counter = Counter()
         cover = []
@@ -230,20 +251,32 @@ class Network:
                 arc(gate.get((f.id, d), node[((f.family, f.orig), d)]),
                     lane.get((f.id, d), node[((f.family, f.dest), task.back(f, arr))]), c)
                 r[c] = 1
-                if kind != "free":
+                for row in ((kind, key),) + rules.leaving(f, d):
+                    if row[0] == "free":
+                        continue
                     if f.id in fixed:
-                        pinned[(kind, key)] += 1
+                        pinned[row] += 1
                     else:
-                        rows[(kind, key)][c] = 1
+                        rows[row][c] = 1
             ub = 0 if f.id in fixed and fixed[f.id] is not None else 1
             lapses = f.id in on_line and (f.id not in fixed or f.id in lapsed)
             self.cancel[f.id] = c = m.col(price[f.id], 0 if lapses and f.id in fixed else ub, True,
                                           (f.deadline - f.sched_dep + 2) * w)
             r[c] = 1
             if f.id in on_line:
-                self.lapsed[f.id] = c = m.col(flat_price(f) if flat else cancel_price(f, task.auto_at(f)),
-                                              ub if lapses else 0, True, (f.deadline - f.sched_dep + 3) * w)
+                lapse = flat_price(f) if flat else cancel_price(f, task.auto_at(f, f.id in self.reserved))
+                self.lapsed[f.id] = c = m.col(lapse, ub if lapses else 0, True, (f.deadline - f.sched_dep + 3) * w)
                 r[c] = 1
+            if task.reservable(f) and f.id not in fixed:
+                bound = {self.xs[(f.id, d)]: 1 for d, _ in copies[f.id] if task.late(f, d)}
+                if f.id in on_line:
+                    lapse = flat_price(f) if flat else cancel_price(f, task.auto_at(f, True))
+                    self.on_reserve[f.id] = c = m.col(lapse, 1, True, (f.deadline - f.sched_dep + 4) * w)
+                    r[c] = bound[c] = 1
+                if bound:
+                    self.reserve[f.id] = c = m.col(0, 1, True)
+                    m.row({**bound, c: -1}, -INF, 0)
+                    calls[f.orig][c] = 1
             cover.append(r)
         self.landed: dict[tuple[int, int], int] = dict(self.xs)
         self.turn: dict[tuple[int, int], int] = {}
@@ -355,9 +388,15 @@ class Network:
             m.row(flow[v], -supply[v], -supply[v])
         for r in cover:
             m.row(r, 1, 1)
+        shut = {(kind, (s, a)): cap for s, spans in world.closures.items() for a, _, dep, arr in spans
+                for kind, cap in (("closure_dep", dep), ("closure_arr", arr))}
         for (kind, key), r in rows.items():
-            room = 1 if kind == "slot" else world.nominal[key[0]][key[1]]
+            room = (1 if kind == "slot" else world.nominal[key[0]][key[1]] if kind == "hour"
+                    else world.dep_caps[key[0]][key[1]] if kind == "dep" else shut[(kind, key)])
             m.row(r, -INF, max(0, room - pinned[(kind, key)]))
+        held = Counter(task.flight(i).orig for i in self.reserved)
+        for base, r in calls.items():
+            m.row(r, -INF, max(0, task.layers.reserves[base] - held[base]))
         self.copies = copies
 
     def solve(self, time_limit: float = 600.0, gap: float = GAP, threads: int = 1, canonical: bool = True,
@@ -383,9 +422,13 @@ class Network:
         for f in self.task.flights:
             flown = [d for d, _ in self.copies[f.id] if x[self.xs[(f.id, d)]] > 0.5]
             deps[f.id] = flown[0] if flown else None
-        lapsed = {i: self.task.flight(i).deadline + 1 for i, c in self.lapsed.items() if x[c] > 0.5}
+        lapsed = {i: self.task.flight(i).deadline + 1 for i, c in [*self.lapsed.items(), *self.on_reserve.items()]
+                  if x[c] > 0.5}
+        reserve = {i for i, c in self.on_reserve.items() if x[c] > 0.5} | {
+            i for i in self.reserve if deps[i] is not None and self.task.late(self.task.flight(i), deps[i])}
         return Solution(status, round(objective), bound, round(100 * mip_gap, 4), round(wall, 2), deps, len(m.cost),
-                        len(m.rows), sum(len(v) for v in self.copies.values()), start is not None, settled, lapsed)
+                        len(m.rows), sum(len(v) for v in self.copies.values()), start is not None, settled, lapsed,
+                        frozenset(reserve) | self.reserved)
 
     def vector(self, run: sim.Execution) -> np.ndarray | None:
         """`run` (a day sim.execute ran in this world, holding every pin) as a solution of the model, or None if a
@@ -398,8 +441,11 @@ class Network:
         via, fast = {}, set()
         for f in task.flights:
             r = run.flights[f.id]
+            if f.id in self.reserve:
+                x[self.reserve[f.id]] = f.id in run.reserved
             if r.status != FLOWN:
-                x[self.lapsed[f.id] if r.status == AUTO_CANCELLED and f.id in self.lapsed else self.cancel[f.id]] = 1
+                lapse = self.on_reserve if f.id in run.reserved and f.id in self.on_reserve else self.lapsed
+                x[lapse[f.id] if r.status == AUTO_CANCELLED and f.id in lapse else self.cancel[f.id]] = 1
                 continue
             k = (f.id, r.dep)
             if k not in self.xs:

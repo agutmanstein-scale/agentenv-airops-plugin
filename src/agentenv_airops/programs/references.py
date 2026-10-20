@@ -24,24 +24,33 @@ airline's aircraft-minutes at the FAA's rates).
   arrival order as slot claims (each claims the slot of its recorded departure plus its scheduled block); auto-cancels
   are counted over the flights it flew by their deadline, which covers dmax and the hub cutoff, less those whose
   aircraft a leg it flew past its deadline brought (`counted`); a flight it flew past its crew deadline still counts,
-  which is what tells a crew model too strict for JetBlue's day;
+  which is what tells a crew model too strict for JetBlue's day. With a finite reserve pool at a base (§3.4 of
+  docs/v3/DESIGN.md) it calls a reserve for each departure from that base its replay with unlimited reserves (the v2
+  replay) flies past its crew deadline (Task.crew), JetBlue's own departure or a later one its aircraft or the
+  programs make, granted while the pool lasts (sim.granted), and one the pool can't crew auto-cancels;
 - recorded day: JetBlue's real outcome priced directly, its aircraft's minutes on its recorded departures and blocks,
   cancellations decided at sched - NOTICE, plus end-of-day ferries from its recorded end positions to tomorrow's needs.
   A diverted flight that never reached its destination counts as cancelled when it left, the moment the desk knew;
 - calm day: from the positions the schedule assumes, every aircraft ready at the start and tomorrow's needs following
   them (network.scheduled), no delay, scheduled blocks, no programs: the hindsight optimum's forced cancellations and
   ferries; with `record`, from the record's positions and the task's needs, as the storm day starts.
+The watches are hourly (`watch_times`), and on a layered task they also wake on its events: an advisory or SPECI
+reaching the desk, a ramp closure starting (docs/v3/DESIGN.md §4); the follower, the rule and the playable day share
+them.
 Like for like, nothing is decided before the first watch: a JetBlue cancellation due earlier than the start counts as
 decided there, as the anchor's and every desk's do. At a watch the day so far is history, as the env shows it: a
 flight that has left on the truth leaves when it did in the follower's and the rule's projection and is pinned there in
-the follower's MIP, and every other flight leaves no earlier than the watch. No reference may cost less than the
+the follower's MIP, and every other flight leaves no earlier than the watch. With a reserve pool the follower's plan
+calls the reserves its last solve flies past a crew deadline, a pinned flight keeps the reserve the plan gave it, and
+the pinned flights the pool granted one hold it in every later solve. No reference may cost less than the
 anchor (`below_anchor`).
 """
 
+import hashlib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from ..core.known import FREEZE, LOOK, STEP
+from ..core.known import CAP_LOOK, FREEZE, LOOK, STEP
 from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN
 from . import mip, network, sim
 from .advisories import HUBS
@@ -49,6 +58,7 @@ from .cost import NOTICE, Cost, cancel_price, priced
 from .model import Flight, Task
 
 TIME_LIMIT = 2400.0
+WATCH_MIN = 15
 
 
 @dataclass(frozen=True)
@@ -108,17 +118,20 @@ def follow(task: Task, programs: bool = True, time_limit: float = TIME_LIMIT, ca
             pinned |= frozen(run, t)
         fixed = {i: run.flights[i].dep if run.flights[i].status == FLOWN else None for i in pinned}
         lapsed = {i for i in pinned if run.flights[i].status == AUTO_CANCELLED}
-        price = {f.id: _price(f, plan.get(f.id, {}), task.auto_at(f) if f.id in pinned else t) for f in task.flights}
+        reserved = run.reserved & pinned
+        price = {f.id: _price(f, plan.get(f.id, {}), task.auto_at(f, f.id in reserved) if f.id in pinned else t)
+                 for f in task.flights}
         sol = mip.solve(task, world, price, fixed, t + FREEZE if t > task.start else None, time_limit=time_limit,
-                        canonical=canonical, start=run, lapsed=lapsed)
+                        canonical=canonical, start=run, lapsed=lapsed, reserved=reserved)
         if not sol.proven:
             raise RuntimeError(f"{task.task_id}: watch {t} solve {sol.status} at gap {sol.gap_pct}%")
         cancelled = sorted(i for i, d in sol.deps.items() if i not in pinned and d is None and i not in sol.lapsed)
         plan = {i: v for i, v in plan.items() if i in pinned} | {i: {"cancel": True, "decided": t} for i in cancelled}
         pinned |= set(cancelled)
         deps = {i: sol.lapsed.get(i, d) for i, d in sol.deps.items() if i not in pinned}
+        plan |= {i: {"reserve": True} for i in sorted(sol.reserve - pinned)}
         held = deliberate(task, plan, deps, world, t)
-        plan |= {i: {"not_before": d} for i, d in held.items()}
+        plan |= {i: {**plan.get(i, {}), "not_before": d} for i, d in held.items()}
         log.append({"t": t, "frozen": len(pinned), "cancelled": cancelled, "held": len(held),
                     "planned": sol.objective, "status": sol.status, "gap_pct": sol.gap_pct,
                     "canonical": sol.canonical, "wall_s": sol.wall_s, "cols": sol.cols, "rows": sol.rows})
@@ -154,8 +167,13 @@ def naive(task: Task) -> sim.Execution:
 
 
 def airline_plan(task: Task) -> dict[int, dict]:
-    return {f.id: {"cancel": True, "decided": max(f.sched_dep - NOTICE, task.start)} if f.actual.dep is None
+    plan = {f.id: {"cancel": True, "decided": max(f.sched_dep - NOTICE, task.start)} if f.actual.dep is None
             else {"not_before": f.actual.dep, "claim": f.actual.dep + f.sched_block} for f in task.flights}
+    if not any(task.reservable(f) for f in task.flights):
+        return plan
+    free = sim.execute(replace(task, layers=replace(task.layers, reserves={})), plan).flights
+    return {i: e | {"reserve": True} if free[i].dep is not None and task.late(task.flight(i), free[i].dep) else e
+            for i, e in plan.items()}
 
 
 def airline(task: Task) -> Replay:
@@ -197,14 +215,42 @@ def calm(task: Task, time_limit: float = TIME_LIMIT, record: bool = False) -> Ca
 
 
 def watch_times(task: Task) -> list[int]:
-    """Every STEP minutes from the start, through the first watch that knows every delay, while some flight could
-    still leave unfrozen (t + FREEZE <= its deadline)."""
-    reveal = max(f.sched_dep - LOOK for f in task.flights)
+    """Every STEP minutes from the start, through the first watch that knows every delay (on a layered task every
+    departure and outstation arrival cap too, known CAP_LOOK ahead as v1's slot caps were), while some flight could
+    still leave unfrozen (t + FREEZE <= its deadline). A layered task's watches also wake on events (docs/v3/DESIGN.md
+    §4, `events`) up to that last minute: walking the hourly watches and the events in order, one closer than
+    WATCH_MIN to the watch before moves to WATCH_MIN after it (to the last minute if that is sooner), taking in any
+    others up to there, and a gap longer than STEP gets a watch every STEP, so consecutive watches are WATCH_MIN to
+    STEP apart but for a last one moved onto the last minute, and every event by the last minute reaches the desk."""
+    hours = [h for caps in ((task.layers.dep_caps, task.layers.arr_caps) if task.layered else ())
+             for by in caps.values() for h in by]
+    reveal = max([f.sched_dep - LOOK for f in task.flights] + [60 * h - CAP_LOOK for h in hours])
     last = max(f.deadline for f in task.flights) - FREEZE
     ts = [task.start]
     while ts[-1] < reveal and ts[-1] + STEP <= last:
         ts.append(ts[-1] + STEP)
-    return ts
+    if not task.layered:
+        return ts
+    kept = [task.start]
+    for c in sorted(set(ts) | {e for e in events(task) if task.start < e <= last}):
+        if c <= kept[-1]:
+            continue
+        c = min(max(c, kept[-1] + WATCH_MIN), last)
+        while c - kept[-1] > STEP:
+            kept.append(kept[-1] + STEP)
+        kept.append(c)
+    return kept
+
+
+def events(task: Task) -> list[int]:
+    """The minutes a desk learns something it should act on: each advisory and each SPECI as it reaches the desk
+    (its signature or observation plus its kind's lag, Task.lag) and each ramp closure's start and end (until its end
+    the day as known expects it GUESS after each watch, sim.known)."""
+    advs = [a.issued + task.lag("advisory") for p in task.programs.values() for a in p.advisories]
+    layers = task.layers
+    specis = [m + task.lag("speci") for m, kind, _, _ in layers.weather if kind == "speci"]
+    bounds = [m for spans in layers.closures.values() for a, b, _, _ in spans for m in (a, b)]
+    return sorted(set(advs + specis + bounds))
 
 
 def frozen(run: sim.Execution, t: int) -> set[int]:
@@ -223,7 +269,7 @@ def so_far(task: Task, plan: Mapping[int, Mapping], t: int, run: sim.Execution |
     for f in task.flights:
         entry, dep = plan.get(f.id, {}), run.flights[f.id].dep
         if dep is not None and dep < t:
-            out[f.id] = {"left": dep}
+            out[f.id] = {"left": dep} | ({"reserve": True} if entry.get("reserve") else {})
         elif entry.get("cancel"):
             out[f.id] = dict(entry)
         else:
@@ -249,6 +295,12 @@ def past_midnight(task: Task, run: sim.Execution | None = None) -> int:
         out += dep is not None and dep >= 1440 and f.orig in HUBS
         out += arr is not None and arr >= 1440 and f.dest in HUBS
     return out
+
+
+def digest(task: Task) -> str:
+    """The task's sha256 (16 hex digits): what a pack's stored reference costs were run on (scripts/v3_pack.py
+    --refs), so a load can tell them from a stale file's."""
+    return hashlib.sha256(task.to_json().encode()).hexdigest()[:16]
 
 
 def _price(f: Flight, entry: Mapping, at: int) -> int:

@@ -30,14 +30,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
 from ..build import bts, fetch
 from ..build import weather as v1
 from ..programs import candidates, unseen
 from ..programs.advisories import HUBS, nm
-
-Image.MAX_IMAGE_PIXELS = None
 
 ATR = "https://www.panynj.gov/content/dam/airports/statistics/statistics-general-info/annual-atr/ATR_2024.pdf"
 ATR_SHA256 = "0f28d133faa2b4347e4bbc98d1e2eff6b1ea065ca4d97e8a9773319e4b493b59"
@@ -175,6 +172,9 @@ def discs() -> dict[str, tuple[slice, slice, np.ndarray]]:
 
 
 def shares(body: bytes, masks: dict) -> dict[str, dict[str, float]]:
+    from PIL import Image  # an extra's: the path helpers above serve installs without it (programs.layers)
+
+    Image.MAX_IMAGE_PIXELS = None
     im = Image.open(io.BytesIO(body))
     if im.mode != "P":
         raise ValueError(f"expected a palette PNG, got {im.mode}")

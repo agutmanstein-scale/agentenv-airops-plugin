@@ -4,22 +4,42 @@ from day_helpers import (
     GDP,
     broken_day,
     busy_day,
+    capped,
+    capped_day,
+    closed,
+    closed_day,
     crewed,
     day,
     flight,
+    late_pin_day,
     moved_day,
+    outcapped,
+    outcapped_day,
     quick_day,
+    reserve_day,
+    reserved,
+    shared_hour_day,
     stop,
     tail,
     three_into_a_program,
     turned_through_day,
+    two_from_jfk,
 )
 
 from agentenv_airops.programs import sim
 
 
+def deps(run):
+    return {i: r.dep for i, r in run.flights.items()}
+
+
 def slots(run):
     return {i: (r.dep, r.slot) for i, r in run.flights.items()}
+
+
+def arrivals(run):
+    """Departure and arrival of the flights into JFK on closed_day."""
+    return {i: (run.flights[i].dep, run.flights[i].arr) for i in (3, 5)}
 
 
 def test_controlled_flights_leave_at_the_edct_of_the_earliest_free_slot_and_a_cancellation_moves_the_queue_up():
@@ -167,6 +187,45 @@ def test_a_crew_past_its_deadline_rests_ten_hours_or_its_flight_auto_cancels_the
     assert sim.execute(replace(task, start=200), {}).flights[1].decided == 200
 
 
+def test_with_one_reserve_the_first_late_base_departure_by_id_flies_on_it_and_the_second_auto_cancels_at_its_deadline():
+    task = reserve_day()
+    calls = {0: {"reserve": True}, 1: {"reserve": True}}
+    run = sim.execute(task, calls)
+    assert run.reserved == sim.granted(task, calls) == {0}
+    assert [(r.status, r.dep, r.decided) for r in run.flights.values()][:2] == [
+        ("flown", 200, None), ("auto_cancelled", None, 150)]
+    assert (task.auto_at(task.flight(1)), task.auto_at(task.flight(1), reserve=True)) == (150, 700)
+    assert task.crew(task.flight(0)).deadline == 150 and task.flight(0).crew.deadline is None
+    uncalled = sim.execute(task, {})
+    assert [uncalled.flights[i].status for i in (0, 1)] == ["auto_cancelled", "auto_cancelled"]
+    second = sim.execute(task, {1: {"reserve": True}})
+    assert (second.reserved, second.flights[0].status, second.flights[1].dep) == ({1}, "auto_cancelled", 205)
+    assert sim.granted(task, {0: {"reserve": True, "cancel": True}, 1: {"reserve": True}}) == {1}
+    two = sim.execute(reserved(task, {"JFK": 2}), calls)
+    assert two.reserved == {0, 1} and [two.flights[i].dep for i in (0, 1)] == [200, 205]
+
+
+def test_a_plan_entry_for_a_flight_outside_the_task_changes_nothing_with_or_without_a_pool():
+    for task in (two_from_jfk(), reserve_day()):
+        assert sim.execute(task, {999: {"not_before": 0, "reserve": True}}).rows() == sim.execute(task, {}).rows()
+    assert sim.granted(reserve_day(), {999: {"reserve": True}, "1": {"reserve": True}}) == {1}
+
+
+def test_without_a_pool_a_base_departure_keeps_unlimited_reserves_and_a_call_changes_nothing():
+    task = replace(reserve_day(), layers=None)
+    run = sim.execute(task, {})
+    assert [run.flights[i].dep for i in (0, 1)] == [200, 205] and run.reserved == frozenset()
+    assert sim.execute(task, {0: {"reserve": True}}).rows() == run.rows()
+    elsewhere = reserved(task, {"BOS": 3})
+    assert sim.execute(elsewhere, {}).rows() == run.rows() and not elsewhere.reservable(elsewhere.flight(0))
+
+
+def test_a_pinned_base_departure_leaves_at_its_minute_past_its_crew_deadline_and_holds_the_reserve_it_called():
+    task = reserve_day()
+    run = sim.execute(task, {0: {"left": 210, "reserve": True}, 1: {"reserve": True}})
+    assert run.flights[0].dep == 210 and run.reserved == {0} and run.flights[1].status == "auto_cancelled"
+
+
 def test_a_turn_jetblue_flew_faster_than_the_rule_holds_through_the_moves_its_aircraft_passes():
     run = sim.execute(turned_through_day(), {1: {"cancel": True}})
     assert (run.flights[2].tail, run.flights[2].dep, run.moves) == ("N1", 100, {1: 110})
@@ -182,3 +241,109 @@ def test_a_turn_jetblue_flew_faster_than_the_rule_is_allowed_for_that_connection
     assert sim.execute(alone, {1: {"cancel": True}}).flights[2].dep == 190
     assert sim.execute(alone, {}).flights[1].dep == 170
     assert sim.execute(quick_day(40), {}).flights[1].dep == sim.execute(quick_day(None), {}).flights[1].dep
+
+
+def test_a_full_departure_hour_pushes_a_departure_to_the_next_hour():
+    flights = [flight(0, "JFK", "BUF", 60, 60), flight(1, "JFK", "DCA", 70, 60), flight(2, "JFK", "MCO", 80, 150)]
+    tails = [tail("N1", "JFK", end="BUF"), tail("N2", "JFK", end="DCA"), tail("N3", "JFK", end="MCO")]
+    task = capped(day(flights, tails), {"JFK": {1: 1, 2: 1}})
+    assert deps(sim.execute(task, {})) == {0: 60, 1: 120, 2: 180}
+    assert deps(sim.execute(task, {0: {"cancel": True}})) == {0: None, 1: 70, 2: 120}
+
+
+def test_a_capped_hub_spreads_its_departures_over_the_hours_and_leaves_its_arrivals_alone():
+    run = sim.execute(capped_day(), {})
+    assert {i: (r.dep, r.slot) for i, r in run.flights.items()} == {
+        0: (120, 180), 1: (140, 200), 2: (125, None), 3: (180, None), 4: (180, None), 5: (240, None), 6: (240, None)}
+    assert deps(sim.execute(replace(capped_day(), layers=None), {})) == {
+        0: 120, 1: 140, 2: 125, 3: 130, 4: 150, 5: 210, 6: 230}
+
+
+def test_a_pinned_departure_uses_up_its_hour_before_the_others_leave():
+    run = sim.execute(two_from_jfk(), {1: {"left": 100}})
+    assert (run.flights[0].dep, run.flights[1].dep) == (120, 100)
+
+
+def test_a_pinned_departure_its_aircraft_makes_late_counts_in_the_hour_it_leaves():
+    task = late_pin_day()
+    assert deps(sim.execute(task, {1: {"left": 170}})) == {0: 100, 1: 190, 2: 240, 3: 140}
+    assert deps(sim.execute(task, {})) == {0: 100, 1: 190, 2: 240, 3: 140}
+
+
+def test_a_slotted_departure_uses_up_its_hour_of_leaving():
+    assert slots(sim.execute(shared_hour_day(), {})) == {0: (70, 130), 1: (120, None)}
+
+
+def test_a_ramp_closure_cuts_departures_to_its_cap_and_the_rest_leave_at_its_end():
+    run = sim.execute(closed_day(), {})
+    assert deps(run) == {0: 120, 1: 180, 2: 180, 3: 100, 4: 200, 5: 110, 6: 210}
+    assert deps(sim.execute(replace(closed_day(), layers=None), {})) == {
+        0: 120, 1: 130, 2: 140, 3: 100, 4: 200, 5: 110, 6: 210}
+    assert deps(sim.execute(closed_day(), {0: {"cancel": True}})) == {
+        0: None, 1: 130, 2: 180, 3: 100, 4: 200, 5: 110, 6: 210}
+
+
+def test_a_full_ramp_closure_holds_an_arrival_so_that_it_arrives_at_its_end_and_its_aircraft_turns_from_there():
+    """Room for one arrival: flight 3 lands at 160, inside, and flight 5, which would land at 170, leaves DCA at 120
+    to arrive at 180. With none, both arrive at 180, and flight 4 waits for an aircraft until 210. An arrival inside a
+    closure with room reaches its gate on landing: no gate hold."""
+    room, one, none = (sim.execute(closed_day(n), {}) for n in (2, 1, 0))
+    assert arrivals(room) == {3: (100, 160), 5: (110, 170)}
+    assert arrivals(one) == {3: (100, 160), 5: (120, 180)}
+    assert arrivals(none) == {3: (120, 180), 5: (120, 180)}
+    assert (one.flights[4].dep, none.flights[4].dep) == (200, 210)
+    assert none.cost.total > one.cost.total > room.cost.total
+
+
+def test_a_pinned_arrival_uses_up_its_ramp_closure_before_the_others_arrive():
+    assert arrivals(sim.execute(closed_day(1), {5: {"left": 110}})) == {3: (120, 180), 5: (110, 170)}
+
+
+def test_a_pinned_departure_uses_up_its_ramp_closure_before_the_others_leave():
+    run = sim.execute(closed_day(), {1: {"left": 125}})
+    assert deps(run) == {0: 180, 1: 125, 2: 180, 3: 100, 4: 200, 5: 110, 6: 210}
+
+
+def test_a_ramp_closure_with_no_room_holds_its_stations_departures_to_its_end():
+    task = closed(closed_day(), {"JFK": ((120, 180, 0, 2),), "BUF": ((0, 130, 0, 2),)})
+    run = sim.execute(task, {})
+    assert deps(run) == {0: 180, 1: 180, 2: 180, 3: 130, 4: 200, 5: 110, 6: 220} and run.flights[3].arr == 190
+
+
+def test_a_ramp_closure_counts_an_arrival_at_its_truth_block_not_its_scheduled_one():
+    """Flight 0 leaves BUF at 120 with a 60-minute scheduled block but a 45-minute truth one: it would land at 165,
+    inside JFK's closure 150-170 with no room for arrivals (by its scheduled block, 180, it would not), so it leaves at
+    125 to arrive at 170."""
+    task = closed(day([flight(0, "BUF", "JFK", 120, 45, sched_block=60)], [tail("N1", "BUF", end="JFK")]),
+                  {"JFK": ((150, 170, 9, 0),)})
+    run = sim.execute(task, {})
+    assert (run.flights[0].dep, run.flights[0].arr) == (125, 170)
+
+
+def times(run):
+    """Every flight's departure and arrival."""
+    return {i: (r.dep, r.arr) for i, r in run.flights.items()}
+
+
+def test_a_full_outstation_hour_pushes_an_arrival_on_to_the_next_hour_and_leaves_other_stations_alone():
+    """BUF caps hour 2 at one arrival: flight 0 lands at 120, so flight 1, ready to land at 130, leaves DCA at 120 to
+    land at 180; PWM is uncapped."""
+    run = sim.execute(outcapped_day(), {})
+    assert times(run) == {0: (60, 120), 1: (120, 180), 2: (55, 125)}
+    assert times(sim.execute(replace(outcapped_day(), layers=None), {})) == {0: (60, 120), 1: (70, 130),
+                                                                               2: (55, 125)}
+    assert times(sim.execute(outcapped(outcapped_day(), {"BUF": {2: 2}}), {})) == {
+        0: (60, 120), 1: (70, 130), 2: (55, 125)}
+
+
+def test_a_pinned_arrival_uses_up_its_outstation_hour_before_the_later_ones_arrive():
+    """At a watch at 75, flight 1 left DCA at 70 to land at 130: flight 0 can't land in hour 2 too."""
+    run = sim.execute(outcapped_day(), {0: {"not_before": 75}, 1: {"left": 70}})
+    assert times(run) == {0: (120, 180), 1: (70, 130), 2: (55, 125)}
+
+
+def test_outstation_arrival_caps_join_the_truths_nominal_caps_the_known_days_within_cap_look_and_not_the_calm_days():
+    task = outcapped_day()
+    assert sim.truth(task).nominal == sim.nominal_caps(task) | {"BUF": {2: 1}}
+    assert sim.known(task, 0).nominal == sim.truth(task).nominal and "BUF" not in sim.calm(task).nominal
+    assert "BUF" not in sim.known(outcapped(task, {"BUF": {9: 1}}), 0).nominal

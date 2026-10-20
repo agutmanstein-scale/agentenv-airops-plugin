@@ -10,10 +10,12 @@ from agentenv_airops.core.model import Airport
 from agentenv_airops.programs import network
 from agentenv_airops.programs.advisories import HUBS, Advisory, Stop
 from agentenv_airops.programs.model import (
+    EXTENSION,
     Busy,
     Connection,
     Crew,
     Flight,
+    Layers,
     Move,
     Outcome,
     Programs,
@@ -81,6 +83,81 @@ def three_into_a_program(**kw) -> Task:
                flight(2, "MCO", "JFK", 100, 60, deadline=600, **kw)]
     return day(flights, [tail("N1", "BUF", end="JFK"), tail("N2", "DCA", end="JFK"), tail("N3", "MCO", end="JFK")],
                segments=(GDP,))
+
+
+def capped(task: Task, caps: dict[str, dict[int, int]]) -> Task:
+    """The task with departure caps per station and hour as its only layer."""
+    return replace(task, layers=Layers(dep_caps=caps))
+
+
+def capped_day() -> Task:
+    """Five departures from JFK, two of them on aircraft landing from a GDP with slots at 180, 200 and 260, under a
+    departure cap of one in hour 2 and two in hour 3."""
+    flights = [flight(0, "BUF", "JFK", 100, 60), flight(1, "DCA", "JFK", 110, 60, pax=60),
+               flight(2, "JFK", "MCO", 125, 150, pax=180), flight(3, "JFK", "BUF", 130, 60, pax=50),
+               flight(4, "JFK", "DCA", 150, 60, pax=120), flight(5, "JFK", "PWM", 200, 70),
+               flight(6, "JFK", "BUF", 215, 60, pax=90)]
+    tails = [tail("N1", "BUF", end="PWM"), tail("N2", "DCA", end="BUF"), tail("N3", "JFK", end="MCO"),
+             tail("N4", "JFK", end="BUF"), tail("N5", "JFK", end="DCA")]
+    return capped(day(flights, tails, segments=(segment("g", 0, 1000, 150, 400, (180, 200, 260)),)),
+                  {"JFK": {2: 1, 3: 2}})
+
+
+def shared_hour_day() -> Task:
+    """BOS into JFK's GDP (slots 130 and 200) and BOS to DCA, both ready in hour 1, which BOS caps at one departure:
+    the slotted one takes the hour."""
+    return capped(day([flight(0, "BOS", "JFK", 60, 60), flight(1, "BOS", "DCA", 75, 60)],
+                      [tail("N1", "BOS", end="JFK"), tail("N2", "BOS", end="DCA")],
+                      segments=(segment("g", 0, 1000, 100, 400, (130, 200)),)), {"BOS": {1: 1}})
+
+
+def late_pin_day() -> Task:
+    """N1 is ready at JFK at 190 for flight 1, which a plan may pin to have left at 170 (hour 2); N2 is ready there
+    at 230 for flight 2 at 235 (hour 3). JFK caps hours 2 and 3 at one departure each."""
+    flights = [flight(0, "BUF", "JFK", 100, 60), flight(1, "JFK", "DCA", 170, 60),
+               flight(2, "JFK", "BUF", 235, 60), flight(3, "DCA", "JFK", 140, 60)]
+    return capped(day(flights, [tail("N1", "BUF", end="DCA"), tail("N2", "DCA", end="BUF")]), {"JFK": {2: 1, 3: 1}})
+
+
+def two_from_jfk() -> Task:
+    """Two departures from JFK ready in hour 1, which JFK caps at one."""
+    return capped(day([flight(0, "JFK", "BUF", 60, 60), flight(1, "JFK", "DCA", 65, 60)],
+                      [tail("N1", "JFK", end="BUF"), tail("N2", "JFK", end="DCA")]), {"JFK": {1: 1}})
+
+
+def closed(task: Task, closures: dict[str, tuple[tuple[int, int, int, int], ...]],
+           rates: dict[str, float] | None = None) -> Task:
+    """The task with ramp closures per station (start, end, dep_cap, arr_cap), and the closure rates per station that
+    price one under way on the day as known, added to any layer it carries."""
+    layers = task.layers or Layers()
+    return replace(task, layers=replace(layers, closures=closures, rates=layers.rates | (rates or {})))
+
+
+def closed_day(arr_cap: int = 2) -> Task:
+    """JFK's ramp is closed 120-180 with room for one departure and `arr_cap` arrivals (rate 0.5 as known): N1, N2
+    and N3 are ready there for flights 0, 1 and 2 at 120, 130 and 140. N4 lands from BUF at 160 and N5 from DCA at
+    170, both inside the closure, for flights 4 to PWM at 200 and 6 to BUF at 210."""
+    flights = [flight(0, "JFK", "BUF", 120, 60), flight(1, "JFK", "DCA", 130, 60, pax=60),
+               flight(2, "JFK", "MCO", 140, 150, pax=180), flight(3, "BUF", "JFK", 100, 60),
+               flight(4, "JFK", "PWM", 200, 70), flight(5, "DCA", "JFK", 110, 60, pax=80),
+               flight(6, "JFK", "BUF", 210, 60)]
+    tails = [tail("N1", "JFK", end="BUF"), tail("N2", "JFK", end="DCA"), tail("N3", "JFK", end="MCO"),
+             tail("N4", "BUF", end="PWM"), tail("N5", "DCA", end="BUF")]
+    return closed(day(flights, tails), {"JFK": ((120, 180, 1, arr_cap),)}, {"JFK": 0.5})
+
+
+def outcapped(task: Task, caps: dict[str, dict[int, int]]) -> Task:
+    """The task with arrival caps per outstation and hour, added to any layer it carries."""
+    return replace(task, layers=replace(task.layers or Layers(), arr_caps=caps))
+
+
+def outcapped_day() -> Task:
+    """N1 lands at BUF from JFK at 120 and N2 from DCA at 130, both in hour 2, which BUF caps at one arrival; N3 lands
+    at PWM, uncapped, at 125."""
+    flights = [flight(0, "JFK", "BUF", 60, 60), flight(1, "DCA", "BUF", 70, 60, pax=60),
+               flight(2, "JFK", "PWM", 55, 70)]
+    tails = [tail("N1", "JFK", end="BUF"), tail("N2", "DCA", end="BUF"), tail("N3", "JFK", end="PWM")]
+    return outcapped(day(flights, tails), {"BUF": {2: 1}})
 
 
 def shortened(task: Task, slack: int = 150) -> Task:
@@ -214,3 +291,34 @@ def random_day(rng: random.Random, n_tails: int = 3) -> Task:
     return replace(task, tails=tuple(replace(t, connections=tuple(
         Connection(a, b, rng.randrange(0, 2 * TURN)) for a, b in zip(t.legs, t.legs[1:], strict=False)
         if task.flight(a).dest == task.flight(b).orig and rng.random() < 0.6)) for t in task.tails))
+
+
+def based(f: Flight, deadline: int) -> Flight:
+    """f leaving a crew base on a pairing whose crew deadline, with a finite reserve pool there, is `deadline`."""
+    report = f.sched_dep - 45
+    return replace(f, crew=Crew(f"{f.actual.tail}/0", report, f.orig, 2, deadline - report - EXTENSION + f.sched_block,
+                                None, None))
+
+
+def reserved(task: Task, pools: dict[str, int]) -> Task:
+    """The task with a reserve pool per crew base, added to any layer it carries."""
+    return replace(task, layers=replace(task.layers or Layers(), reserves=pools))
+
+
+def reserve_day() -> Task:
+    """Two JFK departures held past their crew deadline (150) by a known delay, their rest ending past their deadline
+    (700), and a PWM departure whose outstation crew must leave by 480; JFK's pool holds one reserve."""
+    flights = [based(flight(0, "JFK", "BUF", 100, 60, lb=100, deadline=700), 150),
+               based(flight(1, "JFK", "PWM", 105, 70, pax=120, lb=100, deadline=700), 150),
+               crewed(flight(2, "PWM", "JFK", 400, 70, deadline=640), 480)]
+    return reserved(day(flights, [tail("N1", "JFK", end="BUF"), tail("N2", "JFK", end="JFK")]), {"JFK": 1})
+
+
+def with_crews(task: Task, rng: random.Random, pools: dict[str, int]) -> Task:
+    """The task with a crew on every flight, its crew deadline 0-150 after its scheduled departure (from a hub, a
+    base with a pool of `pools`), and those pools."""
+    flights = []
+    for f in task.flights:
+        d = f.sched_dep + rng.randrange(0, 150)
+        flights.append(based(f, d) if f.orig in HUBS else crewed(f, d))
+    return reserved(replace(task, flights=tuple(flights)), pools)
