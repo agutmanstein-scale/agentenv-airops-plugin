@@ -1,8 +1,9 @@
 // Expert mode: a drawer over the scene with the tail chart and the desk as the agent saw it at the current watch: the
 // hub's slot caps as known against the schedule, every tool call with its arguments and result, the situation the env
-// gave it and the news as issued.
+// gave it and the news as issued. On a control-center day these sit in the last of its tabs (web/occpanes.js).
 import { TailChart } from "./chart.js";
 import { capsAt, esc, hhmm, watchAt } from "./model.js";
+import { OccDrawer } from "./occpanes.js";
 import * as plain from "./plain.js";
 
 export const CREDIT = "Airport © OpenStreetMap contributors (ODbL) · imagery: USGS The National Map · map: Natural Earth, OpenMapTiles via OpenFreeMap · radar: NEXRAD, Iowa Environmental Mesonet · flights: BTS on-time data · aircraft: FAA registry · advisories: FAA ATCSCC · METARs, TAFs and forecast discussions: NWS via IEM";
@@ -13,7 +14,9 @@ export class Expert {
     this.P = P;
     this.ctx = ctx;
     this.memo = {};
-    el.innerHTML = `<div class="x-chart"></div><div class="x-ops"><div data-s="caps"></div><div data-s="calls"></div><div data-s="situation"></div><div data-s="news"></div></div>`;
+    const v1 = `<div class="x-chart"></div><div class="x-ops"><div data-s="caps"></div><div data-s="calls"></div><div data-s="situation"></div><div data-s="news"></div></div>`;
+    if (P.ep.occ) this.occ = new OccDrawer(el, P, { v1, tab: new URLSearchParams(location.search).get("xtab") });
+    else el.innerHTML = v1;
     this.chart = new TailChart(el.querySelector(".x-chart"), P);
     el.addEventListener("click", (e) => {
       if (!e.target.closest("pre")) e.target.closest(".call")?.classList.toggle("open");
@@ -28,9 +31,14 @@ export class Expert {
 
   render(t, flights, step) {
     if (this.el.hidden) return;
+    if (this.occ) {
+      this.occ.render(t, flights);
+      if (this.occ.tab !== "v1") return;
+    }
     const P = this.P, w = watchAt(P, t), watch = P.watches[Math.max(0, w)];
     const changed = new Set(w >= 0 && t - watch.t < 60 ? (watch.changes ?? []).map((c) => c.id) : []);
     this.chart.render(t, flights, { changed });
+    this.occ?.markChart(this.chart.svg);
     this.set("caps", `${w}|${Math.floor(t / 60)}|${t >= P.lastWatch}`, () => this.caps(t, watch));
     this.set("calls", `${w}|${step}`, () => this.calls(watch, step));
     const situation = P.steps.filter((s) => s.t === watch.t && s.tool === "get_situation").at(-1)?.result?.situation;

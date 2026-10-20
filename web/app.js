@@ -162,7 +162,9 @@ async function episodePage(app, url) {
     label: id === "harbour" && task.hub === "JFK" ? "Bay" : CAMERAS[id][0], title: `${CAMERAS[id][1]} (${Object.keys(KEYS).find((k) => KEYS[k] === id)})` }));
   const speed0 = SPEEDS.includes(Number(params.get("speed"))) ? Number(params.get("speed")) : 5;
   const timeline = new Timeline(root.querySelector(".timeline"), P, { bands: programBands(P), speeds: SPEEDS, speed: speed0, cameras });
-  root.querySelector(".credit").textContent = `${stage ? "Gates, taxi routes and runways in use are inferred, for display · airport © OpenStreetMap contributors (ODbL), imagery USGS · " : ""}${ATTRIBUTION} · flights BTS · weather NWS, IEM`;
+  const shown = ep.occ ? "Gates, taxi routes, runways in use, the crew room, crews' walks, van routes and the control-center room are inferred, for display"
+    : "Gates, taxi routes and runways in use are inferred, for display";
+  root.querySelector(".credit").textContent = `${stage ? `${shown} · airport © OpenStreetMap contributors (ODbL), imagery USGS · ` : ""}${ATTRIBUTION} · flights BTS · weather NWS, IEM${ep.occ ? " · crews: generated pairings under FAR 117 and 14 CFR 121.467" : ""}`;
   const followChip = root.querySelector(".follow-chip");
 
   const moves = ep.executed.filter((e) => e.status === "flown").flatMap((e) => [P.sched.get(e.id).orig === task.hub ? e.dep : null, P.sched.get(e.id).dest === task.hub ? e.arr : null]).filter((m) => m != null);
@@ -254,6 +256,7 @@ async function episodePage(app, url) {
   timeline.on("seek", seek).on("play", () => play()).on("speed", (v) => (speed = v)).on("camera", (id) => setView(id))
     .on("expert", () => setExpert(expertEl.hidden));
   followChip.addEventListener("click", (e) => e.target.closest("button") && setView("tower"));
+  root.addEventListener("airops:seek", (e) => seek(Number(e.detail?.t)));
   stage?.onPick?.((key) => key && setView("follow", { key }));
   addEventListener("resize", () => views.resize());
   document.addEventListener("keydown", (e) => {

@@ -4,6 +4,7 @@ import { aircraftLook } from "./aircraft.js";
 import { buildBridges } from "./bridges.js";
 import { buildBuildings } from "./buildings.js";
 import { cameraPresets, homeOf } from "./cameras.js";
+import { buildCrews } from "./crews.js";
 import { toScene } from "./data.js";
 import { buildEnvironment } from "./env.js";
 import { buildFleet } from "./fleet.js";
@@ -66,6 +67,8 @@ export class AirportStage {
     this.weather = buildWeather(scene, traffic);
     this.fleet = buildFleet(this.plan);
     scene.add(this.fleet.group);
+    this.crews = buildCrews(traffic.crews || []);
+    scene.add(this.crews.group);
     this.spray = buildSpray(this.plan);
     scene.add(this.spray.mesh);
     this.labels = buildLabels(this.container, { occluders: occluders(stage), avoid: this.avoid });
@@ -155,6 +158,7 @@ export class AirportStage {
       lightning: this.lightning ? Math.max(this.lightning.local, this.lightning.far) : 0,
       snow: this.env?.snowAt(this.T),
       frame: ms.length ? { median: ms[ms.length >> 1], p95: ms[Math.floor(ms.length * 0.95)] } : null,
+      crew: this.crews?.count || 0,
     };
   }
 
@@ -240,6 +244,7 @@ export class AirportStage {
       snow: (c, p, t) => s.snow * Math.min(1, Math.max(0.15, (t * 60 - p.since) / 2400)),
     });
     this.bridges.update(T, live, s);
+    this.crews.update(T, this.wall, this.rate || 0);
     this.spray.update(T, live, s, this.camera);
     this.#aim(dt, live);
     this.env.focus(this.camera, this.focusAt);
@@ -304,7 +309,9 @@ export class AirportStage {
   }
 
   #tags(live) {
-    const out = [];
+    const tr = this.plan.tracks.get(this.featured);
+    const flights = new Set((tr?.visits || []).flatMap((v) => [v.arr?.flight, v.dep?.flight]).filter(Boolean));
+    const out = this.crews.tags(this.camera, flights);
     for (const f of live) {
       const tr = f.c.track;
       if (!tr.task) continue;
