@@ -8,8 +8,8 @@ import * as THREE from "three";
 const MARGIN = 0.84;
 const MAX_FOV = 62;
 export const BASE = {
-  room: { from: [0, 5.1, 21.0], at: [0, 2.3, 3.5], fov: 48, push: 0.12 },
-  "room-desks": { from: [0.1, 2.6, 9.5], at: [0, 1.85, 5.3], fov: 40, push: 0.16 },
+  room: { from: [0, 3.9, 14.0], at: [0, 2.2, 3.8], fov: 46, push: 0.12 },
+  "room-desks": { from: [0, 3.0, 12.2], at: [0, 1.9, 5.3], fov: 42, push: 0.16 },
   "room-wall": { from: [0, 3.25, 14.6], at: [0, 3.2, 0], fov: 40, push: 0.1 },
 };
 const WALL_AT = [0, 3.2, 0.3];

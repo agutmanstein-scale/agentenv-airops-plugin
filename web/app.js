@@ -1,7 +1,7 @@
 // AirOpsEnv v1 viewer: ?episode=<url> replays one episode on its clock, the 3D airport filling the screen with the US
 // map in a corner, cards over them and a timeline below; ?index=<url> lists episodes. window.airops {ready, time(t),
 // view(name), show(step), shot(spec), state()} lets a recorder drive it frame by frame.
-import { HUB_NAMES, cities, esc, flightsAt, positionsAt, prepare, programBands, watchAt } from "./model.js";
+import { HUB_NAMES, cities, esc, flagged, flightsAt, positionsAt, prepare, programBands, watchAt } from "./model.js";
 import { Board, Desk, Header, Score, Timeline } from "./cards.js";
 import { Room } from "./room.js";
 import { Views } from "./inset.js";
@@ -14,13 +14,14 @@ const SPEEDS = [0.25, 1, 2, 5, 10, 20, 40];
 const STAGE_VIEWS = ["tower", "gate", "threshold", "harbour", "follow", "crew"];
 const ROOM_VIEWS = ["room", "room-desks", "room-wall"];
 const ALIASES = { hub: "tower", region: "network", map: "network", center: "room" };
-const KEYS = { 1: "tower", 2: "gate", 3: "threshold", 4: "harbour", 5: "follow", 6: "room", 7: "crew", m: "network" };
+const KEYS = { 1: "tower", 2: "gate", 3: "threshold", 4: "harbour", 5: "follow", 6: "room", 7: "crew", 8: "room-desks", m: "network" };
 const CARRIERS = { AA: "an American", AS: "an Alaska", DL: "a Delta", UA: "a United", WN: "a Southwest", NK: "a Spirit", F9: "a Frontier", G4: "an Allegiant",
   SY: "a Sun Country", HA: "a Hawaiian", MX: "a Breeze", YX: "a Republic", "9E": "an Endeavor", OH: "a PSA", MQ: "an Envoy", OO: "a SkyWest", YV: "a Mesa",
   C5: "a CommuteAir", ZW: "an Air Wisconsin", PT: "a Piedmont", G7: "a GoJet", QX: "a Horizon" };
 const CAMERAS = { tower: ["Tower", "From the control tower"], gate: ["Gate", "At JetBlue's gates"], threshold: ["Runway", "At the end of the runway in use"],
   harbour: ["Harbour", "Across the water"], follow: ["Follow", "Behind an aircraft (or click one)"], network: ["Map", "The US map, full screen"],
-  room: ["Room", "The control center, where the desks work"], crew: ["Crew", "With a crew at the airport"] };
+  room: ["Room", "The control center, where the desks work"], "room-desks": ["Desks", "Close on the two desks and their requests"],
+  crew: ["Crew", "With a crew at the airport"] };
 
 let resolveReady, rejectReady;
 window.airops = {
@@ -77,13 +78,14 @@ async function indexPage(app, url) {
   document.documentElement.classList.add("light");
   document.title = `${v2.length ? V2.title : "AirOpsEnv v1"} · episodes`;
   const card = (e) => {
-    const href = `?episode=${encodeURIComponent(new URL(e.url, url).href)}`;
+    const href = `?episode=${encodeURIComponent(new URL(e.url, url).href)}${e.occ ? `&t=${e.open ?? ""}&view=room&play=1&speed=2` : ""}`;
     const gap = e.anchor ? (100 * (e.cost - e.anchor)) / e.anchor : null;
+    const under = e.occ ? flagged(e.cost, e.anchor, e.gap_pct, e.reward_L) : null;
     const thumb = e.thumb ? ` style="background-image:url('${esc(new URL(e.thumb, url).href)}')"` : "";
     return `<a class="ep-card" href="${href}"><div class="thumb${e.thumb ? "" : " none"}"${thumb}><span>${esc(e.hub)}</span>${e.featured ? "<em>Featured</em>" : ""}</div>
       <div class="body"><h2>${esc(HUB_NAMES[e.hub] ?? e.hub)} · ${esc(longDate(e.date))}</h2><p class="model">${esc(e.model_label ?? e.model)}${e.occ ? ` · ${esc(e.occ)}` : ""}</p>
-      <dl><div><dt>Reward</dt><dd>${e.reward?.toFixed(3) ?? "–"}</dd></div><div><dt>${e.occ ? "Cost vs best plan" : "Cost vs hindsight"}</dt><dd>${gap != null ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}%` : "–"}</dd></div></dl>
-      <p class="id">${esc(e.task_id)} · ${esc(e.run)}</p></div></a>`;
+      <dl><div><dt>Reward</dt><dd>${e.reward?.toFixed(3) ?? "–"}${under ? "*" : ""}</dd></div><div><dt>${e.occ ? "Cost vs best plan" : "Cost vs hindsight"}</dt><dd>${gap != null ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}%` : "–"}</dd></div></dl>
+      ${under ? `<p class="flag">* ${esc(under)}</p>` : ""}<p class="id">${esc(e.task_id)} · ${esc(e.run)}</p></div></a>`;
   };
   const board = (e) => (e.run ?? "").startsWith("occ-board");
   const rank = (e) => (e.occ ? [e.featured ? 0 : 1, e.featured ?? 0, board(e) ? 0 : 1, e.date, e.occ === "two desks" ? 0 : 1] : [0, 0, 0, "", -(e.reward ?? -1)]);
@@ -179,7 +181,7 @@ async function episodePage(app, url) {
   const expertEl = root.querySelector(".expert");
   let expert = null;
   const crews = !!traffic?.crews?.length;
-  const cameras = [...(stage ? STAGE_VIEWS.filter((v) => v !== "crew" || crews) : []), ...(center ? ["room"] : []), ...(stage || center ? ["network"] : [])].map((id) => ({ id,
+  const cameras = [...(stage ? STAGE_VIEWS.filter((v) => v !== "crew" || crews) : []), ...(center ? ["room", "room-desks"] : []), ...(stage || center ? ["network"] : [])].map((id) => ({ id,
     label: id === "harbour" && task.hub === "JFK" ? "Bay" : CAMERAS[id][0], title: `${CAMERAS[id][1]} (${Object.keys(KEYS).find((k) => KEYS[k] === id)})` }));
   const speed0 = SPEEDS.includes(Number(params.get("speed"))) ? Number(params.get("speed")) : 5;
   const timeline = new Timeline(root.querySelector(".timeline"), P, { bands: programBands(P), speeds: SPEEDS, speed: speed0, cameras });
@@ -240,7 +242,7 @@ async function episodePage(app, url) {
       await stage.view(viewName, opts);
     }
     followChip.hidden = !following;
-    timeline.camera(viewName.startsWith("room") ? "room" : viewName);
+    timeline.camera(viewName === "room-wall" ? "room" : viewName);
     draw(t, { force: true });
     return viewName;
   }
@@ -297,7 +299,7 @@ async function episodePage(app, url) {
     else if (k === "+" || k === "=" || k === "-") {
       speed = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, SPEEDS.indexOf(speed) + (k === "-" ? -1 : 1)))];
       root.querySelector(".speed").value = String(speed);
-    } else if (KEYS[k] && (KEYS[k] === "network" || (KEYS[k] === "room" ? center : KEYS[k] === "crew" ? stage && crews : stage))) setView(KEYS[k]);
+    } else if (KEYS[k] && (KEYS[k] === "network" || (KEYS[k].startsWith("room") ? center : KEYS[k] === "crew" ? stage && crews : stage))) setView(KEYS[k]);
     else if (k === "Escape" && following) setView("tower");
     else if (k === "x") setExpert(expertEl.hidden);
   });

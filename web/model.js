@@ -302,3 +302,11 @@ export function scoreAt(P, t) {
   const done = t >= (P.hi ?? P.end);
   return { delayedPax, cancelled, cancelPax, paxDelay, cost: done ? P.ep.cost.total : paxDelay + 523 * cancelPax, done };
 }
+
+/** A control-center run that came in under the best plan found, which its proven bound shows is weak there: the
+ * note its reward of 1 needs, with the reward against the bound (reward_L) as the fairer reading; null otherwise. */
+export function flagged(cost, best, gapPct, rewardL) {
+  if (cost == null || best == null || cost >= best) return null;
+  const under = (100 * (best - cost)) / best;
+  return `${under.toFixed(1)}% under the best plan found${gapPct != null ? `, whose bound is ${gapPct.toFixed(1)}% lower` : ""}: flagged${rewardL != null ? `; reward_L ${rewardL.toFixed(3)} is the fairer reading` : ""}`;
+}

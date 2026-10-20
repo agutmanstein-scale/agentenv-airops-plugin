@@ -334,3 +334,5 @@ html.light, html.light body { background: #eef1f4; color: #14202b; overflow: aut
 .room blockquote { margin: 5px 0 0; padding: 3px 10px; border-left: 3px solid #c3d3db; color: #dfe7eb; font-style: italic; font-size: 12px;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .room blockquote span { font-style: normal; color: var(--muted); margin-right: 3px; }
+.ep-card .flag { margin: 8px 0 0; font-size: 11.5px; line-height: 1.35; color: #8a5a00; }
+.score .flag { margin: 6px 0 0; font-size: 11px; line-height: 1.35; color: #f3c46f; }
