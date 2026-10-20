@@ -26,13 +26,16 @@ minute a disrupted group gives up its seats on the legs it can no longer fly and
 its final destination (then scheduled departure, fewer legs, ids), the JetBlue itineraries to its final destination the
 schedule sells from where it is, direct or through one connecting station (from its MCT to DWELL minutes), every leg not
 cancelled by then and leaving at or after the group is ready, as many of the group as each has seats for. Ready: at its
-origin one MCT after the decision, earlier flights than the one it booked included (an assumption: a passenger at its
-origin is taken to be at the airport); at a connection its arrival plus the MCT. A rebooked flight cancelled later, or a
-connection missed again, disrupts it again. Who has no seat that day takes, in the order stranded and in the same order
-of arrival, the seats of the DAYS following days' published BTS schedules (`Seat`, seats left after their own T-100
-loads; with none given, today's schedule on each following day, seats not limited), a night away for each night it
-waits; who has none within those days is refunded at that minute, per JetBlue's Customer Service Plan ("Rebook to an
-alternate JetBlue flight within five days" or a full refund).
+origin one MCT after the decision (an assumption: a passenger at its origin is taken to be at the airport), at a
+connection its arrival plus the MCT. A flight leaving 3 h or more before the one it booked from there is a significant
+change the passenger may refuse (DOT, 14 CFR 260.2; not in regulation before 2024-10-28, the same line applied on every
+date): it takes one only when no other seat is left that day or in the DAYS following days, else such a move would be a
+refund. A rebooked flight cancelled later, or a connection missed again, disrupts it again. Who has no seat that day
+takes, in the order stranded and in the same order of arrival, the seats of the DAYS following days' published BTS
+schedules (`Seat`, seats left after their own T-100 loads; with none given, today's schedule on each following day,
+seats not limited), a night away for each night it waits; who has none within those days, nor an earlier flight today,
+is refunded at that minute, per JetBlue's Customer Service Plan ("Rebook to an alternate JetBlue flight within five
+days" or a full refund).
 
 Cost P (cost.priced, in passenger-minutes at the FAA's $1.07): every v2 term but two. Each passenger's delay is charged
 at the final destination, rebooked or a later day's arrival included, in place of v2's delay at every leg; a refunded
@@ -44,19 +47,20 @@ costs the full fare (`fare`: the period's median one-way B6 market fare, data/pa
 owes no compensation, meals or hotel on a storm day (force majeure), so none is charged.
 
 The MIP's passengers (`Proxy`, mip.Network with `pax`): a flight's copies carry the delay of the passengers it takes to
-their destination, connecting passengers included; every booked connection a binary that is 1 when its inbound flew
-and its outbound was cancelled or left within the MCT of the inbound's arrival; and every way a group can be disrupted
-(its first leg cancelled at its decision minute, or let auto-cancel at its deadline; or, its inbound flown, its
-connection broken) rebooks it onto every itinerary the pass would offer it, as the schedule has them (from one MCT
-after the decision; from the outbound's scheduled departure for a broken connection), at their scheduled arrival plus
-the nights away, within each flight's seats as booked (its recorded tail's seats less its passengers, none on a
-cancelled one; the following days' seats left), or refunds it, a refund weighing more than any seat it could take
-(`last_resort`), so that only who has no seat within DAYS days is refunded. It departs from the day's pass in four
-things: a disrupted connecting passenger also keeps the delay of the outbound it was booked on, in place of the
-rebooked flights' own delays, which it does not see; it does not count the seats freed by passengers disrupted off a
-flight; it reads the seats of the tail JetBlue flew, not the one the plan's dispatch picks; and it assigns seats
-optimally where the pass serves first come first. `Proxy.cost` is a day under it (the assignment an LP), what the
-MIP's objective is for that day; `optimal` is a day's passengers rebooked optimally over its actual flights and seats.
+their destination, connecting passengers included; every booked connection a binary that is 1 when its inbound flew and
+its outbound was cancelled or left within the MCT of the inbound's arrival; and every way a group can be disrupted (its
+first leg cancelled at its decision minute, or let auto-cancel at its deadline; or, its inbound flown, its connection
+broken) rebooks it onto every itinerary the pass would offer it, as the schedule has them (from one MCT after the
+decision; from the outbound's scheduled departure for a broken connection), at their scheduled arrival plus the nights
+away, within each flight's seats as booked (its recorded tail's seats less its passengers, none on a cancelled one; the
+following days' seats left), a flight 3 h or more earlier weighing more than any other seat and a refund more than any
+seat (`last_resort`), so that, as in the pass, the earlier flight is taken only when no other seat is left and only who
+has no seat at all is refunded. It departs from the day's pass in four things: a disrupted connecting passenger also
+keeps the delay of the outbound it was booked on, in place of the rebooked flights' own delays, which it does not see;
+it does not count the seats freed by passengers disrupted off a flight; it reads the seats of the tail JetBlue flew, not
+the one the plan's dispatch picks; and it assigns seats optimally where the pass serves first come first. `Proxy.cost`
+is a day under it (the assignment an LP), what the MIP's objective is for that day; `optimal` is a day's passengers
+rebooked optimally over its actual flights and seats.
 """
 
 import csv
@@ -81,6 +85,7 @@ MCT = {"JFK": 45, "BOS": 45}
 MCT_ELSEWHERE = 40
 DWELL = 360
 DAYS = 5
+EARLIER = 180
 DATA = files("agentenv_airops") / "data" / "pax"
 FLEW, REBOOKED, STRANDED, REFUNDED = "flew", "rebooked", "stranded", "refunded"
 INF = highspy.kHighsInf
@@ -407,6 +412,11 @@ class Later:
         return out
 
 
+def booked_from(task: Task, g: Group, s: str, was: Flight) -> int:
+    """The scheduled departure the group booked from station s: its leg from there, else the flight it lost."""
+    return next((task.flight(k).sched_dep for k in g.legs if task.flight(k).orig == s), was.sched_dep)
+
+
 def nights(legs: tuple[Seat, ...]) -> int:
     """The nights away before a following day's itinerary: the days from the task's date to the schedule day it is
     on."""
@@ -483,6 +493,8 @@ class _Pass:
         dest = task.flight(g.legs[-1]).dest
         ready = t + mct(s) if prev is None else max(t, prev + mct(s))
 
+        line = booked_from(task, g, s, was) - EARLIER
+
         def ok(f: Flight) -> bool:
             r = runs[f.id]
             return r.dep >= ready if r.status == FLOWN else r.decided > t and f.sched_dep >= ready
@@ -491,6 +503,22 @@ class _Pass:
             r = runs[f.id]
             return r.dep >= ready if r.status == FLOWN else r.decided > t
 
+        n = self.today(t, g, n, was, flew, prev, s, dest, lambda f: ok(f) and f.sched_dep > line, then)
+        sched = task.flight(g.legs[-1]).sched_arr
+        for legs, m in self.later.take(s, dest, n, ready):
+            self.events.append({"t": t, "kind": "hotel", "at": s, "flight": was.id, "pax": m, "group": g.id,
+                                "until": legs[0].dep})
+            self.parts.append(Part(g.id, m, STRANDED, (*flew, *(f.flight for f in legs)), legs[-1].arr,
+                                   max(0, legs[-1].arr - sched), s, nights(legs)))
+            n -= m
+        n = self.today(t, g, n, was, flew, prev, s, dest, lambda f: ok(f) and f.sched_dep <= line, then)
+        if n:
+            self.events.append({"t": t, "kind": "home", "at": s, "flight": was.id, "pax": n, "group": g.id})
+            self.parts.append(Part(g.id, n, REFUNDED, flew, t, max(0, t - task.flight(g.legs[0]).sched_dep), s))
+
+    def today(self, t: int, g: Group, n: int, was: Flight, flew: tuple[int, ...], prev: int | None, s: str,
+              dest: str, ok, then) -> int:
+        """n of g onto today's itineraries passing `ok` and `then`, in the default order: how many found no seat."""
         for legs in self.table.itineraries(s, dest, ok, then):
             ids = tuple(f.id for f in legs)
             m = min(n, *(self.cap[k] - self.hold[k] for k in ids))
@@ -503,17 +531,8 @@ class _Pass:
             self.walk(g, m, ids, flew, prev, t)
             n -= m
             if not n:
-                return
-        sched = task.flight(g.legs[-1]).sched_arr
-        for legs, m in self.later.take(s, dest, n, ready):
-            self.events.append({"t": t, "kind": "hotel", "at": s, "flight": was.id, "pax": m, "group": g.id,
-                                "until": legs[0].dep})
-            self.parts.append(Part(g.id, m, STRANDED, (*flew, *(f.flight for f in legs)), legs[-1].arr,
-                                   max(0, legs[-1].arr - sched), s, nights(legs)))
-            n -= m
-        if n:
-            self.events.append({"t": t, "kind": "home", "at": s, "flight": was.id, "pax": n, "group": g.id})
-            self.parts.append(Part(g.id, n, REFUNDED, flew, t, max(0, t - task.flight(g.legs[0]).sched_dep), s))
+                break
+        return n
 
     def done(self, g: Group, n: int, kind: str, flew: tuple, arr: int, at: str | None) -> None:
         self.parts.append(Part(g.id, n, kind, flew, arr, max(0, arr - self.task.flight(g.legs[-1]).sched_arr), at))
@@ -580,15 +599,19 @@ class Proxy:
     def _mode(self, table: Timetable, later: Later, passengers: Passengers, g: Group, s: str, t: int, ready: int,
               cut: int | None, lapse: bool, link: tuple[int, int] | None) -> Mode:
         first, last = self.task.flight(g.legs[0]), self.task.flight(g.legs[-1])
+        line = next(self.task.flight(k).sched_dep for k in g.legs if self.task.flight(k).orig == s) - EARLIER
 
         def ok(f: Flight) -> bool:
             return f.sched_dep >= ready and f.id not in g.legs
 
         night = crews.lodging(s, self.task.date)
         options = [(tuple(f.id for f in legs), max(0, legs[-1].sched_arr - last.sched_arr))
-                   for legs in table.itineraries(s, last.dest, ok, ok)]
+                   for legs in table.itineraries(s, last.dest, lambda f: ok(f) and f.sched_dep > line, ok)]
         options += [(tuple(f.flight for f in legs), round(max(0, legs[-1].arr - last.sched_arr) + nights(legs) * night))
                     for legs in later.itineraries(s, last.dest, ready)]
+        options += [(tuple(f.id for f in legs), round(last_resort(max(0, legs[-1].sched_arr - last.sched_arr),
+                                                                  [c for _, c in options])))
+                    for legs in table.itineraries(s, last.dest, lambda f: ok(f) and f.sched_dep <= line, ok)]
         charge = round(max(0, t - first.sched_dep) + passengers.fare)
         return Mode(g.id, g.pax, cut, lapse, link, tuple(options), last_resort(charge, [c for _, c in options]))
 
@@ -685,7 +708,8 @@ def optimal(task: Task, passengers: Passengers, runs: Mapping, riders: Mapping[i
             f, r = task.flight(k), runs[k]
             if r.status != FLOWN or (prev is not None and r.dep < prev + mct(f.orig)):
                 t = max(r.decided, task.start if prev is None else prev) if r.status != FLOWN else r.dep
-                hit = (f.orig, t, t + mct(f.orig) if prev is None else max(t, prev + mct(f.orig)), flew)
+                hit = (f.orig, t, t + mct(f.orig) if prev is None else max(t, prev + mct(f.orig)), flew,
+                       f.sched_dep - EARLIER)
                 break
             carried[k] += g.pax
             flew, prev = (*flew, k), r.arr
@@ -694,44 +718,51 @@ def optimal(task: Task, passengers: Passengers, runs: Mapping, riders: Mapping[i
         else:
             lost.append((g, *hit))
     cols: list[tuple[int, tuple, str, int, float]] = []
-    rows, room, rank = [], defaultdict(dict), []
-    for n, (g, s, t, ready, _) in enumerate(lost):
+    rows, room, extra = [], defaultdict(dict), []
+
+    def add(n: int, legs: tuple, kind: str, d: int, h: float, keys: tuple, rank: float = 0.0) -> None:
+        row[len(cols)] = 1.0
+        for k in keys:
+            room[k][len(cols)] = 1.0
+        cols.append((n, legs, kind, d, h))
+        extra.append(rank)
+
+    for n, (g, s, t, ready, _, line) in enumerate(lost):
         last = task.flight(g.legs[-1])
 
         def ok(f: Flight, ready=ready) -> bool:
             return runs[f.id].status == FLOWN and runs[f.id].dep >= ready
 
+        def feasible(x: tuple) -> bool:
+            return len(x) == 1 or runs[x[1].id].dep >= runs[x[0].id].arr + mct(x[0].dest)
+
         night = crews.lodging(s, task.date)
         row = {}
-        for x in table.itineraries(s, last.dest, ok, ok):
-            if len(x) == 2 and runs[x[1].id].dep < runs[x[0].id].arr + mct(x[0].dest):
-                continue
-            row[len(cols)] = 1.0
-            for f in x:
-                room[f.id][len(cols)] = 1.0
-            cols.append((n, tuple(f.id for f in x), REBOOKED, max(0, runs[x[-1].id].arr - last.sched_arr), 0.0))
+        for x in table.itineraries(s, last.dest, lambda f, ok=ok, line=line: ok(f) and f.sched_dep > line, ok):
+            if feasible(x):
+                add(n, tuple(f.id for f in x), REBOOKED, max(0, runs[x[-1].id].arr - last.sched_arr), 0.0,
+                    tuple(f.id for f in x))
         for x in later.itineraries(s, last.dest, ready):
-            row[len(cols)] = 1.0
-            for f in x:
-                if later.free[f.flight] >= 0:
-                    room[f.flight][len(cols)] = 1.0
-            cols.append((n, tuple(f.flight for f in x), STRANDED, max(0, x[-1].arr - last.sched_arr),
-                         nights(x) * night))
-        row[len(cols)] = 1.0
-        mine = [d + h for m, *_, d, h in cols if m == n]
-        cols.append((n, (), REFUNDED, max(0, t - task.flight(g.legs[0]).sched_dep), passengers.fare))
-        rank.append(last_resort(cols[-1][3] + passengers.fare, mine) - cols[-1][3] - passengers.fare)
+            add(n, tuple(f.flight for f in x), STRANDED, max(0, x[-1].arr - last.sched_arr), nights(x) * night,
+                tuple(f.flight for f in x if later.free[f.flight] >= 0))
+        floor = [d + h for m, _, _, d, h in cols if m == n]
+        for x in table.itineraries(s, last.dest, lambda f, ok=ok, line=line: ok(f) and f.sched_dep <= line, ok):
+            if feasible(x):
+                d = max(0, runs[x[-1].id].arr - last.sched_arr)
+                add(n, tuple(f.id for f in x), REBOOKED, d, 0.0, tuple(f.id for f in x), last_resort(d, floor) - d)
+        d = max(0, t - task.flight(g.legs[0]).sched_dep)
+        mine = [c[3] + c[4] + e for c, e in zip(cols, extra, strict=True) if c[0] == n]
+        add(n, (), REFUNDED, d, passengers.fare, (), last_resort(d + passengers.fare, mine) - d - passengers.fare)
         rows.append((row, g.pax, g.pax))
     rows += [(r, -INF, float(later.free[k] if isinstance(k, str) else cap[k] - carried[k]))
              for k, r in sorted(room.items(), key=lambda kv: str(kv[0]))]
-    extra = {c: rank[i] for i, c in enumerate(c for c, col in enumerate(cols) if col[2] == REFUNDED)}
-    x = _lp([d + h + extra.get(c, 0.0) for c, (*_, d, h) in enumerate(cols)],
+    x = _lp([d + h + e for (*_, d, h), e in zip(cols, extra, strict=True)],
             [float(lost[n][0].pax) for n, *_ in cols], rows) if cols else []
     delay, lodging, fares = sum(p.pax * p.delay for p in parts), 0.0, 0.0
     for v, (n, legs, kind, d, h) in zip(x, cols, strict=True):
         if v <= 1e-9:
             continue
-        g, s, t, _, flew = lost[n]
+        g, s, t, _, flew, _ = lost[n]
         sched = task.flight(g.legs[-1]).sched_arr
         parts.append(Part(g.id, v, kind, (*flew, *legs), t if kind == REFUNDED else sched + d, d,
                           None if kind == REBOOKED else s, nights_of(legs, later) if kind == STRANDED else 0))

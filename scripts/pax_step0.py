@@ -14,7 +14,8 @@ One job per date, at the date's measured survey shares:
   single-threaded HiGHS runs at once under different random seeds (forked from the job): its incumbent is theirs at
   the lowest objective, its bound the highest of theirs (each is valid for the one model);
 - A_pax: the cheapest under P, default rebooking, of the MIP's incumbent at its limit, the rounded LP plan, A_v2 and
-  the empty plan (ties in that order); the winner, every candidate's P, and the MIP's gap and status are kept;
+  the empty plan (ties in that order); the winner, every candidate's P and plan (to re-score any date), and the
+  MIP's gap and status are kept;
 - G1: P(A_v2) >= 1.05 x P(A_pax) on at least 12 of the 24 eval dates; G2, reported only: the MIP's gap and status;
 - reported: the rebooking lever, P(A_pax) - P(A_pax, optimal assignment) (pax.optimal) as a share of P(A_pax); the
   changed cancellations (auto-cancels included) and holds (references.deliberate's), A_v2 against A_pax; misconnects,
@@ -153,6 +154,7 @@ def job(date: str, a: argparse.Namespace) -> dict:
     return {"date": date, "task_id": tid, "split": Pack(a.pack).tasks[tid]["split"], "flows": passengers.source,
             "passengers": counts(passengers),
             "P": {n: r.cost.total for n, r in scored.items()}, "won": won,
+            "plans": {n: {str(k): v for k, v in plans[n].items()} for n in scored},
             "ratio": v2.cost.total / best.cost.total, "G1": v2.cost.total >= G1_RATIO * best.cost.total,
             "rebooking": {"default": best.cost.total, "optimal": p_optimal,
                           "share": (best.cost.total - p_optimal) / best.cost.total},

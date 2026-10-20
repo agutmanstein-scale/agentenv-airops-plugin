@@ -109,11 +109,31 @@ def test_who_finds_no_jetblue_seat_within_five_days_is_refunded_for_the_wait_and
     assert d.fare == run.cost.fare == 50 * 200 and run.cost.cancel == REFUND * 100
 
 
-def test_a_cancellation_rebooks_from_its_decision_onto_an_earlier_flight_than_the_one_booked():
-    task, passengers, plan = connecting_day(cancel=2)
+def earlier_day(booked: int) -> tuple:
+    """JFK-PWM at 420 with 50 seats free; the 100 booked on JFK-PWM at `booked` lose it to a cancellation at 240."""
+    flights = [flight(0, "JFK", "PWM", 420, 60, pax=100, deadline=900),
+               flight(1, "JFK", "PWM", booked, 60, pax=100, deadline=900)]
+    task = day(flights, [tail("N1", "JFK", end="PWM"), tail("N2", "JFK", end="PWM")], start=240)
+    return task, Passengers((Group(0, (0,), 100), Group(1, (1,), 100)), fare=200.0)
+
+
+def test_a_cancellation_rebooks_from_its_decision_onto_a_flight_less_than_3_h_earlier_for_free():
+    task, passengers = earlier_day(590)
+    d = sim.execute(task, {1: {"cancel": True, "decided": 240}}, pax=passengers).pax
+    early = next(p for p in d.parts if p.group == 1 and p.kind == "rebooked")
+    assert (early.legs, early.pax, early.delay) == ((0,), 50, 0)
+
+
+def test_a_flight_3_h_or_more_earlier_is_taken_only_when_no_later_seat_is_left_within_five_days():
+    task, passengers = earlier_day(600)
+    plan = {1: {"cancel": True, "decided": 240}}
     d = sim.execute(task, plan, pax=passengers).pax
-    early = next(p for p in d.parts if p.group == 3 and p.kind == "rebooked")
-    assert (early.legs, early.pax, early.delay) == ((1,), 50, 0)
+    assert {(p.kind, p.pax) for p in d.parts if p.group == 1} == {("stranded", 100)}
+    full = replace(passengers, later=(Seat("B6 9 JFK +1", "JFK", "PWM", 1800, 1860, 0, 1),))
+    d = sim.execute(task, plan, pax=full).pax
+    assert {(p.kind, p.pax, p.legs) for p in d.parts if p.group == 1} == {("rebooked", 50, (0,)), ("refunded", 50, ())}
+    best = pax.optimal(task, full, sim.execute(task, plan).flights)
+    assert {(p.kind, round(p.pax)) for p in best.parts if p.group == 1} == {("rebooked", 50), ("refunded", 50)}
 
 
 def test_a_cancellation_rebooks_first_come_first_served_and_costs_the_refund_exposure_not_523():
