@@ -206,7 +206,8 @@ export class OccDrawer {
     });
     if (fresh && !this.scrolled) {
       this.scrolled = true;
-      pane.querySelectorAll("tr.past").item(past - 1)?.scrollIntoView({ block: "center" });
+      const row = pane.querySelectorAll("tr.past").item(past - 1);
+      if (row) pane.scrollTop = Math.max(0, row.offsetTop - pane.clientHeight / 2);
     }
   }
 
