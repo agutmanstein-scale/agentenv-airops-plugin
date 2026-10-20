@@ -146,7 +146,7 @@ async function episodePage(app, url) {
   let stage = null, tagAt = null;
   if (doc) {
     try {
-      const { AirportStage, tagAt: tag } = await import("./stage/stage.js");
+      const { AirportStage, tagAt: tag } = await import("./stage/stage.js").catch(() => new Promise((r) => setTimeout(r, 800)).then(() => import("./stage/stage.js")));
       tagAt = tag;
       stage = new AirportStage(root.querySelector(".stage-host"), { stage: doc, traffic, base: new URL(".", stageUrl).href, manual: RECORD, controls: !RECORD, avoid: () => covered(root) });
       await stage.ready;
@@ -159,7 +159,7 @@ async function episodePage(app, url) {
   let center = null;
   if (ep.occ) {
     try {
-      const { ControlCenter } = await import("./center/center.js");
+      const { ControlCenter } = await import("./center/center.js").catch(() => new Promise((r) => setTimeout(r, 800)).then(() => import("./center/center.js")));
       center = new ControlCenter(root.querySelector(".room-host"), { P, ep, base: url.href, manual: RECORD, controls: !RECORD });
       await center.ready;
     } catch (e) {
