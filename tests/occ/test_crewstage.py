@@ -1,7 +1,8 @@
 """The crews at the hub in 3D: the display-only crew room, walkway, curb and apron-bus points inferred from the home
 terminal, and each crew's moves there from its duties: from the crew room or the gate it came in at to its departure's
 jet bridge, gate to gate on a short connection and aboard on the same aircraft, reporting by shuttle, off duty or to
-the hotel van, late to a flight short of a crew, and the crews moving together as one group."""
+the hotel van, late to a flight short of a crew, a pilot's walk round each departing aircraft, and the crews moving
+together as one group."""
 
 import pytest
 
@@ -64,8 +65,8 @@ def episode(units: dict) -> dict:
     return {"task": {"hub": "JFK"}, "schedule": SCHEDULE, "occ": {"units": units}}
 
 
-def run(units: dict, crew=None) -> list[dict]:
-    return cs.crews(episode(units), sidecar(crew), stage())
+def run(units: dict, crew=None, walks=False) -> list[dict]:
+    return [g for g in cs.crews(episode(units), sidecar(crew), stage()) if walks or g["kind"] != "walkaround"]
 
 
 def test_the_crew_room_and_curb_sit_past_the_end_gate_nearer_the_middle_and_walks_keep_to_the_airside_face():
@@ -161,3 +162,23 @@ def test_a_crew_for_a_remote_stand_rides_the_apron_bus_along_the_taxilanes_and_r
     assert [x["say"] for x in (walk, bus, wait)] == ["Crew of B6 606 · to the bus to stand H1",
                                                    "Crew of B6 606 · on the bus to stand H1",
                                                    "Crew of B6 606 · at stand H1"]
+
+
+def test_a_pilot_walks_round_each_departing_aircraft_once_aboard_and_back_up_the_stairs_before_pushback():
+    legs = [{"report": 560, "at": "JFK", "legs": [[2, 700, 900]], "release": 915}]
+    groups = run({"P-1": unit("pilot", duties=legs), "C-1": unit("cabin", duties=legs)}, walks=True)
+    [walk] = [g for g in groups if g["kind"] == "walkaround"]
+    assert (walk["crew"], walk["flights"], walk["stand"]) == ([1, 0], ["B6 202"], "T5-2")
+    segs = walk["segs"]
+    assert segs[0]["t"][0] == 700 - cs.BOARD + 1 and segs[-1]["t"][1] <= 700 - cs.AROUND_BY
+    assert [s["do"] for s in segs] == ["walk", "wait"] * 6 + ["walk"]
+    stairs = [45 - cs.DOOR[1] - 2.0, -cs.DOOR[0] - 1.0]
+    assert segs[0]["p"][0] == pytest.approx(stairs) and segs[-1]["p"][-1] == pytest.approx(stairs)
+    assert [s["t"][1] - s["t"][0] for s in segs[1::2]] == pytest.approx([1.0, 1.5, 1.0, 1.0, 1.0, 1.5])
+    xs = [x for s in segs if s["do"] == "walk" for x, _ in s["p"]]
+    assert min(xs) < 45 - 36 / 2 and max(xs) > 45 + 36 / 2
+    assert segs[0]["say"] == "First officer of B6 202 · walk round the aircraft"
+    stays = run({"P-1": unit(duties=[{"legs": [[1, 450, 600], [2, 660, 900]], "release": 915}])}, walks=True)
+    assert [(g["kind"], g["segs"][0]["t"][0]) for g in stays] == [("walkaround", 660 - cs.AROUND)]
+    turn = run({"P-1": unit(duties=[{"legs": [[1, 450, 600], [2, 615, 900]], "release": 915}])}, walks=True)
+    assert turn == []
