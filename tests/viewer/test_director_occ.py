@@ -215,6 +215,8 @@ def test_the_desks_words_are_quoted_only_when_they_read_plainly():
     assert c.quote("Cancel f2 now: no crew can reach it. Keep f1.") == "Cancel B6 20 now: no crew can reach it"
     assert c.quote("Own delay1289m exceeds04:42+1 deadline; cancel now.") == ""
     assert c.quote("Can cover f4 with DTW P0754") == ""
+    assert c.quote("Checked recovery saves 116,123 pax-min against 101,000 for a cancellation of the flight and its "
+                   "partner") == ""
     assert c.unit("RP-A32X-BOS-A0") == "Boston Logan standby reserve pilots" and c.unit("P-A32X-0413") == "pilots 0413"
     assert c.unit("RC-E190-MIA-S2") == "Miami short-call reserve cabin crew"
     assert (record.behind(-8), record.behind(0), record.behind(90)) == ("8 min early", "on time", "1 h 30 min late")

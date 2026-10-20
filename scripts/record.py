@@ -774,7 +774,7 @@ class Center(Day):
                        else m[0], text or "")
         first = re.split(r"(?<=[.;])\s|,\s(?=and\b)", words.strip())[0].rstrip(".;")
         if len(first) > 84:
-            first = first[:first.rfind(",", 0, 84)] if "," in first[:84] else ""
+            first = first[:first.rfind(", ", 0, 84)] if ", " in first[:84] else ""
         return "" if not first or GLUED.search(first) else first
 
     def gate(self, a: Mapping, t: float) -> str:
@@ -1065,6 +1065,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--thumb", type=Path, help="Write a 640x360 JPEG of the poster frame here.")
     p.add_argument("--still", type=Path, help="Write the poster frame without cards or tags here (JPEG or PNG).")
     p.add_argument("--titled", action="store_true", help="With --still, the env's name and line over the frame.")
+    p.add_argument("--no-room", action="store_true",
+                   help="Film a control-center day whose page has no 3D room on the room's 2D card instead of failing.")
     p.add_argument("--pick", metavar="SHOT:FRACTION",
                    help="The poster frame: a shot of the director's and how far through it; by default the first in "
                         "the control-center room, else the taxi, takeoff or pushback halfway.")
@@ -1100,6 +1102,8 @@ def main(argv: list[str] | None = None) -> int:
         url = f"http://127.0.0.1:{port}/web/index.html?{query}&t={episode['task']['start']}&episode={quote(where)}"
         with session(url, find_chrome(args.chrome), width, height, args.gl, args.scale) as (page, ready, gl):
             print(f"viewer ready: {len(ready['watches'])} watches · {', '.join(ready['views'])} · WebGL {gl}")
+            if directed and episode.get("occ") and not ready.get("room") and not args.no_room:
+                raise SystemExit("the 3D control-center room did not load: film again, or pass --no-room for its card")
             if directed:
                 shots = director(page, episode, path, args.seconds, args.rollout, bool(ready.get("room")))
                 if args.shots:
