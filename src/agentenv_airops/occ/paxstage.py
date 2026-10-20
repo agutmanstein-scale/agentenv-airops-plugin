@@ -5,8 +5,9 @@ the lounges, the counter, the concourse's walking line and the shuttle are infer
 crew room and the vans, and are not JetBlue's.
 
 A departure's passengers come to its lounge from ARRIVE minutes before pushback, all there by FULL before, and board
-from BOARD to CLOSED before. An arrival's connecting passengers come off DEPLANE minutes after block-in and walk to
-their next gate, or, when the departure left without them, to the counter. A cancelled departure's crowd goes to the
+from BOARD to CLOSED before. An arrival's passengers come off DEPLANE minutes after block-in: those ending their trip
+walk the concourse to the landside, its connecting passengers to their next gate, or, when the departure left without
+them, to the counter. A cancelled departure's crowd goes to the
 counter when it is cancelled, QUEUE of it in line (the rest rebook on their phones). Passengers leave the line when
 the customer desk rebooks them (to their new gate), sends them home, or books a hotel (to the curb and the next
 shuttle, every SHUTTLE minutes)."""
@@ -82,6 +83,21 @@ def passengers(ep: Mapping, sidecar: Mapping, stage: Mapping) -> dict | None:
                 if there >= 1:
                     k = round(there * QUEUE)
                     joins.append((at + LEAVE, fid, k, stand, "cancel"))
+    for (flight, kind), found in legs.items():
+        if kind != "arr":
+            continue
+        for leg, stand in found:
+            fid = next((i for i, s in sched.items() if s["flight"] == flight and s["dest"] == hub
+                        and abs(s["sched_arr"] - leg["sched"]) <= 5), None)
+            if stand not in by_stand or leg["status"] != "flown" or leg["in"] is None or rows.get(fid) is None:
+                continue
+            on = sum(c["pax"] for c in pax["connections"] if c["from"] == fid and c["at"] == hub)
+            n = rows[fid]["flown"] - on
+            if n > 0:
+                walk = face.walk(lounges[by_stand[stand]], face.exit(site), leg["in"] + DEPLANE, site)
+                city = leg.get("city") or leg.get("other") or ""
+                groups.append(group("off", n, [flight], walk, f"{n} off {flight}{f' from {city}' if city else ''}"
+                                                              " · to baggage claim"))
     for c in pax["connections"]:
         if c["at"] != hub:
             continue
@@ -337,10 +353,15 @@ class Face:
         path = shortcut([p for i, p in enumerate(pts) if i == 0 or dist(p, pts[i - 1]) > 0.3])
         return [seg(t0, path, FLOOR)]
 
+    def exit(self, site: Site) -> dict:
+        """The concourse's way down to the landside, by the curb, as a lounge-like place to walk to."""
+        u = self.project(site.curb.walk)[0]
+        return {"c": u, "door": list(self.at(u, INSIDE))}
+
     def to_curb(self, a: dict, t0: float, site: Site) -> list[dict]:
         """From lounge a along the concourse to the landside, down and out to the curb."""
-        u = self.project(site.curb.walk)[0]
-        exit_ = {"c": u, "door": list(self.at(u, INSIDE))}
+        exit_ = self.exit(site)
+        u = exit_["c"]
         inside_ = self.walk(a, exit_, t0, site)
         down = inside_[-1]["t"][1] + 2.0
         return [*inside_, seg(down, [self.at(u, -1.0), site.curb.xy], 0.0)]

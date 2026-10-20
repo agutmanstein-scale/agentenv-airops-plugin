@@ -90,6 +90,15 @@ def test_connecting_passengers_walk_the_concourse_gate_to_gate_and_those_who_mis
     assert missed["segs"][0]["say"] == "8 missed B6 202 · to the service counter"
 
 
+def test_an_arrival_s_passengers_who_end_their_trip_here_walk_off_to_the_landside():
+    doc = scene()
+    off = {g["flights"][0]: g for g in doc["groups"] if g["kind"] == "off"}
+    assert off["B6 101"]["n"] == 150 - 22 and off["B6 404"]["n"] == 140 - 8
+    seg = off["B6 101"]["segs"][0]
+    assert seg["t"][0] == 600 + ps.DEPLANE and seg["p"][0] == pytest.approx(doc["lounges"][1]["door"])
+    assert seg["p"][-1][0] < doc["lounges"][0]["p"][0][0] and seg["say"].endswith(" · to baggage claim")
+
+
 def test_the_line_at_the_counter_grows_with_them_and_empties_as_the_desk_rebooks_them_or_books_a_hotel():
     doc = scene()
     line = doc["queue"]

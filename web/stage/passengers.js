@@ -388,8 +388,8 @@ function interiors(lounges, floor, ceil) {
   const pane = add(glass, new THREE.MeshStandardMaterial({ color: "#a9c2d2", transparent: true, opacity: 0.16, roughness: 0.04, metalness: 0.7, depthWrite: false, side: THREE.DoubleSide }));
   pane.renderOrder = 2;
   const seats = lounges.flatMap((lg) => lg.benches);
-  const seatGeo = mergeGeometries([colored(new THREE.BoxGeometry(SEAT - 0.06, 0.08, 0.5), "#2b3138", 0, 0.44, 0.02), colored(new THREE.BoxGeometry(SEAT - 0.06, 0.42, 0.06), "#2b3138", 0, 0.7, 0.26), colored(new THREE.BoxGeometry(0.05, 0.42, 0.05), "#8d949b", 0, 0.21, 0.05)]);
-  const bench = new THREE.InstancedMesh(seatGeo, new THREE.MeshLambertMaterial({ vertexColors: true }), Math.max(1, seats.length));
+  const seatGeo = mergeGeometries([colored(new THREE.BoxGeometry(SEAT / FIG - 0.06, 0.08, 0.5), "#3b4552", 0, 0.44, 0.02), colored(new THREE.BoxGeometry(SEAT / FIG - 0.06, 0.42, 0.06), "#3b4552", 0, 0.7, 0.26), colored(new THREE.BoxGeometry(0.05, 0.42, 0.05), "#9aa1a8", 0, 0.21, 0.05)]).scale(FIG, FIG, FIG);
+  const bench = new THREE.InstancedMesh(seatGeo, new THREE.MeshLambertMaterial({ vertexColors: true, emissive: "#262c33" }), Math.max(1, seats.length));
   const M = new THREE.Matrix4();
   seats.forEach((s, k) => bench.setMatrixAt(k, M.makeRotationY(-s.h * DEG).setPosition(s.x, floor, -s.y)));
   bench.count = seats.length;
