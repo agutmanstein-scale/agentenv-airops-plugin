@@ -197,6 +197,11 @@ def seat(d: str) -> float:
     return usd * CPI_2025 / _cpi(d) / USD_PER_PAX_MINUTE
 
 
+def value(usd: float, d: str) -> float:
+    """Dollars of d's month in passenger-minutes (CPI-U to 2025, the FAA's $1.07)."""
+    return usd * CPI_2025 / _cpi(d) / USD_PER_PAX_MINUTE
+
+
 @functools.cache
 def hotel(station: str, d: str) -> float:
     """A night's lodging and M&IE for one person at `station` on date d, in passenger-minutes."""

@@ -137,7 +137,8 @@ def job(date: str, k: float, a: argparse.Namespace) -> dict:
     best = sim.execute(task, sol.plan(task.start), pax=passengers)
     optimal = pax.optimal(task, passengers, best.flights)
     p = {"naive": naive.cost.total, "v2": v2.cost.total, "pax": best.cost.total,
-         "pax_optimal": best.cost.total - best.pax.delay - best.pax.lodging + optimal.delay + optimal.lodging}
+         "pax_optimal": best.cost.total - best.pax.delay - best.pax.lodging - best.pax.fare + optimal.delay
+         + optimal.lodging + optimal.fare}
     room = p["naive"] - p["pax_optimal"]
     levers = {"plan": p["v2"] - p["pax"], "rebooking": p["pax"] - p["pax_optimal"],
               "combined": p["v2"] - p["pax_optimal"]}
@@ -166,7 +167,7 @@ def counts(p: pax.Passengers) -> dict:
     conn = sum(g.pax for g in p.groups if len(g.legs) == 2)
     trips = sum(g.pax for g in p.groups)
     return {"groups": len(p.groups), "trips": trips, "connecting": conn, "connecting_share": conn / trips,
-            "next_day_flights": len(p.tomorrow)}
+            "later_flights": len(p.later), "fare": round(p.fare, 1)}
 
 
 def changed(task, v2: sim.Execution, best: sim.Execution) -> dict:

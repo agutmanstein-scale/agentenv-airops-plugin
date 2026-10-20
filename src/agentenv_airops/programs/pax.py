@@ -1,5 +1,5 @@
 """Passengers (v3): who is booked on a storm day's flights and where they are going, what the day does to them, and
-what that costs. The rules are the registered step 0's (cost P).
+what that costs: cost P, as registered for step 0, with JetBlue's own contract for who can't get there the same day.
 
 Bookings (`book`). A flight's booked passengers are its `pax` (seats x T-100 route-month load factor, model.Flight).
 At JetBlue's connecting stations (CONNECT) some of a route's departing passengers arrived on an earlier JetBlue
@@ -19,36 +19,43 @@ priority, so a flight's seats for passengers are its aircraft's seats less the p
 family's smallest seats for a flight that never flew); the crew sim is unchanged. A group flies its booked legs; it is
 disrupted when a leg it holds is cancelled (at the decision, or when it reaches the leg's origin if that is later) or
 when it misses a connection (it arrives later than the outbound's departure less the station's MCT; at the outbound's
-pushback). Rebooking, first come, first served by scheduled departure: disruptions in time order, ties by the
-scheduled departure of the flight they were on, then group id; at its minute a disrupted group gives up its seats on
-the legs it can no longer fly and takes, in order of scheduled departure (then scheduled arrival, fewer legs, ids), the
-JetBlue itineraries to its final destination the schedule sells from where it is, direct or through one connecting
-station at its MCT, every leg not cancelled by then and leaving at or after the group is ready (at its origin, the
-station's MCT after the decision and never before its booked departure; at a connection, its arrival plus the MCT), as
-many of the group as each has seats for; a rebooked flight cancelled later, or a connection missed again, disrupts it
-again. Who has no seat that day takes, in the order stranded, the first seats of the next day's published BTS schedule
-(`Seat`, its seats left after its own T-100 loads; with none given, today's schedule a day later, its seats not
-limited), and spends the night at a hotel where it is.
+pushback). JetBlue rebooks on JetBlue only (Contract of Carriage §37(c): "reaccommodation on the next available JetBlue
+flight in the same class of service"), first come, first served by scheduled departure: disruptions in time order, ties
+by the scheduled departure of the flight they were on, then group id; at its minute a disrupted group gives up its seats
+on the legs it can no longer fly and takes, in order of scheduled departure (then scheduled arrival, fewer legs, ids),
+the JetBlue itineraries to its final destination the schedule sells from where it is, direct or through one connecting
+station (from its MCT to DWELL minutes), every leg not cancelled by then and leaving at or after the group is ready, as
+many of the group as each has seats for. Ready: at its origin one MCT after the decision, earlier flights than the one
+it booked included (an assumption: a passenger at its origin is taken to be at the airport); at a connection its arrival
+plus the MCT. A rebooked flight cancelled later, or a connection missed again, disrupts it again. Who has no seat that
+day takes, in the order stranded, the first seats of the DAYS following days' published BTS schedules (`Seat`, seats
+left after their own T-100 loads; with none given, today's schedule on each following day, seats not limited), a night
+away for each night it waits; who has none within those days is refunded at that minute, per JetBlue's Customer Service
+Plan ("Rebook to an alternate JetBlue flight within five days" or a full refund).
 
 Cost P (cost.priced, in passenger-minutes at the FAA's $1.07): every v2 term but two. Each passenger's delay is charged
-at the final destination, rebooked or the next day's arrival included, in place of v2's delay at every leg; a cancelled
-flight's booked passengers cost 66 each (K_CANCEL's refund-exposure part: a 0.3 take-up of the $235 DB1B median fare)
-in place of 523, their real delay replacing its 457 minutes; and every passenger stranded overnight costs one GSA
-lodging night for the city (crews.lodging). JetBlue owes no compensation, meals or hotel on a storm day (force majeure),
-so none is charged.
+at the final destination, rebooked or a later day's arrival included, in place of v2's delay at every leg; a refunded
+passenger's delay is the time it waited, from its booked departure to the refund. A cancelled flight's booked
+passengers cost 66 each (K_CANCEL's refund-exposure part, v1's assumed 0.3 take-up of the $235 DB1B median fare) in
+place of 523, their real delay replacing its 457 minutes. Every night away costs one GSA lodging night for the city
+(crews.lodging; labelled: many of those stranded are at their own origin and may be at home). Every refunded passenger
+costs the full fare (`fare`: the period's median one-way B6 market fare, data/pax/b6-fares.csv, CPI to 2025). JetBlue
+owes no compensation, meals or hotel on a storm day (force majeure), so none is charged.
 
 The MIP's passengers (`Proxy`, mip.Network with `pax`): a flight's copies carry the delay of the passengers it takes to
 their destination, connecting passengers included; every booked connection a binary that is 1 when its inbound flew
 and its outbound was cancelled or left within the MCT of the inbound's arrival; and every way a group can be disrupted
-(its first leg cancelled; or, its inbound flown, its connection broken) rebooks it onto the first OPTIONS itineraries
-the schedule sells after the flight it lost, at their scheduled arrival, within each flight's seats as booked (the
-family's smallest seats less its passengers, none on a cancelled one), or strands it to the next day's first
-itinerary and a lodging night. It departs from the day's pass in four things: a disrupted connecting passenger also
-keeps the delay of the outbound it was booked on, in place of the rebooked flights' own delays, which it does not see;
-it does not count the seats freed by passengers disrupted off a flight; and it assigns seats optimally where the pass
-serves first come first. `Proxy.cost` is a day under it (the assignment an LP), what the MIP's objective is for that
-day; `optimal` is a day's passengers rebooked optimally over its actual flights and seats instead of first come first
-served.
+(its first leg cancelled at its decision minute, or let auto-cancel at its deadline; or, its inbound flown, its
+connection broken) rebooks it onto every itinerary the pass would offer it, as the schedule has them (from one MCT
+after the decision; from the outbound's scheduled departure for a broken connection), at their scheduled arrival plus
+the nights away, within each flight's seats as booked (its recorded tail's seats less its passengers, none on a
+cancelled one; the following days' seats left), or refunds it, a refund weighing more than any seat it could take
+(`last_resort`), so that only who has no seat within DAYS days is refunded. It departs from the day's pass in four
+things: a disrupted connecting passenger also keeps the delay of the outbound it was booked on, in place of the
+rebooked flights' own delays, which it does not see; it does not count the seats freed by passengers disrupted off a
+flight; it reads the seats of the tail JetBlue flew, not the one the plan's dispatch picks; and it assigns seats
+optimally where the pass serves first come first. `Proxy.cost` is a day under it (the assignment an LP), what the
+MIP's objective is for that day; `optimal` is a day's passengers rebooked optimally over its actual flights and seats.
 """
 
 import csv
@@ -63,7 +70,7 @@ from pathlib import Path
 import highspy
 import numpy as np
 
-from ..core.sim import FLOWN
+from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN
 from . import crews
 from .cost import RATES, REFUND, flown_price, late
 from .model import Flight, Task
@@ -72,9 +79,9 @@ CONNECT = ("JFK", "BOS", "FLL", "MCO", "SJU")
 MCT = {"JFK": 45, "BOS": 45}
 MCT_ELSEWHERE = 40
 DWELL = 360
-OPTIONS = 6
+DAYS = 5
 DATA = files("agentenv_airops") / "data" / "pax"
-FLEW, REBOOKED, STRANDED = "flew", "rebooked", "stranded"
+FLEW, REBOOKED, STRANDED, REFUNDED = "flew", "rebooked", "stranded", "refunded"
 INF = highspy.kHighsInf
 
 
@@ -99,7 +106,8 @@ class Group:
 
 @dataclass(frozen=True)
 class Seat:
-    """A flight of the next day's published schedule, in minutes from the task date's midnight, and its seats left."""
+    """A flight of the `day`-th following day's published schedule, in minutes from the task date's midnight, and its
+    seats left."""
 
     flight: str
     orig: str
@@ -107,20 +115,25 @@ class Seat:
     dep: int
     arr: int
     free: int
+    day: int = 1
 
     @classmethod
     def from_list(cls, v: list) -> "Seat":
         return cls(*v)
 
     def to_list(self) -> list:
-        return [self.flight, self.orig, self.dest, self.dep, self.arr, self.free]
+        return [self.flight, self.orig, self.dest, self.dep, self.arr, self.free, self.day]
 
 
 @dataclass(frozen=True)
 class Passengers:
+    """`later` the following days' schedules with their seats left, `fare` a refunded passenger's fare in
+    passenger-minutes."""
+
     groups: tuple[Group, ...]
-    tomorrow: tuple[Seat, ...] = ()
+    later: tuple[Seat, ...] = ()
     source: str = ""
+    fare: float = 0.0
 
     def booked(self) -> Counter:
         out: Counter = Counter()
@@ -130,13 +143,13 @@ class Passengers:
         return out
 
     def to_dict(self) -> dict:
-        return {"source": self.source, "groups": [g.to_list() for g in self.groups],
-                "tomorrow": [s.to_list() for s in self.tomorrow]}
+        return {"source": self.source, "fare": self.fare, "groups": [g.to_list() for g in self.groups],
+                "later": [s.to_list() for s in self.later]}
 
     @classmethod
     def from_dict(cls, d: Mapping) -> "Passengers":
-        return cls(tuple(Group.from_list(g) for g in d["groups"]), tuple(Seat.from_list(s) for s in d["tomorrow"]),
-                   d["source"])
+        return cls(tuple(Group.from_list(g) for g in d["groups"]), tuple(Seat.from_list(s) for s in d["later"]),
+                   d["source"], d["fare"])
 
 
 @dataclass(frozen=True)
@@ -166,6 +179,14 @@ class Flows:
                 shares[(r["hub"], r["dest"])][r["orig"]] = int(r["transfers"]) / int(r["departing"])
                 source = r["source"]
         return cls(dict(shares), f"{source} {p}")
+
+
+def fare(date: str, path: Path | str | None = None) -> float:
+    """The full fare a refunded passenger costs: the date's survey period's median one-way market fare on B6
+    (data/pax/b6-fares.csv), in passenger-minutes."""
+    with open(str(path or DATA / "b6-fares.csv"), newline="") as fh:
+        rows = {r["period"]: float(r["median_fare"]) for r in csv.DictReader(fh)}
+    return crews.value(rows[period(date, rows)], date)
 
 
 def period(date: str, periods: Iterable[str]) -> str:
@@ -218,7 +239,8 @@ class Dwell:
         return cls({h: tuple(sorted(v)) for h, v in bins.items()})
 
 
-def book(task: Task, flows: Flows, dwell: Dwell, tomorrow: Iterable[Seat] = ()) -> Passengers:
+def book(task: Task, flows: Flows, dwell: Dwell, later: Iterable[Seat] = (), refunded: float | None = None
+         ) -> Passengers:
     left = {f.id: f.pax for f in task.flights}
     inbound: dict[str, list[Flight]] = defaultdict(list)
     outbound: dict[tuple[str, str], list[Flight]] = defaultdict(list)
@@ -237,8 +259,8 @@ def book(task: Task, flows: Flows, dwell: Dwell, tomorrow: Iterable[Seat] = ()) 
                       for i in ins for j in outs if mct(h) <= j.sched_dep - i.sched_arr <= DWELL}
             pairs.update(allot(n, weight, left))
     legs = [(p, n) for p, n in pairs.items() if n] + [((i,), n) for i, n in left.items() if n > 0]
-    return Passengers(tuple(Group(k, legs, n) for k, (legs, n) in enumerate(sorted(legs))), tuple(tomorrow),
-                      flows.label)
+    return Passengers(tuple(Group(k, legs, n) for k, (legs, n) in enumerate(sorted(legs))), tuple(later),
+                      flows.label, fare(task.date) if refunded is None else refunded)
 
 
 def split(n: int, weight: Mapping) -> dict:
@@ -276,7 +298,8 @@ def allot(n: int, weight: Mapping[tuple[int, int], float], left: dict[int, int])
 @dataclass(frozen=True)
 class Part:
     """Some of a group's passengers and how their day ended: `legs` the flights they flew, `arr` their minute at the
-    destination (past 1440 the next day), `at` where they spent the night when they did not get there that day."""
+    destination (past 1440 a later day; the refund's minute for those refunded), `at` where they spent `nights` away or
+    were refunded."""
 
     group: int
     pax: int
@@ -285,10 +308,11 @@ class Part:
     arr: int
     delay: int
     at: str | None
+    nights: int = 0
 
     def to_dict(self) -> dict:
         return {"group": self.group, "pax": self.pax, "kind": self.kind, "legs": list(self.legs), "arr": self.arr,
-                "delay": self.delay, "at": self.at}
+                "delay": self.delay, "at": self.at, "nights": self.nights}
 
 
 @dataclass(frozen=True)
@@ -297,24 +321,26 @@ class Day:
     events: tuple[dict, ...]
     delay: int
     lodging: int
+    fare: int
 
     def outcomes(self) -> dict[str, int]:
         c: Counter = Counter()
         for p in self.parts:
             c[p.kind] += p.pax
-        return {k: c[k] for k in (FLEW, REBOOKED, STRANDED)}
+        return {k: c[k] for k in (FLEW, REBOOKED, STRANDED, REFUNDED)}
 
     def misconnected(self) -> int:
         return sum(e["pax"] for e in self.events if e["kind"] == "misconnect")
 
     def to_dict(self) -> dict:
-        return {"delay": self.delay, "lodging": self.lodging, "outcomes": self.outcomes(),
+        return {"delay": self.delay, "lodging": self.lodging, "fare": self.fare, "outcomes": self.outcomes(),
                 "misconnected": self.misconnected(), "parts": [p.to_dict() for p in self.parts],
                 "events": list(self.events)}
 
 
 class Timetable:
-    """A schedule as sold: itineraries of one flight, or two through a connecting station at its MCT."""
+    """A schedule as sold: itineraries of one flight, or two through a connecting station, connecting from its MCT to
+    DWELL minutes (DB1C's B6-to-B6 connections: 2.0 to 2.7% wait 6 to 24 h)."""
 
     def __init__(self, flights: Iterable):
         self.od: dict[tuple[str, str], list] = defaultdict(list)
@@ -332,7 +358,7 @@ class Timetable:
             for f in self.od[(s, h)]:
                 if ok(f):
                     out += [(_dep(f), _arr(g), 2, (_key(f), _key(g)), (f, g)) for g in seconds
-                            if _dep(g) >= _arr(f) + mct(h)]
+                            if mct(h) <= _dep(g) - _arr(f) <= DWELL]
         return [legs for *_, legs in sorted(out, key=lambda x: x[:4])]
 
 
@@ -348,36 +374,42 @@ def _key(f) -> int | str:
     return f.id if isinstance(f, Flight) else f.flight
 
 
-class Tomorrow:
-    """The next day's schedule and its seats left, first come first served; without one, today's a day later with
-    seats not limited. Who finds no seat arrives two days after the scheduled minute."""
+class Later:
+    """The DAYS following days' published schedules and their seats left, first come first served by scheduled
+    departure; without them, today's schedule on each following day, seats not limited."""
 
     def __init__(self, task: Task, seats: tuple[Seat, ...]):
-        self.flights = seats or tuple(Seat(str(f.id), f.orig, f.dest, f.sched_dep + 1440, f.sched_arr + 1440, -1)
+        self.flights = seats or tuple(Seat(f"{f.id} +{k}", f.orig, f.dest, f.sched_dep + 1440 * k,
+                                           f.sched_arr + 1440 * k, -1, k) for k in range(1, DAYS + 1)
                                       for f in task.flights)
         self.table = Timetable(self.flights)
         self.free = {s.flight: s.free for s in self.flights}
 
-    def first(self, s: str, d: str) -> int | None:
-        legs = self.table.itineraries(s, d, lambda f: True, lambda f: True)
-        return _arr(legs[0][-1]) if legs else None
+    def itineraries(self, s: str, d: str, after: int) -> list[tuple]:
+        return self.table.itineraries(s, d, lambda f: f.dep >= after, lambda f: True)
 
-    def take(self, s: str, d: str, n: int) -> list[tuple[tuple[str, ...], int, int]]:
-        """Seats for n from s to d: (flights, how many, arrival) in order, as many as there are."""
+    def take(self, s: str, d: str, n: int, after: int) -> list[tuple[tuple[Seat, ...], int]]:
+        """Seats for n from s to d leaving at or after `after`: (flights, how many) in order, as many as there are."""
         out = []
-        for legs in self.table.itineraries(s, d, lambda f: True, lambda f: True):
-            m = n if all(self.free[f.flight] < 0 for f in legs) else \
-                min(n, *(self.free[f.flight] for f in legs if self.free[f.flight] >= 0))
+        for legs in self.itineraries(s, d, after):
+            limited = [self.free[f.flight] for f in legs if self.free[f.flight] >= 0]
+            m = min(n, *limited) if limited else n
             if m <= 0:
                 continue
             for f in legs:
                 if self.free[f.flight] >= 0:
                     self.free[f.flight] -= m
-            out.append((tuple(f.flight for f in legs), m, _arr(legs[-1])))
+            out.append((legs, m))
             n -= m
             if not n:
                 break
         return out
+
+
+def nights(legs: tuple[Seat, ...]) -> int:
+    """The nights away before a following day's itinerary: the days from the task's date to the schedule day it is
+    on."""
+    return legs[0].day
 
 
 def seats(task: Task, runs: Mapping, riders: Mapping[int, int]) -> dict[int, int]:
@@ -402,9 +434,9 @@ def fly(task: Task, passengers: Passengers, runs: Mapping, riders: Mapping[int, 
 
 class _Pass:
     def __init__(self, task: Task, passengers: Passengers, runs: Mapping, riders: Mapping[int, int]):
-        self.task, self.groups, self.runs = task, passengers.groups, runs
+        self.task, self.groups, self.runs, self.refunded = task, passengers.groups, runs, passengers.fare
         self.table = Timetable(task.flights)
-        self.next = Tomorrow(task, passengers.tomorrow)
+        self.later = Later(task, passengers.later)
         self.cap = seats(task, runs, riders)
         self.hold = passengers.booked()
         self.heap: list = []
@@ -418,9 +450,10 @@ class _Pass:
             self.disrupted(*heapq.heappop(self.heap)[-1])
         parts = tuple(sorted(self.parts, key=lambda p: (p.group, p.kind, p.arr, tuple(map(str, p.legs)))))
         date = self.task.date
-        lodging = sum(x.pax * crews.lodging(x.at, date) for x in parts if x.kind == STRANDED)
+        lodging = sum(x.pax * x.nights * crews.lodging(x.at, date) for x in parts if x.kind == STRANDED)
         return Day(parts, tuple(sorted(self.events, key=lambda e: (e["t"], e["group"], e["kind"]))),
-                   sum(x.pax * x.delay for x in parts), round(lodging))
+                   sum(x.pax * x.delay for x in parts), round(lodging),
+                   round(self.refunded * sum(x.pax for x in parts if x.kind == REFUNDED)))
 
     def walk(self, g: Group, n: int, legs: tuple[int, ...], flew: tuple[int, ...], prev: int | None,
              now: int) -> None:
@@ -447,7 +480,7 @@ class _Pass:
             self.hold[k] -= n
         task, runs, s = self.task, self.runs, was.orig
         dest = task.flight(g.legs[-1]).dest
-        ready = max(t + mct(s), task.flight(g.legs[0]).sched_dep) if prev is None else max(t, prev + mct(s))
+        ready = t + mct(s) if prev is None else max(t, prev + mct(s))
 
         def ok(f: Flight) -> bool:
             r = runs[f.id]
@@ -471,12 +504,15 @@ class _Pass:
             if not n:
                 return
         sched = task.flight(g.legs[-1]).sched_arr
-        self.events.append({"t": t, "kind": "hotel", "at": s, "flight": was.id, "pax": n, "group": g.id})
-        for legs, m, arr in self.next.take(s, dest, n):
-            self.done(g, m, STRANDED, (*flew, *legs), arr, s)
+        for legs, m in self.later.take(s, dest, n, ready):
+            self.events.append({"t": t, "kind": "hotel", "at": s, "flight": was.id, "pax": m, "group": g.id,
+                                "until": legs[0].dep})
+            self.parts.append(Part(g.id, m, STRANDED, (*flew, *(f.flight for f in legs)), legs[-1].arr,
+                                   max(0, legs[-1].arr - sched), s, nights(legs)))
             n -= m
         if n:
-            self.done(g, n, STRANDED, flew, sched + 2880, s)
+            self.events.append({"t": t, "kind": "home", "at": s, "flight": was.id, "pax": n, "group": g.id})
+            self.parts.append(Part(g.id, n, REFUNDED, flew, t, max(0, t - task.flight(g.legs[0]).sched_dep), s))
 
     def done(self, g: Group, n: int, kind: str, flew: tuple, arr: int, at: str | None) -> None:
         self.parts.append(Part(g.id, n, kind, flew, arr, max(0, arr - self.task.flight(g.legs[-1]).sched_arr), at))
@@ -494,51 +530,66 @@ class Link:
 
 @dataclass(frozen=True)
 class Mode:
-    """One way a group is disrupted: its first leg `cut` (cancelled or auto-cancelled), or its `link` broken with its
-    inbound flown; `options` the itineraries it is rebooked onto and each one's price per passenger, `night` the price
-    per passenger of the night away."""
+    """One way a group is disrupted: its first leg `cut` (cancelled, or with `lapse` let auto-cancel), or its `link`
+    broken with its inbound flown; `options` the itineraries it is rebooked onto (today's flight ids, the following
+    days' Seat names) and each one's price per passenger, `refund` the price per passenger of a refund."""
 
     group: int
     pax: int
     cut: int | None
+    lapse: bool
     link: tuple[int, int] | None
-    options: tuple[tuple[tuple[int, ...], int], ...]
-    night: int
+    options: tuple[tuple[tuple[int | str, ...], int], ...]
+    refund: int
 
 
 class Proxy:
-    """The passengers as the MIP prices them (see the module docstring)."""
+    """The passengers as the MIP prices them (see the module docstring); `decided` the minute each cancellation is
+    decided (the first watch by default)."""
 
-    def __init__(self, task: Task, passengers: Passengers):
-        self.task = task
-        table, nxt = Timetable(task.flights), Tomorrow(task, passengers.tomorrow)
-        booked = passengers.booked()
-        least = smallest(task)
-        self.free = {f.id: max(0, least[f.family] - booked[f.id]) for f in task.flights}
+    def __init__(self, task: Task, passengers: Passengers, decided: Mapping[int, int] | None = None):
+        self.task, decided = task, decided or {}
+        table, later = Timetable(task.flights), Later(task, passengers.later)
+        booked, least = passengers.booked(), smallest(task)
+        tails = {t.tail: t.seats for t in task.tails}
+        self.free: dict[int | str, int] = {f.id: max(0, tails.get(f.actual.tail, least[f.family]) - booked[f.id])
+                                           for f in task.flights}
+        self.free |= {k: v for k, v in later.free.items() if v >= 0}
+        self.lined = {i for t in task.tails if any(leg in task.moved for leg in t.legs) for i in t.legs}
         self.term: Counter = Counter()
         links: Counter = Counter()
         modes = []
         for g in passengers.groups:
             first, last = task.flight(g.legs[0]), task.flight(g.legs[-1])
             self.term[last.id] += g.pax
-            modes.append(self._mode(table, nxt, g, first, last, first.id, None))
+            t = decided.get(first.id, task.start)
+            modes.append(self._mode(table, later, passengers, g, first.orig, t, t + mct(first.orig), first.id, False,
+                                    None))
+            if first.id in self.lined:
+                t = task.auto_at(first)
+                modes.append(self._mode(table, later, passengers, g, first.orig, t, t + mct(first.orig), first.id,
+                                        True, None))
             if len(g.legs) == 2:
                 links[(first.id, last.id)] += g.pax
-                modes.append(self._mode(table, nxt, g, last, last, None, (first.id, last.id)))
+                modes.append(self._mode(table, later, passengers, g, last.orig, last.sched_dep, last.sched_dep, None,
+                                        False, (first.id, last.id)))
         self.links = tuple(Link(i, j, task.flight(j).orig, n) for (i, j), n in sorted(links.items()))
         self.modes = tuple(modes)
 
-    def _mode(self, table: Timetable, nxt: Tomorrow, g: Group, lost: Flight, last: Flight, cut: int | None,
-              link: tuple[int, int] | None) -> Mode:
-        def ok(f: Flight) -> bool:
-            return f.sched_dep >= lost.sched_dep and f.id not in g.legs
+    def _mode(self, table: Timetable, later: Later, passengers: Passengers, g: Group, s: str, t: int, ready: int,
+              cut: int | None, lapse: bool, link: tuple[int, int] | None) -> Mode:
+        first, last = self.task.flight(g.legs[0]), self.task.flight(g.legs[-1])
 
-        options = tuple((tuple(f.id for f in legs), max(0, legs[-1].sched_arr - last.sched_arr))
-                        for legs in table.itineraries(lost.orig, last.dest, ok, ok)[:OPTIONS])
-        a = nxt.first(lost.orig, last.dest)
-        night = max(0, (last.sched_arr + 2880 if a is None else a) - last.sched_arr) + \
-            crews.lodging(lost.orig, self.task.date)
-        return Mode(g.id, g.pax, cut, link, options, round(night))
+        def ok(f: Flight) -> bool:
+            return f.sched_dep >= ready and f.id not in g.legs
+
+        night = crews.lodging(s, self.task.date)
+        options = [(tuple(f.id for f in legs), max(0, legs[-1].sched_arr - last.sched_arr))
+                   for legs in table.itineraries(s, last.dest, ok, ok)]
+        options += [(tuple(f.flight for f in legs), round(max(0, legs[-1].arr - last.sched_arr) + nights(legs) * night))
+                    for legs in later.itineraries(s, last.dest, ready)]
+        charge = round(max(0, t - first.sched_dep) + passengers.fare)
+        return Mode(g.id, g.pax, cut, lapse, link, tuple(options), last_resort(charge, [c for _, c in options]))
 
     def flown(self, f: Flight, dep: int, arr: int) -> int:
         return flown_price(f, dep, arr, self.term.get(f.id, 0))
@@ -553,6 +604,14 @@ class Proxy:
         a, b = runs[i], runs[j]
         return a.status == FLOWN and (b.status != FLOWN or b.dep < a.arr + mct(self.task.flight(j).orig))
 
+    def hit(self, mode: Mode, runs: Mapping) -> bool:
+        if mode.link is not None:
+            return self.broken(mode.link, runs)
+        status = runs[mode.cut].status
+        if mode.lapse:
+            return status == AUTO_CANCELLED
+        return status == CANCELLED or (status == AUTO_CANCELLED and mode.cut not in self.lined)
+
     def cost(self, run, flat: bool = False) -> float:
         """A day (sim.Execution) under the proxy, its passengers rebooked as the LP would: the MIP's objective."""
         task, runs = self.task, run.flights
@@ -562,34 +621,29 @@ class Proxy:
             total += self.flown(f, r.dep, r.arr) if r.status == FLOWN else self.price(f, r.decided, flat)
         return total + self.assign(runs)[0]
 
-    def hit(self, mode: Mode, runs: Mapping) -> bool:
-        if mode.cut is not None:
-            return runs[mode.cut].status != FLOWN
-        return self.broken(mode.link, runs)
-
     def assign(self, runs: Mapping) -> tuple[float, dict[tuple[int, int], float], dict[int, float]]:
         """The rebooking LP of a day: each disrupted mode's passengers over its options within the seats as booked of
-        the flights that flew, or stranded; its cost, and the passengers per (mode, option) and stranded per mode."""
+        the flights that flew and the following days' seats, or refunded; its cost, and the passengers per (mode,
+        option) and refunded per mode."""
         cols, cost, rows = [], [], []
-        seats: dict[int, dict[int, float]] = defaultdict(dict)
+        room: dict[int | str, dict[int, float]] = defaultdict(dict)
         for m, mode in enumerate(self.modes):
             if not self.hit(mode, runs):
                 continue
             row = {}
             for o, (legs, price) in enumerate(mode.options):
-                if all(runs[k].status == FLOWN for k in legs):
-                    c = len(cols)
+                if all(isinstance(k, str) or runs[k].status == FLOWN for k in legs):
+                    row[len(cols)] = 1.0
+                    for k in legs:
+                        if k in self.free:
+                            room[k][len(cols)] = 1.0
                     cols.append((m, o))
                     cost.append(price)
-                    row[c] = 1.0
-                    for k in legs:
-                        seats[k][c] = 1.0
-            c = len(cols)
+            row[len(cols)] = 1.0
             cols.append((m, None))
-            cost.append(mode.night)
-            row[c] = 1.0
+            cost.append(mode.refund)
             rows.append((row, mode.pax, mode.pax))
-        rows += [(r, -INF, self.free[k]) for k, r in sorted(seats.items())]
+        rows += [(r, -INF, self.free[k]) for k, r in sorted(room.items(), key=lambda kv: str(kv[0]))]
         x = _lp(cost, [float(self.modes[m].pax) for m, _ in cols], rows) if cols else np.zeros(0)
         r = {(m, o): v for (m, o), v in zip(cols, x, strict=True) if o is not None and v > 1e-9}
         s = {m: v for (m, o), v in zip(cols, x, strict=True) if o is None and v > 1e-9}
@@ -617,11 +671,11 @@ def _lp(cost: list[float], ub: list[float], rows: list[tuple[dict[int, float], f
 def optimal(task: Task, passengers: Passengers, runs: Mapping, riders: Mapping[int, int] | None = None) -> Day:
     """The day's passengers rebooked optimally instead of first come first served: every group disrupted off its
     booked legs is assigned, over the day's flights as they flew (each leg leaving at or after it is ready, every
-    connection at the MCT on the actual minutes) and the next day's schedule, at the least total delay and lodging
-    within each flight's seats less its riders and the booked passengers it carried (an LP, so parts may be
-    fractional); who finds no seat at all arrives two days late."""
+    connection at the MCT on the actual minutes) and the following days' schedules, at the least total delay, lodging
+    and refunded fares, within each flight's seats less its riders and the booked passengers it carried, or refunded
+    (an LP, so parts may be fractional)."""
     cap = seats(task, runs, riders or {})
-    table, nxt = Timetable(task.flights), Tomorrow(task, passengers.tomorrow)
+    table, later = Timetable(task.flights), Later(task, passengers.later)
     carried: Counter = Counter()
     parts, lost = [], []
     for g in passengers.groups:
@@ -630,9 +684,7 @@ def optimal(task: Task, passengers: Passengers, runs: Mapping, riders: Mapping[i
             f, r = task.flight(k), runs[k]
             if r.status != FLOWN or (prev is not None and r.dep < prev + mct(f.orig)):
                 t = max(r.decided, task.start if prev is None else prev) if r.status != FLOWN else r.dep
-                ready = max(t + mct(f.orig), task.flight(g.legs[0]).sched_dep) if prev is None else \
-                    max(t, prev + mct(f.orig))
-                hit = (f.orig, ready, flew)
+                hit = (f.orig, t, t + mct(f.orig) if prev is None else max(t, prev + mct(f.orig)), flew)
                 break
             carried[k] += g.pax
             flew, prev = (*flew, k), r.arr
@@ -640,43 +692,59 @@ def optimal(task: Task, passengers: Passengers, runs: Mapping, riders: Mapping[i
             parts.append(Part(g.id, g.pax, FLEW, flew, prev, max(0, prev - task.flight(g.legs[-1]).sched_arr), None))
         else:
             lost.append((g, *hit))
-    cols: list[tuple[int, tuple, int, float]] = []
-    rows, room = [], defaultdict(dict)
-    for n, (g, s, ready, _) in enumerate(lost):
+    cols: list[tuple[int, tuple, str, int, float]] = []
+    rows, room, rank = [], defaultdict(dict), []
+    for n, (g, s, t, ready, _) in enumerate(lost):
         last = task.flight(g.legs[-1])
 
         def ok(f: Flight, ready=ready) -> bool:
             return runs[f.id].status == FLOWN and runs[f.id].dep >= ready
 
         night = crews.lodging(s, task.date)
-        today = [x for x in table.itineraries(s, last.dest, ok, ok)
-                 if len(x) == 1 or runs[x[1].id].dep >= runs[x[0].id].arr + mct(x[0].dest)]
         row = {}
-        for x in today:
+        for x in table.itineraries(s, last.dest, ok, ok):
+            if len(x) == 2 and runs[x[1].id].dep < runs[x[0].id].arr + mct(x[0].dest):
+                continue
             row[len(cols)] = 1.0
             for f in x:
-                room[(0, f.id)][len(cols)] = 1.0
-            cols.append((n, tuple(f.id for f in x), max(0, runs[x[-1].id].arr - last.sched_arr), 0.0))
-        for x in nxt.table.itineraries(s, last.dest, lambda f: True, lambda f: True):
+                room[f.id][len(cols)] = 1.0
+            cols.append((n, tuple(f.id for f in x), REBOOKED, max(0, runs[x[-1].id].arr - last.sched_arr), 0.0))
+        for x in later.itineraries(s, last.dest, ready):
             row[len(cols)] = 1.0
             for f in x:
-                if nxt.free[f.flight] >= 0:
-                    room[(1, f.flight)][len(cols)] = 1.0
-            cols.append((n, tuple(f.flight for f in x), max(0, x[-1].arr - last.sched_arr), night))
+                if later.free[f.flight] >= 0:
+                    room[f.flight][len(cols)] = 1.0
+            cols.append((n, tuple(f.flight for f in x), STRANDED, max(0, x[-1].arr - last.sched_arr),
+                         nights(x) * night))
         row[len(cols)] = 1.0
-        cols.append((n, (), 2880, night))
+        mine = [d + h for m, *_, d, h in cols if m == n]
+        cols.append((n, (), REFUNDED, max(0, t - task.flight(g.legs[0]).sched_dep), passengers.fare))
+        rank.append(last_resort(cols[-1][3] + passengers.fare, mine) - cols[-1][3] - passengers.fare)
         rows.append((row, g.pax, g.pax))
-    rows += [(r, -INF, float(cap[k] - carried[k] if not away else nxt.free[k]))
-             for (away, k), r in sorted(room.items(), key=lambda kv: (kv[0][0], str(kv[0][1])))]
-    x = _lp([d + h for _, _, d, h in cols], [float(lost[n][0].pax) for n, *_ in cols], rows) if cols else []
-    delay = sum(p.pax * p.delay for p in parts)
-    lodging = 0.0
-    for v, (n, legs, d, h) in zip(x, cols, strict=True):
+    rows += [(r, -INF, float(later.free[k] if isinstance(k, str) else cap[k] - carried[k]))
+             for k, r in sorted(room.items(), key=lambda kv: str(kv[0]))]
+    extra = {c: rank[i] for i, c in enumerate(c for c, col in enumerate(cols) if col[2] == REFUNDED)}
+    x = _lp([d + h + extra.get(c, 0.0) for c, (*_, d, h) in enumerate(cols)],
+            [float(lost[n][0].pax) for n, *_ in cols], rows) if cols else []
+    delay, lodging, fares = sum(p.pax * p.delay for p in parts), 0.0, 0.0
+    for v, (n, legs, kind, d, h) in zip(x, cols, strict=True):
         if v <= 1e-9:
             continue
-        g, s, _, flew = lost[n]
+        g, s, t, _, flew = lost[n]
         sched = task.flight(g.legs[-1]).sched_arr
-        parts.append(Part(g.id, v, STRANDED if h else REBOOKED, (*flew, *legs), sched + d, d, s if h else None))
+        parts.append(Part(g.id, v, kind, (*flew, *legs), t if kind == REFUNDED else sched + d, d,
+                          None if kind == REBOOKED else s, nights_of(legs, later) if kind == STRANDED else 0))
         delay += v * d
-        lodging += v * h
-    return Day(tuple(parts), (), round(delay), round(lodging))
+        lodging += v * h if kind == STRANDED else 0.0
+        fares += v * h if kind == REFUNDED else 0.0
+    return Day(tuple(parts), (), round(delay), round(lodging), round(fares))
+
+
+def last_resort(charge: float, options: list[float]) -> float:
+    """What a refund weighs in an optimal assignment: its charge, or more than any seat the group could take, so that
+    the assignment refunds only who JetBlue has no seat for within DAYS days, as the policy does."""
+    return max(charge, max(options, default=0) + 1)
+
+
+def nights_of(names: tuple[str, ...], later: Later) -> int:
+    return next(s.day for s in later.flights if s.flight == names[0])

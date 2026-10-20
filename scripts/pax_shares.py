@@ -14,7 +14,15 @@ Rows (`data/pax/b6-transfers.csv`): per period and hub, one row per destination 
 hub to dest and the inbound transfers among them), one per origin and destination with transfers (departing repeated,
 the route's), and the hub's total with orig and dest `*`. Rows (`data/pax/b6-dwell.csv`): DB1C's B6-to-B6 inbound
 transfers at each hub by scheduled dwell (DwellTimeGroup, the minutes from the inbound coupon's arrival to the
-departure) in BIN-minute bins [lo, hi) up to MAX_DWELL, per month and pooled over the months as period `all`.
+departure) in BIN-minute bins [lo, hi) up to MAX_DWELL, per month and pooled over the months as period `all`. Rows
+(`data/pax/b6-fares.csv`): per period, the passenger-weighted median one-way market fare, in dollars of the period's
+year, over the directional markets with a B6-operated segment, and the sample passengers it is taken over. DB1B: MktFare
+(ItinYield x MktMilesFlown, the itinerary fare prorated to the market by miles), bulk fares (BulkFare = 1) left out;
+BTS bases DB1B fares on "the total ticket value which consists of the price charged by the airlines plus any additional
+taxes and fees levied by an outside entity at the time of purchase" (https://www.transtats.bts.gov/AverageFare/).
+DB1C: MktAmount, the market's amount paid per passenger "inclusive of taxes and fees" (DB1C Market record description);
+it has no bulk-fare flag. Both therefore include taxes and fees. In both, fares under MIN_FARE (award and zero-fare
+tickets) are left out.
 
 Sources: BTS, Airline Origin and Destination Survey, https://www.bts.gov/topics/airlines-and-airports/origin-and-destination-survey-data;
 DB1B https://transtats.bts.gov/PREZIP/Origin_and_Destination_Survey_DB1BMarket_{YYYY}_{Q}.zip; DB1C
@@ -34,7 +42,9 @@ HUBS = ("JFK", "BOS", "FLL", "MCO", "SJU")
 COLUMNS = ["AirportGroup", "OpCarrierGroup", "Passengers"]
 OUT = Path(__file__).resolve().parents[1] / "data" / "pax" / "b6-transfers.csv"
 DWELL_OUT = OUT.with_name("b6-dwell.csv")
+FARES_OUT = OUT.with_name("b6-fares.csv")
 BIN, MAX_DWELL = 15, 360
+MIN_FARE = 10.0
 
 
 def main() -> None:
@@ -42,8 +52,9 @@ def main() -> None:
     ap.add_argument("inputs", nargs="+", help="PERIOD=PATH, a DB1B Market CSV or a DB1C Market parquet")
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--dwell-out", type=Path, default=DWELL_OUT)
+    ap.add_argument("--fares-out", type=Path, default=FARES_OUT)
     args = ap.parse_args()
-    rows, dwell = [], []
+    rows, dwell, fares = [], [], []
     for item in args.inputs:
         period, path = item.split("=", 1)
         source = "DB1C" if path.endswith(".parquet") else "DB1B"
@@ -51,6 +62,7 @@ def main() -> None:
         rows += period_rows(period, source, by)
         if source == "DB1C":
             dwell += dwell_rows(period, by)
+        fares.append((period, source, *median_fare(Path(path))))
     out = pd.DataFrame(rows, columns=["period", "source", "hub", "orig", "dest", "departing", "transfers"])
     out = out.sort_values(["period", "hub", "dest", "orig"], kind="stable")
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -65,6 +77,11 @@ def main() -> None:
         d = pd.concat([d, pooled[d.columns]], ignore_index=True).sort_values(["period", "hub", "lo"], kind="stable")
         d.to_csv(args.dwell_out, index=False)
         print(f"{len(d)} rows -> {args.dwell_out}")
+    f = pd.DataFrame(fares, columns=["period", "source", "median_fare", "passengers"])
+    f = f.sort_values("period", kind="stable")
+    f.to_csv(args.fares_out, index=False)
+    for r in f.itertuples():
+        print(f"{r.period} {r.source}: median fare ${r.median_fare:.2f} over {r.passengers} passengers")
 
 
 def markets(path: Path) -> pd.Series:
@@ -83,6 +100,25 @@ def markets(path: Path) -> pd.Series:
         df = df[df.OpCarrierGroup.str.contains("B6", na=False)].assign(DwellTimeGroup="")
     keys = ["AirportGroup", "OpCarrierGroup", "DwellTimeGroup"]
     return df.fillna({"DwellTimeGroup": ""}).groupby(keys).Passengers.sum()
+
+
+def median_fare(path: Path) -> tuple[float, int]:
+    """The passenger-weighted median market fare over the markets with a B6-operated segment, and the passengers."""
+    if path.suffix == ".parquet":
+        parts = []
+        f = pq.ParquetFile(path)
+        for g in range(f.num_row_groups):
+            t = f.read_row_group(g, columns=["OpCarrierGroup", "Passengers", "MktAmount"])
+            t = t.filter(pc.match_substring(t["OpCarrierGroup"], "B6"))
+            parts.append(t.to_pandas())
+        df = pd.concat(parts, ignore_index=True).rename(columns={"MktAmount": "fare"})
+    else:
+        df = pd.read_csv(path, usecols=["OpCarrierGroup", "Passengers", "MktFare", "BulkFare"],
+                         dtype={"OpCarrierGroup": str})
+        df = df[df.OpCarrierGroup.str.contains("B6", na=False) & (df.BulkFare != 1)].rename(columns={"MktFare": "fare"})
+    df = df[df.fare >= MIN_FARE].sort_values("fare", kind="stable")
+    cum = df.Passengers.cumsum()
+    return round(float(df.fare[cum >= cum.iloc[-1] / 2].iloc[0]), 2), int(round(cum.iloc[-1]))
 
 
 def period_rows(period: str, source: str, by: pd.Series) -> list[tuple]:

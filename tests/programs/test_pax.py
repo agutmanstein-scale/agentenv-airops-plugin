@@ -76,34 +76,54 @@ def test_a_missed_connection_is_rebooked_onto_the_next_flight_and_its_delay_coun
     task, passengers, plan = connecting_day(lb=60)
     run = sim.execute(task, plan, pax=passengers)
     d = run.pax
-    assert d.misconnected() == 20 and d.outcomes() == {"flew": 260, "rebooked": 20, "stranded": 0}
+    assert d.misconnected() == 20 and d.outcomes() == {"flew": 260, "rebooked": 20, "stranded": 0, "refunded": 0}
     rebooked = next(p for p in d.parts if p.kind == "rebooked")
     assert rebooked.legs == (0, 2) and rebooked.delay == 660 - 480
     assert run.cost.delay == d.delay == 80 * 60 + 20 * 180 and run.cost.passengers
-    assert run.cost.to_dict()["lodging"] == 0 and run.cost.cancel == 0
+    assert (run.cost.to_dict()["lodging"], run.cost.to_dict()["fare"], run.cost.cancel) == (0, 0, 0)
 
 
-def test_crews_keep_their_seats_and_who_finds_none_today_takes_tomorrows_first_seat_and_a_hotel():
+def test_crews_keep_their_seats_and_who_finds_none_today_takes_a_later_days_first_seat_a_night_each():
     task, passengers, plan = connecting_day(lb=60)
     runs = sim.execute(task, plan).flights
     d = pax.fly(task, passengers, runs, {2: 40})
-    assert d.outcomes() == {"flew": 260, "rebooked": 10, "stranded": 10}
+    assert d.outcomes() == {"flew": 260, "rebooked": 10, "stranded": 10, "refunded": 0}
     night = next(p for p in d.parts if p.kind == "stranded")
-    assert night.at == "JFK" and night.arr == 480 + 1440 and night.delay == 1440
+    assert (night.at, night.arr, night.delay, night.nights) == ("JFK", 480 + 1440, 1440, 1)
     assert d.lodging == round(10 * crews.lodging("JFK", task.date))
-    tomorrow = (Seat("B6 9 JFK", "JFK", "PWM", 1440 + 360, 1440 + 420, 4), Seat("B6 11 JFK", "JFK", "PWM", 2000, 2060,
-                                                                              50))
-    d = pax.fly(task, replace(passengers, tomorrow=tomorrow), runs, {2: 40})
-    assert sorted((p.arr, p.pax) for p in d.parts if p.kind == "stranded") == [(1860, 4), (2060, 6)]
+    later = (Seat("B6 9 JFK +1", "JFK", "PWM", 1440 + 360, 1440 + 420, 4, 1),
+             Seat("B6 11 JFK +2", "JFK", "PWM", 2880 + 120, 2880 + 180, 50, 2))
+    d = pax.fly(task, replace(passengers, later=later), runs, {2: 40})
+    assert sorted((p.arr, p.pax, p.nights) for p in d.parts if p.kind == "stranded") == [(1860, 4, 1), (3060, 6, 2)]
+    assert d.lodging == round(4 * crews.lodging("JFK", task.date) + 12 * crews.lodging("JFK", task.date))
+
+
+def test_who_finds_no_jetblue_seat_within_five_days_is_refunded_for_the_wait_and_the_fare():
+    task, passengers, plan = connecting_day(cancel=1)
+    later = (Seat("B6 9 JFK +1", "JFK", "PWM", 1800, 1860, 0, 1),)
+    passengers = replace(passengers, later=later, fare=200.0)
+    run = sim.execute(task, plan, pax=passengers)
+    d = run.pax
+    assert d.outcomes() == {"flew": 180, "rebooked": 50, "stranded": 0, "refunded": 50}
+    assert {(p.group, p.pax, p.delay) for p in d.parts if p.kind == "refunded"} == {(2, 30, 0), (1, 20, 360 - 300)}
+    assert d.fare == run.cost.fare == 50 * 200 and run.cost.cancel == REFUND * 100
+
+
+def test_a_cancellation_rebooks_from_its_decision_onto_an_earlier_flight_than_the_one_booked():
+    task, passengers, plan = connecting_day(cancel=2)
+    d = sim.execute(task, plan, pax=passengers).pax
+    early = next(p for p in d.parts if p.group == 3 and p.kind == "rebooked")
+    assert (early.legs, early.pax, early.delay) == ((1,), 50, 0)
 
 
 def test_a_cancellation_rebooks_first_come_first_served_and_costs_the_refund_exposure_not_523():
     task, passengers, plan = connecting_day(cancel=1)
     run = sim.execute(task, plan, pax=passengers)
     d = run.pax
-    assert d.outcomes() == {"flew": 180, "rebooked": 50, "stranded": 50}
+    assert d.outcomes() == {"flew": 180, "rebooked": 50, "stranded": 50, "refunded": 0}
     assert {(p.group, p.kind, p.pax) for p in d.parts if p.kind != "flew"} == {
         (2, "rebooked", 50), (2, "stranded", 30), (1, "stranded", 20)}
+    assert d.outcomes()["refunded"] == 0
     assert run.cost.cancel == REFUND * 100
     assert sim.execute(task, plan).cost.cancel == 523 * 100
 
@@ -124,18 +144,18 @@ def test_optimal_rebooking_takes_the_earlier_arrival_first_come_first_served_by_
 
 def mixed(seed: int):
     task = network_day(random.Random(seed), 6) if seed % 2 else random_day(random.Random(seed), 4)
-    return task, pax.book(task, pax.Flows.synthetic(task, 0.4), pax.Dwell.uniform())
+    return task, pax.book(task, pax.Flows.synthetic(task, 0.4), pax.Dwell.uniform(), refunded=250.0)
 
 
 @pytest.mark.parametrize("seed", range(10))
 def test_every_day_the_sim_runs_is_a_solution_of_the_passenger_model_at_its_proxy_cost(seed):
     task, passengers = mixed(seed)
-    proxy = pax.Proxy(task, passengers)
     rng = random.Random(seed)
     for _ in range(5):
         plan = {f.id: {"cancel": rng.random() < 0.25, "decided": rng.randrange(0, 200),
                        "not_before": rng.randrange(0, 400)} for f in task.flights if rng.random() < 0.6}
         run = sim.execute(task, plan)
+        proxy = pax.Proxy(task, passengers, {i: r.decided for i, r in run.flights.items() if r.decided is not None})
         net = mip.Network(task, price={f.id: proxy.price(f, run.flights[f.id].decided or 0) for f in task.flights},
                           pax=proxy)
         x = net.vector(run)

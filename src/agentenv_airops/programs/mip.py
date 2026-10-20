@@ -47,11 +47,12 @@ dep_i - block_i + M y >= MCT (its cancelled terms raised so that it binds only w
 of the MCT their copies allow, no row where none falls short), force to 1. Valid cuts tighten the relaxation: with
 columns counting each such flight's copies by minutes on a GRID-minute grid, y >= left(j, a) - left(i, a - MCT -
 block_i, rounded up) - cancelled(i) for every grid minute a in the RISK minutes after the outbound's earliest one.
-Every way a group is disrupted rebooks it,
-as a column per option, onto the proxy's itineraries within each flight's seats as booked (none on a cancelled one),
-or strands it at the proxy's night price. Rebooking costs at least 0, so a y at 1 that nothing forces never lowers the
-cost: every day the sim runs is a solution at its proxy cost (pax.Proxy.cost, the rebooking an LP), every optimum
-replays at its cost, and the bound is the proxy's.
+Every way a group is disrupted (its first leg's cancel column, its auto-cancel column, or its connection's y) rebooks
+it, as a column per option, onto the proxy's itineraries within each flight's seats as booked (none on a cancelled
+one) and the following days' seats left, or refunds it at the proxy's refund price (a last resort, pax.last_resort).
+Rebooking costs at least 0, so a
+y at 1 that nothing forces never lowers the cost: every day the sim runs is a solution at its proxy cost
+(pax.Proxy.cost, the rebooking an LP), every optimum replays at its cost, and the bound is the proxy's.
 """
 
 import time
@@ -383,7 +384,7 @@ class Network:
         self.links: dict[tuple[int, int], int] = {}
         self.upto: dict[tuple[int, int], int] = {}
         self.rebook: dict[tuple[int, int], int] = {}
-        self.strand: dict[int, int] = {}
+        self.refund: dict[int, int] = {}
         if pax is not None:
             self._passengers(pax)
 
@@ -424,20 +425,24 @@ class Network:
                 prev = t
         for x, a, t in cuts:
             m.row({self.links[(x.i, x.j)]: 1, self.upto[(x.j, a)]: -1, self.upto[(x.i, t)]: 1, **gone[x.i]}, 0, INF)
-        room: dict[int, dict[int, int]] = defaultdict(dict)
+        room: dict[int | str, dict[int, int]] = defaultdict(dict)
         for n, mode in enumerate(pax.modes):
-            hit = gone[mode.cut] if mode.cut is not None else {self.links[mode.link]: 1}
+            if mode.link is not None:
+                hit = {self.links[mode.link]: 1}
+            else:
+                hit = {self.lapsed[mode.cut]: 1} if mode.lapse else {self.cancel[mode.cut]: 1}
             row = {c: -mode.pax for c in hit}
             for o, (legs, price) in enumerate(mode.options):
                 self.rebook[(n, o)] = c = m.col(price, mode.pax, False)
                 row[c] = 1
                 for k in legs:
-                    room[k][c] = 1
-            self.strand[n] = c = m.col(mode.night, mode.pax, False)
+                    if k in pax.free:
+                        room[k][c] = 1
+            self.refund[n] = c = m.col(mode.refund, mode.pax, False)
             row[c] = 1
             m.row(row, 0, 0)
-        for k, r in sorted(room.items()):
-            m.row({**r, **{c: pax.free[k] for c in gone[k]}}, -INF, pax.free[k])
+        for k, r in sorted(room.items(), key=lambda kv: str(kv[0])):
+            m.row({**r, **({c: pax.free[k] for c in gone[k]} if isinstance(k, int) else {})}, -INF, pax.free[k])
 
     def solve(self, time_limit: float = 600.0, gap: float = GAP, threads: int = 1, canonical: bool = True,
               start: np.ndarray | None = None, fix: bool = True) -> Solution:
@@ -565,11 +570,11 @@ class Network:
             x[c] = runs[k].status == FLOWN and runs[k].dep <= t
         for link in pax.links:
             x[self.links[(link.i, link.j)]] = pax.broken(link, runs)
-        _, rebooked, stranded = pax.assign(runs)
+        _, rebooked, refunded = pax.assign(runs)
         for key, v in rebooked.items():
             x[self.rebook[key]] = v
-        for n, v in stranded.items():
-            x[self.strand[n]] = v
+        for n, v in refunded.items():
+            x[self.refund[n]] = v
 
     def _carry(self, ln: Line, run: sim.Execution, x: np.ndarray, delta: dict[tuple, Counter],
                fast: set[int]) -> None:

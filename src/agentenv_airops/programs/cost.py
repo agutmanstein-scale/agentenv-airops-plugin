@@ -25,11 +25,12 @@ that every aircraft-minute is priced alike. The flat cost, every cancellation at
 airline's cost too: only the notice term sets it apart, and it is kept for the leverage and control clauses, which the
 notice term would otherwise decide.
 
-With passengers (programs.pax, cost P) `delay` is every passenger's delay at the final destination, rebooked or the
-next day's arrival included, in place of v2's delay at every leg; a cancelled flight's booked passengers cost REFUND
-each, K_CANCEL's refund-exposure part, their real delay replacing its 457 minutes; and `lodging`, a GSA lodging night
-per passenger stranded overnight, joins the flat cost. The notice term and the airline's terms are v2's. Without
-passengers every term and output is v2's.
+With passengers (programs.pax, cost P) `delay` is every passenger's delay at the final destination, rebooked or a
+later day's arrival included (for a passenger refunded, the time waited up to the refund), in place of v2's delay at
+every leg; a cancelled flight's booked passengers cost REFUND each, K_CANCEL's refund-exposure part (v1's assumed 0.3
+take-up of the fare), their real delay replacing its 457 minutes; `lodging` (a GSA lodging night per night away) and
+`fare` (the full fare of every passenger refunded) join the flat cost. The notice term and the airline's terms are
+v2's. Without passengers every term and output is v2's.
 """
 
 from collections.abc import Iterable, Mapping
@@ -81,6 +82,7 @@ class Cost:
     overrun: int
     saved: int
     lodging: int = 0
+    fare: int = 0
     passengers: bool = False
 
     @property
@@ -89,13 +91,14 @@ class Cost:
 
     @property
     def flat(self) -> int:
-        return self.delay + self.cancel + self.ferry + self.gate + self.overrun - self.saved + self.lodging
+        return (self.delay + self.cancel + self.ferry + self.gate + self.overrun - self.saved + self.lodging
+                + self.fare)
 
     def to_dict(self) -> dict:
         out = {"delay": self.delay, "cancel": self.cancel, "notice": self.notice, "ferry": self.ferry,
                "gate": self.gate, "overrun": self.overrun, "saved": self.saved, "total": self.total, "flat": self.flat}
         if self.passengers:
-            out["lodging"] = self.lodging
+            out |= {"lodging": self.lodging, "fare": self.fare}
         return out
 
 
@@ -149,4 +152,4 @@ def priced(task: Task, dep: Mapping[int, int | None], arr: Mapping[int, int | No
     ferry = sum(ferry_cost(task, *x) for x in ferries)
     if pax is None:
         return Cost(delay, cancel, notice, ferry, gate, overrun, saved)
-    return Cost(pax.delay, REFUND * lost, notice, ferry, gate, overrun, saved, pax.lodging, True)
+    return Cost(pax.delay, REFUND * lost, notice, ferry, gate, overrun, saved, pax.lodging, pax.fare, True)
