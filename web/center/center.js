@@ -8,14 +8,9 @@ import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUnifo
 import { buildCards } from "./cards.js";
 import { ROOM, buildHall } from "./hall.js";
 import { buildPods } from "./pods.js";
-import { compose } from "./shots.js";
+import { BASE as VIEWS, compose } from "./shots.js";
 import { WALL, buildWall } from "./wall.js";
 
-const VIEWS = {
-  room: { from: [0, 5.1, 21.0], at: [0, 2.3, 3.5], fov: 48 },
-  "room-desks": { from: [0.1, 2.85, 10.6], at: [0, 2.0, 5.4], fov: 40 },
-  "room-wall": { from: [0, 3.25, 14.6], at: [0, 3.2, 0], fov: 40 },
-};
 const CSS = `.cc-caption { position: absolute; z-index: 2; top: 12px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 4px;
   font: 500 11.5px/1.4 Inter, "Helvetica Neue", Arial, sans-serif; color: rgba(225,233,240,0.82); background: rgba(10,14,20,0.55); pointer-events: none; white-space: nowrap; }
 .view.corner .cc-caption { display: none; }`;
@@ -62,11 +57,11 @@ export class ControlCenter {
   async #build(controls) {
     const { scene, renderer, P, ep } = this;
     RectAreaLightUniformsLib.init();
-    this.hall = buildHall();
+    this.hall = buildHall({ one: ep.occ.mode === "one" || (ep.occ.desks ?? []).length === 1 });
     scene.add(this.hall.group);
     this.screen = buildWall(P, ep);
     scene.add(this.screen.group);
-    this.pods = buildPods(ep);
+    this.pods = buildPods(P, ep);
     scene.add(this.pods.group);
     this.flying = buildCards(P, ep, this.pods.pods);
     scene.add(this.flying.group);

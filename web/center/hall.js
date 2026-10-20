@@ -47,21 +47,35 @@ function limb(a, b, r, hex) {
 
 const ball = (r, [x, y, z], hex, [sx, sy, sz] = [1, 1, 1]) => paint(new THREE.SphereGeometry(r, 12, 9).scale(sx, sy, sz).translate(x, y, z), hex);
 
-/** A seated office worker facing -z, low-poly, at a chair placed at the origin; head separate so it can move. */
-export function personGeometry({ shirt = 0x3b4a5c, trousers = 0x23272d, skin = 0xc69a7c, hair = 0x2a211c } = {}) {
-  const body = [];
-  for (const x of [-0.1, 0.1]) {
-    body.push(limb([x, 0.53, 0.1], [x * 1.1, 0.54, -0.3], 0.075, trousers));
-    body.push(limb([x * 1.1, 0.5, -0.33], [x * 1.1, 0.1, -0.37], 0.056, trousers));
-    body.push(box(0.1, 0.07, 0.25, [x * 1.1, 0.035, -0.43], 0x16181b));
-    body.push(limb([x * 1.9, 1.04, 0.11], [x * 2.2, 0.83, 0.02], 0.05, shirt));
-    body.push(limb([x * 2.2, 0.83, 0.02], [x * 1.4, 0.8, -0.26], 0.043, shirt));
-    body.push(ball(0.045, [x * 1.35, 0.795, -0.3], skin));
+/** A seated office worker facing -z at a chair placed at the origin, calm and low-poly: shoulders, a neck, hands on the
+ * keyboard; the head (with ears, a nose and short, long or tied-up hair) is separate so it can turn. */
+export function personGeometry({ shirt = 0x3b4a5c, trousers = 0x23272d, skin = 0xc69a7c, hair = 0x2a211c, style = "short" } = {}) {
+  const body = [
+    paint(new THREE.CapsuleGeometry(0.105, 0.14, 3, 10).rotateZ(Math.PI / 2).scale(1, 1, 0.85).translate(0, 0.57, 0.13), trousers),
+    paint(new THREE.CapsuleGeometry(0.12, 0.12, 3, 12).scale(1.12, 1, 0.78).translate(0, 0.73, 0.14), shirt),
+    paint(new THREE.CapsuleGeometry(0.135, 0.13, 3, 12).scale(1.38, 1, 0.74).rotateX(-0.08).translate(0, 0.93, 0.13), shirt),
+    paint(new THREE.CylinderGeometry(0.04, 0.046, 0.11, 10).translate(0, 1.11, 0.115), skin),
+  ];
+  for (const x of [-1, 1]) {
+    body.push(limb([x * 0.095, 0.56, 0.12], [x * 0.105, 0.56, -0.3], 0.068, trousers));
+    body.push(limb([x * 0.105, 0.53, -0.32], [x * 0.105, 0.1, -0.36], 0.05, trousers));
+    body.push(box(0.09, 0.06, 0.23, [x * 0.105, 0.03, -0.41], 0x16181b));
+    body.push(ball(0.06, [x * 0.185, 1.03, 0.13], shirt));
+    body.push(limb([x * 0.2, 1.02, 0.13], [x * 0.235, 0.8, 0.07], 0.046, shirt));
+    body.push(limb([x * 0.235, 0.8, 0.07], [x * 0.15, 0.785, -0.23], 0.039, shirt));
+    body.push(ball(0.04, [x * 0.14, 0.78, -0.28], skin, [0.95, 0.55, 1.35]));
   }
-  body.push(paint(new THREE.CapsuleGeometry(0.15, 0.3, 3, 10).scale(1.22, 1, 0.78).rotateX(-0.12).translate(0, 0.84, 0.1), shirt));
-  body.push(paint(new THREE.CylinderGeometry(0.045, 0.05, 0.12, 8).translate(0, 1.1, 0.07), skin));
-  const head = mergeGeometries([ball(0.088, [0, 0, 0], skin, [0.92, 1.12, 1]), ball(0.092, [0, 0.028, 0.02], hair, [0.96, 0.92, 1])]);
-  return { body: mergeGeometries(body), head, headAt: [0, 1.22, 0.055] };
+  const cap = new THREE.SphereGeometry(0.097, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.55).scale(0.93, 1.06, 1.02).rotateX(0.45).translate(0, 0.012, 0.012);
+  const head = [
+    ball(0.09, [0, 0, 0], skin, [0.88, 1.1, 0.98]),
+    box(0.022, 0.032, 0.03, [0, -0.012, -0.088], skin),
+    ball(0.02, [-0.079, -0.004, 0.006], skin, [0.5, 1, 0.8]),
+    ball(0.02, [0.079, -0.004, 0.006], skin, [0.5, 1, 0.8]),
+    paint(cap, hair),
+  ];
+  if (style === "long") head.push(paint(new THREE.CapsuleGeometry(0.068, 0.07, 4, 12).scale(1.2, 1, 0.55).rotateX(0.15).translate(0, -0.065, 0.06), hair));
+  if (style === "bun") head.push(ball(0.042, [0, 0.055, 0.1], hair));
+  return { body: mergeGeometries(body), head: mergeGeometries(head), headAt: [0, 1.25, 0.1] };
 }
 
 /** An office chair facing -z with its seat centre over the origin. */
@@ -280,8 +294,18 @@ function screens() {
   return out;
 }
 
-/** The room shell, the tiers, the rows of background workstations and the ceiling lights; the two desks' pods are pods.js's. */
-export function buildHall() {
+const FOLK = [
+  { shirt: 0x55606c, skin: 0xc69a7c, hair: 0x2a211c, style: "short" },
+  { shirt: 0x3e4b5a, skin: 0x8d5f43, hair: 0x15100c, style: "short" },
+  { shirt: 0x6b6460, skin: 0xd8b294, hair: 0x6a4a30, style: "long" },
+  { shirt: 0x2f3a46, skin: 0xb27c5c, hair: 0x1d1612, style: "bun" },
+  { shirt: 0x5e6b62, skin: 0xe0bc9c, hair: 0x8a8a8a, style: "short" },
+];
+
+/** The room shell, the tiers, the rows of background workstations and the ceiling lights; the desks' pods are pods.js's.
+ * On a one-agent day the front row closes up around its single pod. Nobody sits just behind the pods, where shots look
+ * over the desks' shoulders. */
+export function buildHall({ one = false } = {}) {
   const group = new THREE.Group();
   const { w: W, d: D, h: H } = ROOM;
   const carpetTex = texture(carpet(), { repeat: [W / 1, D / 1] });
@@ -328,41 +352,45 @@ export function buildHall() {
 
   const stations = [];
   ROWS.forEach((row, i) => {
-    for (const s of row.slots) for (const sx of [-1, 1]) stations.push({ row: i, m: stationMatrix(row, sx * s) });
+    for (const s of i === 0 && one ? [2.1, 3.9, 5.7, 7.9, 9.7] : row.slots) for (const sx of [-1, 1]) stations.push({ row: i, s, m: stationMatrix(row, sx * s) });
   });
   const deskMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.05 });
   const desks = new THREE.InstancedMesh(deskGeometry(), deskMat, stations.length);
   const chairs = new THREE.InstancedMesh(chairGeometry(), deskMat, stations.length);
   const r = rng(41);
-  const seated = stations.filter(() => r() < 0.38);
-  const person = personGeometry({ shirt: 0x4a5560 });
-  const people = new THREE.InstancedMesh(person.body, deskMat, seated.length);
-  const heads = new THREE.InstancedMesh(person.head, deskMat, seated.length);
+  const seated = stations.filter((st) => r() < 0.4 && !(st.row === 1 && st.s < 5));
   const chairAt = new THREE.Matrix4().makeTranslation(0, 0, 0.5);
   stations.forEach((st, k) => {
     desks.setMatrixAt(k, st.m);
     chairs.setMatrixAt(k, st.m.clone().multiply(chairAt).multiply(new THREE.Matrix4().makeRotationY((r() - 0.5) * 0.6)));
   });
   const tint = new THREE.Color();
-  seated.forEach((st, k) => {
-    const at = st.m.clone().multiply(chairAt);
-    people.setMatrixAt(k, at);
-    heads.setMatrixAt(k, at.clone().multiply(new THREE.Matrix4().makeRotationY((r() - 0.5) * 0.5).setPosition(...person.headAt)));
-    const shirt = [0x55606c, 0x3e4b5a, 0x6b6460, 0x2f3a46, 0x5e6b62, 0x707782][Math.floor(r() * 6)];
-    people.setColorAt(k, tint.set(shirt).lerp(new THREE.Color(1, 1, 1), 0.35));
+  const kinds = FOLK.map(() => []);
+  for (const st of seated) kinds[Math.floor(r() * FOLK.length)].push(st);
+  FOLK.forEach((look, i) => {
+    if (!kinds[i].length) return;
+    const person = personGeometry(look);
+    const people = new THREE.InstancedMesh(person.body, deskMat, kinds[i].length);
+    const heads = new THREE.InstancedMesh(person.head, deskMat, kinds[i].length);
+    kinds[i].forEach((st, k) => {
+      const at = st.m.clone().multiply(chairAt);
+      people.setMatrixAt(k, at);
+      heads.setMatrixAt(k, at.clone().multiply(new THREE.Matrix4().makeRotationY((r() - 0.5) * 0.5).setPosition(...person.headAt)));
+    });
+    group.add(people, heads);
   });
-  for (const m of [desks, chairs, people, heads]) m.instanceMatrix.needsUpdate = true;
-  group.add(desks, chairs, people, heads);
+  for (const m of [desks, chairs]) m.instanceMatrix.needsUpdate = true;
+  group.add(desks, chairs);
 
-  const kinds = screens().map((c) => texture(c));
+  const looks = screens().map((c) => texture(c));
   const plane = new THREE.PlaneGeometry(1, 1);
-  const screenSets = kinds.map((tex) => ({ tex, items: [] }));
+  const screenSets = looks.map((tex) => ({ tex, items: [] }));
   const mons = monitorMatrices(3);
   const on = new Set(seated);
   stations.forEach((st) => {
     for (const mm of mons) {
       const lit = on.has(st) || r() < 0.55;
-      screenSets[Math.floor(r() * kinds.length)].items.push({ m: st.m.clone().multiply(screenMatrix(mm)), v: lit ? 0.42 + r() * 0.28 : 0.06 });
+      screenSets[Math.floor(r() * looks.length)].items.push({ m: st.m.clone().multiply(screenMatrix(mm)), v: lit ? 0.42 + r() * 0.28 : 0.06 });
     }
   });
   for (const set of screenSets) {

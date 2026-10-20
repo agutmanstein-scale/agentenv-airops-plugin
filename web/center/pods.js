@@ -1,32 +1,64 @@
 // The two desks the model works, display-only: the ops controller's and the crew scheduler's pods at the centre of the
-// front row (one pod on a one-agent day), each with a seated figure, a hanging name sign and three monitors showing the
-// page that desk read at the start of its latest turn. The desk whose turn it is gets its lamp and screens up.
+// front row (one pod on a one-agent day), each with a seated figure, a name board on the monitor arm and three monitors
+// showing, in type big enough to read over the desk's shoulder, the page that desk read at the start of its latest turn:
+// its header and summary, then the first items of its first two sections. The desk whose turn it is lights up.
 import * as THREE from "three";
 import { clock } from "../plain.js";
+import { unitName } from "../room.js";
 import { ROWS, chairGeometry, deskGeometry, monitorMatrices, personGeometry, screenMatrix, stationMatrix } from "./hall.js";
 
 export const DESKS = { ops: "Ops controller", crew: "Crew scheduler", one: "Ops controller · crew scheduler" };
-const SHIRTS = { ops: 0x24476b, crew: 0x5a3f5e, one: 0x24476b };
+const LOOKS = {
+  ops: { shirt: 0x24476b, skin: 0xd1a585, hair: 0x4a3426, style: "short" },
+  crew: { shirt: 0x5a3f5e, skin: 0xb5835f, hair: 0x1b1410, style: "long" },
+  one: { shirt: 0x24476b, skin: 0xd1a585, hair: 0x4a3426, style: "short" },
+};
 const POD_W = 2.4;
-const SCALE = 1.15;
+const SCALE = 1.25;
 const FONT = "Inter, 'Helvetica Neue', Arial, sans-serif";
-const MONO = "'SF Mono', Menlo, Consolas, monospace";
-const PAGE = { w: 1024, h: 586, line: 17, cols: 104 };
+const PAGE = { w: 1024, h: 586, pad: 22, top: 50 };
+const TEXT = { size: 44, line: 53 };
+const EMPTY = /^(none|none new)\.?$/i;
 
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
 
-function wrap(text, cols) {
+/** Lines of at most `width` pixels in the context's current font, the rest dropped after `most` lines with an ellipsis. */
+function wrap(g, text, width, most = Infinity) {
   const out = [];
-  for (const raw of String(text ?? "").split("\n")) {
-    let line = raw;
-    while (line.length > cols) {
-      const cut = line.lastIndexOf(" ", cols) > cols * 0.6 ? line.lastIndexOf(" ", cols) : cols;
-      out.push(line.slice(0, cut));
-      line = `  ${line.slice(cut).trimStart()}`;
+  let line = "";
+  for (const word of String(text).split(/\s+/).filter(Boolean)) {
+    const next = line ? `${line} ${word}` : word;
+    if (g.measureText(next).width <= width || !line) line = next;
+    else {
+      out.push(line);
+      line = word;
     }
-    out.push(line);
+  }
+  if (line) out.push(line);
+  if (out.length > most) {
+    out.length = most;
+    out[most - 1] = `${out[most - 1].replace(/\s*\S*$/, "")}…`;
   }
   return out;
+}
+
+/** A desk's page as parts: its title ("Crew scheduler · 14:00 · watch 11 of 37"), the rest of the header, the summary
+ * paragraph and the sections that have items, flights and crews said in words. */
+function parse(text, words) {
+  const lines = String(text ?? "").split("\n").map((l) => l.trim());
+  const head = (lines.find((l) => l.startsWith("# ")) ?? "").slice(2);
+  const m = /^([^,]+), [^,]+, [\d-]+, ([\d:+-]+) \(watch (\d+) of (\d+)[^)]*\);?\s*(.*)$/.exec(head);
+  const title = m ? `${m[1]} · ${m[2]} · watch ${m[3]} of ${m[4]}` : head;
+  const sections = [];
+  const summary = [];
+  let cur = null;
+  for (const l of lines) {
+    if (!l || l.startsWith("# ")) continue;
+    if (l.startsWith("## ")) sections.push((cur = { title: l.slice(3).replace(/\s*\(.*\)\s*$/, ""), items: [] }));
+    else if (cur) cur.items.push(words(l));
+    else summary.push(words(l));
+  }
+  return { title, note: m ? m[5] : "", summary, sections: sections.filter((x) => x.items.some((i) => !EMPTY.test(i))) };
 }
 
 function signCanvas(title, sub) {
@@ -50,8 +82,9 @@ function signCanvas(title, sub) {
 }
 
 class Pod {
-  constructor(group, desk, s, { label, pages, turns }) {
+  constructor(group, desk, s, { label, pages, turns, words }) {
     this.desk = desk;
+    this.words = words;
     this.pages = pages;
     this.turns = turns;
     const row = ROWS[0], m = stationMatrix(row, s);
@@ -64,7 +97,7 @@ class Pod {
     const chair = new THREE.Mesh(chairGeometry(), mat);
     chair.applyMatrix4(chairAt);
     group.add(chair);
-    const person = personGeometry({ shirt: SHIRTS[desk], skin: desk === "crew" ? 0xb5835f : 0xd1a585, hair: desk === "crew" ? 0x1b1410 : 0x5a4030 });
+    const person = personGeometry(LOOKS[desk]);
     const body = new THREE.Mesh(person.body, mat);
     body.applyMatrix4(chairAt);
     group.add(body);
@@ -135,40 +168,49 @@ class Pod {
   }
 
   paint(page) {
-    const lines = page ? wrap(page.text, PAGE.cols) : [];
-    const per = Math.floor((PAGE.h - 40) / PAGE.line);
+    const doc = page ? parse(page.text, this.words) : null;
+    const [first, second] = doc?.sections ?? [];
     this.screens.forEach((sc, i) => {
-      const g = sc.g;
+      const g = sc.g, W = PAGE.w - 2 * PAGE.pad;
       g.fillStyle = "#0a1017";
       g.fillRect(0, 0, PAGE.w, PAGE.h);
       g.fillStyle = "#14263a";
-      g.fillRect(0, 0, PAGE.w, 30);
-      g.font = `600 17px ${FONT}`;
+      g.fillRect(0, 0, PAGE.w, 40);
+      g.font = `600 26px ${FONT}`;
       g.fillStyle = "#a9c3dc";
       g.textBaseline = "middle";
-      g.fillText(`${DESKS[this.desk]}${page ? ` · page at ${clock(page.t)}` : ""} · ${i + 1}/3`, 12, 15);
-      if (!page) {
-        g.font = `500 28px ${FONT}`;
-        g.fillStyle = "#5d7187";
-        g.fillText(i === 1 ? "Waiting for the first watch" : "", 40, PAGE.h / 2);
-      }
+      g.fillText(`${DESKS[this.desk]}${page ? ` · page at ${clock(page.t)}` : ""}`, PAGE.pad, 21);
       g.textBaseline = "alphabetic";
-      lines.slice(i * per, (i + 1) * per).forEach((line, k) => {
-        const y = 40 + (k + 1) * PAGE.line - 4;
-        if (line.startsWith("## ")) {
-          g.font = `700 15px ${MONO}`;
-          g.fillStyle = "#7fc4ff";
-          line = line.slice(3);
-        } else if (line.startsWith("# ")) {
-          g.font = `700 15px ${MONO}`;
-          g.fillStyle = "#ffd27a";
-          line = line.slice(2);
-        } else {
-          g.font = `400 15px ${MONO}`;
-          g.fillStyle = "#c3cfda";
+      let y = PAGE.top + TEXT.line;
+      const room = () => y < PAGE.h - 10;
+      const put = (text, { font = `400 ${TEXT.size}px ${FONT}`, color = "#d3dde6", most = 3, indent = 0 } = {}) => {
+        g.font = font;
+        g.fillStyle = color;
+        for (const line of wrap(g, text, W - indent, most)) {
+          if (!room()) return;
+          g.fillText(line, PAGE.pad + indent, y);
+          y += TEXT.line;
         }
-        g.fillText(line, 12, y);
-      });
+      };
+      if (!doc) {
+        if (i === 1) put("Waiting for the first watch", { color: "#5d7187" });
+      } else if (i === 0) {
+        put(doc.title, { font: `700 ${TEXT.size}px ${FONT}`, color: "#ffd27a", most: 2 });
+        if (doc.note) put(doc.note, { color: "#9fb2c4", most: 2 });
+        y += 6;
+        for (const para of doc.summary) put(para, { most: 4 });
+      } else {
+        const sec = i === 1 ? first : second;
+        if (!sec) put(i === 1 ? "Nothing flagged this turn" : "", { color: "#5d7187" });
+        else {
+          put(sec.title, { font: `700 ${TEXT.size}px ${FONT}`, color: "#7fc4ff", most: 1 });
+          y += 4;
+          for (const item of sec.items.filter((x) => !EMPTY.test(x))) {
+            if (!room()) break;
+            put(`· ${item}`, { most: 2 });
+          }
+        }
+      }
       sc.tex.needsUpdate = true;
     });
   }
@@ -198,8 +240,13 @@ class Pod {
   }
 }
 
-export function buildPods(ep) {
+export function buildPods(P, ep) {
   const occ = ep.occ, group = new THREE.Group();
+  const flight = (id) => P.sched.get(Number(id))?.flight;
+  const words = (text) => text
+    .replace(/\bf(\d{1,4}) (\d{1,4})\b/g, (m, id, n) => (flight(id)?.endsWith(` ${n}`) ? flight(id) : m))
+    .replace(/\bf(\d{1,4})\b/g, (m, id) => flight(id) ?? m)
+    .replace(/\bR?[PC]-[A-Z0-9]+-(?:[A-Z]{3}-[AS]\d+|\d+)\b/g, (id) => unitName(id));
   const label = ep.model_label ?? ep.model ?? "";
   const one = occ.mode === "one" || (occ.desks ?? []).length === 1;
   const desks = one ? ["one"] : ["ops", "crew"];
@@ -207,7 +254,7 @@ export function buildPods(ep) {
   const pods = new Map(desks.map((d, i) => {
     const pages = occ.pages.filter((p) => one || p.desk === d).map((p) => ({ ...p, from: from.get(`${p.t}|${p.desk}`) ?? p.t }));
     const turns = occ.turns.filter((u) => one || u.desk === d);
-    return [d, new Pod(group, d, one ? 0 : i === 0 ? -1.3 : 1.3, { label, pages, turns })];
+    return [d, new Pod(group, d, one ? 0 : i === 0 ? -1.3 : 1.3, { label, pages, turns, words })];
   }));
   return {
     group,
