@@ -8,6 +8,7 @@ right date."""
 import functools
 import http.cookiejar
 import io
+import os
 import re
 import urllib.parse
 import urllib.request
@@ -68,7 +69,9 @@ def transtats(table: str, year: int, period: str, fields: list[str] | None = Non
 
 
 def read_ontime(path: Path, derived: Path) -> pd.DataFrame:
-    """The month's rows with UTC epoch minutes, cached as parquet beside the inputs under the zip's sha256."""
+    """The month's rows with UTC epoch minutes, cached as parquet beside the inputs under the zip's sha256. Each
+    process writes its own temporary file and renames it into place, so workers starting on a cold cache don't move
+    one another's file away."""
     cached = derived / f"ontime_{fetch.sha256(path)[:16]}.parquet"
     if cached.exists():
         return pd.read_parquet(cached)
@@ -78,8 +81,9 @@ def read_ontime(path: Path, derived: Path) -> pd.DataFrame:
             df = pd.read_csv(f, usecols=STRINGS + NUMBERS, dtype={c: str for c in STRINGS}, low_memory=False)
     df = with_utc(df[STRINGS + NUMBERS])
     derived.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(cached.with_name(cached.name + ".part"), index=False)
-    cached.with_name(cached.name + ".part").replace(cached)
+    part = cached.with_name(f"{cached.name}.{os.getpid()}.part")
+    df.to_parquet(part, index=False)
+    part.replace(cached)
     return df
 
 
