@@ -11,16 +11,16 @@ import { CREDIT, Expert } from "./panel.js";
 const params = new URLSearchParams(location.search);
 const RECORD = params.get("record") === "1";
 const SPEEDS = [0.25, 1, 2, 5, 10, 20, 40];
-const STAGE_VIEWS = ["tower", "gate", "threshold", "harbour", "follow"];
+const STAGE_VIEWS = ["tower", "gate", "threshold", "harbour", "follow", "crew"];
 const ROOM_VIEWS = ["room", "room-desks", "room-wall"];
 const ALIASES = { hub: "tower", region: "network", map: "network", center: "room" };
-const KEYS = { 1: "tower", 2: "gate", 3: "threshold", 4: "harbour", 5: "follow", 6: "room", m: "network" };
+const KEYS = { 1: "tower", 2: "gate", 3: "threshold", 4: "harbour", 5: "follow", 6: "room", 7: "crew", m: "network" };
 const CARRIERS = { AA: "an American", AS: "an Alaska", DL: "a Delta", UA: "a United", WN: "a Southwest", NK: "a Spirit", F9: "a Frontier", G4: "an Allegiant",
   SY: "a Sun Country", HA: "a Hawaiian", MX: "a Breeze", YX: "a Republic", "9E": "an Endeavor", OH: "a PSA", MQ: "an Envoy", OO: "a SkyWest", YV: "a Mesa",
   C5: "a CommuteAir", ZW: "an Air Wisconsin", PT: "a Piedmont", G7: "a GoJet", QX: "a Horizon" };
 const CAMERAS = { tower: ["Tower", "From the control tower"], gate: ["Gate", "At JetBlue's gates"], threshold: ["Runway", "At the end of the runway in use"],
   harbour: ["Harbour", "Across the water"], follow: ["Follow", "Behind an aircraft (or click one)"], network: ["Map", "The US map, full screen"],
-  room: ["Room", "The control center, where the desks work"] };
+  room: ["Room", "The control center, where the desks work"], crew: ["Crew", "With a crew at the airport"] };
 
 let resolveReady, rejectReady;
 window.airops = {
@@ -158,7 +158,8 @@ async function episodePage(app, url) {
     scope: ep.occ ? "all of its flights here" : "the task's flights" });
   const expertEl = root.querySelector(".expert");
   let expert = null;
-  const cameras = [...(stage ? STAGE_VIEWS : []), ...(center ? ["room"] : []), ...(stage || center ? ["network"] : [])].map((id) => ({ id,
+  const crews = !!traffic?.crews?.length;
+  const cameras = [...(stage ? STAGE_VIEWS.filter((v) => v !== "crew" || crews) : []), ...(center ? ["room"] : []), ...(stage || center ? ["network"] : [])].map((id) => ({ id,
     label: id === "harbour" && task.hub === "JFK" ? "Bay" : CAMERAS[id][0], title: `${CAMERAS[id][1]} (${Object.keys(KEYS).find((k) => KEYS[k] === id)})` }));
   const speed0 = SPEEDS.includes(Number(params.get("speed"))) ? Number(params.get("speed")) : 5;
   const timeline = new Timeline(root.querySelector(".timeline"), P, { bands: programBands(P), speeds: SPEEDS, speed: speed0, cameras });
@@ -275,7 +276,7 @@ async function episodePage(app, url) {
     else if (k === "+" || k === "=" || k === "-") {
       speed = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, SPEEDS.indexOf(speed) + (k === "-" ? -1 : 1)))];
       root.querySelector(".speed").value = String(speed);
-    } else if (KEYS[k] && (KEYS[k] === "network" || (KEYS[k] === "room" ? center : stage))) setView(KEYS[k]);
+    } else if (KEYS[k] && (KEYS[k] === "network" || (KEYS[k] === "room" ? center : KEYS[k] === "crew" ? stage && crews : stage))) setView(KEYS[k]);
     else if (k === "Escape" && following) setView("tower");
     else if (k === "x") setExpert(expertEl.hidden);
   });
