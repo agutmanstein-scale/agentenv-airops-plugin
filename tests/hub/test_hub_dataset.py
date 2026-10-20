@@ -38,6 +38,7 @@ OCC_EVAL, OCC_CONTROL, OCC_OTHER = "b6-20240713-0400", "b6-20240703-0400", "b6-2
 SONNET, GPT = "anthropic/claude-sonnet-5-5", "openai/gpt-6.1-sol"
 TAG = f"v{tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']['version']}"
 PLUGIN = f"agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@{TAG}"
+FILMS = {"v0.2.0": "v1's films", "v0.3.0": "v2's films"}
 EVAL_CARD = {"env", "version", "authors", "framework", "tasks", "harness", "grading", "baselines", "models", "links",
              "date"}
 
@@ -133,7 +134,7 @@ def test_the_readme_and_the_hub_sources_pin_this_version_of_the_plugin_and_the_d
         pins = pin.findall((ROOT / path).read_text())
         assert pins and set(pins) == {TAG}, path
     films = re.findall(r"agentenv-airops-plugin/releases/tag/(v\d+\.\d+\.\d+)", (ROOT / "README.md").read_text())
-    assert TAG in films and set(films) <= {TAG, "v0.2.0"}
+    assert set(films) == set(FILMS)
 
 
 def _dry_build(hub, tmp_path, monkeypatch, *extra: str) -> Path:

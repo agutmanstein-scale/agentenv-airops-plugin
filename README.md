@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://earakely-scale-airopsenv-agentenv.static.hf.space/viewer/index.html?episode=https%3A%2F%2Fhuggingface.co%2Fdatasets%2Fearakely-scale%2FAirOpsEnv-AgentEnv%2Fresolve%2Fv0.3.0%2Fviewer%2Fepisodes%2Focc-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json"><img src="assets/airops-occ-banner.jpg" alt="AirOpsEnv v2: JetBlue's operations control center in 3D on the Boston storm day of 13 July 2024, replayed from GPT-6.1 Sol's two desks: the ops controller and the crew scheduler at their pods under the video wall of the network, as the crew desk's hold of B6 515 is accepted" width="100%"></a>
+<a href="https://earakely-scale-airopsenv-agentenv.static.hf.space/viewer/index.html?episode=https%3A%2F%2Fhuggingface.co%2Fdatasets%2Fearakely-scale%2FAirOpsEnv-AgentEnv%2Fresolve%2Fv0.3.1%2Fviewer%2Fepisodes%2Focc-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json"><img src="assets/airops-occ-banner.jpg" alt="AirOpsEnv v2: JetBlue's operations control center in 3D on the Boston storm day of 13 July 2024, replayed from GPT-6.1 Sol's two desks: the ops controller and the crew scheduler at their pods under the video wall of the network, as the crew desk's hold of B6 515 is accepted" width="100%"></a>
 
 <h1>AirOpsEnv v2: the ops control center</h1>
 
@@ -286,14 +286,16 @@ framework, build the env and the desk agent and register them, and check the wir
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.0"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.1"
 agent-env airops-occ setup                    # builds airops-occ and airops-desk for this machine's Docker
 agent-env airops-occ tasks --noplay           # writes results/bundles/airops-occ: each eval date, joint and one
 agent-env run results/bundles/airops-occ --task wiring-noplay
 ```
 
-`wiring-noplay` loads the first eval date and runs it with no desk: the crew system alone, then the grade. Then play a
-day with a model on the endpoint `[model]` in `.agentenv/config.toml` names (LiteLLM, or the Hugging Face router):
+`wiring-noplay` loads the first eval date and runs it with no desk: the crew system alone, then the grade. (v0.3.1
+fixes a clean install of v2's CLI: v0.3.0 left numpy, pandas, highspy and airportsdata, which `airops-occ` needs, to
+extras.) Then play a day with a model on the endpoint `[model]` in `.agentenv/config.toml` names (LiteLLM, or the
+Hugging Face router):
 
 ```bash
 agent-env run results/bundles/airops-occ --task b6-20240713-0400-joint --model openai/gpt-6.1-sol
@@ -305,8 +307,8 @@ both modes, the very task files the board ran (each desk's cost cap $5 in a two-
 `wiring-noplay`. The dataset's default bundle is v1's `airops`, so name this one:
 
 ```bash
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.0 --bundle airops-occ --task wiring-noplay
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.0 --bundle airops-occ --task b6-20240713-0400-joint \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.1 --bundle airops-occ --task wiring-noplay
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.1 --bundle airops-occ --task b6-20240713-0400-joint \
     --model openai/gpt-6.1-sol
 ```
 
@@ -374,9 +376,9 @@ python scripts/occ_episodes.py occ-board-sol occ-board-sol-retry occ-pilot-sol o
     --exclude occ-board-sol/b6-20260709-0400-joint --label occ-board-sol-retry=occ-board-sol \
     --featured occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400 --replay --out cache/occ/viewer-release
 python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --workers 6 \
-    --out cache/hub/dataset-v0.3.0 --space-out cache/hub/space-v0.3.0
+    --out cache/hub/dataset-v0.3.1 --space-out cache/hub/space-v0.3.1
 python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --workers 6 \
-    --out cache/hub/dataset-v0.3.0 --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.3.0
+    --out cache/hub/dataset-v0.3.1 --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.3.1
 ```
 
 `hub_dataset.py` replays every recorded control-center day through the env's calls for `v2_runs` (a few minutes a
@@ -576,7 +578,7 @@ framework, build the env and agent images and register them, and check the wirin
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.0"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.1"
 agent-env airops setup --agent        # builds airops-day and airops-llm for this machine's Docker
 agent-env run airops --task wiring-noplay
 ```
@@ -593,7 +595,7 @@ agent-env run airops --task b6-bos-20250216-1500 --model openai/gpt-6.1-sol
 Or play one straight from the dataset, which pins this release:
 
 ```bash
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.0 --task b6-bos-20250216-1500 \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.1 --task b6-bos-20250216-1500 \
     --model anthropic/claude-sonnet-5-5
 ```
 

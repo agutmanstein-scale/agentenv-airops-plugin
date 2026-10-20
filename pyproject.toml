@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agentenv-airops"
-version = "0.3.0"
+version = "0.3.1"
 description = "AirOpsEnv as AgentEnv environments: two desks of an airline's control center, ops and crews, run JetBlue's whole network through a real storm day (v2), and one desk recovers a storm window at a hub (v1), live on AgentEnv's virtual clock, graded against hindsight."
 readme = "README.md"
 license = "Apache-2.0"
@@ -22,6 +22,10 @@ dependencies = [
     "fastmcp==3.4.8",
     "jsonschema>=4",
     "pydantic>=2.13,<2.14",
+    "numpy>=2",
+    "pandas>=2.2",
+    "airportsdata>=20260905",
+    "highspy==1.15.1",
 ]
 
 [project.optional-dependencies]
