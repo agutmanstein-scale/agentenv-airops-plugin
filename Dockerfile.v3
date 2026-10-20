@@ -1,0 +1,17 @@
+# The AirOps v3 env: the airops-v3-day MCP server with the b6-v3 pack, on port 18765.
+#   Build: agent-env airops-v3 setup   (docker build -f Dockerfile.v3 -t agentenv-airops-v3-env .)
+FROM python:3.12-slim
+LABEL org.opencontainers.image.source="https://github.com/earakely-scale/agentenv-airops-plugin" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.description="AirOpsEnv v3 as an AgentEnv environment. Built from public U.S. records: BTS on-time data of every carrier, the FAA registry, FAA Command Center advisories and NWS METARs, SPECIs and TAFs via the Iowa Environmental Mesonet."
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 AIROPS_V3_TASKS=/app/data/b6-v3
+RUN pip install "agentenv-framework-protocol==0.1.338" "fastmcp==3.4.8" "mcp==1.30.0" "pydantic==2.13.5" "tzdata" \
+    "httpx==0.28.1" "numpy==2.5.4" "pandas==3.0.6" "highspy==1.15.1" "airportsdata==20260905"
+WORKDIR /app
+COPY LICENSE NOTICE /app/
+COPY data/b6-v3 /app/data/b6-v3
+COPY src/agentenv_airops /app/agentenv_airops
+RUN useradd --create-home --uid 1000 airops
+USER airops
+EXPOSE 18765
+CMD ["python", "-m", "agentenv_airops.v3day.server"]

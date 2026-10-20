@@ -14,7 +14,7 @@ from packaging.utils import canonicalize_name
 
 ROOT = Path(__file__).resolve().parents[1]
 PKG = "agentenv_airops"
-CLIS = ("agentenv_airops.cli", "agentenv_airops.occ.cli")
+CLIS = ("agentenv_airops.cli", "agentenv_airops.occ.cli", "agentenv_airops.v3day.cli")
 
 
 def test_the_cli_plugins_import_only_what_a_clean_install_has():

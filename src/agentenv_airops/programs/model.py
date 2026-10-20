@@ -27,6 +27,7 @@ scheduled block, its rest REST after it: `Task.crew`), and may fly past it only 
 reserves.
 """
 
+import gzip
 import json
 import math
 from collections import Counter
@@ -587,9 +588,13 @@ def coverage(airports: Mapping[str, Airport], artcc: Mapping[str, str]) -> Calla
 
 
 def load_tasks(path: str | Path) -> list[Task]:
+    """The tasks of a .jsonl file, gzipped or not (.jsonl.gz), or of a pack folder's tasks.jsonl (or tasks.jsonl.gz,
+    as data/b6-v3 ships it)."""
     p = Path(path)
-    p = p / "tasks.jsonl" if p.is_dir() else p
-    return [Task.from_dict(json.loads(line)) for line in p.read_text().splitlines() if line.strip()]
+    if p.is_dir():
+        p = p / "tasks.jsonl" if (p / "tasks.jsonl").is_file() else p / "tasks.jsonl.gz"
+    text = gzip.decompress(p.read_bytes()).decode() if p.suffix == ".gz" else p.read_text()
+    return [Task.from_dict(json.loads(line)) for line in text.splitlines() if line.strip()]
 
 
 def write_tasks(tasks: list[Task], path: Path) -> Path:

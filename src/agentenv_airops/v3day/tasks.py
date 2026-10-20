@@ -1,18 +1,53 @@
 """v3's task prompts and bundle steps, in tasks.py's style (v1's prompts stay as they are): the rules of a storm date
 on the programs world as the system prompt, the first watch as the opening prompt, and the steps that play one task
-live on airops-v3-day with airops-llm and grade it with airops-verifier."""
+live on airops-v3-day with airops-llm and grade it with airops-verifier; and the bundle airops-v3 (`generate`, which
+`agent-env airops-v3 tasks` writes and the package ships under bundles/airops-v3), one task per date of the b6-v3 pack
+(data/b6-v3, scripts/ship_v3_pack.py) with its stored reference costs, so a load never waits on a solve."""
+
+import json
+from importlib.resources import files
+from pathlib import Path
 
 from ..core.known import CAP_LOOK, FREEZE, LOOK, STEP
 from ..core.model import hhmm
 from ..programs import references, sim
 from ..programs.cost import NOTICE
-from ..programs.model import Task
+from ..programs.model import Task, load_tasks
 from ..schedule import AGENT, EXTRA_TURNS, TURNS_PER_WATCH, VERIFIER
 from .clock import CALL_MIN, virtual_time
 from .day import Day
-from .live import END_DAY_URI, ENV, LIVE_LOAD_URI
+from .live import END_DAY_URI, ENV, LIVE_LOAD_URI, REFS_FILE, stored
 
 LOAD_SLACK = 120  # s past the anchor's time limit for a load that solves it: reading the day and building the MIP
+PACK = files("agentenv_airops") / "data" / "b6-v3"
+BUNDLE_NAME = "airops-v3"
+BUNDLE = files("agentenv_airops.bundles") / BUNDLE_NAME
+V1_BUNDLE = files("agentenv_airops.bundles") / "airops"
+SPLITS = ("eval", "control", "train", "all")
+NOPLAY = "wiring-noplay"
+CREDIT = ("Built from public U.S. records: BTS on-time data of every carrier, the FAA registry, FAA Command Center "
+          "advisories and NWS METARs, SPECIs and TAFs via the Iowa Environmental Mesonet.")
+README = f"""AirOps v3: a real storm day across JetBlue's whole network, from 04:00, inside the FAA's programs at \
+JFK and BOS and \
+v3's realism layers (hub departure caps, ramp closures from lightning at the field, outstation arrival caps), played \
+live in watches on the gateway's virtual clock by the {AGENT} planner and graded against the hindsight optimum.
+
+Every task deploys the env registered as `{ENV}` on the gateway provider (run `agent-env airops-v3 setup` once, and
+`agent-env airops setup --agent` for the {AGENT} agent) and loads one day of the b6-v3 pack through the env's
+`{LIVE_LOAD_URI}` extension, with the anchor's and the follower's costs stored with the pack. The day delivers each
+watch's FAA advisories, METARs, SPECIs and TAFs itself, in the tool results, at their delivery lags; watches come
+one an hour and one more when an advisory or SPECI reaches the desk or a ramp closure begins or ends. The clock
+starts frozen at the first watch. After the play, `{END_DAY_URI}` grades the final plan on the day as it happened if
+the planner stopped early; the `{VERIFIER}` artifact reads the day from the env's `data/get` and scores the run with
+its reward, and a day that never finished, or whose news broke the reveal schedule, fails the step, so the run is
+not scored.
+
+- `<task id>` plays that day with the `{AGENT}` agent.
+- `{NOPLAY}` runs the first day's steps without the agent and needs no model: end-day flies the day with no change, as
+  the naive reference does.
+
+{CREDIT}
+"""
 
 def rules(task: Task) -> str:
     """The system prompt: v1's desk on the programs world, with the crew paragraph when the task has crews, and on a
@@ -133,3 +168,46 @@ def steps(task: Task, anchor: int | None = None, follower: int | None = None) ->
         {"id": "grade", "type": "env_outcome_verifier", "env_id": ENV, "file_artifact_id": VERIFIER,
          "verifier_id": "airops", "score_aggregator": "weighted_average"},
     ]
+
+
+def noplay_steps(task: Task, anchor: int | None = None, follower: int | None = None) -> list[dict]:
+    return [s for s in steps(task, anchor, follower) if s["id"] not in ("deploy-agent", "play")]
+
+
+def pack_refs(pack: Path | None = None) -> tuple[list[Task], dict[str, dict]]:
+    """The pack's tasks (data/b6-v3 by default) and its stored reference costs (refs.json beside them, if any)."""
+    path = Path(str(pack or PACK))
+    folder = path if path.is_dir() else path.parent
+    refs = folder / REFS_FILE
+    return load_tasks(path), json.loads(refs.read_text()) if refs.is_file() else {}
+
+
+def generate(out: Path, *, task_ids: list[str] | None = None, split: str = "eval", pack: Path | None = None,
+             noplay: bool = False) -> list[str]:
+    """Writes the bundle into `out`: README.md, the verifier (v1's, which reads the day's done, audit and reward) and
+    tasks/<task id>.json for `task_ids`, else every task of `split`, in the pack's order, each with the costs the
+    pack stored for it; with `noplay`, the first one's steps without the agent too."""
+    tasks, refs = pack_refs(pack)
+    chosen = [t for t in tasks if (t.task_id in task_ids if task_ids is not None else split in ("all", t.split))]
+    _write(out / "README.md", README.encode())
+    _write(out / "artifacts" / VERIFIER / "verify.py", (V1_BUNDLE / "artifacts" / VERIFIER / "verify.py").read_bytes())
+    names = []
+    for task in chosen:
+        costs = stored(task, refs)
+        _write(out / "tasks" / f"{task.task_id}.json", _dump(steps(task, costs.get("anchor"), costs.get("follower"))))
+        names.append(task.task_id)
+    if noplay and chosen:
+        costs = stored(chosen[0], refs)
+        _write(out / "tasks" / f"{NOPLAY}.json", _dump(noplay_steps(chosen[0], costs.get("anchor"),
+                                                                     costs.get("follower"))))
+        names.append(NOPLAY)
+    return names
+
+
+def _dump(obj) -> bytes:
+    return (json.dumps(obj, indent=2, ensure_ascii=False) + "\n").encode()
+
+
+def _write(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)

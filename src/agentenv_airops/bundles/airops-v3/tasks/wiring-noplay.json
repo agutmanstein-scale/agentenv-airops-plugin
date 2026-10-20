@@ -1,0 +1,51 @@
+[
+  {
+    "id": "deploy",
+    "type": "deploy_env",
+    "env_id": "airops-v3-day"
+  },
+  {
+    "id": "load-task",
+    "type": "apply_server_config",
+    "env_id": "airops-v3-day",
+    "directives": [
+      {
+        "service": "airops-v3-day",
+        "uri": "urn:airops:v3-live-load/v1",
+        "args": {
+          "task_id": "b6-20221215-0400",
+          "anchor": 3324315,
+          "follower": 3359614
+        }
+      }
+    ]
+  },
+  {
+    "id": "clock",
+    "type": "sync_env_clock",
+    "env_id": "airops-v3-day",
+    "virtual_time": "2022-12-15T09:00:00Z",
+    "virtual_seconds_per_real_second": 0,
+    "tolerate_missing_sync_time": false
+  },
+  {
+    "id": "end-day",
+    "type": "apply_server_config",
+    "env_id": "airops-v3-day",
+    "directives": [
+      {
+        "service": "airops-v3-day",
+        "uri": "urn:airops:v3-end-day/v1",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "id": "grade",
+    "type": "env_outcome_verifier",
+    "env_id": "airops-v3-day",
+    "file_artifact_id": "airops-verifier",
+    "verifier_id": "airops",
+    "score_aggregator": "weighted_average"
+  }
+]

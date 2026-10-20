@@ -29,6 +29,7 @@ from agentenv_airops.occ import tasks as occ_tasks
 from agentenv_airops.occ.day import reward as occ_reward
 from agentenv_airops.occ.pack import Pack
 from agentenv_airops.schedule import TOOLS, max_turns, timetable
+from agentenv_airops.v3day import tasks as v3_tasks
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "fixtures" / "tasks.jsonl"
@@ -186,6 +187,13 @@ def test_a_dry_build_without_a_sweep_has_the_days_the_bundle_and_no_runs(hub, lo
     assert {m: {s["env_vars"]["AIROPS_MAX_COST_USD"] for s in found if s["type"] == "deploy_agent"}
             for m, found in steps.items()} == {"joint": {"5"}, "one": {"8"}}
     assert parse_bundle(out / "bundles/airops-occ").id_root and (out / "bundles/airops-occ/README.md").is_file()
+    assert data["agentenv"]["bundles"]["airops-v3"] == {"plugins": [PLUGIN],
+                                                       "setup": "agent-env airops-v3 setup --agent"}
+    packaged = Path(str(v3_tasks.BUNDLE))
+    assert {p.relative_to(out / "bundles/airops-v3").as_posix(): p.read_bytes()
+            for p in (out / "bundles/airops-v3").rglob("*") if p.is_file()} == {
+        p.relative_to(packaged).as_posix(): p.read_bytes() for p in packaged.rglob("*") if p.is_file()}
+    assert parse_bundle(out / "bundles/airops-v3").id_root
     assert [r["task_id"] for r in _rows(out, "tasks/v2-eval.parquet")] == [OCC_EVAL]
     assert not list(out.glob("episodes/v2-*")) and not list(out.glob("desks/*"))
 

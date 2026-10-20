@@ -1,0 +1,778 @@
+{
+ "pack": "b6-v3",
+ "code": "ae4caca805b9f5719e8de6770552c29059cf55df",
+ "seed": 0,
+ "months": [
+  "2022-12",
+  "2023-06",
+  "2023-07",
+  "2023-08",
+  "2023-12",
+  "2024-01",
+  "2024-02",
+  "2024-06",
+  "2024-07",
+  "2024-08",
+  "2025-01",
+  "2025-02",
+  "2025-07",
+  "2025-08",
+  "2025-12",
+  "2026-01",
+  "2026-02",
+  "2026-06",
+  "2026-07"
+ ],
+ "bases": [],
+ "crew": null,
+ "scale": {
+  "BOS": 0.4,
+  "JFK": 0.35
+ },
+ "constants": {
+  "rate": {
+   "BOS": 0.6527196652719666,
+   "JFK": 0.7046153846153846
+  },
+  "reserves": {},
+  "short": 0.9,
+  "min_sched": 5,
+  "dates": [
+   "2022-12-07",
+   "2023-06-12",
+   "2023-06-13",
+   "2023-06-14",
+   "2023-06-16",
+   "2023-06-24",
+   "2023-06-25",
+   "2023-06-26",
+   "2023-06-27",
+   "2023-06-28",
+   "2023-06-30",
+   "2023-07-01",
+   "2023-07-02",
+   "2023-07-04",
+   "2023-07-13",
+   "2023-07-14",
+   "2023-07-15",
+   "2023-07-16",
+   "2023-07-18",
+   "2023-07-21",
+   "2023-07-25",
+   "2023-07-27",
+   "2023-07-29",
+   "2023-08-04",
+   "2023-08-25",
+   "2023-12-10",
+   "2023-12-11",
+   "2023-12-26",
+   "2024-01-06",
+   "2024-01-07",
+   "2024-01-09",
+   "2024-01-16",
+   "2024-01-19",
+   "2024-02-28",
+   "2024-06-05",
+   "2024-06-06",
+   "2024-06-07",
+   "2024-06-09",
+   "2024-07-10",
+   "2024-07-12",
+   "2024-07-13",
+   "2024-07-14",
+   "2024-07-15",
+   "2024-07-16",
+   "2024-07-17",
+   "2024-07-22",
+   "2024-07-24",
+   "2024-08-15",
+   "2024-08-16",
+   "2024-08-17",
+   "2024-08-18",
+   "2024-08-19",
+   "2024-08-26",
+   "2025-01-06",
+   "2025-01-09",
+   "2025-01-11",
+   "2025-01-19",
+   "2025-02-09",
+   "2025-02-17",
+   "2025-02-18",
+   "2025-02-20",
+   "2025-02-21",
+   "2025-07-03",
+   "2025-08-04",
+   "2025-08-05",
+   "2025-12-11",
+   "2025-12-29",
+   "2025-12-30",
+   "2026-01-02",
+   "2026-01-19"
+  ]
+ },
+ "inputs": {
+  "bts/ontime_2022_12.zip": "93ef0f6ede001547b748ca3b20cabc26d7360d728fa73c32242a385a80688bd1",
+  "bts/ontime_2023_06.zip": "67dc6b993ba2e7c2175a874da7a8fbf12081c23c87523c0a5cd7d2f3e50450a1",
+  "bts/ontime_2023_07.zip": "b1b73635dcb2add363bb001d95c3f951e0ce4fc32130cbc76b565a531ced2146",
+  "bts/ontime_2023_08.zip": "d374aa3ec2b844d47c675d17cf71f2ade0af07b20670f9b8a2c6c1f5fe5d57bd",
+  "bts/ontime_2023_12.zip": "c8391a3f06749b6ee4dec493fb7974f398b9d066a4e731c4cbb8932eddb774ce",
+  "bts/ontime_2024_01.zip": "fe089b45523f9d4ac0ccd0e176a543d274e914ee5ae5bd384dbaafc7dc06ebfd",
+  "bts/ontime_2024_02.zip": "8463683d100504a97847497d2f2281008fd9add9639bf7436a9747032df15f9a",
+  "bts/ontime_2024_06.zip": "4f329439fd6892aaf89b32908191b2a007e70f775e2551181a22e704ef28a0ab",
+  "bts/ontime_2024_07.zip": "4d992fee134137b3fa43094d7e8cf4a8e6feaa6a422cffb4063f1ed6c7f3f731",
+  "bts/ontime_2024_08.zip": "58d651379af90cc44635657e95fe098567ff954046aec21d6d2cd18424a317f9",
+  "bts/ontime_2025_01.zip": "868387dcedaef1b8d8392e608e642219fde50d594c3cf2094aec858167629ccf",
+  "bts/ontime_2025_02.zip": "12dc8dbdb3c8b3c20d4c00a8b188196ae202f781a8760871ae502a9c733d0ecd",
+  "bts/ontime_2025_07.zip": "74309a3a734d5104b4c212390c06eb3acacff15124b9cea49ba7d69a609a0d19",
+  "bts/ontime_2025_08.zip": "405668b8a807266236a635efbc1e9364abfb756db1a5c895e45abc9c7b7684f1",
+  "bts/ontime_2025_12.zip": "a2af96d186bc9997fef47382b8589198281c9a722286d88f30032af8ee7dcd0f",
+  "bts/ontime_2026_01.zip": "9ff58f560519dbc8fbd1b8b9fd2a172ca46d0a9e80f1df4fd48891efca41e89c",
+  "bts/ontime_2026_02.zip": "a18b6de822a63bb881b55983ef039bf02a7cac046e9624e5c1b19b470a5e05cb",
+  "bts/ontime_2026_06.zip": "acd9d03e223e079e54b77065015f0ce9b6de92f1f46148048600cc9813a47a6e",
+  "bts/ontime_2026_07.zip": "61d657eb17f5b6f800ed2f05262a2223c5edf66fe7d9cfb3598c6664a34ed0b6",
+  "iem/metar/JFK_2022_12.csv": "3deefa282773fd3debb3a5374c2d28e0e70d976dd365327f0b93f497d53c76bd",
+  "iem/speci/JFK_2022_12.csv": "7f88aec8b4f809f41b4c0ffd447a3d9cd4fe7ec68c26c9743643e419a44b6907",
+  "iem/afos/TAFJFK_2022_12.txt": "ac4c4fd49aa658499e5e9767cc81d53e91dcae9f8ec7ab684a5b18045a34652b",
+  "iem/metar/BOS_2022_12.csv": "4d8f8a845b21a859f6c7a8105974c2da07bad92d3b81abda80d0d730ae5ec7c5",
+  "iem/speci/BOS_2022_12.csv": "4df84177ea37d520612f4c19295054ef843b93a01513e6071339a3c0b0cfc421",
+  "iem/afos/TAFBOS_2022_12.txt": "6bdcb6d9640a1c21faf3246fa630dc0f082fadff51182fd9d6937d35ef0d75d6",
+  "iem/metar/JFK_2023_06.csv": "6dc2c7d57c0c5dd6e01ae8b8ec6b9d7cb3b0257c885ddcd6b60f4764ee6b90af",
+  "iem/speci/JFK_2023_06.csv": "b1e96c69c8e9f09f30b50fbce3b521f141139f97725d4f3d222986f2c8c9a174",
+  "iem/afos/TAFJFK_2023_06.txt": "990414fc28cb614c5df50e1e5a1e3dee29ef18ecb550b43abcc42bcacb720a46",
+  "iem/metar/BOS_2023_06.csv": "636d466d52d73bad1f8869c09bb113ed1ba1c2029effe826570504faa786dd54",
+  "iem/speci/BOS_2023_06.csv": "ae80ae495557cbc6906c7eaa1b9cef45de1ab040d70d4acb0540a230f7cc6821",
+  "iem/afos/TAFBOS_2023_06.txt": "7616c2c232250c6fbfdb69d36550c18bba3ebc1e16d9b53856f66d91fc131436",
+  "iem/metar/JFK_2023_07.csv": "d095fb66ffd4b2fc221dd9dc2ccc97424624f5c9e457b28f17bcc95234920944",
+  "iem/speci/JFK_2023_07.csv": "ecb2f13d394149e8e9ceee576dc29112882b735b2940aec0abf3b8e1028e1937",
+  "iem/afos/TAFJFK_2023_07.txt": "cb1438fb0adee8c575407cbcbdb0ef3831191301489db31e5cf365178b096979",
+  "iem/metar/BOS_2023_07.csv": "5accb01b981fd0f5c5455dd1114f874fec1385dee644892678fc7c931e966922",
+  "iem/speci/BOS_2023_07.csv": "dec387307e951d141ea734ca1553ef90e76871894acc523f9eac19cff567cfbb",
+  "iem/afos/TAFBOS_2023_07.txt": "38e4ccc18b0762b70f98545a496b2a9c61cadbcdae9a0b5da118dd5678a1032b",
+  "iem/metar/JFK_2023_08.csv": "2c18060425ee5c6632bcd0008df90c3377051885dad14a2612a3bca9c62ac403",
+  "iem/speci/JFK_2023_08.csv": "aaa6f00d31fdb0c220ecded1f9fa13705dbb4d5e22df83e837ecc69b5bbb10ec",
+  "iem/afos/TAFJFK_2023_08.txt": "fceb10b8ce89d2e464f3229e0c2b7836ae160559f4781e6fc51e14ce190c1b6a",
+  "iem/metar/BOS_2023_08.csv": "e6241035ba0529588de67c6e7e39c32776892896b6f2d3e110e9d923821d2a97",
+  "iem/speci/BOS_2023_08.csv": "5784b3adc4fbd00080395b243694d10ae54ee5711680a3aa1103cec3216d5b15",
+  "iem/afos/TAFBOS_2023_08.txt": "ddb447ba0d76eaccb8c072ae4fc8f0d2cf951d89aa915e0d41eb2d80574e5754",
+  "iem/metar/JFK_2023_12.csv": "859c1e7c6e3a4dfb119a8ea04060c336103128b1a0a20e77483ee12393c1f4ef",
+  "iem/speci/JFK_2023_12.csv": "537b2ebca44bb6f3331192afaab40c1f0531bbf1b025d59eaf9f98e58fde3a56",
+  "iem/afos/TAFJFK_2023_12.txt": "1483b574f53b8af6973541e32ce8c85f07107b1f7e0faf5261997d110554bf2f",
+  "iem/metar/BOS_2023_12.csv": "152817ae775d3f2cd2e907ad2a24b4d5ff0c1e6ba69b73ae01e7be32dbdfa827",
+  "iem/speci/BOS_2023_12.csv": "d528a5e971def2d79a79d1b80c49fbf9102ef6dc445422ac65e1b8c2428cbbbc",
+  "iem/afos/TAFBOS_2023_12.txt": "f9c92b9cc15af9ab202f712c7dcc4641e063063fe8636f2f319e1c915cd070f4",
+  "iem/metar/JFK_2024_01.csv": "421eef4d2e67ecbd8b27d5d088977be7fa77660df61e1d8fb02e3f9205f37a1e",
+  "iem/speci/JFK_2024_01.csv": "8adf1a5c6f99e359d92fc9540bff74cc90131cfbdf98a41dc7c94ffa5d526ff9",
+  "iem/afos/TAFJFK_2024_01.txt": "784c0fb405382f002a7d9c3960bee10b9e03813fd1610b1d1e002763500fcc45",
+  "iem/metar/BOS_2024_01.csv": "649deccc0590a06fcd11bff25f22d0f632215a9403af847219d8473cbe64f77d",
+  "iem/speci/BOS_2024_01.csv": "548015df2693202d01fcd0936d1d84e3f93ee7ea0a9234448d70e648995ad4ec",
+  "iem/afos/TAFBOS_2024_01.txt": "3d22efbfca2d4b0bc8dfc7ca3a272ffcdee3108bcf21d130f81424bd5e594820",
+  "iem/metar/JFK_2024_02.csv": "cffc196e9a8b6044f8b99a37ca727a5a91f77d6b21c723608d481c73037c27e1",
+  "iem/speci/JFK_2024_02.csv": "298de35d9132e2fece5bee36d8ee0f453beff1bd3ed0871e4e2b7cab67cd49ff",
+  "iem/afos/TAFJFK_2024_02.txt": "2728964b80026e52bf34563b358395df783b5464b12cae8b8172836d00391cf5",
+  "iem/metar/BOS_2024_02.csv": "f0c4f06a0cdb6eb4f03b6877a09c331eb6e60a36db05e71d9d64fade4d35b3af",
+  "iem/speci/BOS_2024_02.csv": "085a1adf2f7a9ab7e581696500e5c45cddfaddbe5aa6c3d477434d17b84c667c",
+  "iem/afos/TAFBOS_2024_02.txt": "7ca7559ba168885ba96af380924d87bc8d3f7d0e000016ea756d1594f5aede12",
+  "iem/metar/JFK_2024_06.csv": "8be22d3c2a5785ff74c2349855a817426aaa4538257d9e59bea374a7c88d48ef",
+  "iem/speci/JFK_2024_06.csv": "0188a4c4df6460f9d73234e3bcf8a7ef6d11d94cf099abcd231cc1b5227c6bef",
+  "iem/afos/TAFJFK_2024_06.txt": "40b1082a6cf9fff55b57ac6bb3b7edd2aef68510a648d1f88d63614b92889cfd",
+  "iem/metar/BOS_2024_06.csv": "eab8dc6e28cbc99409ce085ecac142d82b12af1058baeb8f6cd7393707150ce7",
+  "iem/speci/BOS_2024_06.csv": "330a8804fe9d55d5e15a40e728319e243bd8f83a0259294ada5260f81f274f23",
+  "iem/afos/TAFBOS_2024_06.txt": "6a59b79b77373bf9a828074eae865a5f106e16862e6eee344fd0c254119bcf48",
+  "iem/metar/JFK_2024_07.csv": "9ec3a7129c9f567da5cfff08fdd8e6d1f6fb6114d5cc908fb9a1d43fef157bbf",
+  "iem/speci/JFK_2024_07.csv": "98390f1d10fb3124106efc77957c4ec9ae3bf23bd708fb9e2a8c6ef3e0ad684f",
+  "iem/afos/TAFJFK_2024_07.txt": "5bccd438aac34bdd84ea23a564a2251ec553d276392b65c52645448435656067",
+  "iem/metar/BOS_2024_07.csv": "ef63b77440eaf9907d7008eddbed0345d1c3d5e306ea8b1f1477a2d031c86abd",
+  "iem/speci/BOS_2024_07.csv": "8b2d210140727be51f703935d157804f69186b422f49300285fc85a659c6b531",
+  "iem/afos/TAFBOS_2024_07.txt": "597057f559a59e5e83d093a0eacb44248cb79926c1404c395e32015627a44dfd",
+  "iem/metar/JFK_2024_08.csv": "14b363e6210f07e9c956e4ae097b1b8d81c711d67cc8e19af3c78729f626ad1d",
+  "iem/speci/JFK_2024_08.csv": "9fa494c65bd675e38f602ec6911377e0602d43052782d5ad736a60138269ca80",
+  "iem/afos/TAFJFK_2024_08.txt": "6a53cc42298ba0ed89b18ff03e106998d305426aaa8994c13792fc41eec5469b",
+  "iem/metar/BOS_2024_08.csv": "c5c4317761f4c0bd68d856ebe3b0f402d593e538eb9b08d6bdc490ab2127bd6b",
+  "iem/speci/BOS_2024_08.csv": "66896d9def9e2fa4401fcf679ad10cbebb7d88914fc5cba031b067b8c4fb4bf1",
+  "iem/afos/TAFBOS_2024_08.txt": "ba6b86b52062fc6f9597963247c57770482101c11eb4a422f2c6e526fcdcca2f",
+  "iem/metar/JFK_2025_01.csv": "9be988e724ce5c951e8415de891c2ea5cd3ebeb2613e3dde08c9bdf391824882",
+  "iem/speci/JFK_2025_01.csv": "7c2cffc100cf7046a5abf5c92a067044f8dcb9181bcf0a2e778d2557087452a7",
+  "iem/afos/TAFJFK_2025_01.txt": "7b56c218b8684ce6f62895c338b4f371065875c521565289e11d6e171ef2a816",
+  "iem/metar/BOS_2025_01.csv": "29d5335375bf23112eebf231422de5381fa2067affaeae67ad7975be3257414f",
+  "iem/speci/BOS_2025_01.csv": "db6b57e57c4387f410facf738000f7f8b4d74124029e573e73a36bf45f0f6ff3",
+  "iem/afos/TAFBOS_2025_01.txt": "77ccc65cf791eabb5323cb5aaa47daa157296b5b1c856d8d942935dcad244d53",
+  "iem/metar/JFK_2025_02.csv": "ac93f98fed98f1637fe223f24d608de1544540e995fec4cc6c77077d77b4944f",
+  "iem/speci/JFK_2025_02.csv": "13a765996bd2c66955be824baff5623861b9a4c3b43463a0aa8ec3b92db293dd",
+  "iem/afos/TAFJFK_2025_02.txt": "45c344e8178893f2d81f8fb8b5836c7ceea36bd360194cb3338fb58631c290d2",
+  "iem/metar/BOS_2025_02.csv": "cf880f149d5b0e5802eef8b77815f76a5dddc05df60cbb7b22198be235aba1b5",
+  "iem/speci/BOS_2025_02.csv": "3c63ad5fbdd7f677462ae286abeb22a2a82e765a1fff5bb95844d3d1e664f52f",
+  "iem/afos/TAFBOS_2025_02.txt": "3ecf14f60a21b6d8a937c7519406b3d8fdbf19f7ee07954fbc63c61963817d92",
+  "iem/metar/JFK_2025_07.csv": "f0a6b1c99488266bd35f766d360430e84999c6f8c83d7ef5b6e6b888119adff9",
+  "iem/speci/JFK_2025_07.csv": "989711a1dfc054126c8ed4dd07a87569fb1ed60056ecb89c811e33c24c37ac43",
+  "iem/afos/TAFJFK_2025_07.txt": "1400bd86bb9210476daa14f728b57fff4709419149bd9b2b0e6387c3ea7514bb",
+  "iem/metar/BOS_2025_07.csv": "b8e2170d4ed7f11a300d37890903a64cb718947f51415dcaa425e284cadbbee1",
+  "iem/speci/BOS_2025_07.csv": "dea39f6deb226b8d9dbfd496de37585050dc3e8abc2c46f81d4d0e200b0a888f",
+  "iem/afos/TAFBOS_2025_07.txt": "b888c25886d7e32b040f332b4fe4d661085fd7bd57e52e869e19528784164e29",
+  "iem/metar/JFK_2025_08.csv": "120d745a20334c5ccd5fe37399eb684cf0a97caca43a5dc76dc69f9ea974bf40",
+  "iem/speci/JFK_2025_08.csv": "647df212fe1c80a482d2ea1af986463115d7be1e8239ae3bf17cae23947e5d97",
+  "iem/afos/TAFJFK_2025_08.txt": "701af1d0d45c3688e94db07e05dd7f4a04676e2e8292b494d46505ff1315de6d",
+  "iem/metar/BOS_2025_08.csv": "532f4e3d247f6b9016830b17521062ff7c1b76e0ae4e685012946c65f92a628b",
+  "iem/speci/BOS_2025_08.csv": "76ba543f310baefdf45f3f354189ff1e56cca3c288e81fcb069421f718566412",
+  "iem/afos/TAFBOS_2025_08.txt": "72c374de3482a8a9575bfd132a092cae5ce51c7f83f6e257af0120f90263ebb5",
+  "iem/metar/JFK_2025_12.csv": "456bfc7a94a624bda82087b563c46a4956650b8c785143f0dbb0a975f7137f89",
+  "iem/speci/JFK_2025_12.csv": "19b800c3745bd95a656ad89be1b33d72662cbfe22ff06592fb1359a9af4e7a24",
+  "iem/afos/TAFJFK_2025_12.txt": "34f5ccad414da1394ba87af0d3f715467d9080d76671164e132dcfc25269d165",
+  "iem/metar/BOS_2025_12.csv": "9c2484e5a5122cfb0ffd236586e370b9745d4f70fcc795f5fcc56a205644cc85",
+  "iem/speci/BOS_2025_12.csv": "68a900fcee7166761bbac425115e22ef70e5a59a3eac7771d5179aac87dadbd6",
+  "iem/afos/TAFBOS_2025_12.txt": "b53baf2278368a2889b5234145da55cc2645b460a5c0880c905c41365565b272",
+  "iem/metar/JFK_2026_01.csv": "eb09723cb01075320fcc009a14e7c7df8f28cb24bf1850e09f38245de0e8339d",
+  "iem/speci/JFK_2026_01.csv": "b0e7dfbfcc320fe3080bacfb6957ff9ff5c51d92ed76fb073e4d4badb9fe87cd",
+  "iem/afos/TAFJFK_2026_01.txt": "e5ea93ded7c8f7ba0eadd22e12c1a129c58a48300b5668e208677bc46591b7c4",
+  "iem/metar/BOS_2026_01.csv": "593fcfb61473c90c0a538bb57bc6efdbd2847ec21da11b3c52857636b24cbabd",
+  "iem/speci/BOS_2026_01.csv": "d3a064847e3b6300c689fbe0fe97b56a8741c3a088ef9ecb4571c01523c5b957",
+  "iem/afos/TAFBOS_2026_01.txt": "4782cbb0f4b8769d01d193b4b74b2dd92738053ab1637f015d3a32dedfa2941b",
+  "iem/metar/JFK_2026_02.csv": "3bb35ec6f131e4af1b1fa0f03819ae2ec5931db50cbda9482f3c86b1f5cbb62a",
+  "iem/speci/JFK_2026_02.csv": "6308670b44832a350cc54bf606b7a7537ef14f5b49df7ca09461d7bd7f951f8b",
+  "iem/afos/TAFJFK_2026_02.txt": "f3c7499c7c6b34713a4b99f0ca75b2d1fd3eb93f69fe7caeddc53f82f1f12933",
+  "iem/metar/BOS_2026_02.csv": "cda5df0fe04646e48d7148f933ff64cc4e7b4ede763570cdb44f3f157a1b34b2",
+  "iem/speci/BOS_2026_02.csv": "d50a42eacb07b82d7b2cef4b4e09b3a37c35d77bd0bab69f16dda8be5bc218fe",
+  "iem/afos/TAFBOS_2026_02.txt": "9a255100eaea621c9b2a087a73ef89038ce1736d40db489a8b4ae6f083401c76",
+  "iem/metar/JFK_2026_06.csv": "1efc9dcf48d9c7cecca17c96929b0af4d150f8fd3b45cf60acc020376ebec357",
+  "iem/speci/JFK_2026_06.csv": "5e74fd72e9bd871279cdaaba74f60754cea5fb3da0acc100dab66f43c54582b9",
+  "iem/afos/TAFJFK_2026_06.txt": "50fa7ac5e85d2eee6e69df02c7cade10600617c9069a43350d90cf6073becba5",
+  "iem/metar/BOS_2026_06.csv": "02927daff83666b759c262068398a5c09f8f6e6ba84b4cf3fbc6663267bb2682",
+  "iem/speci/BOS_2026_06.csv": "534e833b7102d803b7d67f142eb47ff08726d88a58ec0aaafe7a5630c74c473c",
+  "iem/afos/TAFBOS_2026_06.txt": "31306c11e3c1aa42e0a6c6091f536f8c1a1a224f5a349318815b9cce2787ac4f",
+  "iem/metar/JFK_2026_07.csv": "8cb75b2b27d8724e5538441566bbff542efc2b09f44576a42d1a106d74a0d688",
+  "iem/speci/JFK_2026_07.csv": "348c92fb578f593277a3d4618712c8e14fdfbe3faa44fbe6124d0d75024ca232",
+  "iem/afos/TAFJFK_2026_07.txt": "84ec9d847020308d3ecdf4c87c720fd80d96bcc61e210d367268986c0895aa3d",
+  "iem/metar/BOS_2026_07.csv": "38c92b822a6a4db763cbb94137f6e44cd69e1434c572e3e66a6f6be3a60ea56a",
+  "iem/speci/BOS_2026_07.csv": "ef0529908b379b16699683f752b44e589f7cb432fb6e12395b165629f09b4f94",
+  "iem/afos/TAFBOS_2026_07.txt": "2428ab16c35c671763430572204a5876a284a63918479f32922c18036c7fb9ce"
+ },
+ "controls": {
+  "2024-07-03": {
+   "hubs": [
+    "JFK",
+    "BOS"
+   ],
+   "windows": {
+    "JFK": [
+     1080,
+     1320
+    ],
+    "BOS": [
+     1020,
+     1260
+    ]
+   },
+   "task_id": "b6-20240703-0400"
+  },
+  "2025-01-15": {
+   "hubs": [
+    "JFK",
+    "BOS"
+   ],
+   "windows": {
+    "JFK": [
+     1080,
+     1320
+    ],
+    "BOS": [
+     420,
+     660
+    ]
+   },
+   "task_id": "b6-20250115-0400"
+  }
+ },
+ "split": {
+  "2022-12-07": "train",
+  "2022-12-15": "eval",
+  "2022-12-22": "eval",
+  "2023-06-02": "eval",
+  "2023-06-05": "eval",
+  "2023-06-12": "train",
+  "2023-06-13": "train",
+  "2023-06-14": "train",
+  "2023-06-16": "train",
+  "2023-06-24": "train",
+  "2023-06-25": "train",
+  "2023-06-26": "train",
+  "2023-06-27": "train",
+  "2023-06-28": "train",
+  "2023-06-30": "train",
+  "2023-07-01": "train",
+  "2023-07-02": "train",
+  "2023-07-04": "train",
+  "2023-07-07": "eval",
+  "2023-07-13": "train",
+  "2023-07-14": "train",
+  "2023-07-15": "train",
+  "2023-07-16": "train",
+  "2023-07-18": "train",
+  "2023-07-21": "train",
+  "2023-07-25": "train",
+  "2023-07-27": "train",
+  "2023-07-29": "train",
+  "2023-08-04": "train",
+  "2023-08-17": "eval",
+  "2023-08-25": "train",
+  "2023-08-29": "eval",
+  "2023-12-10": "train",
+  "2023-12-11": "train",
+  "2023-12-18": "eval",
+  "2023-12-26": "train",
+  "2024-01-06": "train",
+  "2024-01-07": "train",
+  "2024-01-09": "train",
+  "2024-01-16": "train",
+  "2024-01-19": "train",
+  "2024-02-28": "train",
+  "2024-06-05": "train",
+  "2024-06-06": "train",
+  "2024-06-07": "train",
+  "2024-06-09": "train",
+  "2024-06-14": "eval",
+  "2024-06-23": "eval",
+  "2024-06-30": "eval",
+  "2024-07-10": "train",
+  "2024-07-12": "train",
+  "2024-07-13": "train",
+  "2024-07-14": "train",
+  "2024-07-15": "train",
+  "2024-07-16": "train",
+  "2024-07-17": "train",
+  "2024-07-22": "train",
+  "2024-07-24": "train",
+  "2024-07-31": "eval",
+  "2024-08-15": "train",
+  "2024-08-16": "train",
+  "2024-08-17": "train",
+  "2024-08-18": "train",
+  "2024-08-19": "train",
+  "2024-08-26": "train",
+  "2025-01-06": "train",
+  "2025-01-09": "train",
+  "2025-01-11": "train",
+  "2025-01-19": "train",
+  "2025-02-06": "eval",
+  "2025-02-09": "train",
+  "2025-02-17": "train",
+  "2025-02-18": "train",
+  "2025-02-20": "train",
+  "2025-02-21": "train",
+  "2025-07-03": "train",
+  "2025-07-16": "eval",
+  "2025-07-25": "eval",
+  "2025-07-31": "eval",
+  "2025-08-04": "train",
+  "2025-08-05": "train",
+  "2025-08-09": "eval",
+  "2025-08-13": "eval",
+  "2025-08-21": "eval",
+  "2025-08-29": "eval",
+  "2025-12-02": "eval",
+  "2025-12-11": "train",
+  "2025-12-14": "eval",
+  "2025-12-20": "eval",
+  "2025-12-29": "train",
+  "2025-12-30": "train",
+  "2026-01-02": "train",
+  "2026-01-19": "train",
+  "2026-01-26": "eval"
+ },
+ "refs": {
+  "tasks": 96,
+  "time_limits_s": [
+   1800.0,
+   900.0
+  ],
+  "failed": {
+   "b6-20260126-0400": [
+    "follower"
+   ]
+  }
+ },
+ "tasks": {
+  "b6-20221207-0400": {
+   "date": "2022-12-07",
+   "split": "train"
+  },
+  "b6-20221215-0400": {
+   "date": "2022-12-15",
+   "split": "eval"
+  },
+  "b6-20221222-0400": {
+   "date": "2022-12-22",
+   "split": "eval"
+  },
+  "b6-20230602-0400": {
+   "date": "2023-06-02",
+   "split": "eval"
+  },
+  "b6-20230605-0400": {
+   "date": "2023-06-05",
+   "split": "eval"
+  },
+  "b6-20230612-0400": {
+   "date": "2023-06-12",
+   "split": "train"
+  },
+  "b6-20230613-0400": {
+   "date": "2023-06-13",
+   "split": "train"
+  },
+  "b6-20230614-0400": {
+   "date": "2023-06-14",
+   "split": "train"
+  },
+  "b6-20230616-0400": {
+   "date": "2023-06-16",
+   "split": "train"
+  },
+  "b6-20230624-0400": {
+   "date": "2023-06-24",
+   "split": "train"
+  },
+  "b6-20230625-0400": {
+   "date": "2023-06-25",
+   "split": "train"
+  },
+  "b6-20230626-0400": {
+   "date": "2023-06-26",
+   "split": "train"
+  },
+  "b6-20230627-0400": {
+   "date": "2023-06-27",
+   "split": "train"
+  },
+  "b6-20230628-0400": {
+   "date": "2023-06-28",
+   "split": "train"
+  },
+  "b6-20230630-0400": {
+   "date": "2023-06-30",
+   "split": "train"
+  },
+  "b6-20230701-0400": {
+   "date": "2023-07-01",
+   "split": "train"
+  },
+  "b6-20230702-0400": {
+   "date": "2023-07-02",
+   "split": "train"
+  },
+  "b6-20230704-0400": {
+   "date": "2023-07-04",
+   "split": "train"
+  },
+  "b6-20230707-0400": {
+   "date": "2023-07-07",
+   "split": "eval"
+  },
+  "b6-20230713-0400": {
+   "date": "2023-07-13",
+   "split": "train"
+  },
+  "b6-20230714-0400": {
+   "date": "2023-07-14",
+   "split": "train"
+  },
+  "b6-20230715-0400": {
+   "date": "2023-07-15",
+   "split": "train"
+  },
+  "b6-20230716-0400": {
+   "date": "2023-07-16",
+   "split": "train"
+  },
+  "b6-20230718-0400": {
+   "date": "2023-07-18",
+   "split": "train"
+  },
+  "b6-20230721-0400": {
+   "date": "2023-07-21",
+   "split": "train"
+  },
+  "b6-20230725-0400": {
+   "date": "2023-07-25",
+   "split": "train"
+  },
+  "b6-20230727-0400": {
+   "date": "2023-07-27",
+   "split": "train"
+  },
+  "b6-20230729-0400": {
+   "date": "2023-07-29",
+   "split": "train"
+  },
+  "b6-20230804-0400": {
+   "date": "2023-08-04",
+   "split": "train"
+  },
+  "b6-20230817-0400": {
+   "date": "2023-08-17",
+   "split": "eval"
+  },
+  "b6-20230825-0400": {
+   "date": "2023-08-25",
+   "split": "train"
+  },
+  "b6-20230829-0400": {
+   "date": "2023-08-29",
+   "split": "eval"
+  },
+  "b6-20231210-0400": {
+   "date": "2023-12-10",
+   "split": "train"
+  },
+  "b6-20231211-0400": {
+   "date": "2023-12-11",
+   "split": "train"
+  },
+  "b6-20231218-0400": {
+   "date": "2023-12-18",
+   "split": "eval"
+  },
+  "b6-20231226-0400": {
+   "date": "2023-12-26",
+   "split": "train"
+  },
+  "b6-20240106-0400": {
+   "date": "2024-01-06",
+   "split": "train"
+  },
+  "b6-20240107-0400": {
+   "date": "2024-01-07",
+   "split": "train"
+  },
+  "b6-20240109-0400": {
+   "date": "2024-01-09",
+   "split": "train"
+  },
+  "b6-20240116-0400": {
+   "date": "2024-01-16",
+   "split": "train"
+  },
+  "b6-20240119-0400": {
+   "date": "2024-01-19",
+   "split": "train"
+  },
+  "b6-20240228-0400": {
+   "date": "2024-02-28",
+   "split": "train"
+  },
+  "b6-20240605-0400": {
+   "date": "2024-06-05",
+   "split": "train"
+  },
+  "b6-20240606-0400": {
+   "date": "2024-06-06",
+   "split": "train"
+  },
+  "b6-20240607-0400": {
+   "date": "2024-06-07",
+   "split": "train"
+  },
+  "b6-20240609-0400": {
+   "date": "2024-06-09",
+   "split": "train"
+  },
+  "b6-20240614-0400": {
+   "date": "2024-06-14",
+   "split": "eval"
+  },
+  "b6-20240623-0400": {
+   "date": "2024-06-23",
+   "split": "eval"
+  },
+  "b6-20240630-0400": {
+   "date": "2024-06-30",
+   "split": "eval"
+  },
+  "b6-20240710-0400": {
+   "date": "2024-07-10",
+   "split": "train"
+  },
+  "b6-20240712-0400": {
+   "date": "2024-07-12",
+   "split": "train"
+  },
+  "b6-20240713-0400": {
+   "date": "2024-07-13",
+   "split": "train"
+  },
+  "b6-20240714-0400": {
+   "date": "2024-07-14",
+   "split": "train"
+  },
+  "b6-20240715-0400": {
+   "date": "2024-07-15",
+   "split": "train"
+  },
+  "b6-20240716-0400": {
+   "date": "2024-07-16",
+   "split": "train"
+  },
+  "b6-20240717-0400": {
+   "date": "2024-07-17",
+   "split": "train"
+  },
+  "b6-20240722-0400": {
+   "date": "2024-07-22",
+   "split": "train"
+  },
+  "b6-20240724-0400": {
+   "date": "2024-07-24",
+   "split": "train"
+  },
+  "b6-20240731-0400": {
+   "date": "2024-07-31",
+   "split": "eval"
+  },
+  "b6-20240815-0400": {
+   "date": "2024-08-15",
+   "split": "train"
+  },
+  "b6-20240816-0400": {
+   "date": "2024-08-16",
+   "split": "train"
+  },
+  "b6-20240817-0400": {
+   "date": "2024-08-17",
+   "split": "train"
+  },
+  "b6-20240818-0400": {
+   "date": "2024-08-18",
+   "split": "train"
+  },
+  "b6-20240819-0400": {
+   "date": "2024-08-19",
+   "split": "train"
+  },
+  "b6-20240826-0400": {
+   "date": "2024-08-26",
+   "split": "train"
+  },
+  "b6-20250106-0400": {
+   "date": "2025-01-06",
+   "split": "train"
+  },
+  "b6-20250109-0400": {
+   "date": "2025-01-09",
+   "split": "train"
+  },
+  "b6-20250111-0400": {
+   "date": "2025-01-11",
+   "split": "train"
+  },
+  "b6-20250119-0400": {
+   "date": "2025-01-19",
+   "split": "train"
+  },
+  "b6-20250206-0400": {
+   "date": "2025-02-06",
+   "split": "eval"
+  },
+  "b6-20250209-0400": {
+   "date": "2025-02-09",
+   "split": "train"
+  },
+  "b6-20250217-0400": {
+   "date": "2025-02-17",
+   "split": "train"
+  },
+  "b6-20250218-0400": {
+   "date": "2025-02-18",
+   "split": "train"
+  },
+  "b6-20250220-0400": {
+   "date": "2025-02-20",
+   "split": "train"
+  },
+  "b6-20250221-0400": {
+   "date": "2025-02-21",
+   "split": "train"
+  },
+  "b6-20250703-0400": {
+   "date": "2025-07-03",
+   "split": "train"
+  },
+  "b6-20250716-0400": {
+   "date": "2025-07-16",
+   "split": "eval"
+  },
+  "b6-20250725-0400": {
+   "date": "2025-07-25",
+   "split": "eval"
+  },
+  "b6-20250731-0400": {
+   "date": "2025-07-31",
+   "split": "eval"
+  },
+  "b6-20250804-0400": {
+   "date": "2025-08-04",
+   "split": "train"
+  },
+  "b6-20250805-0400": {
+   "date": "2025-08-05",
+   "split": "train"
+  },
+  "b6-20250809-0400": {
+   "date": "2025-08-09",
+   "split": "eval"
+  },
+  "b6-20250813-0400": {
+   "date": "2025-08-13",
+   "split": "eval"
+  },
+  "b6-20250821-0400": {
+   "date": "2025-08-21",
+   "split": "eval"
+  },
+  "b6-20250829-0400": {
+   "date": "2025-08-29",
+   "split": "eval"
+  },
+  "b6-20251202-0400": {
+   "date": "2025-12-02",
+   "split": "eval"
+  },
+  "b6-20251211-0400": {
+   "date": "2025-12-11",
+   "split": "train"
+  },
+  "b6-20251214-0400": {
+   "date": "2025-12-14",
+   "split": "eval"
+  },
+  "b6-20251220-0400": {
+   "date": "2025-12-20",
+   "split": "eval"
+  },
+  "b6-20251229-0400": {
+   "date": "2025-12-29",
+   "split": "train"
+  },
+  "b6-20251230-0400": {
+   "date": "2025-12-30",
+   "split": "train"
+  },
+  "b6-20260102-0400": {
+   "date": "2026-01-02",
+   "split": "train"
+  },
+  "b6-20260119-0400": {
+   "date": "2026-01-19",
+   "split": "train"
+  },
+  "b6-20260126-0400": {
+   "date": "2026-01-26",
+   "split": "eval"
+  },
+  "b6-20240703-0400": {
+   "date": "2024-07-03",
+   "split": "control"
+  },
+  "b6-20250115-0400": {
+   "date": "2025-01-15",
+   "split": "control"
+  }
+ }
+}

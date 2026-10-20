@@ -8,6 +8,8 @@ static replay Space that reads it; push either. Two kinds of tables share the da
   transcript; v2_board, each mode's means with the board's bootstrap CIs and the paired difference; the eval card
   results/eval-v2.json; and the bundle airops-occ, every date in both modes as the board ran them, which
   `agent-env hf run --bundle airops-occ` plays.
+- v3's bundle airops-v3: the b6-v3 pack's eval days with wiring-noplay, as `agent-env airops-v3 tasks` writes them
+  (each load carrying the costs the pack stored for it), which `agent-env hf run --bundle airops-v3` plays.
 - AirOps's own, v1_*, per split of the pack: the days (what the planner is told, each watch's news, the reference
   costs and the task line itself), their references, and the scored runs (the grade, the final plan, the tool calls
   and the chat transcript); the model board (results) and its eval card, results/eval-v1.json, in FineEnvs' shape.
@@ -66,6 +68,7 @@ from agentenv_airops.occ.replay import replay as occ_replay
 from agentenv_airops.programs import occ
 from agentenv_airops.schedule import ENV, TOOLS, max_turns, timetable
 from agentenv_airops.sweep import POLICIES, RUNS, ci, load, priced, results
+from agentenv_airops.v3day import tasks as v3_tasks
 
 ROOT = Path(__file__).resolve().parents[1]
 CARD = ROOT / "hub/dataset/README.md"
@@ -103,6 +106,8 @@ OCC = "v2"
 OCC_BUNDLE = "airops-occ"
 OCC_SETUP = "agent-env airops-occ setup"
 OCC_CAPS = {"joint": 5.0, "one": 8.0}
+V3_BUNDLE = v3_tasks.BUNDLE_NAME
+V3_SETUP = "agent-env airops-v3 setup --agent"
 OCC_DRAWN = json.loads((ROOT / "hub/dataset/b6-v2-draw.json").read_text())["eval"]
 OCC_SPLITS = ("eval", "control", "train")
 OCC_BOARD = "occ-board-sol"
@@ -335,7 +340,8 @@ def split_order(path: str) -> int:
 
 def card_text(plugin: str, files: dict[str, bytes], board_md: str = "", occ_md: str = "") -> str:
     """hub/dataset/README.md with the dataset's configs, each version's board between its markers, the bundle airops's
-    two configs and needs as agentenv-hf's publish writes them, and airops-occ's needs when the build has it."""
+    two configs and needs as agentenv-hf's publish writes them, and airops-occ's and airops-v3's needs when the build
+    has them."""
     text = BOARD.sub(lambda m: m[1] + (f"\n{board_md}\n" if board_md else "") + m[2], CARD.read_text())
     text = OCC_BOARD_MD.sub(lambda m: m[1] + (f"\n{occ_md}\n" if occ_md else "") + m[2], text)
     ours = DatasetCard(text)
@@ -344,16 +350,19 @@ def card_text(plugin: str, files: dict[str, bytes], board_md: str = "", occ_md: 
         ours.data.configs[0]["default"] = True
     text = card(str(ours), name=BUNDLE, split=SPLIT, repo=None, description=None, license=None,
                 needs={"plugins": [plugin], "setup": SETUP})
-    if not any(p.startswith(f"bundles/{OCC_BUNDLE}/") for p in files):
+    extra = {name: setup for name, setup in ((OCC_BUNDLE, OCC_SETUP), (V3_BUNDLE, V3_SETUP))
+             if any(p.startswith(f"bundles/{name}/") for p in files)}
+    if not extra:
         return text
     both = DatasetCard(text)
-    both.data.agentenv["bundles"][OCC_BUNDLE] = {"plugins": [plugin], "setup": OCC_SETUP}
+    for name, setup in extra.items():
+        both.data.agentenv["bundles"][name] = {"plugins": [plugin], "setup": setup}
     return str(both)
 
 
 def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str, fixtures: list[Path], cache: Path,
           date: str, occ_pilots: list[str] = (), occ_pack: Path | None = None, occ_viewer: Path | None = None,
-          replays: Path | None = None, workers: int = 1) -> dict[str, bytes]:
+          replays: Path | None = None, workers: int = 1, v3_pack: Path | None = None) -> dict[str, bytes]:
     days = tasks.pack_tasks(pack)
     raw = {json.loads(line)["task_id"]: line for line in tasks_file(pack).read_text().splitlines() if line.strip()}
     bundle = out / "bundles" / BUNDLE
@@ -384,7 +393,7 @@ def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str,
         files = merge_viewer(files, occ_viewer)
     occ_tables, occ_md = occ_files(runs_dir, list(occ_pilots), Pack(occ_pack), replays or cache / "occ" / "replays",
                                    workers, date)
-    files |= occ_tables | occ_bundle(out, occ_pack)
+    files |= occ_tables | occ_bundle(out, occ_pack) | v3_bundle(out, v3_pack)
     for d in [d for d, _ in played] + [runs_dir / name for name in occ_pilots]:
         for path in sorted(d.rglob("*")):
             rel = path.relative_to(d)
@@ -402,6 +411,16 @@ def occ_bundle(out: Path, pack: Path | None) -> dict[str, bytes]:
     for mode, cap in OCC_CAPS.items():
         occ_tasks.generate(folder, split="all", modes=(mode,), pack=pack, cap=cap, noplay=mode == "joint")
     return {f"bundles/{OCC_BUNDLE}/{p.relative_to(folder).as_posix()}": p.read_bytes()
+            for p in sorted(folder.rglob("*")) if p.is_file()}
+
+
+def v3_bundle(out: Path, pack: Path | None) -> dict[str, bytes]:
+    """The bundle airops-v3 as `agent-env airops-v3 tasks --noplay` writes it: the pack's eval days (b6-v3 by default)
+    with wiring-noplay, which `agent-env hf run --bundle airops-v3` plays."""
+    folder = out / "bundles" / V3_BUNDLE
+    shutil.rmtree(folder, ignore_errors=True)
+    v3_tasks.generate(folder, split="eval", pack=pack, noplay=True)
+    return {f"bundles/{V3_BUNDLE}/{p.relative_to(folder).as_posix()}": p.read_bytes()
             for p in sorted(folder.rglob("*")) if p.is_file()}
 
 
@@ -755,6 +774,8 @@ def main():
                     help="A control-center pilot folder under --runs for v2's tables (repeat); default: every folder "
                          "with a pilot.json.")
     ap.add_argument("--occ-pack", type=Path, default=Path(str(OCC_PACK)), help="Default: the packaged b6-v2 pack.")
+    ap.add_argument("--v3-pack", type=Path, default=Path(str(v3_tasks.PACK)),
+                    help="The v3 pack airops-v3's tasks come from. Default: the packaged b6-v3 pack.")
     ap.add_argument("--occ-viewer", type=Path,
                     help="The control-center episodes as scripts/occ_episodes.py --out wrote them, merged into "
                          "viewer/.")
@@ -769,7 +790,7 @@ def main():
     with namespace_routing():
         files = build(sweeps, args.runs, args.out, args.pack, plugin, args.fixture, args.cache, args.date,
                       occ_pilots=pilots, occ_pack=args.occ_pack, occ_viewer=args.occ_viewer, replays=args.occ_replays,
-                      workers=args.workers)
+                      workers=args.workers, v3_pack=args.v3_pack)
     space = space_files(args.tag or "main") if args.space_out else {}
     scan(files | {f"space/{p}": c for p, c in space.items()}, known_values())
     write(files, args.out)

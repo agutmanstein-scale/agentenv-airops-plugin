@@ -40,10 +40,12 @@ Source = "https://github.com/earakely-scale/agentenv-airops-plugin"
 [project.entry-points."agent_env.bundles"]
 airops = "agentenv_airops.bundles"
 airops-occ = "agentenv_airops.bundles"
+airops-v3 = "agentenv_airops.bundles"
 
 [project.entry-points."agent_env.cli_plugins"]
 airops = "agentenv_airops.cli:airops"
 airops-occ = "agentenv_airops.occ.cli:occ"
+airops-v3 = "agentenv_airops.v3day.cli:airops_v3"
 
 [tool.hatch.metadata]
 allow-direct-references = true
@@ -58,7 +60,7 @@ exclude = ["src/agentenv_airops/data", "src/agentenv_airops/web"]
 
 [tool.hatch.build.targets.sdist]
 include = ["/src", "/data", "/tests", "/agents", "/web", "/Dockerfile", "/Dockerfile.occ", "/Dockerfile.occ.dockerignore",
-           "/README.md", "/LICENSE", "/NOTICE"]
+           "/Dockerfile.v3", "/Dockerfile.v3.dockerignore", "/README.md", "/LICENSE", "/NOTICE"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

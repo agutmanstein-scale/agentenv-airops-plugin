@@ -391,6 +391,30 @@ The [replay Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentE
 viewer (`web/`) under `viewer/`, reading the episodes straight from the dataset's resolve URLs at the tag, which
 huggingface.co serves with CORS headers. `--space-out` assembles it and `--space-repo` pushes it.
 
+## AirOpsEnv v3: the realism layers
+
+v3 plays the same whole-network storm days from 04:00 inside the FAA's programs, with the constraints v2's world
+leaves out, each enforced alike in the sim and the hindsight MIP: hub departure caps from every carrier's BTS
+pushbacks, ramp closures from lightning at the field (METAR and SPECI thunderstorms, as departure and gate-in rate cuts
+at a rate fitted on train dates) and outstation arrival caps. The desk sees them only as it could: caps 4 hours ahead,
+a closure once it begins, and the FAA advisories, METARs, SPECIs and TAFs at their delivery lags, with a watch each hour
+and one more on each event. One `airops-llm` desk plays a day on `airops-v3-day` and is graded as v1 is, against the
+hindsight optimum. The pack is b6-v3 (`data/b6-v3`: 94 storm dates, 24 eval and 70 train, and 2 controls, with each
+date's anchor and follower costs stored, so a load never waits on a solve); `docs/v3/DESIGN.md` and
+`docs/v3/REPORT.md` give the design and its check against v2.
+
+```bash
+agent-env airops-v3 setup --agent            # builds airops-v3-day (Dockerfile.v3) and airops-llm
+agent-env run airops-v3 --task wiring-noplay # the first eval date flown with no change, then the grade
+agent-env run airops-v3 --task b6-20240630-0400 --model anthropic/claude-sonnet-5-5
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv --bundle airops-v3 --task wiring-noplay
+```
+
+The dataset holds the bundle `airops-v3` (the eval dates and `wiring-noplay`) from the first release
+`scripts/hub_dataset.py` builds with it. `agent-env airops-v3 tasks --split train` writes the training dates as a
+bundle; `scripts/v3_pack.py --bases none --refs` builds the pack and `scripts/ship_v3_pack.py` ships it as
+`data/b6-v3`.
+
 ## AirOpsEnv v1: one desk at one hub
 
 v1, released in v0.2.0, is one operations desk at one hub in the 3 to 6 hours of a storm day where planning matters
