@@ -64,11 +64,15 @@ def load(runs: Path, name: str) -> tuple[dict, dict, dict]:
     return data, row, manifest
 
 
-def replay_all(names: list[str], runs: Path, cache: Path, workers: int) -> None:
-    """Every run's projections into the cache, `workers` replays at once."""
+def replay_all(names: list[str], runs: Path, cache: Path, workers: int) -> list[str]:
+    """Every run's projections into the cache, `workers` replays at once; the runs that failed, each with why."""
+    failed = []
     with ProcessPoolExecutor(workers) as pool:
-        for name in pool.map(project, names, [runs] * len(names), [cache] * len(names)):
-            print(f"{name}: projected", flush=True)
+        for name, error in pool.map(project, names, [runs] * len(names), [cache] * len(names)):
+            print(f"{name}: {error or 'projected'}", flush=True)
+            if error:
+                failed.append(f"{name}: {error}")
+    return failed
 
 
 def build(names: list[str], runs: Path, inputs: Path, cache: Path, hub: str | None, replay: bool) -> list[dict]:
@@ -92,11 +96,14 @@ def build(names: list[str], runs: Path, inputs: Path, cache: Path, hub: str | No
     return out
 
 
-def project(name: str, runs: Path, cache: Path) -> str:
-    """One run's projections into the cache (a worker of --workers)."""
-    data, row, _ = load(runs, name)
-    projections(Pack().world(data["task_id"]), data, projection_path(cache, name, row))
-    return name
+def project(name: str, runs: Path, cache: Path) -> tuple[str, str | None]:
+    """One run's projections into the cache (a worker of --workers), or why not."""
+    try:
+        data, row, _ = load(runs, name)
+        projections(Pack().world(data["task_id"]), data, projection_path(cache, name, row))
+    except Exception as e:
+        return name, f"{type(e).__name__}: {e}"
+    return name, None
 
 
 def projection_path(cache: Path, name: str, row: dict) -> Path:
@@ -149,7 +156,10 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     names = [n for arg in args.runs_named for n in expand(args.runs, arg)]
     if args.replay or args.projections_only:
-        replay_all(names, args.runs, args.cache, args.workers)
+        failed = replay_all(names, args.runs, args.cache, args.workers)
+        if failed:
+            print("not replayed:\n" + "\n".join(failed))
+            return 1
     if args.projections_only:
         return 0
     if args.out is None:
