@@ -18,7 +18,7 @@ import threading
 from contextlib import contextmanager
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urlparse
 
 from PIL import Image, ImageDraw, ImageFont, ImageStat
 
@@ -61,6 +61,9 @@ def main(argv: list[str] | None = None) -> int:
     contact(stills, args.out / "contact.jpg")
     (args.out / "qa.json").write_text(json.dumps(report, indent=1))
     failed = [f"{r['name']}: {e}" for r in [report["index"], *report["episodes"]] for e in r["failures"]]
+    for r in [report["index"], *report["episodes"]]:
+        for note in r.get("notes", []):
+            print(f"note {r['name']}: {note}")
     for line in failed:
         print(f"FAIL {line}")
     print(f"{len(report['episodes'])} episodes, {len(stills)} stills, {len(failed)} failures -> {args.out}")
@@ -99,7 +102,7 @@ def episode(base: str, chrome: str, width: int, height: int, entry: dict, ep: di
             room: bool, ignore, out: Path, stills) -> dict:
     """One episode: ready without errors, then each view in front and drawing at each minute."""
     name = Path(entry["url"]).stem
-    result = {"name": name, "failures": [], "checks": []}
+    result = {"name": name, "failures": [], "notes": [], "checks": []}
     url = (f"{base}/viewer/index.html?record=1&t={minutes[0]}"
            f"&episode={quote(base + '/data/episodes/' + entry['url'])}")
     try:
@@ -126,16 +129,17 @@ def episode(base: str, chrome: str, width: int, height: int, entry: dict, ep: di
                         result["failures"].append(f"{view} at {clock(t)}: blank (spread {spread:.1f})")
                     if view == "tower" and not check["aircraft"]:
                         result["failures"].append(f"tower at {clock(t)}: no aircraft drawn")
-            result["failures"] += errors(page, ignore)
+            result["failures"] += errors(page, ignore, result["notes"])
     except SystemExit as e:
         result["failures"].append(f"did not load: {e}")
     print(f"{name}: {len(result['checks'])} checks, {len(result['failures'])} failures", flush=True)
     return result
 
 
-def errors(page, ignore) -> list[str]:
-    """The page's uncaught exceptions and console and log errors, but those ``ignore`` lets pass."""
-    out = []
+def errors(page, ignore, notes: list | None = None) -> list[str]:
+    """The page's uncaught exceptions and console and log errors, but those ``ignore`` lets pass; another host's
+    resource that failed to load (map tiles, imagery) goes to ``notes``, counted by host."""
+    out, away = [], {}
     for e in page.events:
         m, p = e["method"], e.get("params", {})
         if m == "Runtime.exceptionThrown":
@@ -145,11 +149,17 @@ def errors(page, ignore) -> list[str]:
             text = " ".join(str(a.get("value", a.get("description", ""))) for a in p.get("args", []))
         elif m == "Log.entryAdded" and p["entry"]["level"] == "error":
             text = f"{p['entry'].get('text', '')} {p['entry'].get('url', '')}".strip()
+            host = urlparse(p["entry"].get("url", "")).hostname
+            if p["entry"].get("source") == "network" and host not in (None, "127.0.0.1", "localhost"):
+                away[host] = away.get(host, 0) + 1
+                continue
         else:
             continue
         if not any(x.search(text) for x in ignore):
             out.append(f"console: {text.splitlines()[0][:300]}")
     page.events.clear()
+    if notes is not None:
+        notes += [f"{n} resources from {host} failed to load" for host, n in away.items()]
     return list(dict.fromkeys(out))
 
 

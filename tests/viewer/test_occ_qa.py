@@ -23,10 +23,14 @@ def test_console_errors_and_exceptions_fail_but_the_waived_ones():
         {"method": "Runtime.exceptionThrown", "params": {"exceptionDetails": {
             "text": "Uncaught", "exception": {"description": "TypeError: x is undefined\n    at app.js:1"}}}},
         {"method": "Log.entryAdded", "params": {"entry": {"level": "error", "text": "404", "url": "/favicon.ico"}}},
-        {"method": "Log.entryAdded", "params": {"entry": {"level": "error", "text": "404", "url": "/viewer/x.js"}}}])
-    assert qa.errors(page, [qa.QUIET, re.compile("room failed")]) == [
+        {"method": "Log.entryAdded", "params": {"entry": {"level": "error", "text": "404", "url": "/viewer/x.js"}}},
+        *({"method": "Log.entryAdded", "params": {"entry": {"level": "error", "source": "network", "text": "ERR",
+                                                            "url": f"https://tiles.example.org/{i}.png"}}}
+          for i in range(3))])
+    notes = []
+    assert qa.errors(page, [qa.QUIET, re.compile("room failed")], notes) == [
         "console: TypeError: x is undefined", "console: 404 /viewer/x.js"]
-    assert page.events == []
+    assert notes == ["3 resources from tiles.example.org failed to load"] and page.events == []
 
 
 def test_the_minutes_checked_are_the_story_and_the_first_answer_between_the_desks():
