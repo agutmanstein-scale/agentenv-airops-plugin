@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://earakely-scale-airopsenv-agentenv.static.hf.space/viewer/index.html?episode=https%3A%2F%2Fhuggingface.co%2Fdatasets%2Fearakely-scale%2FAirOpsEnv-AgentEnv%2Fresolve%2Fv0.3.1%2Fviewer%2Fepisodes%2Focc-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json"><img src="assets/airops-occ-banner.jpg" alt="AirOpsEnv v2: JetBlue's operations control center in 3D on the Boston storm day of 13 July 2024, replayed from GPT-6.1 Sol's two desks: the ops controller and the crew scheduler at their pods under the video wall of the network, as the crew desk's hold of B6 515 is accepted" width="100%"></a>
+<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.3.1/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-banner.jpg" alt="AirOpsEnv v2: JetBlue's operations control center in 3D on the Boston storm day of 13 July 2024, replayed from GPT-6.1 Sol's two desks: the ops controller and the crew scheduler at their pods under the video wall of the network, as the crew desk's hold of B6 515 is accepted" width="100%"></a>
 
 <h1>AirOpsEnv v2: the ops control center</h1>
 
@@ -32,7 +32,7 @@ Every recorded run replays exactly through the env and passes its audit, and rep
 control-center room where the desks decide, and the airport where it plays out.
 
 <p align="center">
-  <a href="https://github.com/earakely-scale/agentenv-airops-plugin/releases/tag/v0.3.0"><img src="assets/airops-occ-hero.webp" width="100%" alt="GPT-6.1 Sol's two desks run JetBlue's control center through the Boston storm of 13 July 2024: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave"></a>
+  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.3.1/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-hero.webp" width="100%" alt="GPT-6.1 Sol's two desks run JetBlue's control center through the Boston storm of 13 July 2024: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave"></a>
 </p>
 <p align="center"><sub>Two GPT-6.1 Sol desks run JetBlue's network through the Boston storm of Saturday 13 July 2024
 (<code>b6-20240713-0400</code>): 612 flights on 193 aircraft from 04:00, an FAA ground stop and a ground delay program
@@ -42,9 +42,9 @@ desk accepts and three COVER requests, two of them accepted. Flown on what reall
 than the best plan found in hindsight and saves 86% of what standard crew-desk practice leaves on the table: reward
 0.806, against 0.657 for one Sol agent running both desks and 0.308 for the standard crew desk. In the clip the crew
 desk's HOLD of B6 515 to Buffalo is accepted in the room and B6 515 pushes back held until 07:45; later B6 451's crew
-walks up to gate C23 and it takes off. Replayed on the env's viewer; the
+walks up to gate C23 and it takes off. Click it to replay the day in 3D, from the room at 06:02; the
 <a href="https://github.com/earakely-scale/agentenv-airops-plugin/releases/tag/v0.3.0">full film</a> and two more,
-Boston in fog and rain on 10 December 2023 and in snow on 11 January 2025, are on the release.
+Boston in fog and rain on 10 December 2023 and in snow on 11 January 2025, are on the v0.3.0 release.
 Airport © OpenStreetMap contributors (ODbL), imagery USGS The National Map; flights BTS; advisories FAA ATCSCC;
 radar NEXRAD via the Iowa Environmental Mesonet. The control-center room, the crew room and the crews' paths are drawn
 for display only.</sub></p>
