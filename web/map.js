@@ -5,7 +5,7 @@
 // at each base, the crews riding as passengers on the aircraft in the air, and the legs of a crew picked in the drawer.
 import maplibregl from "maplibre-gl";
 import { BASES, CREW_INK, crewIndex, deadheadsOn, reservesAt, strandedAt } from "./crewdata.js";
-import { capsAt, esc, hhmm } from "./model.js";
+import { capsAt, esc } from "./model.js";
 
 const TILES = "https://tiles.openfreemap.org";
 const PLANE = '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 64 64"><path d="M32 3c2.4 0 3.8 2.8 3.8 6.6V25l21.8 12.6v5.6L35.8 36v14.2l6.6 5.2V60L32 57l-10.4 3v-4.6l6.6-5.2V36L6.4 43.2v-5.6L28.2 25V9.6C28.2 5.8 29.6 3 32 3z" fill="#fff"/></svg>';
@@ -127,7 +127,13 @@ export class NetworkMap {
       paint: { "text-color": "#5b2d91", "text-halo-color": "#ffffff", "text-halo-width": 1.4, "text-translate": shift } });
     this.layer = document.createElement("div");
     this.layer.className = "cm-tags";
+    this.layer.innerHTML = `<svg class="cm-leads" aria-hidden="true"></svg>`;
+    this.leads = this.layer.firstChild;
     this.el.appendChild(this.layer);
+    this.sum = document.createElement("div");
+    this.sum.className = "cm-sum";
+    this.sum.hidden = true;
+    this.el.appendChild(this.sum);
     this.key = document.createElement("div");
     this.key.className = "cm-key";
     this.key.hidden = true;
@@ -181,10 +187,11 @@ export class NetworkMap {
     if (this.crews && frame.t != null) this.showCrews(frame);
   }
 
-  /** The crews at t: a violet ring round each aircraft in the air carrying crews as passengers, and beside the airports
-   * a tag with the reserves on call (at a base) and the crews resting away from base. */
+  /** The crews at t: a violet ring round each aircraft in the air carrying crews as passengers and, full screen, a tag
+   * beside the airports with the reserves on call (at a base) and the crews resting away from base, airports close on
+   * screen sharing one; the corner inset gives only the totals. */
   showCrews({ positions, t }) {
-    const C = this.crews, dots = [];
+    const C = this.crews, P = this.P, dots = [];
     let riding = 0;
     for (const p of positions) {
       const n = deadheadsOn(C, p.f.s.id).length;
@@ -193,92 +200,103 @@ export class NetworkMap {
       dots.push({ type: "Feature", properties: { n }, geometry: { type: "Point", coordinates: p.pos } });
     }
     this.map.getSource("deadheads").setData({ type: "FeatureCollection", features: dots });
-    const stranded = strandedAt(C, t), reserves = reservesAt(C, t), W = this.el.clientWidth, compact = W < 700;
-    const codes = [...new Set([...stranded.keys(), ...[...reserves.keys()].filter((b) => BASES.includes(b))])].filter((c) => this.P.task.airports[c]);
-    const px = new Map(codes.map((c) => [c, this.map.project([this.P.task.airports[c].lon, this.P.task.airports[c].lat])]));
-    const crowded = (c) => !compact && codes.some((o) => o !== c && Math.hypot(px.get(o).x - px.get(c).x, px.get(o).y - px.get(c).y) < 30);
-    const seen = new Set();
-    for (const code of codes) {
-      const a = this.P.task.airports[code], named = crowded(code);
-      seen.add(code);
-      const s = stranded.get(code) ?? [], r = BASES.includes(code) ? reserves.get(code) : null;
+    const stranded = strandedAt(C, t), reserves = reservesAt(C, t);
+    const codes = [...new Set([...stranded.keys(), ...[...reserves.keys()].filter((b) => BASES.includes(b))])].filter((c) => P.task.airports[c]);
+    const items = codes.map((code) => {
+      const a = P.task.airports[code], s = stranded.get(code) ?? [], r = BASES.includes(code) ? reserves.get(code) ?? null : null;
       const rp = r?.pilot.length ?? 0, rc = r?.cabin.length ?? 0;
-      const key = `${W > 0}|${compact}|${named}|${s.length}|${rp}|${rc}`;
-      let tag = this.tags.get(code);
+      return { code, lnglat: [a.lon, a.lat], s, r, rp, rc, rank: (code === P.task.hub ? 1000 : 0) + (rp + rc ? 100 : 0) + s.length };
+    }).filter((i) => i.s.length + i.rp + i.rc);
+    const key = items.map((i) => `${i.code}:${i.s.length}:${i.rp}:${i.rc}`).join("|");
+    if (key !== this.itemsKey) {
+      this.itemsKey = key;
+      this.items = items;
+      this.placeTags();
+    }
+    const sum = (f) => items.reduce((a, i) => a + f(i), 0), rest = sum((i) => i.s.length), res = sum((i) => i.rp + i.rc);
+    const compact = this.el.clientWidth < 700;
+    this.showKey(rest > 0, res > 0, riding > 0, compact);
+    this.showSum(rest, res, riding, compact);
+  }
+
+  showKey(rest, res, riding, compact) {
+    const items = [res && `<span><i class="k-res">R</i>reserve crews on call at a base (P pilots, C cabin)</span>`, rest && `<span><i class="k-rest">${MOON}</i>crews resting in a hotel away from base</span>`,
+      riding && `<span><i class="k-dh"></i>crews riding as passengers</span>`].filter(Boolean);
+    const html = items.join("");
+    if (this.key.innerHTML !== html) this.key.innerHTML = html;
+    this.key.hidden = compact || !items.length;
+  }
+
+  /** The corner inset's line: the crews resting away, the reserves on call and the crews riding, in all. */
+  showSum(rest, res, riding, compact) {
+    const html = rest + res + riding ? `<b>Crews</b>${[rest && `<span class="rest">${MOON}<b>${rest}</b> resting away</span>`,
+      res && `<span class="res"><i>R</i><b>${res}</b> reserves</span>`, riding && `<span class="ride"><i></i><b>${riding}</b> riding</span>`].filter(Boolean).join("")}` : "";
+    if (this.sum.innerHTML !== html) this.sum.innerHTML = html;
+    this.sum.hidden = !compact || !html;
+  }
+
+  /** Full screen only: airports within a few pixels of each other share a tag (the hub's or a base's first, so New York's
+   * airports go under JFK), which splits again as the map is zoomed; each tag sits beside its airport on the first side
+   * clear of the page's cards and the tags placed before it. */
+  placeTags() {
+    if (!this.layer) return;
+    const W = this.el.clientWidth, H = this.el.clientHeight, full = W >= 700;
+    this.layer.hidden = !full;
+    if (!full || !this.items) return;
+    const pts = this.items.map((i) => ({ ...i, p: this.map.project(i.lnglat) })).sort((a, b) => b.rank - a.rank || a.code.localeCompare(b.code));
+    const groups = [];
+    for (const it of pts) {
+      const g = groups.find((x) => Math.hypot(x.p.x - it.p.x, x.p.y - it.p.y) < GROUP);
+      if (g) g.members.push(it);
+      else groups.push({ p: it.p, members: [it] });
+    }
+    const live = new Set();
+    for (const g of groups) {
+      const id = g.members.map((m) => m.code).join("+"), key = g.members.map((m) => `${m.s.length}:${m.rp}:${m.rc}`).join("|");
+      live.add(id);
+      let tag = this.tags.get(id);
       if (!tag) {
         const el = document.createElement("div");
         el.className = "cm-tag";
         this.layer.appendChild(el);
-        tag = { el, code, lnglat: [a.lon, a.lat], key: null, variants: [], shown: null };
-        this.tags.set(code, tag);
+        tag = { el, key: null };
+        this.tags.set(id, tag);
       }
-      tag.rank = (r ? 100 : 0) + s.length + (code === this.P.task.hub ? 1000 : 0);
-      tag.el.hidden = false;
-      if (tag.key === key) continue;
-      tag.key = key;
-      const resTitle = r ? `${code} reserves still on call at ${hhmm(t)}: ${list(r.pilot, "pilot")}; ${list(r.cabin, "cabin")}` : "";
-      const restTitle = s.length ? `${s.length} crew${s.length > 1 ? "s" : ""} resting in a hotel at ${code}, away from base: ${s.map((x) => x.unit).join(", ")}` : "";
-      tag.el.classList.toggle("compact", compact);
-      const rest = s.length ? `<span class="rest" title="${esc(restTitle)}">${compact ? "" : `${MOON} `}<b>${s.length}</b></span>` : "";
-      const res = (words) => (r && rp + rc ? `<span class="res" title="${esc(resTitle)}">${compact ? `R${rp + rc}` : `<i>R</i><span>${[rp && `<b>${rp}</b>${words ? " pilot" : "P"}`,
-        rc && `<b>${rc}</b>${words ? " cabin" : "C"}`].filter(Boolean).join(" ")}</span>`}</span>` : "");
-      const name = named ? `<em>${esc(code)}</em>` : "";
-      tag.variants = [...new Set([name + res(true) + rest, name + res(false) + rest])].map((html) => {
-        tag.el.innerHTML = html;
-        return { html, w: tag.el.offsetWidth, h: tag.el.offsetHeight };
-      });
-      tag.shown = tag.variants.at(-1);
-    }
-    for (const [code, tag] of this.tags) if (!seen.has(code)) tag.el.hidden = true;
-    this.showKey(stranded.size > 0, [...reserves.values()].some((r) => r.pilot.length + r.cabin.length), riding > 0, compact);
-    this.placeTags();
-  }
-
-  showKey(rest, res, riding, compact) {
-    const items = [res && `<span><i class="k-res">R</i>reserve crews still on call at a base</span>`, rest && `<span><i class="k-rest">${MOON}</i>crews resting in a hotel away from base</span>`,
-      riding && `<span><i class="k-dh"></i>crew riding as passengers</span>`].filter(Boolean);
-    const html = items.join(""), hide = compact || !items.length;
-    if (this.key.innerHTML !== html) this.key.innerHTML = html;
-    this.key.hidden = hide;
-  }
-
-  /** Each tag beside its airport, on the first side clear of the tags placed before it (the hub's first, then bases). */
-  placeTags() {
-    if (!this.layer || !this.tags.size) return;
-    const W = this.el.clientWidth, H = this.el.clientHeight, placed = [], d = W < 700 ? 3 : 5;
-    const tags = [...this.tags.values()].filter((g) => !g.el.hidden).sort((a, b) => b.rank - a.rank);
-    if (W >= 700) {
-      const box = this.el.getBoundingClientRect();
-      for (const el of document.querySelectorAll(".card, .view.corner, .timeline, .cm-key, .radar-key")) {
-        const r = el.getBoundingClientRect();
-        if (r.width && r.height && el.checkVisibility()) placed.push([r.left - box.left - 4, r.top - box.top - 4, r.right - box.left + 4, r.bottom - box.top + 4]);
+      Object.assign(tag, { p: g.p, rank: g.members[0].rank });
+      if (tag.key !== key) {
+        tag.key = key;
+        tag.variants = variants(tag.el, g.members);
+        tag.shown = null;
       }
     }
-    for (const g of tags) {
-      const p = this.map.project(g.lnglat);
-      placed.push([p.x - 3, p.y - 3, p.x + 3, p.y + 3]);
-      if (W >= 700) placed.push([p.x - 13, p.y - 21, p.x + 13, p.y - 6]);
+    for (const [id, tag] of this.tags) if (!live.has(id)) (tag.el.remove(), this.tags.delete(id));
+    const placed = [], leads = [], d = 5, box = this.el.getBoundingClientRect();
+    for (const el of document.querySelectorAll(".card, .view.corner, .timeline, .cm-key, .radar-key, .expert")) {
+      const r = el.getBoundingClientRect();
+      if (r.width && r.height && el.checkVisibility()) placed.push([r.left - box.left - 4, r.top - box.top - 4, r.right - box.left + 4, r.bottom - box.top + 4]);
     }
+    for (const { p } of pts) placed.push([p.x - 3, p.y - 3, p.x + 3, p.y + 3], [p.x - 13, p.y - 21, p.x + 13, p.y - 6]);
     const cost = (r) => placed.reduce((sum, q) => sum + Math.max(0, Math.min(r[2], q[2]) - Math.max(r[0], q[0])) * Math.max(0, Math.min(r[3], q[3]) - Math.max(r[1], q[1])), 0)
       + (r[0] < 0 || r[1] < 0 || r[2] > W || r[3] > H ? 1e6 : 0);
-    for (const g of tags) {
-      const p = this.map.project(g.lnglat);
+    for (const g of [...this.tags.values()].sort((a, b) => b.rank - a.rank)) {
+      const p = g.p;
       let best = null;
-      for (const v of g.variants) {
-        const { w, h } = v;
-        for (const [x, y] of [[d, d], [d + 2, -h / 2], [-w - d, d], [-w - d - 2, -h / 2], [-w / 2, d + 3], [d, -h - d], [-w - d, -h - d], [d, d + h + 2],
-          [-w - d, d + h + 2], [-w / 2, d + h + 5], [d + 14, -h / 2], [-w - d - 14, -h / 2]]) {
-          const r = [p.x + x, p.y + y, p.x + x + w, p.y + y + h], c = cost(r);
+      for (const side of SIDES) {
+        for (const v of g.variants) {
+          const [x, y] = side(v.w, v.h, d), r = [p.x + x, p.y + y, p.x + x + v.w, p.y + y + v.h], c = cost(r);
           if (!best || c < best.c) best = { c, r, v };
           if (c === 0) break;
         }
         if (best.c === 0) break;
       }
-      if (g.shown !== best.v || !g.el.innerHTML) g.el.innerHTML = best.v.html;
+      if (g.shown !== best.v) g.el.innerHTML = best.v.html;
       g.shown = best.v;
       placed.push(best.r);
       g.el.style.transform = `translate(${Math.round(best.r[0])}px, ${Math.round(best.r[1])}px)`;
+      const [x0, y0, x1, y1] = best.r, qx = Math.max(x0, Math.min(x1, p.x)), qy = Math.max(y0, Math.min(y1, p.y));
+      if (Math.hypot(qx - p.x, qy - p.y) > 12) leads.push(`<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${qx.toFixed(1)}" y2="${qy.toFixed(1)}"/>`);
     }
+    this.leads.innerHTML = leads.join("");
   }
 
   /** The legs of a crew picked in the expert drawer, flown solid and ridden as a passenger dashed; null clears. */
@@ -324,6 +342,30 @@ export class NetworkMap {
 
 const MOON = '<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M8.6 9.4A4.6 4.6 0 0 1 4.9 1.2a4.6 4.6 0 1 0 5.9 6.4 4.6 4.6 0 0 1-2.2 1.8z" fill="currentColor"/></svg>';
 
+const GROUP = 40;
+/** Where a tag may sit against its airport, nearest first: below right, right, below left, left, below, above. */
+const SIDES = [(w, h, d) => [d, d], (w, h, d) => [d + 2, -h / 2], (w, h, d) => [-w - d, d], (w, h, d) => [-w - d - 2, -h / 2], (w, h, d) => [-w / 2, d + 3],
+  (w, h, d) => [d, -h - d], (w, h, d) => [-w - d, -h - d], (w, h, d) => [-w / 2, -h - 24], (w, h, d) => [d, d + h + 2], (w, h, d) => [-w - d, d + h + 2],
+  (w, h, d) => [-w / 2, d + h + 5], (w, h, d) => [d + 14, -h / 2], (w, h, d) => [-w - d - 14, -h / 2], (w, h, d) => [-w / 2, -h - 44],
+  (w, h, d) => [-w / 2, d + 34], (w, h, d) => [d + 30, d + 22], (w, h, d) => [-w - d - 30, d + 22], (w, h, d) => [d + 30, -h - 22], (w, h, d) => [-w - d - 30, -h - 22]];
+
+/** A tag's contents, worded and short, each measured: the airports it covers when more than one, the reserves on call
+ * and the crews resting away, with the breakdown by airport as its tooltip. */
+function variants(el, members) {
+  const n = (f) => members.reduce((a, m) => a + f(m), 0), rest = n((m) => m.s.length), rp = n((m) => m.rp), rc = n((m) => m.rc);
+  const codes = members.map((m) => m.code);
+  el.title = members.flatMap((m) => [m.rp + m.rc && `${m.code} reserves on call: ${list(m.r.pilot, "pilot")}; ${list(m.r.cabin, "cabin")}`,
+    m.s.length && `${m.code}: ${m.s.length} crew${m.s.length > 1 ? "s" : ""} resting in a hotel away from base (${m.s.map((x) => x.unit).join(", ")})`]).filter(Boolean).join("\n");
+  const name = codes.length > 1 ? `<em>${esc(codes.length <= 3 ? codes.join(" · ") : `${codes.slice(0, 2).join(" · ")} +${codes.length - 2}`)}</em>` : "";
+  const resting = rest ? `<span class="rest">${MOON}<b>${rest}</b></span>` : "";
+  const res = (words) => (rp + rc ? `<span class="res"><i>R</i><span>${[rp && `<b>${rp}</b>${words ? " pilot" : "P"}`, rc && `<b>${rc}</b>${words ? " cabin" : "C"}`]
+    .filter(Boolean).join(" ")}</span></span>` : "");
+  return [...new Set([res(true) + resting, res(false) + resting])].map((chips) => `${name}<div class="cm-row">${chips}</div>`).map((html) => {
+    el.innerHTML = html;
+    return { html, w: el.offsetWidth, h: el.offsetHeight };
+  });
+}
+
 const list = (rs, kind) => {
   const n = (type) => rs.filter((r) => r.type === type).length;
   return `${rs.length} ${kind} crew${rs.length === 1 ? "" : "s"} (${n("standby")} on standby at the airport, ${n("short")} on short call)`;
@@ -331,21 +373,29 @@ const list = (rs, kind) => {
 
 const STYLE = `
 .cm-tags { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
-.cm-tag { position: absolute; left: 0; top: 0; display: flex; gap: 3px; align-items: center; white-space: nowrap; font: 600 10.5px/1 var(--sans, sans-serif);
+.cm-tag { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; white-space: nowrap; font: 600 10.5px/1 var(--sans, sans-serif);
   will-change: transform; }
-.cm-tag > span { display: inline-flex; align-items: center; gap: 3px; padding: 2px 5px; border-radius: 4px; box-shadow: 0 1px 2px rgba(10, 30, 45, 0.3);
+.cm-row { display: flex; gap: 3px; align-items: center; }
+.cm-row > span { display: inline-flex; align-items: center; gap: 3px; padding: 2px 5px; border-radius: 4px; box-shadow: 0 1px 2px rgba(10, 30, 45, 0.3);
   pointer-events: auto; cursor: default; }
 .cm-tag b { font-weight: 800; font-size: 11.5px; }
 .cm-tag .res { background: rgba(255, 255, 255, 0.95); color: #14324a; font-weight: 500; }
 .cm-tag .res i { font-style: normal; font-weight: 800; font-size: 9px; padding: 1px 3px; border-radius: 2px; background: #2b7a6a; color: #fff; margin-right: 1px; }
-.cm-tag em { font-style: normal; font-weight: 800; font-size: 9.5px; color: #14324a; padding: 1px 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.7); }
+.cm-tag em { font-style: normal; font-weight: 800; font-size: 9px; letter-spacing: 0.03em; color: #14324a; padding: 1px 4px; border-radius: 3px; background: rgba(255, 255, 255, 0.78); }
+.cm-leads { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.cm-leads line { stroke: rgba(20, 50, 74, 0.75); stroke-width: 1.2; }
+.cm-leads circle { fill: #14324a; }
 .cm-tag .rest { background: ${CREW_INK}; color: #2a1446; border: 1px solid rgba(255, 255, 255, 0.9); }
-.cm-tag.compact { gap: 2px; font-size: 8.5px; }
-.cm-tag.compact > span { padding: 1px 3px; border-radius: 3px; gap: 1px; }
-.cm-tag.compact b { font-size: 9px; }
-.cm-tag.compact .res { font-weight: 800; }
-.cm-tag.compact svg { width: 7px; height: 7px; }
-.view.corner .cm-tag > span { pointer-events: none; }
+.cm-tag .rest svg { margin-right: 2px; }
+.cm-sum { position: absolute; left: 6px; bottom: 6px; z-index: 3; display: flex; gap: 4px; align-items: center; padding: 3px 5px; border-radius: 5px;
+  background: rgba(255, 255, 255, 0.82); color: #23323d; font: 500 9.5px/1 var(--sans, sans-serif); white-space: nowrap; pointer-events: none; }
+.cm-sum > b { font-weight: 700; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: #46545e; margin-right: 1px; }
+.cm-sum span { display: inline-flex; align-items: center; gap: 2px; }
+.cm-sum span b { font-weight: 800; font-size: 10px; }
+.cm-sum .rest { padding: 1px 4px; border-radius: 3px; background: ${CREW_INK}; color: #2a1446; }
+.cm-sum .rest svg { width: 8px; height: 8px; margin-right: 1px; }
+.cm-sum .res i { font-style: normal; font-weight: 800; font-size: 8px; padding: 1px 2px; border-radius: 2px; background: #2b7a6a; color: #fff; margin-right: 1px; }
+.cm-sum .ride i { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid ${CREW_INK}; background: rgba(201, 155, 255, 0.25); margin-right: 1px; }
 .cm-key { position: absolute; z-index: 3; display: flex; gap: 14px; align-items: center; padding: 3px 10px; border-radius: 6px; font-size: 11px;
   background: rgba(255, 255, 255, 0.85); color: #23323d; pointer-events: none; white-space: nowrap; }
 .cm-key span { display: inline-flex; align-items: center; gap: 5px; }

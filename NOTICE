@@ -20,4 +20,6 @@ Data sources (see data/*/SOURCE.md for each file):
 Third-party code:
 - PortSimEnv v1 (FineEnvs), Apache-2.0: Three.js scene code (sky, sun, image-based light, haze, water, materials and
   instancing helpers) adapted in web/stage/*.js; each adapted file names its source on its first line.
-- Three.js (MIT) and MapLibre GL JS (BSD-3-Clause), loaded by the viewer from jsDelivr, not bundled.
+- Three.js (MIT) and MapLibre GL JS (BSD-3-Clause), loaded by the viewer from jsDelivr, not bundled; for the
+  control-center room's video wall, topojson-client, us-atlas (US Census Bureau boundaries) and world-atlas
+  (Natural Earth), all ISC, likewise.

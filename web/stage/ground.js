@@ -603,6 +603,27 @@ function lampStreaks(items, U) {
   return mesh;
 }
 
+const HELD = new Set();
+
+/** An image loaded and decoded while a reference holds it, retried after a pause: a detached image can be collected
+ * mid-download and a busy page can see its loads aborted (seen on the 3.7 MB ortho on a control-center day). */
+async function heldImage(url, tries = 4) {
+  for (let k = 1; ; k++) {
+    const img = new Image();
+    HELD.add(img);
+    img.src = url;
+    try {
+      await img.decode();
+      return img;
+    } catch (e) {
+      if (k >= tries) throw e;
+      await new Promise((r) => setTimeout(r, 500 * k));
+    } finally {
+      HELD.delete(img);
+    }
+  }
+}
+
 /* ---------------- far field: low-zoom USGS photo beyond the stage's own ortho ---------------- */
 
 function enuProjector(lat0, lon0) {
@@ -622,9 +643,10 @@ const tileXY = (lon, lat, z) => {
 function loadImage(url) {
   return new Promise((resolve) => {
     const im = new Image();
+    HELD.add(im);
     im.crossOrigin = "anonymous";
-    im.onload = () => resolve(im);
-    im.onerror = () => resolve(null);
+    im.onload = () => (HELD.delete(im), resolve(im));
+    im.onerror = () => (HELD.delete(im), resolve(null));
     im.src = url;
   });
 }
@@ -837,7 +859,8 @@ export async function buildGround(stage, baseUrl = "", opts = {}) {
   const rf = runwayFrames(stage);
   const terminalsHit = (p) => stage.terminals.some((t) => pointInRing(p, t.outer)) || (stage.hangars || []).some((t) => pointInRing(p, t.outer));
 
-  const ortho = await new THREE.TextureLoader().loadAsync(new URL(stage.ortho.url, new URL(baseUrl || ".", location.href)).href);
+  const ortho = new THREE.Texture(await heldImage(new URL(stage.ortho.url, new URL(baseUrl || ".", location.href)).href));
+  ortho.needsUpdate = true;
   ortho.colorSpace = THREE.SRGBColorSpace;
   ortho.anisotropy = 16;
   const [ow, os, oe, on] = stage.ortho.bounds;

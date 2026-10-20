@@ -66,29 +66,49 @@ async function getJSON(url) {
 
 const longDate = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).replace(",", "");
 
+const V2 = { title: "AirOpsEnv v2: the ops control center", sub: "Run an airline's control center through a real storm day",
+  intro: "Each run puts a model in JetBlue's operations control center for a whole storm day, from 04:00: an ops controller runs the flights, a crew scheduler the pilots and flight attendants, and they ask each other for holds, cancellations and cover. The day is flown on what really happened and scored against the best plan found. Pick one to replay it." };
+const V1 = { title: "AirOpsEnv v1: the operations desk", sub: "Recover an airline's storm day at JFK or Boston",
+  intro: "Each run puts a model at JetBlue's operations desk through a real storm day. Every hour it reads the FAA's advisories and the weather and may cancel or hold flights; the day is then flown on what really happened and scored against the best plan in hindsight. Pick one to replay it." };
+
 async function indexPage(app, url) {
   const index = await getJSON(url);
-  const room = index.episodes.length > 0 && index.episodes.every((e) => e.occ);
+  const v2 = index.episodes.filter((e) => e.occ), v1 = index.episodes.filter((e) => !e.occ);
   document.documentElement.classList.add("light");
-  document.title = `${room ? "AirOpsEnv" : "AirOpsEnv v1"} · episodes`;
+  document.title = `${v2.length ? V2.title : "AirOpsEnv v1"} · episodes`;
   const card = (e) => {
     const href = `?episode=${encodeURIComponent(new URL(e.url, url).href)}`;
     const gap = e.anchor ? (100 * (e.cost - e.anchor)) / e.anchor : null;
     const thumb = e.thumb ? ` style="background-image:url('${esc(new URL(e.thumb, url).href)}')"` : "";
-    return `<a class="ep-card" href="${href}"><div class="thumb${e.thumb ? "" : " none"}"${thumb}><span>${esc(e.hub)}</span></div>
+    return `<a class="ep-card" href="${href}"><div class="thumb${e.thumb ? "" : " none"}"${thumb}><span>${esc(e.hub)}</span>${e.featured ? "<em>Featured</em>" : ""}</div>
       <div class="body"><h2>${esc(HUB_NAMES[e.hub] ?? e.hub)} · ${esc(longDate(e.date))}</h2><p class="model">${esc(e.model_label ?? e.model)}${e.occ ? ` · ${esc(e.occ)}` : ""}</p>
       <dl><div><dt>Reward</dt><dd>${e.reward?.toFixed(3) ?? "–"}</dd></div><div><dt>${e.occ ? "Cost vs best plan" : "Cost vs hindsight"}</dt><dd>${gap != null ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}%` : "–"}</dd></div></dl>
       <p class="id">${esc(e.task_id)} · ${esc(e.run)}</p></div></a>`;
   };
-  const head = room
-    ? `<h1>AirOpsEnv</h1><p class="sub">Run an airline's control center through a real storm day</p>
-    <p class="intro">Each run puts a model in JetBlue's operations control center for a whole storm day, from 04:00: an ops controller runs the flights, a crew scheduler the pilots and flight attendants, and they ask each other for holds, cancellations and cover. The day is flown on what really happened and scored against the best plan found. Pick one to replay it.</p>`
-    : `<h1>AirOpsEnv v1</h1><p class="sub">Recover an airline's storm day at JFK or Boston</p>
-    <p class="intro">Each run puts a model at JetBlue's operations desk through a real storm day. Every hour it reads the FAA's advisories and the weather and may cancel or hold flights; the day is then flown on what really happened and scored against the best plan in hindsight. Pick one to replay it.</p>`;
-  app.innerHTML = `<div class="list"><header>${head}</header>
-    <div class="grid">${[...index.episodes].sort((a, b) => (b.reward ?? -1) - (a.reward ?? -1)).map(card).join("")}</div>
-    <p class="credit">Reward from 0.2 to 1: 1 is the best plan ${room ? "found" : "in hindsight"}. Cost in passenger-minutes. ${esc(CREDIT)}</p></div>`;
-  resolveReady({ episodes: index.episodes.length });
+  const board = (e) => (e.run ?? "").startsWith("occ-board");
+  const rank = (e) => (e.occ ? [e.featured ? 0 : 1, e.featured ?? 0, board(e) ? 0 : 1, e.date, e.occ === "two desks" ? 0 : 1] : [0, 0, 0, "", -(e.reward ?? -1)]);
+  const cmp = (x, y) => (typeof x === "string" ? x.localeCompare(y) : x - y);
+  const order = (list) => [...list].sort((a, b) => rank(a).reduce((d, x, i) => d || cmp(x, rank(b)[i]), 0));
+  const grid = (list) => `<div class="grid">${order(list).map(card).join("")}</div>`;
+  const head = (h) => `<h1>${esc(h.title)}</h1><p class="sub">${esc(h.sub)}</p><p class="intro">${esc(h.intro)}</p>`;
+  const sections = [];
+  if (v2.length) sections.push(`<header>${head(V2)}${note(v2)}</header>${grid(v2)}`);
+  if (v1.length) sections.push(`<header class="${v2.length ? "next" : ""}">${head(v2.length ? V1 : { ...V1, title: "AirOpsEnv v1" })}</header>${grid(v1)}`);
+  app.innerHTML = `<div class="list">${sections.join("")}
+    <p class="credit">Reward from 0.2 to 1: 1 is the best plan ${v2.length ? "found (v2) or the best plan in hindsight (v1)" : "in hindsight"}. Cost in passenger-minutes. ${esc(CREDIT)}</p></div>`;
+  resolveReady({ episodes: index.episodes.length, v2: v2.length, v1: v1.length });
+}
+
+/** The board's result in a line: each setup's mean reward over the board's days, from the list's own board runs. */
+function note(list) {
+  const runs = list.filter((e) => (e.run ?? "").startsWith("occ-board"));
+  if (!runs.length) return "";
+  const by = new Map();
+  for (const e of runs) by.set(e.occ, [...(by.get(e.occ) ?? []), e.reward]);
+  const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const parts = [...by].sort((a, b) => mean(b[1]) - mean(a[1])).map(([label, rs]) => `${mean(rs).toFixed(3)} with ${label}`);
+  const days = new Set(runs.map((e) => e.task_id)).size, model = runs[0].model_label ?? runs[0].model;
+  return `<p class="note">The board: ${esc(model)} on ${days} storm days scores a mean reward of ${esc(parts.join(" and "))}. 1 is the best plan found; the standard crew desk scores about 0.31.</p>`;
 }
 
 async function episodePage(app, url) {
@@ -101,7 +121,7 @@ async function episodePage(app, url) {
   }
   P.lo = traffic?.span?.[0] ?? task.start;
   P.hi = traffic?.span?.[1] ?? P.end;
-  const city = cities(task, traffic), cityOf = (c) => city.get(c) ?? c, model = ep.model_label ?? ep.model, brand = ep.occ ? "AirOpsEnv" : "AirOpsEnv v1";
+  const city = cities(task, traffic), cityOf = (c) => city.get(c) ?? c, model = ep.model_label ?? ep.model, brand = ep.occ ? "AirOpsEnv v2" : "AirOpsEnv v1";
   const stands = new Map(), terminals = new Map();
   for (const ac of traffic?.aircraft ?? []) {
     if (!ac.task) continue;
@@ -126,7 +146,7 @@ async function episodePage(app, url) {
   let stage = null, tagAt = null;
   if (doc) {
     try {
-      const { AirportStage, tagAt: tag } = await import("./stage/stage.js");
+      const { AirportStage, tagAt: tag } = await import("./stage/stage.js").catch(() => new Promise((r) => setTimeout(r, 800)).then(() => import("./stage/stage.js")));
       tagAt = tag;
       stage = new AirportStage(root.querySelector(".stage-host"), { stage: doc, traffic, base: new URL(".", stageUrl).href, manual: RECORD, controls: !RECORD, avoid: () => covered(root) });
       await stage.ready;
@@ -139,7 +159,7 @@ async function episodePage(app, url) {
   let center = null;
   if (ep.occ) {
     try {
-      const { ControlCenter } = await import("./center/center.js");
+      const { ControlCenter } = await import("./center/center.js").catch(() => new Promise((r) => setTimeout(r, 800)).then(() => import("./center/center.js")));
       center = new ControlCenter(root.querySelector(".room-host"), { P, ep, base: url.href, manual: RECORD, controls: !RECORD });
       await center.ready;
     } catch (e) {

@@ -122,6 +122,17 @@ def projections(world, data: dict, path: Path) -> list[list[dict]]:
     return out
 
 
+def feature(index: bytes, stems: list[str]) -> bytes:
+    """The index with the runs named first, in order (`featured`: 1, 2, ...), as the list shows them."""
+    doc = json.loads(index)
+    rank = {f"{stem}.json": k for k, stem in enumerate(stems, 1)}
+    missing = set(rank) - {e["url"] for e in doc["episodes"]}
+    if missing:
+        raise SystemExit(f"not in the index: {', '.join(sorted(missing))}")
+    doc["episodes"] = [e | ({"featured": rank[e["url"]]} if e["url"] in rank else {}) for e in doc["episodes"]]
+    return (json.dumps(doc, indent=1, ensure_ascii=False) + "\n").encode()
+
+
 def write(files: dict[str, bytes], out: Path) -> None:
     for path, content in files.items():
         (out / path).parent.mkdir(parents=True, exist_ok=True)
@@ -154,6 +165,8 @@ def main(argv: list[str] | None = None) -> int:
                         "kept under --cache/occ/projections); else the board shows how the day flew.")
     p.add_argument("--workers", type=int, default=1, help="Replay this many days at once.")
     p.add_argument("--exclude", action="append", default=[], metavar="FOLDER/RUN", help="Leave this run out.")
+    p.add_argument("--featured", action="append", default=[], metavar="STEM",
+                   help="An episode the list shows first, in the order given (its file name without .json).")
     p.add_argument("--label", action="append", default=[], metavar="FOLDER=AS",
                    help="List a folder's runs as another's, e.g. a retry folder as the board it reruns.")
     p.add_argument("--projections-only", action="store_true",
@@ -172,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     episodes = build(names, args.runs, args.inputs, args.cache, args.hub, args.replay,
                      dict(x.split("=", 1) for x in args.label))
     files = export.folder(episodes, args.cache)
+    files["episodes/index.json"] = feature(files["episodes/index.json"], args.featured)
     shutil.rmtree(args.out, ignore_errors=True)
     write(files, args.out)
     print(f"{len(files)} files into {args.out}")

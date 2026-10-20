@@ -194,15 +194,15 @@ export class OccDrawer {
       const rows = reqs.map((r, i) => {
         const shown = r.shown ?? r.sent, later = shown > t, typed = r.type !== "TEXT", replyLater = r.answered == null || r.answered > t;
         const status = !typed ? `<span class="st delivered">delivered</span>` : r.reply ? `<span class="st ${r.reply}">${r.reply === "accept" ? "Accepted" : "Declined"}</span> ${clock(r.replied)}` : `<span class="st open">No answer</span>`;
-        const divider = i === past && past > 0 && past < reqs.length ? `<tr class="rq-now"><td colspan="8"><span>now ${clock(t)}</span></td></tr>` : "";
+        const divider = i === past && past > 0 && past < reqs.length ? `<tr class="rq-now"><td colspan="7"><span>now ${clock(t)}</span></td></tr>` : "";
         return `${divider}<tr class="${later ? "later" : "past"} t-${esc(r.type)}" data-t="${shown}" title="Go to ${clock(shown)}, when it was sent">
           <td class="id">${esc(r.id)}</td><td class="when">${clock(r.sent)}</td><td class="who">${SHORT[r.sender] ?? esc(r.sender)} → ${SHORT[r.receiver] ?? esc(r.receiver)}</td>
           <td class="type">${TYPES[r.type] ?? esc(r.type)}${r.time != null ? `<small>by ${clock(r.time)}</small>` : ""}</td><td class="fl">${r.flight != null ? flight(r.flight) : ""}</td>
           <td class="txt">${words(r.text)}</td>
-          <td class="reply${!later && replyLater && typed ? " pending" : ""}">${status}${r.reply_text ? `<div>${words(r.reply_text)}</div>` : ""}</td>
-          <td class="then">${(r.actions ?? []).map((a) => `<div>${then(a)}</div>`).join("")}</td></tr>`;
+          <td class="reply${!later && replyLater && typed ? " pending" : ""}">${status}${r.reply_text ? `<div>${words(r.reply_text)}</div>` : ""}${(r.actions ?? [])
+            .map((a) => `<div class="then">→ ${then(a)}</div>`).join("")}</td></tr>`;
       }).join("");
-      pane.innerHTML = `<table class="rq"><thead><tr><th>Id</th><th>Sent</th><th>From → to</th><th>Type</th><th>Flight</th><th>Request</th><th>Reply</th><th>Then</th></tr></thead><tbody>${rows}</tbody></table>`;
+      pane.innerHTML = `<table class="rq"><thead><tr><th>Id</th><th>Sent</th><th>From → to</th><th>Type</th><th>Flight</th><th>Request</th><th>Reply and what followed</th></tr></thead><tbody>${rows}</tbody></table>`;
     });
     if (fresh && !this.scrolled) {
       this.scrolled = true;
@@ -317,10 +317,10 @@ const STYLE = `
 .dc-key .k-lim { width: 2px; height: 12px; background: var(--cancel); }
 .dc-key .k-ext { width: 0; height: 12px; border-left: 2px dotted var(--delay); border-radius: 0; }
 .xo-reqs { overflow: auto; scrollbar-width: thin; }
-table.rq { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+table.rq { width: 100%; border-collapse: collapse; font-size: 12px; }
 table.rq th { position: sticky; top: 0; z-index: 1; padding: 6px 8px; text-align: left; font-size: 10px; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase;
   color: #9fb5c0; background: #0d1720; border-bottom: 1px solid var(--line); }
-table.rq td { padding: 6px 8px; vertical-align: top; border-bottom: 1px solid rgba(255, 255, 255, 0.05); line-height: 1.4; }
+table.rq td { padding: 7px 8px; vertical-align: top; border-bottom: 1px solid rgba(255, 255, 255, 0.06); line-height: 1.45; }
 table.rq tr[data-t] { cursor: pointer; }
 table.rq tr[data-t]:hover td { background: rgba(255, 255, 255, 0.04); }
 table.rq tr.later td { opacity: 0.42; }
@@ -328,11 +328,11 @@ table.rq td.id, table.rq td.when { font: 600 11px var(--mono); white-space: nowr
 table.rq td.who, table.rq td.type { white-space: nowrap; }
 table.rq td.type small, table.rq td.fl small { display: block; color: var(--faint); }
 table.rq td.fl { white-space: nowrap; font-family: var(--mono); }
-table.rq td.txt { min-width: 300px; color: #dfe8ec; }
-table.rq td.reply { min-width: 260px; color: var(--muted); }
-table.rq td.reply div { margin-top: 2px; }
+table.rq td.txt { width: 46%; min-width: 300px; color: #e6eef1; }
+table.rq td.reply { width: 38%; min-width: 260px; color: #b9c9d0; }
+table.rq td.reply div { margin-top: 3px; }
+table.rq td.reply div.then { color: #fff; font-weight: 600; }
 table.rq td.reply.pending { opacity: 0.45; }
-table.rq td.then { min-width: 150px; color: var(--muted); font-size: 11px; }
 table.rq tr.t-CANCEL td.type, table.rq tr.t-CANCEL_PAIR td.type { color: #ffb0a8; }
 table.rq tr.t-HOLD td.type { color: #a9d0ff; }
 table.rq tr.t-COVER td.type { color: ${CREW_INK}; }
@@ -341,8 +341,9 @@ table.rq .st.accept { background: rgba(90, 208, 143, 0.2); color: var(--ok); }
 table.rq .st.decline { background: rgba(255, 106, 92, 0.2); color: var(--cancel); }
 table.rq .st.delivered { color: var(--faint); font-weight: 500; padding: 0; }
 table.rq .st.open { background: rgba(243, 177, 63, 0.2); color: var(--delay); }
-table.rq tr.rq-now td { padding: 0; border-bottom: 2px solid #fff; }
-table.rq tr.rq-now span { position: relative; top: 7px; margin-left: 8px; padding: 0 6px; font: 700 10px var(--mono); background: #fff; color: #10202c; border-radius: 3px; }
+table.rq tr.rq-now td { padding: 3px 8px; border-bottom: 0;
+  background: linear-gradient(transparent calc(50% - 1px), rgba(255, 255, 255, 0.85) calc(50% - 1px), rgba(255, 255, 255, 0.85) calc(50% + 1px), transparent calc(50% + 1px)); }
+table.rq tr.rq-now span { display: inline-block; padding: 1px 6px; font: 700 10px var(--mono); background: #fff; color: #10202c; border-radius: 3px; }
 .xo-pages { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
 .xo-pages section { display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 10px 12px 0; border-right: 1px solid var(--line); }
 .xo-pages section:last-child { border-right: 0; }
