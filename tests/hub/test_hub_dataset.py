@@ -8,6 +8,7 @@ import json
 import re
 import sys
 import tomllib
+from collections import Counter
 from pathlib import Path
 
 import pyarrow as pa
@@ -338,6 +339,16 @@ def test_a_v2_day_row_carries_its_references_their_rewards_the_advisories_the_ru
     news = json.loads(row["advisories"])
     assert len(news) == row["num_advisories"] > 0 and [n["at"] for n in news] == sorted(n["at"] for n in news)
     assert row["system_prompt_crew"] == occ_tasks.RULES["crew"] and json.loads(row["world"])["task_id"] == OCC_EVAL
+    assert (row["drawn_for"], hub.occ_task_row(pack, OCC_CONTROL)["drawn_for"]) == ("BOS", None)
+
+
+def test_the_eval_dates_were_drawn_12_per_storm_hub_8_summer_and_4_winter(hub):
+    pack = Pack()
+    evals = {v["date"] for v in pack.tasks.values() if v["split"] == "eval"}
+    assert set(hub.OCC_DRAWN) == evals
+    seasons = Counter((h, "summer" if d[5:7] in ("06", "07", "08") else "winter") for d, h in hub.OCC_DRAWN.items())
+    assert seasons == {("JFK", "summer"): 8, ("JFK", "winter"): 4, ("BOS", "summer"): 8, ("BOS", "winter"): 4}
+    assert all(h in pack.world(f"b6-{d.replace('-', '')}-0400").task.hubs for d, h in hub.OCC_DRAWN.items())
 
 
 def _occ_row(run: str, attempt: int, reward_: float, cost: float, desks: tuple[str, ...], folder: Path) -> dict:

@@ -111,7 +111,7 @@ decisions and against the record. Run once on all dates, every task from 04:00.
 | Check | What it tests | Result | Bar | Verdict |
 |---|---|---|---|---|
 | Airline replay | JetBlue's own cancellations and departures, played in the world, fly what JetBlue flew | 181 of 181 dates; 1 forced cancellation in 116,986 flights flown | at most 1% forced, and at most 2, on 90% of dates | pass |
-| FAA delay | other carriers' modelled program delay against their recorded delay, pooled per hub | eval JFK 0.95, Boston 1.10 (out of sample); train JFK 1.06, Boston 1.08 | 0.8–1.25 | pass |
+| FAA delay | other carriers' modelled program delay against their recorded delay, pooled per hub | eval JFK 0.95, Boston 1.10 (out of sample on stage 1's eval dates); train JFK 1.06, Boston 1.08 | 0.8–1.25 | pass |
 | References | the hindsight optimum is sound | 183 of 183 proven within 0.0079%, replayed exactly; nothing below it; passengers within seats | proven to 0.01% | pass |
 | Calm day | with no weather, the world flies its own schedule | 155 of 181 dates (85.6%) | at most 1 forced cancellation and 2 ferries, on 90% | **miss** |
 | Controls | on two calm dates the record costs at least the optimum, and doing nothing is near it | summer 2024-07-03: +0.20%; winter 2025-01-15: +8.9%; the record 1.16× and 1.15× the optimum | doing nothing within 3% | **miss on winter** |
@@ -138,7 +138,7 @@ crashed in the joint search on a code defect and is outside the pool) and the tw
 | Calm day with crews | what the crew model alone adds to a calm day | at most 2% on 104 of 180 (57.8%); 101 of them add nothing | at most 2% on 90% | **miss as first set; replaced by the filter** |
 | Best plan and bound | the best plan replays exactly with a legal crew on every flight, and its bound is valid | 181 of 182 exact (one 0.0144% off, filtered out); every bound valid; gap median 5.3%, p90 10.6% | every kept date | pass on every kept date |
 | Controls | the standard crew desk within 3% of the best plan | +3.95% (summer), +17.4% (winter) | 3% | **miss** |
-| The filter, fixed before the run | keep a date only if at most 1% of its flown flights lack a legal crew and crews add at most 2% to its calm day | 100 of 180 kept: enough for 12 eval dates per hub (8 summer, 4 winter) and 44 train, at every seed tried (0–199) and at both reserve-band ends | the pool | pass |
+| The filter, fixed before the run | keep a date only if at most 1% of its flown flights lack a legal crew and crews add at most 2% to its calm day | 100 of 180 kept: enough to draw 12 eval dates per storm hub (8 summer, 4 winter) and 44 train, at every seed tried (0–199) and at both reserve-band ends | the pool | pass |
 
 - **Why flights lack a crew** in the replay: the planned crew elsewhere when the flight leaves (44%), a legal crew at
   the station needed on another flight (36%), no crew of the type at the station (12%); duty and flight-time limits
@@ -189,8 +189,8 @@ shipped anyway, with this result stated; whether talking matters for model desks
 - **The board,** 48 runs on the 24 eval dates: all scored, replayed exactly through the env's calls, and passed the
   audit; an independent recheck recomputed every reward and reward_L from the graded costs and the pack's best plan,
   bound and B0 (0 mismatches) and found one run where the crew desk's connection dropped mid-day and the harness
-  recorded a voluntary stand-down. The harness was fixed to record that as an error, and the run was replayed as the
-  registered retry; the first attempt stays recorded and flagged.
+  recorded a voluntary stand-down. The harness was fixed to record that as an error, and the date was rerun as the
+  registered retry (0.464), which replaces it on the board; the first attempt stays recorded and flagged.
 
 ## Misses and limits
 

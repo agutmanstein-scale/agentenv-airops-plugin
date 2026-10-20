@@ -103,6 +103,7 @@ OCC = "v2"
 OCC_BUNDLE = "airops-occ"
 OCC_SETUP = "agent-env airops-occ setup"
 OCC_CAPS = {"joint": 5.0, "one": 8.0}
+OCC_DRAWN = json.loads((ROOT / "hub/dataset/b6-v2-draw.json").read_text())["eval"]
 OCC_SPLITS = ("eval", "control", "train")
 OCC_BOARD = "occ-board-sol"
 OCC_LABELS = {"occ-board-sol-retry": OCC_BOARD}
@@ -441,7 +442,8 @@ def occ_files(runs_dir: Path, pilots: list[str], pack: Pack, replays: Path, work
 
 def occ_task_row(pack: Pack, task_id: str) -> dict:
     """A date of the pack with its references and their rewards, the FAA's advisories as the desks get them, the
-    desks' rules, and the date's world as the env loads it."""
+    desks' rules, and the date's world as the env loads it. `drawn_for` is the storm hub an eval date was drawn for
+    (hub/dataset/b6-v2-draw.json); `hub` is the task's, the airport the viewer shows."""
     entry = pack.tasks[task_id]
     raw = gzip.decompress((pack.path / "dates" / f"{entry['date']}.json.gz").read_bytes()).decode()
     world = World.from_dict(json.loads(raw))
@@ -450,7 +452,8 @@ def occ_task_row(pack: Pack, task_id: str) -> dict:
     news = sorted(occ_pages.news(task).values(), key=lambda n: (n["at"], n["id"]))
     scripted = refs.get("scripted") or {}
     row = {"task_id": task_id, "date": task.date, "split": entry["split"],
-           "season": "summer" if task.date[5:7] in ("06", "07", "08") else "winter", "hub": task.hub,
+           "season": "summer" if task.date[5:7] in ("06", "07", "08") else "winter",
+           "drawn_for": OCC_DRAWN.get(task.date) if entry["split"] == "eval" else None, "hub": task.hub,
            "storm_hubs": list(task.hubs), "num_flights": len(task.flights), "num_aircraft": len(task.tails),
            "num_airports": len(task.airports), "under_programs": task.clauses.get("controlled_or_held"),
            "airline_cancelled": sum(f.actual.cancelled for f in task.flights), "num_watches": len(occ.watches(task)),

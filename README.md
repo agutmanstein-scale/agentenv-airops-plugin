@@ -125,14 +125,15 @@ The pack `b6-v2` is 70 of JetBlue's real days, each its whole network from 04:00
 
 | Split | Dates | What |
 |---|---:|---|
-| eval | 24 | storm dates: 12 at JFK and 12 at Boston, 8 summer and 4 winter each, every one from its own storm event |
+| eval | 24 | storm dates, drawn 12 per storm hub (8 summer and 4 winter each), every one from its own storm event |
 | train | 44 | storm dates of events with no eval date, so no storm is in both |
 | control | 2 | calm days: 2024-07-03 and 2025-01-15, no FAA program at JFK, Boston, Newark or LaGuardia |
 
-An eval date has a median of 696 flights (494 to 774) on 218 aircraft to some 85 airports, flown by 364 pilot crews
-and 356 cabin crews on generated trips, with 82 pilot and about 100 cabin reserves at the bases. A storm date is one
-where the FAA's programs at JFK or Boston controlled or held at least 5 JetBlue flights, from 19 summer and winter
-months between December 2022 and July 2026.
+`drawn_for` in `v2_tasks` is the hub a date was drawn for, `hub` the airport the viewer shows; a date can be a storm
+date at both. An eval date has a median of 696 flights (494 to 774) on 218 aircraft to some 85 airports, flown by 364
+pilot crews and 356 cabin crews on generated trips, with 82 pilot and about 100 cabin reserves at the bases. A storm
+date is one where the FAA's programs at JFK or Boston controlled or held at least 5 JetBlue flights, from 19 summer and
+winter months between December 2022 and July 2026.
 
 - **Real, as recorded.** Every JetBlue flight and tail from the BTS on-time records, with its scheduled times, its own
   delay and block time; aircraft types and seats from Form 41; where each aircraft really was at 04:00; the FAA Command
@@ -337,7 +338,7 @@ ran; a check that failed was reported and the call to ship or stop made once, wi
 
 - **The world without crews.** JetBlue's own decisions, replayed in the world, fly what JetBlue flew: 1 forced
   cancellation in 116,986 flights over 181 storm dates. The modelled FAA program delay of other carriers matches their
-  recorded delay within 0.8–1.25×, pooled per hub, out of sample (JFK 0.95, Boston 1.10). Every hindsight anchor was
+  recorded delay within 0.8–1.25×, pooled per hub, out of sample on stage 1's eval dates (JFK 0.95, Boston 1.10). Every hindsight anchor was
   proven optimal.
 - **The crews.** JetBlue's real day, crewed by the generated trips and reserves, leaves 264 of 116,517 flown flights
   (0.23%) without a legal crew. Dates where the crew model fails (more than 1% of flights uncrewed in the replay, or

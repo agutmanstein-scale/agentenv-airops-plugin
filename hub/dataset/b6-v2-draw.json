@@ -1,0 +1,41 @@
+{
+ "about": "The b6-v2 pack's eval dates, each with the storm hub it was drawn for: the seed-0 whole-event split, 8 summer and 4 winter dates per hub, redrawn over the storm dates the crew filter kept.",
+ "rule": "network.split(kept storm hubs, candidates.events(network.storms(INPUTS)[0]), seed 0)",
+ "seed": 0,
+ "per_hub": {
+  "JFK": {
+   "winter": 4,
+   "summer": 8
+  },
+  "BOS": {
+   "summer": 8,
+   "winter": 4
+  }
+ },
+ "eval": {
+  "2022-12-07": "JFK",
+  "2023-06-06": "BOS",
+  "2023-06-16": "JFK",
+  "2023-07-08": "JFK",
+  "2023-07-09": "BOS",
+  "2023-07-13": "BOS",
+  "2023-07-29": "BOS",
+  "2023-12-10": "JFK",
+  "2023-12-18": "BOS",
+  "2024-06-23": "BOS",
+  "2024-07-13": "BOS",
+  "2024-07-15": "JFK",
+  "2024-07-22": "JFK",
+  "2025-01-11": "BOS",
+  "2025-07-08": "BOS",
+  "2025-07-12": "JFK",
+  "2025-12-02": "BOS",
+  "2025-12-14": "JFK",
+  "2025-12-19": "BOS",
+  "2025-12-30": "JFK",
+  "2026-06-14": "JFK",
+  "2026-07-01": "BOS",
+  "2026-07-09": "JFK",
+  "2026-07-15": "JFK"
+ }
+}

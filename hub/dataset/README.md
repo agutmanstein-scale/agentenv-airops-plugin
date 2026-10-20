@@ -81,14 +81,15 @@ cancel. In mode `one`, one agent runs both desks from one page, with no channel,
 
 ## The days
 
-The pack `b6-v2`: 24 eval storm dates (12 at JFK and 12 at Boston, 8 summer and 4 winter each, every one from its own
-storm event), 44 training dates from other storm events, and 2 calm control days, from 19 summer and winter months
-between December 2022 and July 2026. An eval date has a median of 696 flights on 218 aircraft, 364 pilot and 356 cabin
-crews on trips and about 180 reserves. Everything is built from public U.S. records: the flights, tails and delays
-from BTS on-time data, aircraft from Form 41 and the FAA registry, the FAA Command Center's advisories, the crew rules
-from the eCFR, the crew bases from public filings and union pages, and the costs from the FAA, the BLS and GSA.
-JetBlue's pairings are not public, so the crews' trips are generated from the published schedule by a cost-optimizing
-builder, and reserves are set at a sourced industry band.
+The pack `b6-v2`: 24 eval storm dates, drawn 12 per storm hub (8 summer and 4 winter each, every one from its own storm
+event; `drawn_for` is the hub a date was drawn for, `hub` the airport the viewer shows), 44 training dates from other
+storm events, and 2 calm control days, from 19 summer and winter months between December 2022 and July 2026. An eval
+date has a median of 696 flights on 218 aircraft, 364 pilot and 356 cabin crews on trips and about 180 reserves.
+Everything is built from public U.S. records: the flights, tails and delays from BTS on-time data, aircraft from Form 41
+and the FAA registry, the FAA Command Center's advisories, the crew rules from the eCFR, the crew bases from public
+filings and union pages, and the costs from the FAA, the BLS and GSA. JetBlue's pairings are not public, so the crews'
+trips are generated from the published schedule by a cost-optimizing builder, and reserves are set at a sourced industry
+band.
 
 How faithful the day is, layer by layer, with every check against the record and every miss, is in
 [FIDELITY.md](https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.3.1/FIDELITY.md).
@@ -144,7 +145,7 @@ All parquet, one config per table, a split per split of the pack (`eval`, `contr
 
 | Config | What |
 |---|---|
-| `v2_tasks` (default) | one row per date: its size, crews and reserves, the FAA advisories as the desks get them, every reference's cost and reward (best, bound, gap, B0, idle, the scripted desks, JetBlue's own decisions replayed, the calm day), the desks' rules, and the date's world as the env loads it (`world`) |
+| `v2_tasks` (default) | one row per date: the hub it was drawn for (`drawn_for`, eval dates) and the one the viewer shows (`hub`), its size, crews and reserves, the FAA advisories as the desks get them, every reference's cost and reward (best, bound, gap, B0, idle, the scripted desks, JetBlue's own decisions replayed, the calm day), the desks' rules, and the date's world as the env loads it (`world`) |
 | `v2_board` | one row per mode with its mean reward and reward_L and their 95% bootstrap CIs, B0, and the paired difference of the two modes |
 | `v2_runs` | one row per recorded attempt (the board's 48, its retry and the pilot's 6): reward, reward_L and the costs against the best plan, the bound and B0, the day's cost by kind, cancellations, holds, crew moves and requests by type and outcome, spend, tokens, turns, each desk's end, whether it replays exactly and passes the audit, its decisions and the request log; `on_board` and `superseded_by` mark the board's runs |
 | `v2_desks` | one row per desk of each attempt, with its usage and its transcript as chat `messages` |
