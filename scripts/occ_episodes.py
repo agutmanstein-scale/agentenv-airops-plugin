@@ -75,14 +75,16 @@ def replay_all(names: list[str], runs: Path, cache: Path, workers: int) -> list[
     return failed
 
 
-def build(names: list[str], runs: Path, inputs: Path, cache: Path, hub: str | None, replay: bool) -> list[dict]:
+def build(names: list[str], runs: Path, inputs: Path, cache: Path, hub: str | None, replay: bool,
+          labels: dict[str, str] | None = None) -> list[dict]:
     pack, out = Pack(), []
     for name in names:
         data, row, manifest = load(runs, name)
         world = pack.world(data["task_id"])
-        folder = name.split("/", 1)[0]
+        source = name.split("/", 1)[0]
+        folder = (labels or {}).get(source, source)
         projected = projections(world, data, projection_path(cache, name, row)) if replay else None
-        record = {"folder": folder, "run": row["run"], "attempt": row["attempt"], "cost_usd": row.get("cost_usd"),
+        record = {"folder": source, "run": row["run"], "attempt": row["attempt"], "cost_usd": row.get("cost_usd"),
                   "wall_seconds": row.get("wall_seconds"), "desks": row.get("desks")}
         ep = episode.episode(world, data, model=manifest["model"], run=f"{folder}-{data['mode']}", inputs=inputs,
                              cache=cache, hub=hub, record=record, projected=projected)
@@ -151,10 +153,13 @@ def main(argv: list[str] | None = None) -> int:
                    help="Replay each day's changes to give every watch the desks' projection (a few minutes a day, "
                         "kept under --cache/occ/projections); else the board shows how the day flew.")
     p.add_argument("--workers", type=int, default=1, help="Replay this many days at once.")
+    p.add_argument("--exclude", action="append", default=[], metavar="FOLDER/RUN", help="Leave this run out.")
+    p.add_argument("--label", action="append", default=[], metavar="FOLDER=AS",
+                   help="List a folder's runs as another's, e.g. a retry folder as the board it reruns.")
     p.add_argument("--projections-only", action="store_true",
                    help="Only replay the runs into --cache/occ/projections (the slow part), e.g. on a large machine.")
     args = p.parse_args(argv)
-    names = [n for arg in args.runs_named for n in expand(args.runs, arg)]
+    names = [n for arg in args.runs_named for n in expand(args.runs, arg) if n not in args.exclude]
     if args.replay or args.projections_only:
         failed = replay_all(names, args.runs, args.cache, args.workers)
         if failed:
@@ -164,7 +169,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.out is None:
         p.error("--out is required unless --projections-only")
-    episodes = build(names, args.runs, args.inputs, args.cache, args.hub, args.replay)
+    episodes = build(names, args.runs, args.inputs, args.cache, args.hub, args.replay,
+                     dict(x.split("=", 1) for x in args.label))
     files = export.folder(episodes, args.cache)
     shutil.rmtree(args.out, ignore_errors=True)
     write(files, args.out)
