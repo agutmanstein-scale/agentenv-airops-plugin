@@ -6,6 +6,7 @@ __pycache__/
 dist/
 build/
 !src/agentenv_airops/build/
+!web/vendor/three-0.180.0/build/
 *.egg-info/
 .agentenv/config.toml
 results/runs/
