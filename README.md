@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.3.2/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-banner.jpg" alt="AirOpsEnv v2: JetBlue's operations control center in 3D on the Boston storm day of 13 July 2024, replayed from GPT-6.1 Sol's two desks: the ops controller and the crew scheduler at their pods under the video wall of the network, as the crew desk's hold of B6 515 is accepted" width="100%"></a>
+<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.3.3/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-banner.jpg" alt="AirOpsEnv v2: JetBlue's operations control center in 3D on the Boston storm day of 13 July 2024, replayed from GPT-6.1 Sol's two desks: the ops controller and the crew scheduler at their pods under the video wall of the network, as the crew desk's hold of B6 515 is accepted" width="100%"></a>
 
 <h1>AirOpsEnv v2: the ops control center</h1>
 
@@ -32,7 +32,7 @@ Every recorded run replays exactly through the env and passes its audit, and rep
 control-center room where the desks decide, and the airport where it plays out.
 
 <p align="center">
-  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.3.2/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-hero.webp" width="100%" alt="GPT-6.1 Sol's two desks run JetBlue's control center through the Boston storm of 13 July 2024: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave"></a>
+  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.3.3/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-hero.webp" width="100%" alt="GPT-6.1 Sol's two desks run JetBlue's control center through the Boston storm of 13 July 2024: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave"></a>
 </p>
 <p align="center"><sub>Two GPT-6.1 Sol desks run JetBlue's network through the Boston storm of Saturday 13 July 2024
 (<code>b6-20240713-0400</code>): 612 flights on 193 aircraft from 04:00, an FAA ground stop and a ground delay program
@@ -288,7 +288,7 @@ framework, build the env and the desk agent and register them, and check the wir
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.2"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.3"
 agent-env airops-occ setup                    # builds airops-occ and airops-desk for this machine's Docker
 agent-env airops-occ tasks --noplay           # writes results/bundles/airops-occ: each eval date, joint and one
 agent-env run results/bundles/airops-occ --task wiring-noplay
@@ -309,8 +309,8 @@ both modes, the very task files the board ran (each desk's cost cap $5 in a two-
 `wiring-noplay`. The dataset's default bundle is v1's `airops`, so name this one:
 
 ```bash
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.2 --bundle airops-occ --task wiring-noplay
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.2 --bundle airops-occ --task b6-20240713-0400-joint \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.3 --bundle airops-occ --task wiring-noplay
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.3 --bundle airops-occ --task b6-20240713-0400-joint \
     --model openai/gpt-6.1-sol
 ```
 
@@ -378,9 +378,9 @@ python scripts/occ_episodes.py occ-board-sol occ-board-sol-retry occ-pilot-sol o
     --exclude occ-board-sol/b6-20260709-0400-joint --label occ-board-sol-retry=occ-board-sol \
     --featured occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400 --replay --out cache/occ/viewer-release
 python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --workers 6 \
-    --out cache/hub/dataset-v0.3.2 --space-out cache/hub/space-v0.3.2
+    --out cache/hub/dataset-v0.3.3 --space-out cache/hub/space-v0.3.3
 python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --workers 6 \
-    --out cache/hub/dataset-v0.3.2 --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.3.2
+    --out cache/hub/dataset-v0.3.3 --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.3.3
 ```
 
 `hub_dataset.py` replays every recorded control-center day through the env's calls for `v2_runs` (a few minutes a
@@ -580,7 +580,7 @@ framework, build the env and agent images and register them, and check the wirin
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.2"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.3"
 agent-env airops setup --agent        # builds airops-day and airops-llm for this machine's Docker
 agent-env run airops --task wiring-noplay
 ```
@@ -597,7 +597,7 @@ agent-env run airops --task b6-bos-20250216-1500 --model openai/gpt-6.1-sol
 Or play one straight from the dataset, which pins this release:
 
 ```bash
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.2 --task b6-bos-20250216-1500 \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.3 --task b6-bos-20250216-1500 \
     --model anthropic/claude-sonnet-5-5
 ```
 
@@ -698,9 +698,10 @@ configurations and deadhead fare are facts cited from JetBlue's 10-K filings and
 Central, each with its URL in `src/agentenv_airops/programs/crew_params.json`. The airport stages and the hub twins are
 © OpenStreetMap contributors (ODbL 1.0); the aerial photos under the stages are USGS The National Map orthoimagery
 (public domain). Both are built into `cache/` and never committed; beyond the stage the viewer loads coarser USGS
-imagery and hydrography tiles from The National Map as it runs. The US map is Natural Earth relief (public domain)
-under OpenMapTiles vector tiles © OpenStreetMap contributors, served by OpenFreeMap. The 3D scene code in `web/stage/`
-adapts PortSimEnv v1 (FineEnvs, Apache-2.0), named on the first line of each adapted file, and runs on Three.js (MIT);
-the map runs on MapLibre GL JS (BSD-3-Clause), and the control-center room's video wall on topojson-client,
-us-atlas and world-atlas (ISC). See [NOTICE](NOTICE) and each `data/*/sources/*/SOURCE.md`. Neither
-JetBlue, the FAA, the BTS, the NWS, the USGS, the IEM nor any union is affiliated with this project or endorses it.
+imagery and hydrography tiles from The National Map as it runs. The US map is Natural Earth relief (public domain) under
+OpenMapTiles vector tiles © OpenStreetMap contributors, served by OpenFreeMap. The 3D scene code in `web/stage/` adapts
+PortSimEnv v1 (FineEnvs, Apache-2.0), named on the first line of each adapted file, and runs on Three.js (MIT); the map
+runs on MapLibre GL JS (BSD-3-Clause), and the control-center room's video wall on topojson-client, us-atlas and
+world-atlas (ISC), all vendored under `web/vendor/` with their licences. See [NOTICE](NOTICE) and each
+`data/*/sources/*/SOURCE.md`. Neither JetBlue, the FAA, the BTS, the NWS, the USGS, the IEM nor any union is affiliated
+with this project or endorses it.

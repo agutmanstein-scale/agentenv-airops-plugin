@@ -1,7 +1,7 @@
 ---
 license: other
 license_name: us-public-domain-iem-mit-odbl-apache-2.0
-license_link: https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.3.2/NOTICE
+license_link: https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.3.3/NOTICE
 pretty_name: 'AirOpsEnv v2: the ops control center'
 language:
 - en
@@ -29,7 +29,7 @@ agentenv:
 
 <div align="center">
 
-<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.3.2/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="https://raw.githubusercontent.com/earakely-scale/agentenv-airops-plugin/v0.3.2/assets/airops-occ-hero.webp" alt="Two GPT-6.1 Sol desks run JetBlue's operations control center through the Boston storm of 13 July 2024 on AgentEnv: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave" width="100%"></a>
+<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.3.3/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="https://raw.githubusercontent.com/earakely-scale/agentenv-airops-plugin/v0.3.3/assets/airops-occ-hero.webp" alt="Two GPT-6.1 Sol desks run JetBlue's operations control center through the Boston storm of 13 July 2024 on AgentEnv: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave" width="100%"></a>
 
 <sub>Two GPT-6.1 Sol desks run JetBlue's network through the Boston storm of Saturday 13 July 2024
 (<code>b6-20240713-0400</code>): 612 flights on 193 aircraft from 04:00, an FAA ground stop and a ground delay program
@@ -92,7 +92,7 @@ trips are generated from the published schedule by a cost-optimizing builder, an
 band.
 
 How faithful the day is, layer by layer, with every check against the record and every miss, is in
-[FIDELITY.md](https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.3.2/FIDELITY.md).
+[FIDELITY.md](https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.3.3/FIDELITY.md).
 
 ## Grading
 
@@ -184,17 +184,17 @@ the wiring with a day no model plays, then play a day straight from this dataset
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.2"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.3"
 agent-env airops-occ setup
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.2 --bundle airops-occ --task wiring-noplay
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.2 --bundle airops-occ --task b6-20240713-0400-joint \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.3 --bundle airops-occ --task wiring-noplay
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.3 --bundle airops-occ --task b6-20240713-0400-joint \
     --model openai/gpt-6.1-sol
 ```
 
 The bundle `airops-occ` (`bundles/airops-occ/`) holds every date of the pack in both modes, `<task id>-joint` and
 `<task id>-one`, the very task files the board ran (each desk capped at $5 in a two-desk run, $8 for one agent), and
 `wiring-noplay`, which runs the first eval date with no desk. This dataset's default bundle is v1's `airops`: with no
-`--bundle`, `agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.2 --task b6-bos-20250216-1500 --model <model>`
+`--bundle`, `agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.3 --task b6-bos-20250216-1500 --model <model>`
 plays a v1 day, once `agent-env airops setup --agent` has built its images. `hf run` downloads this card and
 `bundles/` at the tag's commit, checks that the plugin the card's `agentenv` table names is installed, shows what it
 will run and asks first.
@@ -269,7 +269,7 @@ hindsight optimum and never below 0.2, since the env never strands a flight. The
 
 ## v1: watch a run
 
-[![GPT-6.1 Sol's run of JetBlue's Boston operations desk through the storm of 16 February 2025, replayed in 3D at Logan](https://raw.githubusercontent.com/earakely-scale/agentenv-airops-plugin/v0.3.2/assets/airops-hero.webp)](https://earakely-scale-airopsenv-agentenv.static.hf.space/viewer/index.html?episode=https%3A%2F%2Fhuggingface.co%2Fdatasets%2Fearakely-scale%2FAirOpsEnv-AgentEnv%2Fresolve%2Fv0.3.2%2Fviewer%2Fepisodes%2Fsol-v1.openai-gpt-6.1-sol.b6-bos-20250216-1500.json)
+[![GPT-6.1 Sol's run of JetBlue's Boston operations desk through the storm of 16 February 2025, replayed in 3D at Logan](https://raw.githubusercontent.com/earakely-scale/agentenv-airops-plugin/v0.3.3/assets/airops-hero.webp)](https://earakely-scale-airopsenv-agentenv.static.hf.space/viewer/index.html?episode=https%3A%2F%2Fhuggingface.co%2Fdatasets%2Fearakely-scale%2FAirOpsEnv-AgentEnv%2Fresolve%2Fv0.3.3%2Fviewer%2Fepisodes%2Fsol-v1.openai-gpt-6.1-sol.b6-bos-20250216-1500.json)
 
 <sub>GPT-6.1 Sol runs JetBlue's Boston desk through the storm of Sunday 16 February 2025 (`b6-bos-20250216-1500`): 81
 flights to 38 airports, 12 hourly watches. The FAA Command Center's ground delay program, three ground stops and their
@@ -313,7 +313,7 @@ v2 lifts several of these (the whole network, FAA slots rather than caps, crews)
 ## Licence and attribution
 
 The dataset carries several sets of terms, hence `license: other`; the plugin's
-[NOTICE](https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.3.2/NOTICE) and each source's `SOURCE.md`
+[NOTICE](https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.3.3/NOTICE) and each source's `SOURCE.md`
 set them out.
 
 - **U.S. Government works, public domain**: the BTS on-time, T-100 and Form 41 data, the FAA registry and the FAA
@@ -332,8 +332,9 @@ set them out.
   PortSimEnv v1 (FineEnvs, Apache-2.0).
 - **Not in this dataset**: the replay Space's US map loads Natural Earth relief (public domain) and OpenMapTiles vector
   tiles (© OpenStreetMap contributors, ODbL 1.0) from OpenFreeMap as it runs, and coarser USGS imagery around the
-  airport stages from The National Map; the control-center room's video wall loads us-atlas (US Census Bureau
-  boundaries) and world-atlas (Natural Earth) through topojson-client, all ISC.
+  airport stages from The National Map. The Space ships its viewer's code under `viewer/vendor/`: Three.js (MIT),
+  MapLibre GL JS (BSD-3-Clause), and for the control-center room's video wall topojson-client with us-atlas (US Census
+  Bureau boundaries) and world-atlas (Natural Earth), all ISC.
 
 `scripts/hub_dataset.py` in the plugin builds this dataset with agentenv-hf, after its scan of every file for keys and
 token shapes. This dataset is independent: neither JetBlue, the FAA, the BTS, the NWS, the USGS, the IEM nor any
