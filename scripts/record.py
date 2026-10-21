@@ -56,11 +56,11 @@ RENDERER = ("(() => { const g = document.createElement('canvas').getContext('web
             "return g ? (e ? g.getParameter(e.UNMASKED_RENDERER_WEBGL) : 'webgl2') : null; })()")
 HUBS = {"BOS": "Boston Logan", "JFK": "New York JFK"}
 FAST = {"harbour": 10, "tower": 10, "gate": 6, "push": 6, "taxi": 20, "takeoff": 4, "landing": 4, "map": 300,
-        "room": 180, "room-desks": 180, "room-wall": 180, "crew": 6, "van": 10, "lounge": 6, "curb": 6}
+        "room": 180, "room-desks": 180, "room-wall": 180, "crew": 6, "van": 10, "lounge": 6, "curb": 6, "terminal": 6}
 """The fastest clock each camera films at, in seconds of the day per second of film, so that nothing in frame zips."""
 SECONDS = {"establish": 5.5, "faa": 6, "decide": 6, "flip": 5, "push": 4.5, "taxi": 4.5, "takeoff": 8, "landing": 7,
            "inbound": 7, "end": 7, "map": 4, "ask": 5.5, "cancels": 5, "move": 5, "wait": 4.5, "cancelled": 4.5,
-           "close": 7, "crew": 4.5, "van": 4.5, "lounge": 5, "curb": 5}
+           "close": 7, "crew": 4.5, "van": 4.5, "lounge": 5, "curb": 5, "terminal": 5.5}
 STRETCH = ("establish", "faa", "decide", "flip")
 ROOM = ("room", "room-desks", "room-wall")
 DAY_SUN = 12
@@ -94,7 +94,9 @@ class Shot:
     """One shot: a camera from minute ``t0`` for ``seconds`` at a clock of ``speed`` (seconds of the day per second,
     ramped from the first to the second), the cards it shows and its caption; ``at`` is the moment it is about,
     ``reach`` how near the weather brings a wide camera, in metres, and ``path`` the last leg of a crew's walk in the
-    stage's metres; ``desk`` and ``ref`` are the desk and the request (a room shot) or crew group it is about."""
+    stage's metres; ``desk`` and ``ref`` are the desk and the request (a room shot), the crew group or the gate (a
+    terminal shot, its ``focus`` "counter" for the service counter's line, ``flight`` the departure its screen
+    shows) it is about."""
     name: str
     camera: str
     t0: float
@@ -110,6 +112,8 @@ class Shot:
     desk: str | None = None
     ref: str | None = None
     path: tuple | None = None
+    focus: str | None = None
+    flight: str | None = None
 
     def clock(self, fps: int) -> list[tuple[float, float]]:
         """(minute, rate) of each frame."""
@@ -471,12 +475,14 @@ class Center(Day):
         return fill([*shots, self.end(max(s.t1 for s in shots))], seconds)
 
     def clear(self, first: list[Shot], beats: list[list[Shot]], beat: list[Shot]) -> bool:
-        """Whether a beat fits: clear of the others in time, cut hard from its neighbours, the airport only in light."""
-        dark = any(s.t0 < self.light for s in beat if s.camera not in (*ROOM, "map"))
+        """Whether a beat fits: clear of the others in time, cut hard from its neighbours, the airport only in light
+        (the terminal's lit inside at any hour)."""
+        dark = any(s.t0 < self.light for s in beat if s.camera not in (*ROOM, "map", "terminal"))
         if dark or any(overlap(beat, b) for b in beats):
             return False
         shots = sorted((s for b in (first, *beats, beat) for s in b), key=lambda s: s.t0)
-        look = [(s.camera, s.key, s.desk if s.camera in ROOM else None) for s in shots]
+        look = [(s.camera, s.key, s.desk if s.camera in ROOM else s.ref if s.camera == "terminal" else None)
+                for s in shots]
         return all(a != b for a, b in zip(look, look[1:], strict=False))
 
     def end(self, after: float) -> Shot:
@@ -611,8 +617,8 @@ class Center(Day):
         return None
 
     def reach(self, r: Mapping, after: float) -> Shot | None:
-        """A hold for connecting passengers playing out: the last of them reaching the held departure's gate through
-        its lounge's glass (the sidecar's passengers, display-only), within two hours."""
+        """A hold for connecting passengers playing out: the last of them reaching the held departure's gate and
+        boarding, inside the terminal (the sidecar's passengers, display-only), within two hours."""
         s = self.sched[r["flight"]]
         pax = self.traffic.get("passengers") or {}
         walks = sorted((g for g in pax.get("groups") or [] if g["kind"] == "connect" and g["flights"][-1] == s["flight"]
@@ -620,45 +626,46 @@ class Center(Day):
         entry = self.legs.get((s["flight"], "dep"))
         if not walks or entry is None:
             return None
-        g, (a, _, leg) = walks[0], entry
-        lounge = next((x for x in pax["lounges"] if x["door"] == g["segs"][-1]["p"][-1]), None)
+        g, (a, v, leg) = walks[0], entry
+        lounge = next((x for x in pax["lounges"] if x["stand"] == v["stand"]), None) or \
+            next((x for x in pax["lounges"] if x["door"] == g["segs"][-1]["p"][-1]), None)
         if lounge is None:
             return None
-        end, speed = g["segs"][-1]["t"][1], (FAST["lounge"],) * 2
+        end, speed = g["segs"][-1]["t"][1], (FAST["terminal"],) * 2
         n = sum(x["n"] for x in pax["groups"] if x["kind"] == "connect" and x["flights"][-1] == s["flight"])
-        return Shot("lounge", "lounge", end - SECONDS["lounge"] * speed[0] / 60 * 0.7, SECONDS["lounge"], speed,
+        return Shot("lounge", "terminal", end - SECONDS["terminal"] * speed[0] / 60 * 0.7, SECONDS["terminal"], speed,
                     key=a["key"], at=end, cards=("tags",), kicker=clock(end),
                     caption=f"{people(n, 'connecting passengers')} {'reaches' if n == 1 else 'reach'} "
-                            f"{self.gate(a, end)} for {leg['flight']} to "
-                            f"{leg['city']}",
+                            f"{self.gate(a, end)} for {leg['flight']} to {leg['city']}",
                     subline=f"Held until {clock(r['time'])} for them" if r.get("time") is not None else "",
-                    path=door_out(lounge))
+                    ref=lounge["stand"], flight=leg["flight"])
 
     def counter(self) -> list[list[Shot]]:
-        """The line at the service counter at its longest in light, from outside the lounge's glass (the sidecar's
-        passengers, display-only)."""
+        """The line at the service counter inside the terminal (the sidecar's passengers, display-only): after a
+        cancellation from the hub first, then in daylight, the longest first."""
         pax = self.traffic.get("passengers") or {}
-        line = [(t, n) for t, n in pax.get("queue") or [] if n >= 8 and t >= self.light]
-        if not line:
-            return []
-        t, n = max(line, key=lambda x: (x[1], -x[0]))
-        speed = (FAST["lounge"],) * 2
-        why = [e for e in (self.ep.get("passengers") or {}).get("events", []) if e["at"] == self.hub
-               and e["kind"] == "misconnect" and t - 60 <= e["t"] <= t]
-        cancelled = [s for s in self.sched.values() if s["orig"] == self.hub and any(
-            e["id"] == s["id"] and e["status"] != "flown" and e.get("decided") is not None
-            and t - 60 <= e["decided"] <= t for e in self.ep["executed"])]
-        subline = (f"After {self.trip(cancelled[0]['id'])} was cancelled" if cancelled else
-                   f"{sum(e['pax'] for e in why)} of them missed their connections" if why else "")
-        shot = Shot("counter", "lounge", t + 0.5, SECONDS["lounge"], speed, at=t + 1, cards=("tags",),
-                    kicker=clock(t + 1),
-                    caption=f"{people(n)} {'waits' if n == 1 else 'wait'} at the service counter to be rebooked",
-                    subline=subline, path=door_out(pax["lounges"][pax["counter"]]))
-        return [[shot]]
+        found = []
+        for t, n in pax.get("queue") or []:
+            if n < 8:
+                continue
+            why = [e for e in (self.ep.get("passengers") or {}).get("events", []) if e["at"] == self.hub
+                   and e["kind"] == "misconnect" and t - 60 <= e["t"] <= t]
+            cancelled = [s for s in self.sched.values() if s["orig"] == self.hub and any(
+                e["id"] == s["id"] and e["status"] != "flown" and e.get("decided") is not None
+                and t - 60 <= e["decided"] <= t for e in self.ep["executed"])]
+            subline = (f"After {self.trip(cancelled[0]['id'])} was cancelled" if cancelled else
+                       f"{sum(e['pax'] for e in why)} of them missed their connections" if why else "")
+            speed = (FAST["terminal"],) * 2
+            shot = Shot("counter", "terminal", t + 0.5, SECONDS["terminal"], speed, at=t + 1, cards=("tags",),
+                        kicker=clock(t + 1),
+                        caption=f"{people(n)} {'waits' if n == 1 else 'wait'} at the service counter to be rebooked",
+                        subline=subline, ref=pax["lounges"][pax["counter"]]["stand"], focus="counter")
+            found.append(((bool(cancelled), self.light <= t <= self.dusk, n, -t), [shot]))
+        return [b for _, b in sorted(found, key=lambda f: f[0], reverse=True)]
 
     def missed(self) -> list[list[Shot]]:
-        """Passengers who missed their connection at the hub walking into the service counter's lounge, the biggest
-        group in light first (the sidecar's passengers, display-only), through its glass."""
+        """Passengers who missed their connection at the hub reaching the service counter inside the terminal, in
+        daylight first, the biggest group first (the sidecar's passengers, display-only)."""
         pax = self.traffic.get("passengers") or {}
         if not pax.get("lounges"):
             return []
@@ -666,18 +673,19 @@ class Center(Day):
         found = []
         for g in pax.get("groups") or []:
             end = g["segs"][-1]["t"][1]
-            if g["kind"] != "misconnect" or g["n"] < 3 or end < self.light or g["segs"][-1]["p"][-1] != desk["door"]:
+            if g["kind"] != "misconnect" or g["n"] < 3 or g["segs"][-1]["p"][-1] != desk["door"]:
                 continue
             came, missed = g["flights"]
-            speed = (FAST["lounge"],) * 2
+            speed = (FAST["terminal"],) * 2
             leg = self.legs.get((missed, "dep"))
             whither = f" to {leg[2]['city']}" if leg else ""
-            shot = Shot("missed", "lounge", end - SECONDS["lounge"] * speed[0] / 60 * 0.6, SECONDS["lounge"], speed,
-                        at=end, cards=("tags",), kicker=clock(end),
+            shot = Shot("missed", "terminal", end - SECONDS["terminal"] * speed[0] / 60 * 0.6, SECONDS["terminal"],
+                        speed, at=end, cards=("tags",), kicker=clock(end),
                         caption=f"{people(g['n'])} who missed {missed}{whither} "
                                 f"{'reaches' if g['n'] == 1 else 'reach'} the service counter",
-                        subline=f"{came} landed too late for their connection", path=door_out(desk))
-            found.append(((g["n"], self.window[0] <= end <= self.window[1] + 180, -end), [shot]))
+                        subline=f"{came} landed too late for their connection", ref=desk["stand"], focus="counter")
+            found.append(((self.light <= end <= self.dusk, g["n"], self.window[0] <= end <= self.window[1] + 180, -end),
+                          [shot]))
         return [b for _, b in sorted(found, key=lambda f: f[0], reverse=True)]
 
     def shuttle(self) -> list[list[Shot]]:
@@ -1349,6 +1357,10 @@ def setup(page, ep: Mapping, shot: Shot, bare: bool = False, camera: Mapping | N
         return
     if shot.camera == "van":
         page.js(f"airops.shot({json.dumps({'name': 'van', 'at': f'crew:{shot.ref}', 't0': shot.t0, 't1': shot.t1})})")
+        return
+    if shot.camera == "terminal":
+        spec = {"stand": shot.ref, "focus": shot.focus, "flight": shot.flight, "t0": shot.t0, "t1": shot.t1}
+        page.js(f"airops.view('terminal', {json.dumps(spec)})")
         return
     cam = {"camera": shot.camera, "key": shot.key, "t0": shot.t0, "t1": shot.t1, "at": shot.at, "reach": shot.reach,
            "path": shot.path}

@@ -234,15 +234,19 @@ def test_the_customer_desk_asks_for_a_hold_for_connecting_passengers_and_rebooks
     assert record.title(ep).startswith("AirOpsEnv v3 · ")
 
 
-def test_the_line_at_the_service_counter_is_filmed_through_its_lounge_s_glass_at_its_longest():
+def test_the_line_at_the_service_counter_is_filmed_inside_the_terminal_after_a_cancellation_first():
     ep, traffic = day()
     ep["passengers"] = {"flights": [], "connections": [], "events": []}
     traffic["passengers"] = {"lounges": [{"stand": "C-12", "door": [10.0, 26.0], "n": [[0.0, 1.0], [0.0, 1.0]]}],
-                             "counter": 0, "queue": [[560, 4], [610, 30], [640, 12], [700, 0]], "groups": []}
-    [[shot]] = record.Center(ep, traffic, None, None).counter()
-    assert (shot.name, shot.camera, shot.at) == ("counter", "lounge", 611)
+                             "counter": 0, "groups": [],
+                             "queue": [[560, 4], [610, 30], [640, 12], [700, 0], [800, 45], [810, 0]]}
+    beats = record.Center(ep, traffic, None, None).counter()
+    shot = beats[0][0]
+    assert (shot.name, shot.camera, shot.at, shot.ref, shot.focus) == ("counter", "terminal", 611, "C-12", "counter")
     assert shot.caption == "30 passengers wait at the service counter to be rebooked"
-    assert shot.subline == "After B6 20 to New York was cancelled" and shot.path == ((10.0, 26.0), (10.0, 25.0))
+    assert shot.subline == "After B6 20 to New York was cancelled"
+    assert [b[0].at for b in beats] == [611, 641, 801]
+    assert record.Center(ep, traffic, None, None, light=620).counter()[0][0].at == 641
 
 
 def test_the_customer_desk_s_protect_and_suggested_cancel_cut_to_the_room_and_a_declined_one_says_so():
@@ -282,7 +286,7 @@ def test_passengers_who_missed_their_connection_and_the_stranded_s_shuttle_are_f
                                  {"key": "s", "kind": "shuttle", "n": 0, "flights": [], "segs": [van]}]}
     c = record.Center(ep, traffic, None, None)
     [[missed]] = c.missed()
-    assert (missed.camera, missed.at) == ("lounge", 646)
+    assert (missed.camera, missed.at, missed.ref, missed.focus) == ("terminal", 646, "C-12", "counter")
     assert missed.caption == "7 passengers who missed B6 10 to Miami reach the service counter"
     [[bus]] = c.shuttle()
     assert (bus.camera, bus.at, bus.path) == ("curb", 720, ((-80, 40), (-80, 60)))
