@@ -98,7 +98,7 @@ class Films:
         self.dir = out / (sweep.name + ("-mock" if mock else ""))
         self.boards = "-board-" in f"{sweep.name}-"
         self.viewer = self.dir / "viewer"
-        self.lock = threading.Lock()
+        self.lock, self.thumbing = threading.Lock(), threading.Lock()
 
     @functools.cached_property
     def manifest(self) -> dict:
@@ -238,9 +238,13 @@ class Films:
         raise RuntimeError(f"record.py failed twice, see {log}")
 
     def thumb(self, stem: str, run: str, log: Path) -> None:
-        """occ_thumbs.py's pick over record.py's poster, which stays if no still qualifies; the index points at it."""
-        cmd = [sys.executable, str(SCRIPTS / "occ_thumbs.py"), str(self.viewer), "--only", stem, "--workers", "1"]
-        if self.run(cmd, log):
+        """occ_thumbs.py's pick over record.py's poster, which stays if no still qualifies, one day at a time so that a
+        day's two cards don't take the same still; the index points at it."""
+        cmd = [sys.executable, str(SCRIPTS / "occ_thumbs.py"), str(self.viewer), "--only", stem, "--workers", "1",
+               "--picks", str(self.dir / "done" / "thumb-picks.json")]
+        with self.thumbing:
+            code = self.run(cmd, log)
+        if code:
             with log.open("a") as f:
                 f.write("occ_thumbs.py found no still: the film's poster is the thumbnail\n")
         part = self.dir / f"{run}.part.jpg"

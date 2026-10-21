@@ -84,6 +84,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--sheet", type=Path, help="Write a contact sheet of the thumbnails here, in the list's order.")
     p.add_argument("--only", action="append", default=[], metavar="STEM", help="Only these episodes.")
     p.add_argument("--keep", type=Path, help="Keep each day's best few candidate stills here, to review the picks.")
+    p.add_argument("--picks", type=Path,
+                   help="Read and record each card's pick here (JSON), so that a day's other card made in a later run "
+                        "doesn't take the same still.")
     p.add_argument("--workers", type=int, default=3, help="Days rendered at once, a Chrome each.")
     p.add_argument("--size", default="1280x720")
     p.add_argument("--chrome", help="Chrome or Chromium binary.")
@@ -98,14 +101,16 @@ def main(argv: list[str] | None = None) -> int:
         jobs = [(port, folder, e, wants[e["url"]], Path(tmp), chrome, width, height) for e in todo]
         with ProcessPoolExecutor(max_workers=max(1, args.workers)) as pool:
             found = dict(zip((e["url"] for e in todo), pool.map(render, jobs), strict=True))
-        last: dict[str, tuple] = {}
+        known = json.loads(args.picks.read_text()) if args.picks and args.picks.is_file() else {}
+        last = {e["date"]: tuple(known[stem]) for e in entries
+                if (stem := Path(e["url"]).stem) in known and e not in todo}
         picks: dict[str, str] = {}
         for e in todo:
             pick = choose(found[e["url"]], wants[e["url"]], last.get(e["date"]))
             stem = Path(e["url"]).stem
             if pick is None:
                 raise SystemExit(f"{stem}: no daylight still with an aircraft in it")
-            last[e["date"]] = (pick["kind"], pick["key"], pick["t"])
+            last[e["date"]] = known[stem] = (pick["kind"], pick["key"], pick["t"])
             picks[e["url"]] = f"{pick['kind']} {clock(pick['t'])}"
             if args.keep:
                 args.keep.mkdir(parents=True, exist_ok=True)
@@ -118,6 +123,8 @@ def main(argv: list[str] | None = None) -> int:
                                                                          progressive=True)
             print(f"{stem}: {pick['kind']} {clock(pick['t'])} score {pick['score']:.2f}"
                   f"{' (wanted ' + wants[e['url']] + ')' if pick['kind'] != wants[e['url']] else ''}", flush=True)
+    if args.picks:
+        args.picks.write_text(json.dumps(known, indent=1) + "\n")
     if args.sheet:
         sheet(folder, entries, picks, args.sheet)
     return 0
