@@ -13,6 +13,7 @@ import statistics
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -21,7 +22,10 @@ from agent_env.config import get_config
 from agent_env.store.routing import namespace_routing
 from agent_env.task.store import get_task_instance_store
 
-from .pack import Pack
+from . import tasks3
+from .day import OccDay
+from .day3 import OccDay3
+from .pack import Pack, Pack3
 from .replay import replay
 from .tasks import DESKS, generate
 
@@ -34,6 +38,26 @@ MAX_ATTEMPTS = 3
 UNSCORED = "the day can't be scored: "
 POLL_SECONDS = 5.0
 GRADED = ("done", "stand_down", "cost_cap", "context_full", "turn_limit", "time_limit")
+
+
+@dataclass(frozen=True)
+class Kit:
+    """An env's pieces a pilot plays with: its desks per mode, its bundle writer (a cost cap per desk), its verifier,
+    its pack and its day."""
+
+    desks: dict
+    generate: Callable
+    verifier: str
+    pack: type
+    day: type
+
+
+def generate3(out: Path, cap: float | None = None, **kw) -> list[str]:
+    return tasks3.generate(out, caps=None if cap is None else {m: cap for m in kw["modes"]}, **kw)
+
+
+KIT = Kit(DESKS, generate, VERIFIER, Pack, OccDay)
+KIT3 = Kit(tasks3.DESKS, generate3, "airops-occ3", Pack3, OccDay3)
 
 
 @dataclass(frozen=True)
@@ -51,11 +75,24 @@ class Pilot:
     def out(self) -> Path:
         return RUNS / self.name
 
+    @property
+    def kit(self) -> Kit:
+        return KIT
+
     def cap(self, run: str) -> float:
         """A run's most: its cap per desk, and the margin of one worst request a desk can make past it, times its
         desks."""
         mode = run.rsplit("-", 1)[1]
-        return (self.caps[mode] + self.margin) * len(DESKS[mode])
+        return (self.caps[mode] + self.margin) * len(self.kit.desks[mode])
+
+
+@dataclass(frozen=True)
+class Pilot3(Pilot):
+    """A pilot of airops-occ3, the ops control center with passengers."""
+
+    @property
+    def kit(self) -> Kit:
+        return KIT3
 
 
 def results(out: Path) -> list[dict]:
@@ -112,7 +149,8 @@ def prepare(p: Pilot) -> None:
     for mode in ("joint", "one"):
         chosen = [i for i in ids if f"{i}-{mode}" in p.runs]
         if chosen:
-            generate(p.out / "bundle", task_ids=chosen, modes=(mode,), pack=pack, cap=p.caps[mode], policy=p.policy)
+            p.kit.generate(p.out / "bundle", task_ids=chosen, modes=(mode,), pack=pack, cap=p.caps[mode],
+                           policy=p.policy)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(asdict(p), indent=2) + "\n")
 
@@ -124,11 +162,11 @@ def outcome(p: Pilot, run: str, number: int, log: Path, code: int, started: str)
     wall, instance = (float(found[-1][0]), found[-1][1]) if found else (None, None)
     ctx = context(instance) if instance else {}
     m = ctx.get("metadata") or {}
-    v = (m.get("verifications") or {}).get(VERIFIER) or {}
+    v = (m.get("verifications") or {}).get(p.kit.verifier) or {}
     scored = "score" in v
     mode = run.rsplit("-", 1)[1]
     desks = {}
-    for role, name, _ in DESKS[mode]:
+    for role, name, _ in p.kit.desks[mode]:
         pr = next((x for x in ctx.get("prompt_responses") or [] if x.get("step_id") == f"play-{name}"), None)
         s = (pr or {}).get("structured_output") or {}
         desks[role] = {k: s.get(k) for k in ("end_reason", "effort", "desk_turns", "turns", "tool_calls",
@@ -198,12 +236,12 @@ def play(p: Pilot, parallel: int = 1, echo=click.echo) -> int:
 
 def report(p: Pilot) -> dict:
     """Every scored attempt replayed and summed up."""
-    pack = Pack(Path(p.pack).expanduser() if p.pack else None)
+    pack = p.kit.pack(Path(p.pack).expanduser() if p.pack else None)
     rows = [r for r in results(p.out) if r["outcome"] == "scored"]
     out = {"pilot": asdict(p), "spent_usd": round(sum(r["cost_usd"] for r in results(p.out)), 4), "runs": {}}
     for r in rows:
         day = json.loads((p.out / r["day"]).read_text())
-        again = replay(pack.world(day["task_id"]), day)
+        again = replay(pack.world(day["task_id"]), day, p.kit.day)
         g = day["grade"]
         out["runs"][r["run"]] = {
             **{k: r[k] for k in ("attempt", "reward", "reward_L", "cost", "best", "bound", "gap_pct", "B0",
@@ -228,8 +266,8 @@ def dist(values: list[float]) -> dict:
     return {"n": len(v), **({"median": statistics.median(v), "max": v[-1]} if v else {})}
 
 
-def load(name: str) -> Pilot:
+def load(name: str, kind: type[Pilot] = Pilot) -> Pilot:
     path = RUNS / name / "pilot.json"
     if not path.is_file():
         raise click.UsageError(f"no pilot {name!r} under {RUNS}")
-    return Pilot(**json.loads(path.read_text()))
+    return kind(**json.loads(path.read_text()))

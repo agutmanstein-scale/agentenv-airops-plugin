@@ -75,9 +75,10 @@ def main() -> None:
     ap.add_argument("--scripted", type=Path, help="an occ_z1 run: its scripted desks' costs become references")
     ap.add_argument("--v3", type=Path, help="a pax_stage2 run: write b6-v3 from --base and it")
     ap.add_argument("--base", type=Path, default=ROOT / "data" / "b6-v2")
+    ap.add_argument("--bound", type=Path, help="with --v3, a pax_bound run: each date's capacity-aware bound")
     a = ap.parse_args()
     if a.v3:
-        print(json.dumps(assemble_v3(a.v3, a.pack, a.base), indent=1))
+        print(json.dumps(assemble_v3(a.v3, a.pack, a.base, a.bound), indent=1))
         return
     if a.assemble:
         print(json.dumps(assemble(a.assemble, a.pack, a.scripted), indent=1))
@@ -307,14 +308,17 @@ def assemble(build: Path, pack: Path, scripted: Path | None = None) -> dict:
             "bytes": sum(p.stat().st_size for p in pack.rglob("*") if p.is_file())}
 
 
-def assemble_v3(run: Path, pack: Path, base: Path) -> dict:
-    """b6-v3 from the base pack and stage 2's reference run (see the module doc); the base pack is only read."""
+def assemble_v3(run: Path, pack: Path, base: Path, bound: Path | None = None) -> dict:
+    """b6-v3 from the base pack and stage 2's reference run (see the module doc); the base pack is only read. With
+    `bound` (scripts/pax_bound.py's run on the same reference) each date's bound is its capacity-aware bound, the gap
+    taken against the reference; a date it has no valid bound for has none."""
     old = json.loads((base / "manifest.json").read_text())
     rows = {p.stem: json.loads(p.read_text()) for p in sorted((run / "dates").glob("*.json"))}
+    bounds = {p.stem: json.loads(p.read_text()) for p in sorted((bound / "dates").glob("*.json"))} if bound else {}
     if pack.exists():
         shutil.rmtree(pack)
     (pack / "dates").mkdir(parents=True)
-    tasks, skipped = {}, dict(old["skipped"])
+    tasks, skipped, bounded = {}, dict(old["skipped"]), 0
     for tid, t in sorted(old["tasks"].items()):
         r = rows.get(t["date"])
         if r is None or "error" in r:
@@ -326,6 +330,12 @@ def assemble_v3(run: Path, pack: Path, base: Path) -> dict:
         d["refs_p"] = {"best": ref["P"], "bound": ref["bound"], "gap_pct": ref["gap_pct"], "best_from": ref["from"],
                        "mode": ref["mode"], "candidates": {n: c["P"] for n, c in r["candidates"].items()},
                        "controls": r["controls"], "airline": (r.get("airline") or {}).get("P")}
+        if bound:
+            b = bounds.get(t["date"], {})
+            ok = "error" not in b and b.get("valid") and b.get("bound") is not None
+            d["refs_p"] |= {"bound": b["bound"] if ok else None, "bound_from": "capacity-aware" if ok else None,
+                            "gap_pct": round(100 * (ref["P"] - b["bound"]) / ref["P"], 4) if ok else None}
+            bounded += bool(ok)
         d["best_plan_p"] = ref["plan"]
         with gzip.GzipFile(pack / "dates" / f"{t['date']}.json.gz", "wb", mtime=0) as fh:
             fh.write(json.dumps(d, separators=(",", ":")).encode())
@@ -336,7 +346,8 @@ def assemble_v3(run: Path, pack: Path, base: Path) -> dict:
                 "crew_params_sha256": sha256(crews.SOURCES),
                 "pax_sha256": {n: sha256(Path(str(pax.DATA / n))) for n in ("b6-transfers.csv", "b6-dwell.csv",
                                                                              "b6-fares.csv")},
-                "tasks": tasks, "skipped": skipped, "files": files}
+                "tasks": tasks, "skipped": skipped, "files": files,
+                **({"bound_run": {"name": bound.name, "dates": bounded}} if bound else {})}
     (pack / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
     return {"dates": len(tasks), "skipped": skipped, "files": len(files),
             "bytes": sum(p.stat().st_size for p in pack.rglob("*") if p.is_file())}
