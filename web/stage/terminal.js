@@ -61,7 +61,7 @@ export function buildTerminal(pax, stage, traffic, { home, bridges }) {
     const end = (l) => (l.status === "cancelled" ? (l.decided ?? l.sched) + 45 : l.out + 6);
     const list = deps[k] || [];
     const now = (d) => leaves(d.leg) - ARRIVE <= T && T < end(d.leg);
-    return list.find((d) => now(d) && d.leg.flight === flight) ?? list.find(now) ?? list.find((d) => leaves(d.leg) - ARRIVE > T) ?? null;
+    return list.find((d) => d.leg.flight === flight && T < end(d.leg)) ?? list.find(now) ?? list.find((d) => leaves(d.leg) - ARRIVE > T) ?? null;
   }
 
   /** The departures screen's status for a leg at T: CANCELLED once decided, HELD for its connecting passengers from
@@ -77,7 +77,7 @@ export function buildTerminal(pax, stage, traffic, { home, bridges }) {
   }
 
   /** What gate area k shows at T: its gate, people and line, and its departure's (`flight` when it is one of the gate's
-   * then) flight, city, time and status. */
+   * yet to leave) flight, city, time and status. */
   function info(k, T, flight = null) {
     const lg = lounges[k];
     const d = departure(k, T, flight);
