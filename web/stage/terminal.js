@@ -267,6 +267,25 @@ export function buildTerminal(pax, stage, traffic, { home, bridges }) {
     return best;
   }
 
+  /** How gate k's view reads from `cam` (the stage's camera, on it in the Terminal view): whether place() found it a
+   * clear place, its own screen's centre across the page ({x, y} from -1 to 1, null when hidden or behind the camera),
+   * how squarely that screen faces the camera (1 head on) and the share of its lounge's seats in the frame. */
+  function framed(k, cam) {
+    const s = screens.find((x) => x.used && x.k === k);
+    const at = new THREE.Vector3();
+    let screen = null;
+    let face = 0;
+    if (s?.mesh.visible) {
+      s.mesh.getWorldPosition(at);
+      face = s.mesh.getWorldDirection(new THREE.Vector3()).dot(cam.position.clone().sub(at).normalize());
+      at.project(cam);
+      screen = at.z < 1 ? { x: at.x, y: at.y } : null;
+    }
+    const seats = lounges[k].benches;
+    const seen = seats.filter((b) => at.set(b.x, floor + 1, -b.y).project(cam).z < 1 && Math.abs(at.x) <= 1 && Math.abs(at.y) <= 1).length;
+    return { placed: cameras.get(k)?.score != null, screen, face, seats: seats.length ? seen / seats.length : 0 };
+  }
+
   return {
     group,
     gates: lounges.map((lg, k) => ({ lounge: k, stand: lg.stand, gate: gateOf(lg.stand) })),
@@ -274,6 +293,7 @@ export function buildTerminal(pax, stage, traffic, { home, bridges }) {
     within,
     camera,
     moment,
+    framed,
     /** Show the hall about gate k at T seen from (x, y), its signs nearer than SIGN hidden and `flight` on its screen
      * when it leaves from there then, or hide it all (k null). */
     update(T, k, [x, y] = [0, 0], flight = null) {
