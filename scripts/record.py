@@ -100,10 +100,10 @@ SUFFIX = re.compile(r" (International|Intl|Regional|Municipal|Metropolitan|Count
 class Shot:
     """One shot: a camera from minute ``t0`` for ``seconds`` at a clock of ``speed`` (seconds of the day per second,
     ramped from the first to the second), the cards it shows and its caption; ``at`` is the moment it is about,
-    ``reach`` how near the weather brings a wide camera, in metres, and ``path`` the last leg of a crew's walk in the
-    stage's metres; ``desk`` and ``ref`` are the desk and the request (a room shot), the crew group or the gate (a
-    terminal shot, its ``focus`` "counter" for the service counter's line, ``flight`` the departure its screen
-    shows) it is about."""
+    ``reach`` how near the weather brings a wide camera, in metres, and ``path`` the last leg of a crew's walk (the
+    shuttle's stop, its road's next point and where its riders wait) in the stage's metres; ``desk`` and ``ref`` are
+    the desk and the request (a room shot), the crew group or the gate (a terminal shot, its ``focus`` "counter" for
+    the service counter's line, ``flight`` the departure its screen shows) it is about."""
     name: str
     camera: str
     t0: float
@@ -151,17 +151,19 @@ def lead_in(at: float, seconds: float, speed: tuple[float, float], total: float)
 def direct(ep: Mapping, traffic: Mapping, events: Sequence[Mapping] | None = None,
            poses: Callable[[str, float, float], list] | None = None, seconds: float = 40,
            room: bool = True, light: float | None = None, dusk: float | None = None,
-           gates: Collection[str] | None = None, sun: Callable[[float], float] | None = None) -> list[Shot]:
+           gates: Collection[str] | None = None, sun: Callable[[float], float] | None = None,
+           framed: Callable[[Shot], bool] | None = None) -> list[Shot]:
     """The film of a day about ``seconds`` long, in the order it happened: the hub across the water as the desk opens,
     the FAA's program arriving over a quiet field, a cancellation landing at its gate and on the board, a held flight
     finally pushing back, taxiing and taking off, then the day's score; a control-center day cuts to the room when the
     desks decide or talk (Center), to its 2D card over the tower without a 3D ``room``. ``events`` are the stage's
     movements (AirportStage.events(), else the sidecar's times) and ``poses(key, a, b)`` the stage's
     [[minute, phase, speed]] and ``light`` the first minute the airport is light enough to film (else the day's
-    start), ``dusk`` the last (else its end), ``gates`` the stands whose Terminal view reads (reads(), else any) and
-    ``sun(t)`` the sun's elevation in degrees at minute t (else always up)."""
+    start), ``dusk`` the last (else its end), ``gates`` the stands whose Terminal view reads (reads(), else any),
+    ``sun(t)`` the sun's elevation in degrees at minute t (else always up) and ``framed(shot)`` whether the stage's
+    camera for a shot finds its place (else always)."""
     if ep.get("occ"):
-        return Center(ep, traffic, events, poses, room, light, dusk, gates, sun).film(seconds)
+        return Center(ep, traffic, events, poses, room, light, dusk, gates, sun, framed).film(seconds)
     return Day(ep, traffic, events, poses).film(seconds)
 
 
@@ -453,13 +455,15 @@ class Center(Day):
     """A control-center day as the director reads it (O39): the room when the desks decide or talk, at the display
     minutes the room shows each request and decision (``shown``, ``answered``), then the airport where it plays out,
     never before first ``light``. Without a 3D ``room`` its beats go on the room's 2D card over the map; a crowd at a
-    gate is filmed only at ``gates`` (else any) with the ``sun`` up."""
+    gate is filmed only at ``gates`` (else any) with the ``sun`` up, the shuttle only where ``framed`` (else
+    anywhere)."""
 
     def __init__(self, ep: Mapping, traffic: Mapping, events: Sequence[Mapping] | None, poses, room: bool = True,
                  light: float | None = None, dusk: float | None = None, gates: Collection[str] | None = None,
-                 sun: Callable[[float], float] | None = None):
+                 sun: Callable[[float], float] | None = None, framed: Callable[[Shot], bool] | None = None):
         super().__init__(ep, traffic, events, poses)
         self.occ, self.room, self.gates, self.sun = ep["occ"], room, gates, sun or (lambda t: 90.0)
+        self.framed = framed or (lambda shot: True)
         self.one = self.occ["mode"] == "one"
         self.sched = {s["id"]: s for s in ep["schedule"]}
         self.light = self.span[0] if light is None else max(self.span[0], light)
@@ -741,7 +745,9 @@ class Center(Day):
 
     def shuttle(self) -> list[list[Shot]]:
         """Passengers stranded overnight boarding the hotel shuttle at the curb (the sidecar's passengers,
-        display-only), in daylight, the fullest first, from beside it as it stands and pulls away: the curb is unlit."""
+        display-only), in daylight, the fullest first, from beside it as it stands and pulls away, where the camera
+        finds a place clear of the buildings with the shuttle and its riders in sight (``framed``): the curb is
+        unlit."""
         pax = self.traffic.get("passengers") or {}
         found = []
         for g in pax.get("groups") or []:
@@ -751,6 +757,7 @@ class Center(Day):
             n = int(re.search(r"(\d+) passengers?", s["say"])[1])
             riders = [x for x in pax["groups"] if x["kind"] == "hotel" and x["segs"][-1]["t"][1] <= s["t"][0]
                       and s["t"][0] - x["segs"][-1]["t"][1] < 1]
+            wait = next((x["segs"][-1].get("at") or x["segs"][-1]["p"][-1] for x in riders), s["p"][0])
             until = [e.get("until") for e in (self.ep.get("passengers") or {}).get("events", [])
                      if e["kind"] == "hotel" and e["at"] == self.hub and e.get("until")
                      and any(e["flight"] in [k for k, v in self.sched.items() if v["flight"] in x["flights"]]
@@ -761,7 +768,9 @@ class Center(Day):
                         caption=f"{people(n)} stranded overnight {'leaves' if n == 1 else 'leave'} for the hotel",
                         subline=(f"They fly on {'tomorrow ' if min(until) >= 1440 else ''}from "
                                  f"{clock(min(until) % 1440)}" if until else "No seat left for them today"),
-                        path=(tuple(s["p"][0]), tuple(s["p"][1])))
+                        path=(tuple(s["p"][0]), tuple(s["p"][1]), tuple(wait)))
+            if not self.framed(shot):
+                continue
             found.append(((self.window[0] <= s["t"][0] <= self.window[1] + 180, n, -s["t"][0]), [shot]))
         return [b for _, b in sorted(found, key=lambda f: f[0], reverse=True)]
 
@@ -1269,10 +1278,19 @@ FILM_JS = r"""
         return { from: [...from, 11], to: [...to, 10], ...at, fov: c.camera === "push" ? 40 : 44, ...span };
       }
       if (c.camera === "curb") {
-        const [[x0, y0], [x1, y1]] = c.path, n = Math.hypot(x1 - x0, y1 - y0) || 1;
+        const [[x0, y0], [x1, y1], w = [x0, y0]] = c.path, n = Math.hypot(x1 - x0, y1 - y0) || 1;
         const d = [(x1 - x0) / n, (y1 - y0) / n], sd = [-d[1], d[0]];
-        const from = add(add([x0, y0], d, -26), sd, 16), to = add(from, d, 3);
-        return { from: [...from, 17], to: [...to, 16], at: [...add([x0, y0], d, 3), 1.5], fov: 42, fov1: 40, ...span };
+        const bus = (x, y, z) => Math.abs((x - x0) * d[0] + (y - y0) * d[1]) < 4.3
+          && Math.abs((x - x0) * sd[0] + (y - y0) * sd[1]) < 1.2 && z < 2.9;
+        const hides = (p) => !bus(...w, 0) && Array.from({ length: 23 }, (_, i) => (i + 1) / 24)
+          .some((u) => bus(p[0] + (w[0] - p[0]) * u, p[1] + (w[1] - p[1]) * u, p[2] * (1 - u)));
+        for (const [e, k] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+          const from = [...add(add([x0, y0], d, -26 * e), sd, 16 * k), 17], to = [...add(from, d, 3 * e), 16];
+          if ([from, to].every((p) => S.sees(p, [x0, y0]) && S.sees(p, w) && !hides(p))) {
+            return { from, to, at: [...add([x0, y0], d, 3 * e), 1.5], fov: 42, fov1: 40, ...span };
+          }
+        }
+        return null;
       }
       if (c.camera === "lounge") {
         const [[x0, y0], [x1, y1]] = c.path, n = Math.hypot(x1 - x0, y1 - y0) || 1;
@@ -1417,6 +1435,9 @@ def director(page, ep: Mapping, path: Path, seconds: float | None, rollout: bool
     def sun(t: float) -> float:
         return page.js(f"airops.stage.env.sunAt({t}).el")
 
+    def framed(shot: Shot) -> bool:
+        return page.js(f"!!film.camera({json.dumps(scripted(shot))})")
+
     gates = None
     if dusk is not None and not rollout and page.js("!!airops.stage.terminal"):
         views = page.js(f"film.gates({(light + dusk) / 2})")
@@ -1426,7 +1447,8 @@ def director(page, ep: Mapping, path: Path, seconds: float | None, rollout: bool
     if ep.get("occ") and standings and (rows := board(path.parent / "index.json", ep)):
         page.js(f"film.board = {json.dumps(rows)}")
     shots = day.rollout(seconds or 55) if rollout else \
-        direct(ep, traffic, events, poses, seconds or (70 if ep.get("occ") else 40), room, light, dusk, gates, sun)
+        direct(ep, traffic, events, poses, seconds or (70 if ep.get("occ") else 40), room, light, dusk, gates, sun,
+               framed)
     for s in shots:
         print(f"  {s.name:<9} {s.camera:<10} {clock(s.t0)}–{clock(s.t1)} {s.seconds:4.1f} s "
               f"×{s.speed[0]:g}–{s.speed[1]:g} {s.key or ''} {s.caption}")
@@ -1460,15 +1482,18 @@ def setup(page, ep: Mapping, shot: Shot, bare: bool = False, camera: Mapping | N
         spec = {"stand": shot.ref, "focus": shot.focus, "flight": shot.flight, "t0": shot.t0, "t1": shot.t1}
         page.js(f"airops.view('terminal', {json.dumps(spec)})")
         return
-    cam = {"camera": shot.camera, "key": shot.key, "t0": shot.t0, "t1": shot.t1, "at": shot.at, "reach": shot.reach,
-           "path": shot.path}
-    if (spec := page.js(f"film.camera({json.dumps(cam)})")) is None:
+    if (spec := page.js(f"film.camera({json.dumps(scripted(shot))})")) is None:
         raise SystemExit(f"no camera for the {shot.name} shot at {clock(shot.t0)}")
     if shot.camera == "crew":
         spec["at"] = f"crew:{shot.ref}"
     page.js(f"airops.shot({json.dumps(spec)})")
     if shot.camera == "crew":
         page.js(f"airops.stage.featured = {json.dumps(shot.key)}")
+
+
+def scripted(shot: Shot) -> dict:
+    return {"camera": shot.camera, "key": shot.key, "t0": shot.t0, "t1": shot.t1, "at": shot.at, "reach": shot.reach,
+            "path": shot.path}
 
 
 def board(index: Path, ep: Mapping) -> dict | None:
