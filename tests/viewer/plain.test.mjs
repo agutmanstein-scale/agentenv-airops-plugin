@@ -156,7 +156,7 @@ test("the customer desk's connections at risk read off its page, each departure 
   assert.deepEqual(atRisk(null), { rows: [], more: 0 });
 });
 
-test("a gate's view reads from its camera's pose alone: its screen near the middle and facing it, its seats in frame", () => {
+test("a gate's view reads from its camera's pose alone: its screen near the middle and facing it, its seats in frame, and turns to clear the cards", () => {
   const { aim, framing, reads } = terminal;
   const cam = new THREE.PerspectiveCamera(50, 16 / 9, 0.5, 90000);
   const at = (x, y, up, turn = 0) => {
@@ -167,16 +167,16 @@ test("a gate's view reads from its camera's pose alone: its screen near the midd
   };
   const seats = Array.from({ length: 10 }, (_, i) => ({ x: i - 5, y: 12 }));
   const near = (a, b) => Math.abs(a - b) < 0.02;
-  const pose = { position: [0, 0, 3.8], target: [0, 20, 2.2], fov: 56 };
-  const target = aim(cam, pose, 0);
+  const pose = { position: [0, 0, 3.8], target: [0, 20, 2.2], fov: 56, frame: 0.5 };
+  const target = aim(cam, pose, [-1, 1]);
   assert.deepEqual(target.toArray(), [0, 2.2, -20]);
   const f = framing(cam, at(0, 20, 2.2), seats, 1);
   assert.ok(near(f.screen.x, 0) && near(f.screen.y, 0) && f.face > 0.99 && f.seats === 1);
   assert.ok(reads({ placed: true, ...f }) && !reads({ placed: false, ...f }));
-  aim(cam, pose, -0.5);
+  aim(cam, { ...pose, frame: 0.25 }, [-1, 1]);
   const left = framing(cam, at(0, 20, 2.2), seats, 1);
   assert.ok(near(left.screen.x, -0.5) && reads({ placed: true, ...left }));
-  aim(cam, pose, 0);
+  aim(cam, pose, [-1, 1]);
   const views = [at(0, 20, 2.2, Math.PI / 2), at(0, -20, 2.2), at(40, 20, 2.2), null].map((s) => framing(cam, s, seats, 1));
   assert.ok(Math.abs(views[0].face) < 0.05 && views[1].screen === null && views[2].screen.x > 1 && views[3].screen === null);
   assert.ok(views.every((v) => !reads({ placed: true, ...v })));
@@ -184,4 +184,13 @@ test("a gate's view reads from its camera's pose alone: its screen near the midd
   const ok = { placed: true, screen: { x: 0.3, y: -0.05 }, face: 0.8, seats: 0.3 };
   assert.ok(reads(ok) && reads({ ...ok, screen: { x: -0.8, y: 0 }, face: 0.5, seats: 0.1 }));
   assert.ok(![{ screen: { x: 0.81, y: 0 } }, { screen: { x: 0, y: -0.85 } }, { face: 0.45 }, { seats: 0.09 }, { screen: null }].some((x) => reads({ ...ok, ...x })));
+  const edges = (dx) => [[dx - 0.96, 20, 2.2], [dx + 0.96, 20, 2.2]];
+  const span = (e) => e.map(([x, y, z]) => new THREE.Vector3(x, z, -y).project(cam).x);
+  aim(cam, { ...pose, frame: 1 }, [-0.6, 0.4]);
+  assert.ok(span(edges(0))[1] > 0.42);
+  aim(cam, { ...pose, frame: 1, screen: edges(0) }, [-0.6, 0.4]);
+  const [a, b] = span(edges(0));
+  assert.ok(a > -0.6 && near(b, 0.4));
+  aim(cam, { ...pose, screen: edges(-11) }, [0.6, 1]);
+  assert.ok(near(target.clone().project(cam).x, 0.8 + 0.25) && span(edges(-11))[0] < 0.6);
 });

@@ -96,7 +96,7 @@ export class AirportStage {
     scene.add(this.crews.group);
     this.pax = people;
     if (this.pax) scene.add(this.pax.group);
-    this.terminal = this.pax ? buildTerminal(this.pax, stage, traffic, { home: homeOf(stage).ref, bridges: this.bridges, page: { camera: this.camera, spot: (f) => this.#clearSpot(f, true)[0] } }) : null;
+    this.terminal = this.pax ? buildTerminal(this.pax, stage, traffic, { home: homeOf(stage).ref, bridges: this.bridges, page: { camera: this.camera, band: () => this.#band(true) } }) : null;
     if (this.terminal) scene.add(this.terminal.group);
     this.spray = buildSpray(this.plan);
     scene.add(this.spray.mesh);
@@ -380,7 +380,7 @@ export class AirportStage {
       return;
     }
     if (rig.kind === "terminal") {
-      this.focusAt = aim(cam, rig.cam, this.#clearSpot(rig.cam.frame)[0]);
+      this.focusAt = aim(cam, rig.cam, this.#band());
       return;
     }
     const crewKey = typeof rig.at === "string" && rig.at.startsWith("crew:") ? rig.at.slice(5) : null;
@@ -609,9 +609,16 @@ export class AirportStage {
   }
 
   /** Where in normalised device coordinates the crew camera puts its group: 42 % across the part of the page between
-   * the cards that cover the stage's sides, a little below the middle; kept half a wall second unless `fresh`. */
-  #clearSpot(f = 0.42, fresh = false) {
-    if (!fresh && this.clear?.f === f && this.wall - this.clear.at < 0.5) return this.clear.spot;
+   * the cards that cover the stage's sides, a little below the middle. */
+  #clearSpot(f = 0.42) {
+    const [l, r] = this.#band();
+    return [l + f * (r - l), -0.1];
+  }
+
+  /** The part of the page's width between the cards that cover the stage's sides, [left, right] in normalised device
+   * coordinates; kept half a wall second unless `fresh`. */
+  #band(fresh = false) {
+    if (!fresh && this.clear && this.wall - this.clear.at < 0.5) return this.clear.band;
     const w = this.container.clientWidth || innerWidth;
     const h = this.container.clientHeight || innerHeight;
     let [L, R] = [0, w];
@@ -620,8 +627,8 @@ export class AirportStage {
       if (x1 <= w * 0.5) L = Math.max(L, x1);
       else if (x0 >= w * 0.5) R = Math.min(R, x0);
     }
-    this.clear = { at: this.wall, f, spot: [(2 * (L + f * (R - L))) / w - 1, -0.1] };
-    return this.clear.spot;
+    this.clear = { at: this.wall, band: [(2 * L) / w - 1, (2 * R) / w - 1] };
+    return this.clear.band;
   }
 
   /** Whether (x, y) is inside a building near the hub, through a grid of the buildings' boxes, since the crews ask
