@@ -548,8 +548,9 @@ class Center(Day):
             kw = {"desk": r["sender"], "ref": r["id"], "subline": subline,
                   "caption": f"{upper(self.desk(r['sender']))} asks {self.desk(r['receiver'])} {ASKS[r['type']]} "
                              f"{self.trip(r['flight'])}"
-                             + (f" for {r['pax']} connecting passengers" if r.get("pax") and r["type"] == "HOLD"
-                                else f", {r['pax']} passengers booked" if r.get("pax") else "")}
+                             + (f" for {people(r['pax'], 'connecting passengers')}"
+                                if r.get("pax") and r["type"] == "HOLD"
+                                else f", {people(r['pax'])} booked" if r.get("pax") else "")}
             room = self.in_room("ask", "room-desks", r["answered"], r["shown"] - 0.5, r["answered"] + REPLY, **kw)
             out = (self.reach(r, room.t1) if r["sender"] == "customer" and ok else None) or self.plays_out(r, room.t1)
             if out is None and (soon := self.plays_out(r, r["answered"] + 0.5)) is not None:
@@ -627,7 +628,8 @@ class Center(Day):
         n = sum(x["n"] for x in pax["groups"] if x["kind"] == "connect" and x["flights"][-1] == s["flight"])
         return Shot("lounge", "lounge", end - SECONDS["lounge"] * speed[0] / 60 * 0.7, SECONDS["lounge"], speed,
                     key=a["key"], at=end, cards=("tags",), kicker=clock(end),
-                    caption=f"{n} connecting passengers reach {self.gate(a, end)} for {leg['flight']} to "
+                    caption=f"{people(n, 'connecting passengers')} {'reaches' if n == 1 else 'reach'} "
+                            f"{self.gate(a, end)} for {leg['flight']} to "
                             f"{leg['city']}",
                     subline=f"Held until {clock(r['time'])} for them" if r.get("time") is not None else "",
                     path=door_out(lounge))
@@ -649,7 +651,8 @@ class Center(Day):
         subline = (f"After {self.trip(cancelled[0]['id'])} was cancelled" if cancelled else
                    f"{sum(e['pax'] for e in why)} of them missed their connections" if why else "")
         shot = Shot("counter", "lounge", t + 0.5, SECONDS["lounge"], speed, at=t + 1, cards=("tags",),
-                    kicker=clock(t + 1), caption=f"{n} passengers wait at the service counter to be rebooked",
+                    kicker=clock(t + 1),
+                    caption=f"{people(n)} {'waits' if n == 1 else 'wait'} at the service counter to be rebooked",
                     subline=subline, path=door_out(pax["lounges"][pax["counter"]]))
         return [[shot]]
 
@@ -671,7 +674,8 @@ class Center(Day):
             whither = f" to {leg[2]['city']}" if leg else ""
             shot = Shot("missed", "lounge", end - SECONDS["lounge"] * speed[0] / 60 * 0.6, SECONDS["lounge"], speed,
                         at=end, cards=("tags",), kicker=clock(end),
-                        caption=f"{g['n']} passengers who missed {missed}{whither} reach the service counter",
+                        caption=f"{people(g['n'])} who missed {missed}{whither} "
+                                f"{'reaches' if g['n'] == 1 else 'reach'} the service counter",
                         subline=f"{came} landed too late for their connection", path=door_out(desk))
             found.append(((g["n"], self.window[0] <= end <= self.window[1] + 180, -end), [shot]))
         return [b for _, b in sorted(found, key=lambda f: f[0], reverse=True)]
@@ -685,7 +689,7 @@ class Center(Day):
             s = g["segs"][0]
             if g["kind"] != "shuttle" or s["t"][0] - 2.5 < self.light or s["t"][0] > self.dusk:
                 continue
-            n = int(re.search(r"(\d+) passengers", s["say"])[1])
+            n = int(re.search(r"(\d+) passengers?", s["say"])[1])
             riders = [x for x in pax["groups"] if x["kind"] == "hotel" and x["segs"][-1]["t"][1] <= s["t"][0]
                       and s["t"][0] - x["segs"][-1]["t"][1] < 1]
             until = [e.get("until") for e in (self.ep.get("passengers") or {}).get("events", [])
@@ -694,7 +698,8 @@ class Center(Day):
                              for x in riders)]
             speed = (FAST["curb"],) * 2
             shot = Shot("shuttle", "curb", s["t"][0] - 2.6, SECONDS["curb"], speed, at=s["t"][0], cards=("tags",),
-                        kicker=clock(s["t"][0]), caption=f"{n} passengers stranded overnight leave for the hotel",
+                        kicker=clock(s["t"][0]),
+                        caption=f"{people(n)} stranded overnight {'leaves' if n == 1 else 'leave'} for the hotel",
                         subline=(f"They fly on {'tomorrow ' if min(until) >= 1440 else ''}from "
                                  f"{clock(min(until) % 1440)}" if until else "No seat left for them today"),
                         path=(tuple(s["p"][0]), tuple(s["p"][1])))
@@ -1596,6 +1601,10 @@ def probe(path: Path) -> None:
     print(f"ffprobe {path.name}: {s['codec_name']} {s['width']}x{s['height']}, {s.get('nb_frames')} frames, "
           f"{float(f['duration']):.1f} s, {int(f['size']) / 1e6:.1f} MB")
     subprocess.run([find("ffmpeg"), "-v", "error", "-i", str(path), "-f", "null", "-"], check=True)
+
+
+def people(n: int, kind: str = "passengers") -> str:
+    return f"{n} {kind.removesuffix('s') if n == 1 else kind}"
 
 
 def middle(mp4: Path, seconds: float) -> list[tuple[float, float]]:

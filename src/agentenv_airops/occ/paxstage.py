@@ -206,7 +206,8 @@ def queue(joins, events, groups, lounges, counter, face, site, sched, by_stand, 
             say = f"{k} stranded overnight · hotel shuttle {hhmm(t)}"
             groups.append(group("hotel", k, [sched[fid]["flight"]], walk, say))
         van = curb.van(t)
-        groups.append(group("shuttle", 0, [], [van], f"Hotel shuttle · {n} passengers stranded overnight"))
+        groups.append(group("shuttle", 0, [], [van],
+                            f"Hotel shuttle · {n} passenger{'' if n == 1 else 's'} stranded overnight"))
     out, n = [], 0
     for t, d in sorted(steps):
         n = max(0, n + d)

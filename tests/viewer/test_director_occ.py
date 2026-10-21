@@ -289,6 +289,10 @@ def test_passengers_who_missed_their_connection_and_the_stranded_s_shuttle_are_f
     assert bus.caption == "12 passengers stranded overnight leave for the hotel"
     assert bus.subline == "They fly on tomorrow from 07:00"
     assert record.Center(ep, traffic, None, None, dusk=719).shuttle() == []
+    van["say"] = "Hotel shuttle · 1 passenger stranded overnight"
+    [[one]] = record.Center(ep, traffic, None, None).shuttle()
+    assert one.caption == "1 passenger stranded overnight leaves for the hotel"
+    assert (record.people(1, "connecting passengers"), record.people(40)) == ("1 connecting passenger", "40 passengers")
 
 
 def test_the_desks_words_are_quoted_only_when_they_read_plainly():
