@@ -112,8 +112,8 @@ class Group:
 
 @dataclass(frozen=True)
 class Seat:
-    """A flight of the `day`-th following day's published schedule, in minutes from the task date's midnight, and its
-    seats left."""
+    """A flight of the `day`-th following day's published schedule, in minutes from the task date's midnight, its
+    passengers booked and its seats left."""
 
     flight: str
     orig: str
@@ -122,13 +122,14 @@ class Seat:
     arr: int
     free: int
     day: int = 1
+    booked: int = 0
 
     @classmethod
     def from_list(cls, v: list) -> "Seat":
         return cls(*v)
 
     def to_list(self) -> list:
-        return [self.flight, self.orig, self.dest, self.dep, self.arr, self.free, self.day]
+        return [self.flight, self.orig, self.dest, self.dep, self.arr, self.free, self.day, self.booked]
 
 
 @dataclass(frozen=True)
@@ -614,6 +615,18 @@ class Proxy:
                     for legs in table.itineraries(s, last.dest, lambda f: ok(f) and f.sched_dep <= line, ok)]
         charge = round(max(0, t - first.sched_dep) + passengers.fare)
         return Mode(g.id, g.pax, cut, lapse, link, tuple(options), last_resort(charge, [c for _, c in options]))
+
+    @classmethod
+    def floor(cls, task: Task, passengers: Passengers) -> "Proxy":
+        """Every passenger term P adds at its floor, for a lower bound: the delay of local passengers only, a
+        cancellation's refund exposure and notice with no rebooking, no misconnect, rebooking, lodging or refund
+        (each left out is at least 0)."""
+        out = cls(task, Passengers(()), {})
+        out.term = Counter()
+        for g in passengers.groups:
+            if len(g.legs) == 1:
+                out.term[g.legs[0]] += g.pax
+        return out
 
     def flown(self, f: Flight, dep: int, arr: int) -> int:
         return flown_price(f, dep, arr, self.term.get(f.id, 0))

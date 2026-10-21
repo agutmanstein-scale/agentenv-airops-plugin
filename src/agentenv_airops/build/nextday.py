@@ -47,6 +47,7 @@ def scheduled(task: Task, day: str, inputs: Path, derived: Path) -> list[Seat]:
     for r in df.assign(num=df.Flight_Number_Reporting_Airline.astype(int)).sort_values(
             ["sched_dep", "num", "Origin"]).itertuples():
         n = craft[r.Tail_Number].seats if isinstance(r.Tail_Number, str) and r.Tail_Number in craft else median
+        booked = fleet.pax(n, lf, r.Origin, r.Dest)
         out.append(Seat(f"{task.carrier} {r.num} {r.Origin}", r.Origin, r.Dest, int(r.sched_dep) - task.base,
-                        int(r.sched_arr) - task.base, max(0, n - fleet.pax(n, lf, r.Origin, r.Dest))))
+                        int(r.sched_arr) - task.base, max(0, n - booked), 1, booked))
     return out
