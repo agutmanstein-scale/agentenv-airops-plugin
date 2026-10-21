@@ -158,8 +158,8 @@ def direct(ep: Mapping, traffic: Mapping, events: Sequence[Mapping] | None = Non
     desks decide or talk (Center), to its 2D card over the tower without a 3D ``room``. ``events`` are the stage's
     movements (AirportStage.events(), else the sidecar's times) and ``poses(key, a, b)`` the stage's
     [[minute, phase, speed]] and ``light`` the first minute the airport is light enough to film (else the day's
-    start), ``dusk`` the last (else its end), ``gates`` the stands whose Terminal view reads (reads(), else any) and
-    ``sun(t)`` the sun's elevation in degrees at minute t (else always up)."""
+    start), ``dusk`` the last (else its end), ``gates`` the stands whose Terminal view reads (web/stage/terminal.js
+    reads(), else any) and ``sun(t)`` the sun's elevation in degrees at minute t (else always up)."""
     if ep.get("occ"):
         return Center(ep, traffic, events, poses, room, light, dusk, gates, sun).film(seconds)
     return Day(ep, traffic, events, poses).film(seconds)
@@ -1028,14 +1028,6 @@ def screen_tone(g: Mapping, p: Mapping, t: float) -> str:
     return "delay" if g["out"] - g["sched"] > 10 and t >= g["sched"] - KNOWN else "ok"
 
 
-def reads(view: Mapping) -> bool:
-    """Whether a gate's Terminal view reads for a crowd shot (web/stage/terminal.js framed()): its camera clear, its
-    screen shown within the middle four fifths of the page and facing it within 60°, a tenth of its seats in frame."""
-    s = view["screen"]
-    return bool(view["placed"] and s and max(abs(s["x"]), abs(s["y"])) <= 0.8 and view["face"] >= 0.5
-                and view["seats"] >= 0.1)
-
-
 def waits(g: Mapping) -> list[tuple[float, float]]:
     """The spans in which a flown departure's tag says "waiting for crew" (web/stage/stage.js crewAt)."""
     if not g.get("crew") or g["kind"] != "dep" or g["status"] != "flown" or g["out"] is None:
@@ -1237,14 +1229,8 @@ FILM_JS = r"""
       }
       return out;
     },
-    async gates(T) {
-      const out = {};
-      for (const g of S.gates() ?? []) {
-        await window.airops.view("terminal", { stand: g.stand, t0: T - 1, t1: T + 1 });
-        await window.airops.time(T, { dt: 0, speed: 0 });
-        out[g.stand] = S.terminal.framed(g.lounge, S.camera);
-      }
-      return out;
+    gates() {
+      return Object.fromEntries((S.gates() ?? []).map((g) => [g.stand, S.terminal.framed(g.lounge)]));
     },
     camera(c) {
       const T = c.at ?? c.t0, cfg = S.plan.config(T), home = cams.homeOf(S.data);
@@ -1419,8 +1405,8 @@ def director(page, ep: Mapping, path: Path, seconds: float | None, rollout: bool
 
     gates = None
     if dusk is not None and not rollout and page.js("!!airops.stage.terminal"):
-        views = page.js(f"film.gates({(light + dusk) / 2})")
-        gates = {stand for stand, view in views.items() if reads(view)}
+        views = page.js("film.gates()")
+        gates = {stand for stand, view in views.items() if view["reads"]}
         print(f"terminal: {len(gates)} of {len(views)} gates read" +
               (f", not {', '.join(s for s in views if s not in gates)}" if len(gates) < len(views) else ""))
     if ep.get("occ") and standings and (rows := board(path.parent / "index.json", ep)):

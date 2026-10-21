@@ -1,4 +1,5 @@
-"""The viewer's plain-English decoders and its board and score (plain.test.mjs) under Node's test runner."""
+"""The viewer's plain-English decoders, its board and score and how a gate's Terminal view reads (plain.test.mjs) under
+Node's test runner."""
 
 import shutil
 import subprocess

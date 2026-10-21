@@ -13,7 +13,7 @@ import { buildLabels } from "./labels.js";
 import { buildTracks, poseAt } from "./motion.js";
 import { buildPassengers, cutouts } from "./passengers.js";
 import { buildSpray } from "./spray.js";
-import { buildTerminal } from "./terminal.js";
+import { aim, buildTerminal } from "./terminal.js";
 import { buildWeather } from "./weather.js";
 
 const DEG = Math.PI / 180;
@@ -96,7 +96,7 @@ export class AirportStage {
     scene.add(this.crews.group);
     this.pax = people;
     if (this.pax) scene.add(this.pax.group);
-    this.terminal = this.pax ? buildTerminal(this.pax, stage, traffic, { home: homeOf(stage).ref, bridges: this.bridges }) : null;
+    this.terminal = this.pax ? buildTerminal(this.pax, stage, traffic, { home: homeOf(stage).ref, bridges: this.bridges, page: { camera: this.camera, spot: (f) => this.#clearSpot(f, true)[0] } }) : null;
     if (this.terminal) scene.add(this.terminal.group);
     this.spray = buildSpray(this.plan);
     scene.add(this.spray.mesh);
@@ -141,10 +141,10 @@ export class AirportStage {
   /** tower | gate | threshold | harbour | follow | crew | terminal; opts.key picks the aircraft (follow, gate),
    * opts.stand the gate; for crew, opts.key is a crew group's key (crewGroups()) or an aircraft whose crew it takes,
    * else the featured aircraft's crew or the next crew about, and opts.wide shows a van's whole road from high up; for
-   * terminal (a day with passengers, else gate), opts.lounge or opts.stand the gate area, else the busiest (opts.auto
-   * to move on to the busiest once it all but empties), opts.step the next (1) or previous (-1) one, opts.focus
-   * "counter" the service counter's line, opts.flight the departure its screen shows, opts.t0 and opts.t1 a director's
-   * shot drifting along it. */
+   * terminal (a day with passengers, else gate), opts.lounge or opts.stand the gate area, else the busiest whose view
+   * reads (opts.auto to move on to the next such once it all but empties), opts.step the next (1) or previous (-1) one
+   * whether it reads or not, opts.focus "counter" the service counter's line, opts.flight the departure its screen
+   * shows, opts.t0 and opts.t1 a director's shot drifting along it. */
   async view(name, opts = {}) {
     await this.ready;
     return this.#view(name, opts);
@@ -182,7 +182,7 @@ export class AirportStage {
     const was = this.rig.kind === "terminal" ? this.rig.lounge : null;
     const n = this.terminal.gates.length;
     const k = opts.lounge ?? (opts.stand != null ? this.terminal.gates.findIndex((g) => g.stand === opts.stand) : -1);
-    const lounge = k >= 0 ? k : opts.step && was != null ? (was + opts.step + n) % n : this.pax.busiest(this.T);
+    const lounge = k >= 0 ? k : opts.step && was != null ? (was + opts.step + n) % n : this.terminal.busiest(this.T);
     this.rig = { kind: "terminal", name: "terminal", lounge, auto: opts.auto ?? (k < 0 && !opts.step), focus: opts.focus ?? null, flight: opts.flight ?? null, t0: opts.t0 ?? null, t1: opts.t1 ?? null };
     this.#terminalAt();
     if (this.controls) this.controls.enabled = false;
@@ -380,18 +380,7 @@ export class AirportStage {
       return;
     }
     if (rig.kind === "terminal") {
-      const c = rig.cam;
-      cam.position.copy(toScene(c.position, c.position[2]));
-      target.copy(toScene(c.target, c.target[2]));
-      cam.fov = c.fov;
-      cam.updateProjectionMatrix();
-      const nx = this.#clearSpot(c.frame)[0];
-      const dir = target.clone().sub(cam.position);
-      const D = dir.length();
-      dir.normalize();
-      const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
-      cam.lookAt(target.clone().addScaledVector(right, -nx * D * Math.tan((cam.fov * DEG) / 2) * cam.aspect));
-      this.focusAt = target;
+      this.focusAt = aim(cam, rig.cam, this.#clearSpot(rig.cam.frame)[0]);
       return;
     }
     const crewKey = typeof rig.at === "string" && rig.at.startsWith("crew:") ? rig.at.slice(5) : null;
@@ -428,13 +417,13 @@ export class AirportStage {
     if (this.controls) this.controls.target.copy(target);
   }
 
-  /** The terminal camera through time: on its own, to the busiest gate area once its own is all but empty (at most
-   * every 2 wall seconds); placed again as the aircraft at its gate changes or a director's shot drifts. */
+  /** The terminal camera through time: on its own, to the busiest gate area whose view reads once its own is all but
+   * empty (at most every 2 wall seconds); placed again as the aircraft at its gate changes or a director's shot drifts. */
   #terminalTurn() {
     const rig = this.rig;
     if (rig.auto && this.wall - (rig.checked ?? -9) > 2) {
       rig.checked = this.wall;
-      const k = this.pax.at(rig.lounge, this.T) < 4 ? this.pax.busiest(this.T) : rig.lounge;
+      const k = this.pax.at(rig.lounge, this.T) < 4 ? this.terminal.busiest(this.T) : rig.lounge;
       if (k !== rig.lounge && this.pax.at(k, this.T) >= 12) rig.lounge = k;
     }
     if (rig.t1 != null || Math.abs(this.T - rig.when) >= 0.5 || rig.lounge !== rig.placed) {
@@ -620,9 +609,9 @@ export class AirportStage {
   }
 
   /** Where in normalised device coordinates the crew camera puts its group: 42 % across the part of the page between
-   * the cards that cover the stage's sides, a little below the middle. */
-  #clearSpot(f = 0.42) {
-    if (this.clear?.f === f && this.wall - this.clear.at < 0.5) return this.clear.spot;
+   * the cards that cover the stage's sides, a little below the middle; kept half a wall second unless `fresh`. */
+  #clearSpot(f = 0.42, fresh = false) {
+    if (!fresh && this.clear?.f === f && this.wall - this.clear.at < 0.5) return this.clear.spot;
     const w = this.container.clientWidth || innerWidth;
     const h = this.container.clientHeight || innerHeight;
     let [L, R] = [0, w];

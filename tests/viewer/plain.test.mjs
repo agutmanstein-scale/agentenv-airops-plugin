@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { register } from "node:module";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -16,6 +17,11 @@ const day = (id) => {
   return { task: d.task, item, said: (nid) => plain.news(item(nid), { task: d.task, earlier: d.news, city: (c) => c }) };
 };
 const hero = day("b6-bos-20250216-1500"), snow = day("b6-bos-20240107-0600"), storms = day("b6-jfk-20230714-1400");
+const vendor = new URL("../../web/vendor/three-0.180.0/", import.meta.url).href;
+register(`data:text/javascript,${encodeURIComponent(`export const resolve = (s, c, next) => next(s === "three" ? "${vendor}build/three.module.js"
+  : s.startsWith("three/addons/") ? "${vendor}examples/jsm/" + s.slice(13) : s, c);`)}`);
+const THREE = await import("three");
+const terminal = await import("../../web/stage/terminal.js");
 
 test("METARs read as the traffic sidecar reads them", () => {
   assert.equal(hero.said("metar-bos-202502161854").text, "Light rain and mist · visibility 1 1/4 mi · cloud at 400 ft · wind NE 17 mph.");
@@ -148,4 +154,34 @@ test("the customer desk's connections at risk read off its page, each departure 
   assert.deepEqual(atRisk(page), { more: 20, rows: [{ id: 500, orig: "BOS", dest: "PDX", dep: "19:41", pax: 9, misses: 4, noSeat: 4 },
     { id: 537, orig: "JFK", dest: "BNA", dep: "20:21", pax: 2, misses: 0, noSeat: 0 }] });
   assert.deepEqual(atRisk(null), { rows: [], more: 0 });
+});
+
+test("a gate's view reads from its camera's pose alone: its screen near the middle and facing it, its seats in frame", () => {
+  const { aim, framing, reads } = terminal;
+  const cam = new THREE.PerspectiveCamera(50, 16 / 9, 0.5, 90000);
+  const at = (x, y, up, turn = 0) => {
+    const o = new THREE.Object3D();
+    o.position.set(x, up, -y);
+    o.rotation.y = turn;
+    return o;
+  };
+  const seats = Array.from({ length: 10 }, (_, i) => ({ x: i - 5, y: 12 }));
+  const near = (a, b) => Math.abs(a - b) < 0.02;
+  const pose = { position: [0, 0, 3.8], target: [0, 20, 2.2], fov: 56 };
+  const target = aim(cam, pose, 0);
+  assert.deepEqual(target.toArray(), [0, 2.2, -20]);
+  const f = framing(cam, at(0, 20, 2.2), seats, 1);
+  assert.ok(near(f.screen.x, 0) && near(f.screen.y, 0) && f.face > 0.99 && f.seats === 1);
+  assert.ok(reads({ placed: true, ...f }) && !reads({ placed: false, ...f }));
+  aim(cam, pose, -0.5);
+  const left = framing(cam, at(0, 20, 2.2), seats, 1);
+  assert.ok(near(left.screen.x, -0.5) && reads({ placed: true, ...left }));
+  aim(cam, pose, 0);
+  const views = [at(0, 20, 2.2, Math.PI / 2), at(0, -20, 2.2), at(40, 20, 2.2), null].map((s) => framing(cam, s, seats, 1));
+  assert.ok(Math.abs(views[0].face) < 0.05 && views[1].screen === null && views[2].screen.x > 1 && views[3].screen === null);
+  assert.ok(views.every((v) => !reads({ placed: true, ...v })));
+  assert.equal(framing(cam, at(0, 20, 2.2), seats.map((s) => ({ ...s, y: -12 })), 1).seats, 0);
+  const ok = { placed: true, screen: { x: 0.3, y: -0.05 }, face: 0.8, seats: 0.3 };
+  assert.ok(reads(ok) && reads({ ...ok, screen: { x: -0.8, y: 0 }, face: 0.5, seats: 0.1 }));
+  assert.ok(![{ screen: { x: 0.81, y: 0 } }, { screen: { x: 0, y: -0.85 } }, { face: 0.45 }, { seats: 0.09 }, { screen: null }].some((x) => reads({ ...ok, ...x })));
 });

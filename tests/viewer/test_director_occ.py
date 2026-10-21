@@ -329,9 +329,6 @@ def test_a_film_with_no_other_shot_inside_the_terminal_films_a_gate_full_of_its_
     assert record.Center(ep, traffic, None, None, sun=lambda t: 5.0).crowd([]) == []
     assert [b[0].at for b in record.Center(ep, traffic, None, None, light=665).crowd([])] == [669]
     assert record.screen_tone({"out": 700, "sched": 695}, {}, 600) == "ok"
-    view = {"placed": True, "screen": {"x": 0.3, "y": -0.05}, "face": 0.8, "seats": 0.3}
-    assert record.reads(view) and not any(record.reads(view | x) for x in (
-        {"placed": False}, {"screen": None}, {"screen": {"x": 0.9, "y": 0}}, {"face": 0.2}, {"seats": 0.05}))
 
 
 def test_the_desks_words_are_quoted_only_when_they_read_plainly():
