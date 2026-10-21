@@ -51,16 +51,26 @@ in the room and the passengers at the gate.]
 
 AirOpsEnv v2's control center runs JetBlue's whole network through a real storm day from two desks, the ops controller
 and the crew scheduler. v3 puts the passengers on board and adds the third desk real control centers have beside
-them: the **customer desk**. It sees each flight's passengers (booked, connecting, who has no later JetBlue seat that
-day, and where a cancellation's passengers could go) and asks ops to hold a flight for connecting passengers, not to
-cancel one, or to cancel one whose passengers can be moved, or writes free text. Ops decides, as in real control
-centers, where the customer desk proposes and ops disposes. The customer desk can't cancel, hold or crew a flight, and
-rebooking stays automatic: JetBlue only, per its contract, earliest arrival first. The day is played on the
-[AgentEnv Framework](https://www.agentenvframework.com)'s virtual clock in hourly watches, as in v2, and graded once,
-on what really happened, under a cost that follows every passenger to their final destination. The environment is the
-plugin [earakely-scale/agentenv-airops-plugin](https://github.com/earakely-scale/agentenv-airops-plugin).
+them: the **customer desk**. Its page lists the connections at risk (departures in the next 4 hours whose connecting
+passengers make it with 15 minutes or less, or miss it) and the flights ops might cancel (auto-cancelling, without a
+crew, asked to cancel, or 3 hours late or more), with where their passengers would go if cancelled now: the same day,
+a later day or a refund. It asks ops to HOLD a departure for its connecting passengers, to PROTECT a flight (don't
+cancel it), to SUGGEST_CANCEL one whose passengers are better off rebooked now, or writes TEXT. Ops decides, as in real
+control centers, where the customer desk proposes and ops disposes: an accepted HOLD is ops' hold, and PROTECT and
+SUGGEST_CANCEL are advice ops carries out, if at all, with its own tools. No desk rebooks passengers: the passenger
+system does, on JetBlue only per its contract, earliest arrival first. The day is played on the
+[AgentEnv Framework](https://www.agentenvframework.com)'s virtual clock in hourly watches from 04:00: each watch the
+crew desk takes its turn, then the customer desk, then ops, then the crew desk again if ops asked it something and the
+customer desk if ops texted it. It is graded once, on what really happened, under a cost that follows every passenger
+to their final destination. The environment is the plugin
+[earakely-scale/agentenv-airops-plugin](https://github.com/earakely-scale/agentenv-airops-plugin).
 
-[TBD: the desks' tools table and the turn order with the customer desk, from the env lane's `airops-occ3`.]
+| Desk | Tools |
+|---|---|
+| ops | `ops_flights`, `ops_program`, `ops_aircraft`, `ops_check`, `ops_confirm`, `ops_request` (COVER to the crew desk, TEXT to either), `ops_reply` |
+| crew | `crew_flights`, `crew_crews`, `crew_reserves`, `crew_program`, `crew_options`, `crew_check`, `crew_confirm`, `crew_request` (HOLD, CANCEL, CANCEL_PAIR, TEXT), `crew_reply` |
+| customer | `cust_flights`, `cust_flight`, `cust_request` (HOLD, PROTECT, SUGGEST_CANCEL, TEXT) |
+| all three | `end_turn` (its result is the next page), `wait_turn`, `resign` |
 
 In mode `one`, one agent runs all three desks from one page, with no channel, for comparison.
 
@@ -174,10 +184,10 @@ agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.3 --bundle airops-occ3 -
 ```
 
 The bundle `airops-occ3` (`bundles/airops-occ3/`) holds every date of the pack in both modes, `<task id>-joint` and
-`<task id>-one`, the very task files the board ran, and `wiring-noplay`, which runs the first eval date with no desk.
-[TBD: the board's caps per desk.] v2's two-desk days stay in the bundle `airops-occ`, and the dataset's default bundle
-is v1's `airops`. `hf run` downloads this card and `bundles/` at the tag's commit, checks that the plugin the card's
-`agentenv` table names is installed, shows what it will run and asks first.
+`<task id>-one`, the very task files the board ran (each desk capped at $5 in a three-desk run, $12 for one agent), and
+`wiring-noplay`, which runs the first eval date with no desk. v2's two-desk days stay in the bundle `airops-occ`, and
+the dataset's default bundle is v1's `airops`. `hf run` downloads this card and `bundles/` at the tag's commit, checks
+that the plugin the card's `agentenv` table names is installed, shows what it will run and asks first.
 
 ---
 
