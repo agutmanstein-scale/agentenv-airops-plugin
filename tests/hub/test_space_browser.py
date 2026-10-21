@@ -29,7 +29,7 @@ def test_the_space_plays_the_datasets_episodes_from_another_origin(hub, tmp_path
     hub.write(hub.space_files("main"), space)
     with served(dataset, cors=True) as data, served(space) as site, chrome() as page:
         page.goto(f"{site}/index.html?index={quote(data + '/viewer/episodes/index.json')}")
-        assert page.js("airops.ready") == {"episodes": 1}
+        assert page.js("airops.ready") == {"episodes": 1, "v3": 0, "v2": 0, "v1": 1}
         assert page.js("location.pathname") == "/viewer/index.html"
         link = page.js("document.querySelector('a.ep-card').href")
         assert export.file_name(episode) in link
