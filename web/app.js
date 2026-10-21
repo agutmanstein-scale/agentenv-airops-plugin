@@ -14,14 +14,15 @@ const SPEEDS = [0.25, 1, 2, 5, 10, 20, 40];
 const STAGE_VIEWS = ["tower", "gate", "threshold", "harbour", "follow", "crew"];
 const ROOM_VIEWS = ["room", "room-desks", "room-wall"];
 const ALIASES = { hub: "tower", region: "network", map: "network", center: "room" };
-const KEYS = { 1: "tower", 2: "gate", 3: "threshold", 4: "harbour", 5: "follow", 6: "room", 7: "crew", 8: "room-desks", m: "network" };
+const TERMINALS = { JFK: "JetBlue's Terminal 5", BOS: "JetBlue's Terminal C" };
+const KEYS = { 1: "tower", 2: "gate", 3: "threshold", 4: "harbour", 5: "follow", 6: "room", 7: "crew", 8: "room-desks", 9: "terminal", m: "network" };
 const CARRIERS = { AA: "an American", AS: "an Alaska", DL: "a Delta", UA: "a United", WN: "a Southwest", NK: "a Spirit", F9: "a Frontier", G4: "an Allegiant",
   SY: "a Sun Country", HA: "a Hawaiian", MX: "a Breeze", YX: "a Republic", "9E": "an Endeavor", OH: "a PSA", MQ: "an Envoy", OO: "a SkyWest", YV: "a Mesa",
   C5: "a CommuteAir", ZW: "an Air Wisconsin", PT: "a Piedmont", G7: "a GoJet", QX: "a Horizon" };
 const CAMERAS = { tower: ["Tower", "From the control tower"], gate: ["Gate", "At JetBlue's gates"], threshold: ["Runway", "At the end of the runway in use"],
   harbour: ["Harbour", "Across the water"], follow: ["Follow", "Behind an aircraft (or click one)"], network: ["Map", "The US map, full screen"],
   room: ["Room", "The control center, where the desks work"], "room-desks": ["Desks", "Close on the two desks and their requests"],
-  crew: ["Crew", "With a crew at the airport"] };
+  crew: ["Crew", "With a crew at the airport"], terminal: ["Terminal", "Inside the terminal at the gates, with the passengers"] };
 
 let resolveReady, rejectReady;
 window.airops = {
@@ -92,7 +93,7 @@ async function indexPage(app, url) {
   document.documentElement.classList.add("light");
   document.title = `${v3.length ? V3.title : v2.length ? V2.title : "AirOpsEnv v1"} · episodes`;
   const card = (e) => {
-    const href = `?episode=${encodeURIComponent(new URL(e.url, url).href)}${e.occ ? `&t=${e.open ?? ""}&view=room&play=1&speed=2` : ""}`;
+    const href = `?episode=${encodeURIComponent(new URL(e.url, url).href)}${e.passengers ? "&view=terminal&play=1&speed=2" : e.occ ? `&t=${e.open ?? ""}&view=room&play=1&speed=2` : ""}`;
     const gap = e.anchor ? (100 * (e.cost - e.anchor)) / e.anchor : null;
     const under = e.occ ? flagged(e.cost, e.anchor, e.gap_pct, e.reward_L) : null;
     const thumb = e.thumb ? ` style="background-image:url('${esc(new URL(e.thumb, url).href)}')"` : "";
@@ -118,19 +119,22 @@ async function indexPage(app, url) {
   resolveReady({ episodes: index.episodes.length, v3: v3.length, v2: v2.length, v1: v1.length });
 }
 
-/** The list's "Start here": the featured v3 run (else v3's first) as a wide card, or until the v3 board is recorded a
- * placeholder pointing at v2's featured day. */
+/** The list's "Start here": the featured v3 run (else v3's first) as a wide card opening inside the terminal as a held
+ * flight's connecting passengers board or the service counter's line is at its longest, with a link to its control
+ * center; or until the v3 board is recorded a placeholder pointing at v2's featured day. */
 function start(e, v2, url, longDate) {
   const href = (x) => `?episode=${encodeURIComponent(new URL(x.url, url).href)}&t=${x.open ?? ""}&view=room&play=1&speed=2`;
+  const inside = (x) => `?episode=${encodeURIComponent(new URL(x.url, url).href)}&view=terminal&moment=passengers&play=1&speed=1`;
   const bg = (x) => (x?.thumb ? ` style="background-image:url('${esc(new URL(x.thumb, url).href)}')"` : "");
   if (!e) {
     return `<section class="start"><div class="kicker">Start here</div><div class="start-card soon"><div class="body">
       <h2>AirOpsEnv v3: the featured run</h2><p>Three desks run JetBlue's control center with its passengers: an ops controller, a crew scheduler and a customer desk that asks ops to hold departures for connecting passengers and keeps the stranded moving. The run to watch first lands here once the v3 board is recorded.</p>
       ${v2 ? `<a class="go" href="${href(v2)}">Meanwhile, watch v2's featured day: ${esc(HUB_NAMES[v2.hub] ?? v2.hub)}, ${esc(longDate(v2.date))} →</a>` : ""}</div></div></section>`;
   }
-  return `<section class="start"><div class="kicker">Start here</div><a class="start-card" href="${href(e)}"><div class="thumb${e.thumb ? "" : " none"}"${bg(e)}><span>${esc(e.hub)}</span></div><div class="body">
+  return `<section class="start"><div class="kicker">Start here</div><a class="start-card" href="${inside(e)}"><div class="thumb${e.thumb ? "" : " none"}"${bg(e)}><span>${esc(e.hub)}</span></div><div class="body">
     <h2>${esc(HUB_NAMES[e.hub] ?? e.hub)} · ${esc(longDate(e.date))}</h2><p class="model">${esc(e.model_label ?? e.model)} · ${esc(e.occ)} · reward ${e.reward?.toFixed(3) ?? "–"}</p>
-    <p>Three desks run JetBlue's control center through a real storm day with its passengers: watch the customer desk ask ops to hold for connecting passengers, the gates fill and board, and the stranded leave for the hotel.</p><span class="go">Watch the run →</span></div></a></section>`;
+    <p>Three desks run JetBlue's control center through a real storm day with its passengers: inside the terminal, watch a gate held for its connecting passengers and the line at the service counter; in the control center, the customer desk asking ops to hold.</p><span class="go">Watch the run from the terminal →</span></div></a>
+    <p class="also"><a href="${href(e)}">Or open it in the control center →</a></p></section>`;
 }
 
 /** The board's result in a line: each setup's mean reward over the board's days, from the list's own board runs. */
@@ -214,19 +218,24 @@ async function episodePage(app, url) {
   const expertEl = root.querySelector(".expert");
   let expert = null;
   const crews = !!traffic?.crews?.length;
-  const cameras = [...(stage ? STAGE_VIEWS.filter((v) => v !== "crew" || crews) : []), ...(center ? ["room", "room-desks"] : []), ...(stage || center ? ["network"] : [])].map((id) => ({ id,
+  const terminal = !!stage?.gates();
+  const stageViews = terminal ? ["terminal", ...STAGE_VIEWS] : STAGE_VIEWS;
+  const cameras = [...(stage ? stageViews.filter((v) => v !== "crew" || crews) : []), ...(center ? ["room", "room-desks"] : []), ...(stage || center ? ["network"] : [])].map((id) => ({ id,
     label: id === "harbour" && task.hub === "JFK" ? "Bay" : CAMERAS[id][0], title: `${CAMERAS[id][1]} (${Object.keys(KEYS).find((k) => KEYS[k] === id)})` }));
   const speed0 = SPEEDS.includes(Number(params.get("speed"))) ? Number(params.get("speed")) : 5;
   const timeline = new Timeline(root.querySelector(".timeline"), P, { bands: programBands(P), speeds: SPEEDS, speed: speed0, cameras });
-  const shown = ep.passengers ? "Gates, taxi routes, runways in use, the crew room, crews' walks, van routes, the gate lounges, passengers' walks, the service counter, the hotel shuttle and the control-center room are inferred, for display"
+  const shown = ep.passengers ? "Gates, taxi routes, runways in use, the crew room, crews' walks, van routes, the gate lounges and their screens, passengers' walks, the service counter, the hotel shuttle and the control-center room are inferred, for display"
     : ep.occ ? "Gates, taxi routes, runways in use, the crew room, crews' walks, van routes and the control-center room are inferred, for display"
       : "Gates, taxi routes and runways in use are inferred, for display";
   root.querySelector(".credit").textContent = `${stage ? `${shown} · airport © OpenStreetMap contributors (ODbL), imagery USGS · ` : ""}${ATTRIBUTION} · flights BTS · weather NWS, IEM${ep.occ ? " · crews: generated pairings under FAR 117 and 14 CFR 121.467" : ""}${ep.passengers ? " · passengers: simulated by the env" : ""}`;
   const followChip = root.querySelector(".follow-chip");
+  const gateChip = terminal ? root.appendChild(Object.assign(document.createElement("div"), { className: "follow-chip gate-chip", hidden: true })) : null;
 
   const moves = ep.executed.filter((e) => e.status === "flown").flatMap((e) => [P.sched.get(e.id).orig === task.hub ? e.dep : null, P.sched.get(e.id).dest === task.hub ? e.arr : null]).filter((m) => m != null);
   const quiet = (m) => m > P.lastWatch + 60 && !moves.some((x) => x >= m - 5 && x <= m + 30);
-  let t = clamp(Number(params.get("t") ?? P.lo)), step = null, viewName = stage ? "tower" : center ? "room" : "network", stageView = "tower", roomView = "room", following = null;
+  const asked = params.get("view") ?? (terminal ? "terminal" : null);
+  const open = terminal && (ALIASES[asked] ?? asked) === "terminal" && (params.get("moment") || !params.get("t")) ? stage.moment(params.get("moment") ?? "busy") : null;
+  let t = clamp(Number(open?.t ?? params.get("t") ?? P.lo)), step = null, viewName = stage ? "tower" : center ? "room" : "network", stageView = "tower", roomView = "room", following = null;
   let playing = false, speed = speed0, rate = null, boost = 1, last = performance.now(), lastMap = -1, busy = false, busyRoom = false;
 
   function clamp(m) {
@@ -247,6 +256,15 @@ async function episodePage(app, url) {
       views.map.update({ positions: positionsAt(P, flights, m), rings: rings(P, m), radar: views.radar?.at(m) ?? null, t: m });
     }
     if (following) followChip.innerHTML = followText(m);
+    if (gateChip && viewName === "terminal") gateText();
+  }
+
+  function gateText() {
+    const g = stage.gate();
+    const html = g ? `<button type="button" data-step="-1" title="The previous gate (,)">‹</button><b>${g.counter && g.line ? "Customer service" : `Gate ${esc(g.gate)}`}</b>`
+      + `<span>${g.flight ? `${esc(g.flight)} to ${esc(g.city ?? "")}${g.status ? ` · ${esc(g.status.toLowerCase())}` : ""}` : g.counter ? "the service counter" : "no departures"}</span>`
+      + `<button type="button" data-step="1" title="The next gate (.)">›</button><span class="note">${esc(TERMINALS[stage.data.hub] ?? "The terminal")}: a generic gate area, for display</span>` : "";
+    if (gateChip._html !== html) gateChip.innerHTML = gateChip._html = html;
   }
 
   function followText(m) {
@@ -270,13 +288,14 @@ async function episodePage(app, url) {
       following = null;
     } else {
       views.show("stage");
-      viewName = stageView = STAGE_VIEWS.includes(name) ? name : "tower";
+      viewName = stageView = stageViews.includes(name) ? name : "tower";
       if (viewName === "follow") opts = { ...opts, key: opts.key ?? following ?? nextFeatured(t) };
       following = viewName === "follow" ? opts.key ?? null : null;
       await stage.time(t, { dt: 0, speed: 0 });
       await stage.view(viewName, opts);
     }
     followChip.hidden = !following;
+    if (gateChip) gateChip.hidden = viewName !== "terminal";
     timeline.camera(viewName === "room-wall" ? "room" : viewName);
     draw(t, { force: true });
     return viewName;
@@ -315,6 +334,10 @@ async function episodePage(app, url) {
   timeline.on("seek", seek).on("play", () => play()).on("speed", (v) => (speed = v)).on("camera", (id) => setView(id))
     .on("expert", () => setExpert(expertEl.hidden));
   followChip.addEventListener("click", (e) => e.target.closest("button") && setView("tower"));
+  gateChip?.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-step]");
+    if (b) setView("terminal", { step: Number(b.dataset.step) });
+  });
   root.addEventListener("airops:seek", (e) => seek(Number(e.detail?.t)));
   stage?.onPick?.((key) => key && setView("follow", { key }));
   addEventListener("resize", () => views.resize());
@@ -334,7 +357,8 @@ async function episodePage(app, url) {
     else if (k === "+" || k === "=" || k === "-") {
       speed = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, SPEEDS.indexOf(speed) + (k === "-" ? -1 : 1)))];
       root.querySelector(".speed").value = String(speed);
-    } else if (KEYS[k] && (KEYS[k] === "network" || (KEYS[k].startsWith("room") ? center : KEYS[k] === "crew" ? stage && crews : stage))) setView(KEYS[k]);
+    } else if ((k === "," || k === ".") && viewName === "terminal") setView("terminal", { step: k === "." ? 1 : -1 });
+    else if (KEYS[k] && (KEYS[k] === "network" || (KEYS[k].startsWith("room") ? center : KEYS[k] === "crew" ? stage && crews : KEYS[k] === "terminal" ? terminal : stage))) setView(KEYS[k]);
     else if (k === "Escape" && following) setView("tower");
     else if (k === "x") setExpert(expertEl.hidden);
   });
@@ -361,7 +385,7 @@ async function episodePage(app, url) {
   }
 
   await views.map.loaded;
-  await setView(params.get("view") ?? viewName);
+  await setView(asked ?? viewName, open ? { lounge: open.lounge, focus: open.focus, auto: true } : {});
   if (params.get("expert") === "1") setExpert(true);
   draw(t, { force: true });
   if (stage) await stage.time(t, { dt: 0, speed: 0 });
@@ -411,6 +435,6 @@ async function episodePage(app, url) {
     map: views.map,
   };
   resolveReady({ steps: P.steps.length, watches: P.watches.map((w) => w.t), start: task.start, t0: P.lo, end: P.hi, horizon: P.hi,
-    last_watch: P.lastWatch, views: [...(stage ? STAGE_VIEWS : []), ...(center ? ROOM_VIEWS : []), "network"], radar: views.radar?.count ?? 0, twin: !!ep.twin,
+    last_watch: P.lastWatch, views: [...(stage ? stageViews : []), ...(center ? ROOM_VIEWS : []), "network"], radar: views.radar?.count ?? 0, twin: !!ep.twin,
     stage: !!stage, room: !!center, span: [P.lo, P.hi], featured: traffic?.featured ?? [], hub: task.hub });
 }
