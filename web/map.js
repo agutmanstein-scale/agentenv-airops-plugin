@@ -3,16 +3,19 @@
 // ringed when the FAA stops or slows their arrivals. One MapLibre map; the inset and the full view are the same map.
 // On a control-center day it also shows the crews: those resting in a hotel away from base, the reserves still on call
 // at each base, the crews riding as passengers on the aircraft in the air, and the legs of a crew picked in the drawer;
-// on a day with passengers, the passengers stranded overnight at each airport.
+// on a day with passengers, where those off a cancelled flight or a missed connection were rebooked (a flow to the new
+// flight's destination, as wide as how many) and those stranded overnight at each airport.
 import maplibregl from "maplibre-gl";
 import { BASES, CREW_INK, crewIndex, deadheadsOn, reservesAt, strandedAt } from "./crewdata.js";
 import { capsAt, esc } from "./model.js";
-import { PAX_INK, paxIndex, strandedPaxAt } from "./paxdata.js";
+import { PAX_INK, flowsAt, paxAt, paxIndex, strandedPaxAt } from "./paxdata.js";
 
 const TILES = "https://tiles.openfreemap.org";
 const PLANE = '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 64 64"><path d="M32 3c2.4 0 3.8 2.8 3.8 6.6V25l21.8 12.6v5.6L35.8 36v14.2l6.6 5.2V60L32 57l-10.4 3v-4.6l6.6-5.2V36L6.4 43.2v-5.6L28.2 25V9.6C28.2 5.8 29.6 3 32 3z" fill="#fff"/></svg>';
 const INK = { ontime: "#1f9d5c", delayed: "#d98a0b", held: "#2a78d6", cancelled: "#d9483b", auto: "#c4458f", scheduled: "#5a6774", morning: "#5a6774" };
 const BY_CLASS = ["match", ["get", "cls"], ...Object.entries(INK).flat(), "#5a6774"];
+const FLOW_INK = "#7a4c0c";
+const BOW = 0.26;
 
 export const ATTRIBUTION = "map Natural Earth, © OpenMapTiles © OpenStreetMap contributors via OpenFreeMap · radar NEXRAD";
 
@@ -116,14 +119,20 @@ export class NetworkMap {
 
   setupPax(empty) {
     const map = this.map, zoom = (a, b) => ["interpolate", ["linear"], ["zoom"], 2, a, 6, b], n = ["sqrt", ["get", "n"]];
+    const wide = ["interpolate", ["linear"], ["get", "pax"], 1, 1.3, 5, 2.2, 20, 4, 80, 7, 300, 11];
+    map.addSource("pax-flow", { type: "geojson", data: empty });
+    map.addLayer({ id: "pax-flow-casing", type: "line", source: "pax-flow", layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": PAX_INK, "line-opacity": ["*", 0.9, ["get", "alpha"]], "line-width": zoom(["+", 1.6, ["*", 0.8, wide]], ["+", 3, ["*", 1.6, wide]]) } }, "rings");
+    map.addLayer({ id: "pax-flow", type: "line", source: "pax-flow", layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": FLOW_INK, "line-opacity": ["*", 0.85, ["get", "alpha"]], "line-width": zoom(["*", 0.8, wide], ["*", 1.6, wide]) } }, "rings");
+    map.addLayer({ id: "pax-flow-n", type: "symbol", source: "pax-flow", minzoom: 3, filter: [">=", ["get", "pax"], 3],
+      layout: { "symbol-placement": "line-center", "text-field": ["to-string", ["get", "pax"]], "text-font": ["Noto Sans Bold"], "text-size": zoom(8, 11.5),
+        "text-allow-overlap": true, "text-ignore-placement": true },
+      paint: { "text-color": "#6b4307", "text-halo-color": "rgba(255,248,234,0.95)", "text-halo-width": 1.4, "text-opacity": ["get", "alpha"] } }, "planes");
     map.addSource("pax-strand", { type: "geojson", data: empty });
     map.addLayer({ id: "pax-strand", type: "circle", source: "pax-strand",
-      paint: { "circle-radius": zoom(["+", 4, ["*", 1.0, n]], ["+", 6, ["*", 2, n]]), "circle-color": PAX_INK, "circle-opacity": 0.55,
-        "circle-stroke-color": "#a4741c", "circle-stroke-width": zoom(1.4, 2.2) } }, "planes");
-    map.addLayer({ id: "pax-strand-n", type: "symbol", source: "pax-strand", filter: [">=", ["get", "n"], 10],
-      layout: { "text-field": ["to-string", ["get", "n"]], "text-font": ["Noto Sans Bold"], "text-size": zoom(8.5, 12), "text-allow-overlap": true,
-        "text-ignore-placement": true },
-      paint: { "text-color": "#5a3c06", "text-halo-color": "rgba(255,246,226,0.95)", "text-halo-width": 1.3 } }, "planes");
+      paint: { "circle-radius": zoom(["+", 2.2, ["*", 0.35, n]], ["+", 4, ["*", 0.9, n]]), "circle-color": PAX_INK, "circle-opacity": 0.92,
+        "circle-stroke-color": "#8a5a12", "circle-stroke-width": zoom(0.8, 1.4) } }, "planes");
     this.paxSum = document.createElement("div");
     this.paxSum.className = "cm-sum cm-pax";
     this.paxSum.hidden = true;
@@ -131,22 +140,33 @@ export class NetworkMap {
     injectStyle();
   }
 
-  /** Passengers stranded overnight at t: a sand disc at each airport, its area by how many, numbered from ten; the corner inset
-   * gives the total. */
+  /** The passengers at t: a flow from each station to where those rebooked off a cancelled flight or a missed connection
+   * fly on, as wide as how many and numbered from three; a small sand disc at each airport with passengers stranded
+   * overnight, its count on the airport's tag full screen; the corner inset gives the totals. */
   showPax(t) {
-    const where = strandedPaxAt(this.pax, t), P = this.P;
-    const features = [...where].filter(([code]) => P.task.airports[code]).map(([code, n]) => ({ type: "Feature", properties: { code, n },
-      geometry: { type: "Point", coordinates: [P.task.airports[code].lon, P.task.airports[code].lat] } }));
+    const where = strandedPaxAt(this.pax, t), P = this.P, ap = P.task.airports;
+    const features = [...where].filter(([code]) => ap[code]).map(([code, n]) => ({ type: "Feature", properties: { code, n },
+      geometry: { type: "Point", coordinates: [ap[code].lon, ap[code].lat] } }));
     const key = features.map((f) => `${f.properties.code}:${f.properties.n}`).join("|");
     if (key !== this.paxKey) {
       this.paxKey = key;
       this.map.getSource("pax-strand")?.setData({ type: "FeatureCollection", features });
     }
-    const total = features.reduce((a, f) => a + f.properties.n, 0), compact = this.el.clientWidth < 700;
-    const html = total ? `<b>Passengers</b><span class="pax"><i></i><b>${total.toLocaleString("en-US")}</b> stranded overnight</span>` : "";
+    const flows = flowsAt(this.pax, P, t).filter((f) => ap[f.at] && ap[f.dest]);
+    const fkey = flows.map((f) => `${f.at}-${f.dest}:${f.pax}:${f.alpha.toFixed(2)}`).join("|");
+    if (fkey !== this.flowKey) {
+      this.flowKey = fkey;
+      this.map.getSource("pax-flow")?.setData({ type: "FeatureCollection", features: flows.sort((a, b) => a.pax - b.pax).map((f) => ({ type: "Feature",
+        properties: { pax: f.pax, alpha: f.alpha }, geometry: { type: "LineString", coordinates: arc([ap[f.at].lon, ap[f.at].lat], [ap[f.dest].lon, ap[f.dest].lat]) } })) });
+    }
+    this.paxWhere = where;
+    const total = features.reduce((a, f) => a + f.properties.n, 0), moved = paxAt(this.pax, t).rebooked, compact = this.el.clientWidth < 700;
+    const html = total + moved ? `<b>Passengers</b>${moved ? `<span class="flow"><i></i><b>${moved.toLocaleString("en-US")}</b> rebooked</span>` : ""}${total
+      ? `<span class="pax"><i></i><b>${total.toLocaleString("en-US")}</b> stranded${moved ? "" : " overnight"}</span>` : ""}` : "";
     if (this.paxSum.innerHTML !== html) this.paxSum.innerHTML = html;
     this.paxSum.hidden = !compact || !html;
     this.paxShown = total > 0;
+    this.flowShown = flows.length > 0;
   }
 
   setupCrews(empty) {
@@ -241,14 +261,14 @@ export class NetworkMap {
       dots.push({ type: "Feature", properties: { n }, geometry: { type: "Point", coordinates: p.pos } });
     }
     this.map.getSource("deadheads").setData({ type: "FeatureCollection", features: dots });
-    const stranded = strandedAt(C, t), reserves = reservesAt(C, t);
-    const codes = [...new Set([...stranded.keys(), ...[...reserves.keys()].filter((b) => BASES.includes(b))])].filter((c) => P.task.airports[c]);
+    const stranded = strandedAt(C, t), reserves = reservesAt(C, t), pax = this.paxWhere ?? new Map();
+    const codes = [...new Set([...stranded.keys(), ...[...reserves.keys()].filter((b) => BASES.includes(b)), ...pax.keys()])].filter((c) => P.task.airports[c]);
     const items = codes.map((code) => {
       const a = P.task.airports[code], s = stranded.get(code) ?? [], r = BASES.includes(code) ? reserves.get(code) ?? null : null;
-      const rp = r?.pilot.length ?? 0, rc = r?.cabin.length ?? 0;
-      return { code, lnglat: [a.lon, a.lat], s, r, rp, rc, rank: (code === P.task.hub ? 1000 : 0) + (rp + rc ? 100 : 0) + s.length };
-    }).filter((i) => i.s.length + i.rp + i.rc);
-    const key = items.map((i) => `${i.code}:${i.s.length}:${i.rp}:${i.rc}`).join("|");
+      const rp = r?.pilot.length ?? 0, rc = r?.cabin.length ?? 0, px = pax.get(code) ?? 0;
+      return { code, lnglat: [a.lon, a.lat], s, r, rp, rc, px, rank: (code === P.task.hub ? 1000 : 0) + (rp + rc ? 100 : 0) + s.length + Math.min(px, 99) / 100 };
+    }).filter((i) => i.s.length + i.rp + i.rc + i.px);
+    const key = items.map((i) => `${i.code}:${i.s.length}:${i.rp}:${i.rc}:${i.px}`).join("|");
     if (key !== this.itemsKey) {
       this.itemsKey = key;
       this.items = items;
@@ -262,10 +282,11 @@ export class NetworkMap {
 
   showKey(rest, res, riding, compact) {
     const items = [res && `<span><i class="k-res">R</i>reserve crews on call at a base (P pilots, C cabin)</span>`, rest && `<span><i class="k-rest">${MOON}</i>crews resting in a hotel away from base</span>`,
-      riding && `<span><i class="k-dh"></i>crews riding as passengers</span>`, this.paxShown && `<span><i class="k-pax"></i>passengers stranded overnight</span>`].filter(Boolean);
+      riding && `<span><i class="k-dh"></i>crews riding as passengers</span>`, this.flowShown && `<span><i class="k-flow"></i>passengers rebooked onto a later flight, as wide as how many</span>`,
+      this.paxShown && `<span><i class="k-pax">${BED}</i>passengers stranded overnight</span>`].filter(Boolean);
     const html = items.join("");
     if (this.key.innerHTML !== html) this.key.innerHTML = html;
-    this.key.classList.toggle("pax", !!this.paxShown);
+    this.key.classList.toggle("pax", !!(this.paxShown || this.flowShown));
     this.key.hidden = compact || !items.length;
   }
 
@@ -294,7 +315,7 @@ export class NetworkMap {
     }
     const live = new Set();
     for (const g of groups) {
-      const id = g.members.map((m) => m.code).join("+"), key = g.members.map((m) => `${m.s.length}:${m.rp}:${m.rc}`).join("|");
+      const id = g.members.map((m) => m.code).join("+"), key = g.members.map((m) => `${m.s.length}:${m.rp}:${m.rc}:${m.px ?? 0}`).join("|");
       live.add(id);
       let tag = this.tags.get(id);
       if (!tag) {
@@ -382,6 +403,7 @@ export class NetworkMap {
   }
 }
 
+const BED = '<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M1 2.5h1.3v4h3.2V4.4h4A1.5 1.5 0 0 1 11 5.9V10H9.7V8.7H2.3V10H1z"/><circle cx="3.9" cy="5.2" r="1.1"/></svg>';
 const MOON = '<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M8.6 9.4A4.6 4.6 0 0 1 4.9 1.2a4.6 4.6 0 1 0 5.9 6.4 4.6 4.6 0 0 1-2.2 1.8z" fill="currentColor"/></svg>';
 
 const GROUP = 40;
@@ -391,18 +413,20 @@ const SIDES = [(w, h, d) => [d, d], (w, h, d) => [d + 2, -h / 2], (w, h, d) => [
   (w, h, d) => [-w / 2, d + h + 5], (w, h, d) => [d + 14, -h / 2], (w, h, d) => [-w - d - 14, -h / 2], (w, h, d) => [-w / 2, -h - 44],
   (w, h, d) => [-w / 2, d + 34], (w, h, d) => [d + 30, d + 22], (w, h, d) => [-w - d - 30, d + 22], (w, h, d) => [d + 30, -h - 22], (w, h, d) => [-w - d - 30, -h - 22]];
 
-/** A tag's contents, worded and short, each measured: the airports it covers when more than one, the reserves on call
- * and the crews resting away, with the breakdown by airport as its tooltip. */
+/** A tag's contents, worded and short, each measured: the airports it covers when more than one, the reserves on call,
+ * the crews resting away and the passengers stranded overnight, with the breakdown by airport as its tooltip. */
 function variants(el, members) {
-  const n = (f) => members.reduce((a, m) => a + f(m), 0), rest = n((m) => m.s.length), rp = n((m) => m.rp), rc = n((m) => m.rc);
+  const n = (f) => members.reduce((a, m) => a + f(m), 0), rest = n((m) => m.s.length), rp = n((m) => m.rp), rc = n((m) => m.rc), px = n((m) => m.px ?? 0);
   const codes = members.map((m) => m.code);
   el.title = members.flatMap((m) => [m.rp + m.rc && `${m.code} reserves on call: ${list(m.r.pilot, "pilot")}; ${list(m.r.cabin, "cabin")}`,
-    m.s.length && `${m.code}: ${m.s.length} crew${m.s.length > 1 ? "s" : ""} resting in a hotel away from base (${m.s.map((x) => x.unit).join(", ")})`]).filter(Boolean).join("\n");
+    m.s.length && `${m.code}: ${m.s.length} crew${m.s.length > 1 ? "s" : ""} resting in a hotel away from base (${m.s.map((x) => x.unit).join(", ")})`,
+    m.px && `${m.code}: ${m.px.toLocaleString("en-US")} passenger${m.px > 1 ? "s" : ""} stranded overnight`]).filter(Boolean).join("\n");
   const name = codes.length > 1 ? `<em>${esc(codes.length <= 3 ? codes.join(" · ") : `${codes.slice(0, 2).join(" · ")} +${codes.length - 2}`)}</em>` : "";
   const resting = rest ? `<span class="rest">${MOON}<b>${rest}</b></span>` : "";
   const res = (words) => (rp + rc ? `<span class="res"><i>R</i><span>${[rp && `<b>${rp}</b>${words ? " pilot" : "P"}`, rc && `<b>${rc}</b>${words ? " cabin" : "C"}`]
     .filter(Boolean).join(" ")}</span></span>` : "");
-  return [...new Set([res(true) + resting, res(false) + resting])].map((chips) => `${name}<div class="cm-row">${chips}</div>`).map((html) => {
+  const pax = (words) => (px ? `<span class="px">${BED}<b>${px.toLocaleString("en-US")}</b>${words ? " stranded" : ""}</span>` : "");
+  return [...new Set([res(true) + resting + pax(true), res(false) + resting + pax(true), res(false) + resting + pax(false)])].map((chips) => `${name}<div class="cm-row">${chips}</div>`).map((html) => {
     el.innerHTML = html;
     return { html, w: el.offsetWidth, h: el.offsetHeight };
   });
@@ -446,12 +470,27 @@ const STYLE = `
 .cm-key .k-rest { padding: 1px 4px; border-radius: 3px; background: ${CREW_INK}; color: #2a1446; }
 .cm-key .k-dh { width: 9px; height: 9px; border-radius: 50%; background: ${CREW_INK}; box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px rgba(20, 50, 74, 0.35); }
 .cm-sum.cm-pax { bottom: 27px; }
+.cm-tag .px { background: ${PAX_INK}; color: #4a3005; border: 1px solid rgba(255, 255, 255, 0.9); font-weight: 500; }
+.cm-tag .px svg { margin-right: 2px; fill: currentColor; }
+.cm-sum .flow i { width: 12px; height: 3px; border-radius: 2px; background: ${FLOW_INK}; box-shadow: 0 0 0 1px ${PAX_INK}; margin-right: 2px; }
+.cm-key .k-flow { width: 18px; height: 4px; border-radius: 2px; background: ${FLOW_INK}; box-shadow: 0 0 0 1.5px ${PAX_INK}; }
 .cm-key.pax { flex-wrap: wrap; justify-content: center; row-gap: 3px; max-width: calc(100vw - var(--left, 440px) - var(--right, 420px) - 80px); }
 .cm-sum .pax i { width: 8px; height: 8px; border-radius: 50%; background: ${PAX_INK}; box-shadow: 0 0 0 1px #a4741c; margin-right: 2px; }
-.cm-key .k-pax { width: 10px; height: 10px; border-radius: 50%; background: ${PAX_INK}; box-shadow: 0 0 0 1.5px #a4741c; }
+.cm-key .k-pax { padding: 1px 3px; border-radius: 3px; background: ${PAX_INK}; color: #4a3005; }
+.cm-key .k-pax svg { fill: currentColor; }
 .view.main .cm-key { left: 50%; transform: translateX(-50%); bottom: calc(var(--tl, 58px) + var(--gap, 14px) * 2 + 64px); }
 .view.corner .cm-key { display: none; }
 `;
+
+/** A gentle arc from a to b, bowing to the left of the way, so a flow and its return part and neither hides a route. */
+function arc(a, b, n = 32) {
+  const k = Math.cos(((a[1] + b[1]) / 2) * (Math.PI / 180)), dx = (b[0] - a[0]) * k, dy = b[1] - a[1];
+  const c = [(a[0] + b[0]) / 2 - (dy * BOW) / k, (a[1] + b[1]) / 2 + dx * BOW];
+  return Array.from({ length: n + 1 }, (_, i) => {
+    const u = i / n, v = 1 - u;
+    return [v * v * a[0] + 2 * u * v * c[0] + u * u * b[0], v * v * a[1] + 2 * u * v * c[1] + u * u * b[1]];
+  });
+}
 
 function injectStyle() {
   if (document.getElementById("cm-style")) return;
