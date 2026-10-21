@@ -115,13 +115,17 @@ def episode(world: World, data: Mapping, *, model: str, run: str, inputs: Path, 
 
 def passengers(world: World, data: Mapping) -> dict:
     """The day's passengers in the viewer's shape: per flight booked + added = flown + rebooked + stranded + home +
-    dropped (the pass's ledger), the booked connections and how many made each, and the pass's events."""
+    dropped (the pass's ledger), the booked connections and how many made each, and the pass's events; from the plan
+    played again, which must give the passengers the day recorded."""
     task, units = world.task, {u.id: u for u in world.units}
     plan = plan_of(data["plan"])
     truth = sim.truth(task)
     day = runs.truth(world, plan, truth)
     seated = {i: sum(units[u].size for u in us) for i, us in day.riders.items() if us}
     done, led = pax.ledger(task, world.passengers, day.run.flights, seated)
+    if json.loads(json.dumps(done.to_dict())) != data["passengers"]:
+        raise ValueError(f"{data['task_id']} {data['mode']}: the plan played again doesn't give the recorded "
+                         "passengers")
     held = held_minutes(world, data, plan, day, truth)
     booked, cin, cout = Counter(), Counter(), Counter()
     for g in world.passengers.groups:
@@ -246,7 +250,8 @@ def timing(data: Mapping) -> tuple[dict[int, int], list[dict]]:
 def answered(r: Mapping, calls: Sequence[Mapping], shown: Mapping[int, float], turns: Sequence[Mapping]) -> dict:
     """When the room shows a request sent, at the sender's call that made it, and answered, at the reply call."""
     asks = [c for c in calls if c["turn"] == r["turn"] and c["tool"].endswith("_request") and c["seq"] in shown
-            and c["args"].get("type") == r["type"] and (c["args"].get("text") or None) == (r.get("text") or None)]
+            and c["args"].get("type") == r["type"]
+            and (c["args"].get("text", c["args"].get("note")) or None) == (r.get("text") or None)]
     reply = [c for c in calls if c["tool"].endswith("_reply") and c["args"].get("request") == r["id"]
              and c["seq"] in shown]
     return {"shown": shown[asks[0]["seq"]] if asks else turns[r["turn"]]["to"],
