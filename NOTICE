@@ -1,4 +1,4 @@
-AirOpsEnv (v1 and v2)
+AirOpsEnv (v1, v2 and v3)
 Copyright 2026 Scale AI. Code licensed under Apache-2.0 (LICENSE).
 
 Data sources (see data/*/SOURCE.md for each file):
@@ -14,6 +14,10 @@ Data sources (see data/*/SOURCE.md for each file):
   Decisions (Table 4-7); BLS OEWS, ECEC and CPI-U; GSA and DoD per diem rates (U.S. Government works, public domain);
   and facts cited from JetBlue's 10-K filings and press releases, ALPA and Airline Pilot Central (crew bases, fleet
   configurations, average fare). Neither JetBlue nor any union is affiliated with this project.
+- v3's passengers: BTS's Airline Origin and Destination Survey, DB1B Market (to 2025 Q2) and DB1C Market (from
+  2025-07), as extracted into data/pax/ by scripts/pax_shares.py. U.S. Government works, public domain. The
+  rebooking rules are cited, not copied, from JetBlue's Contract of Carriage and Customer Service Plan and DOT's
+  14 CFR 260 (eCFR; 89 FR 32760); a night away is priced at GSA per diem lodging rates.
 - Iowa Environmental Mesonet (Iowa State University): archived METAR, TAF, NEXRAD composites. Public domain;
   attribution to the Iowa Environmental Mesonet is appreciated and given here.
 - airportsdata (MIT licence): airport coordinates and time zones.
