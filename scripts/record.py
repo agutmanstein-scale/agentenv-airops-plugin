@@ -69,7 +69,7 @@ DAY_ORDER = ("pushback", "push", "crew", "takeoff", "wait", "taxi", "van")
 """The airport shots a daylight still prefers, aircraft and people first."""
 DESKS = {"ops": "the ops controller", "crew": "the crew scheduler", "customer": "the customer desk"}
 ASKS = {"CANCEL": "to cancel", "CANCEL_PAIR": "to cancel the round trip of", "HOLD": "to hold",
-        "COVER": "to find a crew for"}
+        "COVER": "to find a crew for", "PROTECT": "not to cancel", "SUGGEST_CANCEL": "to cancel early"}
 CREW_MOVES = ("assign", "call_reserve", "deadhead", "swap")
 BRAND = "AirOpsEnv v2"
 DAWN = -1.0

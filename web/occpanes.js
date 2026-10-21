@@ -10,7 +10,7 @@ import { unitName } from "./room.js";
 
 const DESKS = { ops: "Ops controller", crew: "Crew scheduler", customer: "Customer desk", one: "Both desks" };
 const SHORT = { ops: "Ops", crew: "Crew", customer: "Customer", one: "Both" };
-const TYPES = { CANCEL: "Cancel", CANCEL_PAIR: "Cancel round trip", HOLD: "Hold", COVER: "Cover", TEXT: "Message" };
+const TYPES = { CANCEL: "Cancel", CANCEL_PAIR: "Cancel round trip", HOLD: "Hold", COVER: "Cover", TEXT: "Message", PROTECT: "Protect", SUGGEST_CANCEL: "Suggest cancelling" };
 const VERBS = { cancel: "cancelled", cancel_pair: "cancelled the round trip of", hold: "held", claim: "took a slot for", release: "released",
   assign: "put a crew on", call_reserve: "called a reserve for", deadhead: "flew a crew as passengers on", swap: "swapped a crew onto", rest: "rested the crew of",
   rebook: "rebooked passengers off", hotel: "booked hotels for passengers off" };
@@ -382,6 +382,8 @@ table.rq td.reply.pending { opacity: 0.45; }
 table.rq tr.t-CANCEL td.type, table.rq tr.t-CANCEL_PAIR td.type { color: #ffb0a8; }
 table.rq tr.t-HOLD td.type { color: #a9d0ff; }
 table.rq tr.t-COVER td.type { color: ${CREW_INK}; }
+table.rq tr.t-PROTECT td.type { color: #8fe0b0; }
+table.rq tr.t-SUGGEST_CANCEL td.type { color: #ffb0a8; }
 table.rq .st { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 10.5px; font-weight: 650; }
 table.rq .st.accept { background: rgba(90, 208, 143, 0.2); color: var(--ok); }
 table.rq .st.decline { background: rgba(255, 106, 92, 0.2); color: var(--cancel); }

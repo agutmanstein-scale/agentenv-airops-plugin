@@ -6,7 +6,7 @@ import { clock } from "./plain.js";
 
 const DESKS = { ops: "Ops controller", crew: "Crew scheduler", customer: "Customer desk", one: "Both desks" };
 const SHORT = { ops: "Ops", crew: "Crew", customer: "Customer", one: "Both" };
-const TYPES = { CANCEL: "Cancel", CANCEL_PAIR: "Cancel round trip", HOLD: "Hold", COVER: "Cover", TEXT: "Message" };
+const TYPES = { CANCEL: "Cancel", CANCEL_PAIR: "Cancel round trip", HOLD: "Hold", COVER: "Cover", TEXT: "Message", PROTECT: "Protect", SUGGEST_CANCEL: "Suggest cancelling" };
 const FRESH = 30;
 const REQUESTS = 3;
 const DECISIONS = 3;

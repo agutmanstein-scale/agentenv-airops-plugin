@@ -6,8 +6,8 @@ import * as THREE from "three";
 import { clock } from "../plain.js";
 import { unitName } from "../room.js";
 
-const TYPES = { CANCEL: "Cancel", CANCEL_PAIR: "Cancel round trip", HOLD: "Hold", COVER: "Cover", TEXT: "Message" };
-const STRIPE = { CANCEL: "#d9483b", CANCEL_PAIR: "#d9483b", HOLD: "#2a78d6", COVER: "#8a5cd6", TEXT: "#7d8a99" };
+const TYPES = { CANCEL: "Cancel", CANCEL_PAIR: "Cancel round trip", HOLD: "Hold", COVER: "Cover", TEXT: "Message", PROTECT: "Protect", SUGGEST_CANCEL: "Suggest cancelling" };
+const STRIPE = { CANCEL: "#d9483b", CANCEL_PAIR: "#d9483b", HOLD: "#2a78d6", COVER: "#8a5cd6", TEXT: "#7d8a99", PROTECT: "#1f9d5c", SUGGEST_CANCEL: "#d9483b" };
 const SHORT = { ops: "Ops", crew: "Crew", customer: "Customer", one: "Desk" };
 const DOT = { cancel: "#ff6a5c", cancel_pair: "#ff6a5c", hold: "#5aa8ff", claim: "#4fc3c8", release: "#9fb6cc", assign: "#b08cf0",
   call_reserve: "#b08cf0", deadhead: "#b08cf0", swap: "#b08cf0", rest: "#b08cf0", rebook: "#e9c27a", hotel: "#e9c27a" };

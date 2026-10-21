@@ -320,6 +320,8 @@ html.light, html.light body { background: #eef1f4; color: #14202b; overflow: aut
 .reqs li.t-CANCEL, .reqs li.t-CANCEL_PAIR { border-left-color: #e8503f; }
 .reqs li.t-HOLD { border-left-color: #3f8fe0; }
 .reqs li.t-COVER { border-left-color: #a86fe8; }
+.reqs li.t-PROTECT { border-left-color: #2f9d62; }
+.reqs li.t-SUGGEST_CANCEL { border-left-color: #e8503f; }
 .reqs li.fresh { box-shadow: 0 0 0 2px rgba(201, 155, 255, 0.55); }
 .reqs li .when { display: block; font-size: 10.5px; font-weight: 650; color: #6d6455; letter-spacing: 0.02em; }
 .reqs li b { font-weight: 650; }
