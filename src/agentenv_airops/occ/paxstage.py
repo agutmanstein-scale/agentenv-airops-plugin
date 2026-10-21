@@ -109,10 +109,14 @@ def passengers(ep: Mapping, sidecar: Mapping, stage: Mapping) -> dict | None:
                 city = leg.get("city") or leg.get("other") or ""
                 groups.append(group("off", n, [flight], walk, f"{n} off {flight}{f' from {city}' if city else ''}"
                                                               " · to baggage claim"))
-    for c in pax["connections"]:
-        if c["at"] != hub:
-            continue
-        a, b = sched.get(c["from"]), sched.get(c["to"])
+    missed_on: dict[tuple[int, int], int] = defaultdict(int)
+    for e in pax["events"]:
+        if e["kind"] == "misconnect" and e["at"] == hub and e.get("from") is not None:
+            missed_on[e["from"], e["flight"]] += e["pax"]
+    pairs = [(c["from"], c["to"], c["made"]) for c in pax["connections"] if c["at"] == hub]
+    pairs += [(i, j, 0) for i, j in missed_on if not any(p[:2] == (i, j) for p in pairs)]
+    for i, j, made in pairs:
+        a, b = sched.get(i), sched.get(j)
         if not a or not b:
             continue
         ga, gb = gate_of(legs, a, "arr"), gate_of(legs, b, "dep")
@@ -120,18 +124,18 @@ def passengers(ep: Mapping, sidecar: Mapping, stage: Mapping) -> dict | None:
             continue
         t0 = ga["at"] + DEPLANE
         start = lounges[by_stand[ga["stand"]]]
-        if c["made"] and gb is not None and gb["stand"] in by_stand:
+        if made and gb is not None and gb["stand"] in by_stand:
             end = lounges[by_stand[gb["stand"]]]
             if end is not start:
-                groups.append(group("connect", c["made"], [a["flight"], b["flight"]], face.walk(start, end, t0, site),
-                                    f"{c['made']} connecting to {b['flight']} · to {gate(gb['stand'])}"))
-        missed = c["pax"] - c["made"]
+                groups.append(group("connect", made, [a["flight"], b["flight"]], face.walk(start, end, t0, site),
+                                    f"{made} connecting to {b['flight']} · to {gate(gb['stand'])}"))
+        missed = missed_on[i, j]
         if missed and (gb is None or gb["at"] - t0 < MAKE_IT):
             dest = lounges[counter]
             segs = face.walk(start, dest, t0, site)
             groups.append(group("misconnect", missed, [a["flight"], b["flight"]], segs,
                                 f"{missed} missed {b['flight']} · to the service counter"))
-            joins.append((segs[-1]["t"][1], c["to"], missed, None, "misconnect"))
+            joins.append((segs[-1]["t"][1], j, missed, None, "misconnect"))
     line = queue(joins, events, groups, lounges, counter, face, site, sched, by_stand, legs, curb)
     tags = {}
     for i, r in rows.items():

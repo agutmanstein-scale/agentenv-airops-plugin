@@ -44,7 +44,7 @@ def episode() -> dict:
                 {"from": 4, "to": 2, "at": "JFK", "pax": 8, "made": 0}], "events": events}}
 
 
-def scene() -> dict:
+def scene(ep: dict | None = None) -> dict:
     side = sidecar()
     for a in side["aircraft"]:
         for v in a["visits"]:
@@ -52,7 +52,7 @@ def scene() -> dict:
                 if v[k] and "sched" not in v[k]:
                     v[k]["sched"] = next(s["sched_dep" if k == "dep" else "sched_arr"] for s in SCHEDULE
                                          if s["flight"] == v[k]["flight"])
-    return ps.passengers(episode(), side, stage())
+    return ps.passengers(ep or episode(), side, stage())
 
 
 def test_each_jet_bridge_gate_gets_a_lounge_behind_the_glass_as_wide_as_its_neighbours_allow():
@@ -88,6 +88,15 @@ def test_connecting_passengers_walk_the_concourse_gate_to_gate_and_those_who_mis
     missed = walks["misconnect"]
     assert missed["n"] == 8 and missed["segs"][-1]["p"][-1] == pytest.approx(doc["lounges"][doc["counter"]]["door"])
     assert missed["segs"][0]["say"] == "8 missed B6 202 · to the service counter"
+
+
+def test_passengers_rebooked_onto_a_connection_they_then_miss_go_to_the_counter_too():
+    ep = episode()
+    ep["passengers"]["flights"][1] |= {"added": 3, "misconnected": 11}
+    ep["passengers"]["events"].insert(1, {"t": 700, "kind": "misconnect", "at": "JFK", "flight": 2, "from": 4,
+                                          "pax": 3})
+    [missed] = [g for g in scene(ep)["groups"] if g["kind"] == "misconnect"]
+    assert missed["n"] == 11 and missed["segs"][0]["say"] == "11 missed B6 202 · to the service counter"
 
 
 def test_an_arrival_s_passengers_who_end_their_trip_here_walk_off_to_the_landside():

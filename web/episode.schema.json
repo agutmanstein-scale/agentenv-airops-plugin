@@ -262,7 +262,8 @@
             "properties": {
               "id": {"type": "integer"}, "booked": {"type": "integer", "minimum": 0}, "added": {"type": "integer", "minimum": 0},
               "conn_in": {"type": "integer", "minimum": 0}, "conn_out": {"type": "integer", "minimum": 0},
-              "flown": {"type": "integer", "minimum": 0}, "misconnected": {"type": "integer", "minimum": 0},
+              "flown": {"type": "integer", "minimum": 0},
+              "misconnected": {"type": "integer", "minimum": 0, "description": "Of booked + added, missed it because their inbound came in too late: the sum of its misconnect events. At least the sum of pax - made over its connections where both flights flew; more when passengers rebooked onto it (added) miss it on their new itinerary, who are in no booked connection."},
               "rebooked": {"type": "array", "items": {"type": "object", "required": ["to", "pax"],
                                                       "properties": {"to": {"type": "integer"}, "pax": {"type": "integer", "minimum": 0}}}},
               "stranded": {"type": "integer", "minimum": 0}, "home": {"type": "integer", "minimum": 0},
@@ -273,6 +274,7 @@
         },
         "connections": {
           "type": "array",
+          "description": "The connections booked at the start of the day, one row per inbound and outbound pair; a rebooked itinerary's connection is not one.",
           "items": {
             "type": "object",
             "required": ["from", "to", "at", "pax", "made"],

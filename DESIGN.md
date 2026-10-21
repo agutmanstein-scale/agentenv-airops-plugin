@@ -118,8 +118,10 @@ passengers {flights, connections, events} | absent         # v3: the day's passe
 ```
 
 On a v3 day, `passengers` holds `flights` `[{id, booked, added, conn_in, conn_out, flown, misconnected, rebooked:
-[{to, pax}], stranded, home, hold}]` (booked + added = flown + Σ rebooked + stranded + home; `hold` the minutes the
-departure waited for connecting passengers), `connections` `[{from, to, at, pax, made}]` and `events` `[{t, kind:
+[{to, pax}], stranded, home, dropped, hold}]` (booked + added = flown + Σ rebooked + stranded + home + dropped;
+`misconnected` the sum of its misconnect events, at least Σ (pax − made) over its booked connections, more when
+passengers rebooked onto it miss it on their new itinerary; `hold` the minutes the departure waited for connecting
+passengers), `connections` `[{from, to, at, pax, made}]` (booked at the start of the day) and `events` `[{t, kind:
 misconnect | rebook | hotel | home, at, flight, pax, from, to, until}]`. The customer desk is the role `customer` in
 `occ`: its turns, pages and notes, its requests (a `HOLD` for connecting passengers carries `pax`) and its decisions
 (`rebook` with `to` and `pax`, `hotel` with `at` and `pax`). `web/episode.schema.json` has them all.
