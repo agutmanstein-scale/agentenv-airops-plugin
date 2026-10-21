@@ -1,7 +1,9 @@
-# AirOpsEnv design (v1)
+# AirOpsEnv design
 
 An airline operations desk recovers a real storm day at a JetBlue hub, live on AgentEnv's virtual clock. This file is
-the contract between the modules; the README tells users how to run it.
+the contract between the modules; the README tells users how to run it. It gives v1's contract, then
+[v3's passengers and customer desk](#v3-passengers-and-the-customer-desk) on top of v2's control center, whose own
+contract is in the docstrings of `occ/` and `programs/`; the Episode JSON and the viewer serve every version.
 
 ## Units and time
 
@@ -99,6 +101,83 @@ Watches every 60 minutes from `start` until every flight is frozen or flown. Fli
 - `blind`: the follower with no forecast.
 - `naive`: the empty plan.
 - `airline`: JetBlue's real cancellations and departure times as the plan (display only).
+
+## v3: passengers and the customer desk
+
+v3 (`airops-occ3`) plays v2's control-center day on a b6-v3 date, its passengers on board, with a third desk. Bookings,
+the passengers' day and the MIP's passengers are `programs/pax.py`, cost P `programs/cost.py`, the customer desk's page
+and lookups `occ/customer.py`, the day `occ/day3.py`, the env `occ/live3.py`, the bundle `occ/tasks3.py` and the CLI
+`occ/cli3.py` (`agent-env airops-occ3`).
+
+### A b6-v3 date
+
+`data/b6-v3/dates/<date>.json.gz` is the b6-v2 date unchanged, with three keys added:
+
+```
+passengers   {source: "DB1B 2024Q3",                    # the date's survey period: a DB1B quarter, or a DB1C month
+              fare: 158.3,                              # a refunded passenger's fare, in passenger-minutes
+              groups: [[id, [flight ids], pax]],        # one leg, or two through JFK, BOS, FLL, MCO or SJU
+              later: [[flight, orig, dest, dep, arr, free, day, booked]]}   # the next 5 days' schedules, seats left
+refs_p       {best, bound, gap_pct, best_from, bound_from, mode,   # bound and gap_pct null where none was found
+              candidates: {v2_best, B0, incumbent_desk, rounded_desk, A_v2_desk, repair},   # each one's P
+              controls: {naive, B0, reference, naive_over_reference, B0_over_reference},
+              airline}                                  # JetBlue's own decisions replayed under P
+best_plan_p  {...}                                      # the reference plan, in best_plan's shape
+```
+
+- `best_from` names the candidate that won; `mode` is how it replays: `named` (the plan's crews, nothing filled) or
+  `desk` (the standard crew desk). `bound_from` is `capacity-aware` when the pack was built with a bound run.
+- `later` times are minutes from the task date's midnight; `free` is a flight's seats less its own T-100 load.
+- The manifest adds `base` (b6-v2) with its manifest's sha256, the sha256 of `data/pax/*.csv`, and `bound_run`.
+  `scripts/build_occ_pack.py --v3 <stage-2 run> --bound <bound run>` writes it; b6-v2 stays byte-identical.
+
+### The passengers' day (`pax.fly`)
+
+A pass over a finished day: passengers never change what aircraft and crews do, and crews riding a flight take their
+seats first. A group is disrupted when a leg it holds is cancelled (at the decision, or when it reaches that leg's
+origin if later) or it misses a connection (arriving later than the outbound's departure less the station's minimum
+connection time: 45 min at JFK and BOS, 40 elsewhere). Disrupted groups are rebooked in time order onto JetBlue
+itineraries to their final destination, direct or through one connecting station, the earliest scheduled arrival
+first, ready one connection time after the decision at their origin or after their arrival at a connection; a flight
+3 h or more earlier than the one booked only when no other seat is left. Who has no seat today takes the next 5
+days' first seats, a night away for each night; who has none is refunded. The day (`pax.Day`) gives `delay`,
+`lodging`, `fare`, `outcomes` (`flew`, `rebooked`, `stranded`, `refunded`), `misconnected`, the `parts` and the
+`events` (`misconnect`, `rebook`, `hotel`, `home`).
+
+### Cost P
+
+`cost.priced` with the passengers' day: v2's terms but two. Delay is charged at each passenger's final destination (a
+refunded passenger's wait up to the refund) in place of v2's delay at every leg; a cancelled flight's booked
+passengers cost 66 each (the refund exposure) in place of 523, the notice term unchanged. `lodging` and `fare` join the
+flat cost. Without passengers every term and output is v2's.
+
+### The day (`OccDay3`)
+
+- **Roles:** `ops`, `crew` and `customer` in mode `joint`; `both` in mode `one`. Each role sees its tools by prefix:
+  `ops_`, `crew_`, `cust_`; every role has `end_turn`, `wait_turn` and `resign`.
+- **Turns,** each watch: crew, customer, ops; then the crew desk's reply turn if ops sent it a request or a text, and
+  the customer desk's if ops texted it. Mode `one` has one turn a watch and no channel.
+- **Requests:** the customer desk asks ops HOLD (`flight` until `until`), PROTECT (`flight`), SUGGEST_CANCEL (`flight`)
+  or TEXT; ops answers with `ops_reply` and tells the customer desk TEXT only. A customer request carries `pax`: for a
+  HOLD the connecting passengers who miss the departure as projected and make it at the hold, otherwise the flight's
+  booked. An accepted HOLD is ops' hold; PROTECT and SUGGEST_CANCEL are advice, carried out, if at all, with ops' own
+  tools. A new request on a flight replaces an older one from the same side (the customer desk, or ops and crew), never
+  one across.
+- **Lookups:** `cust_flights` (flights by filter, `status` `attention` for the page's two lists) and `cust_flight` (one
+  flight's passengers, connections and margins, later seats, and where they would go were it cancelled now), all on
+  the projection at the watch.
+- **Grade:** v2's, against `refs_p`: the reward against `best` and B0, `reward_L` against `bound` (none without one);
+  `grade.passengers` holds the outcomes, `misconnected`, `delay`, `lodging` and `fare`.
+- **Audit:** v2's A1 to A7; A5 also plays the passengers' day again over the day's flights and riders and checks it
+  costs what the grade read. The digest adds the passengers' day.
+
+### The env and the bundle
+
+The env `airops-occ3` (`OccEnv3`, `Dockerfile.occ3`) is v2's with the customer tools added and `ops_request` taking
+`to` (`crew` or `customer`); `urn:airops:occ-load/v1` takes `mode` `joint` or `one`. The bundle `airops-occ3`
+(`tasks3.generate`) holds per date `<task id>-joint`, three `airops-desk` agents in roles crew, customer and ops at $5
+each, and `<task id>-one`, one in role `both` at $12, graded by `airops-occ3-verifier`; `--noplay` adds
+`wiring-noplay`.
 
 ## Episode JSON (the viewer's input)
 
