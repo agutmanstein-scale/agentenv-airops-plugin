@@ -1,3 +1,310 @@
+# AirOpsEnv v3: fidelity report
+
+v3 puts JetBlue's passengers on v2's storm days and adds a third desk for them, the customer desk. This report says
+what about the passengers is real data and what is generated, which rules move them when their flight goes, how the
+generator and the references were checked before the next stage was built, and where the checks missed. It covers the
+pack `b6-v3` (v2's 70 dates, each with its passengers and its references under the passenger cost P) and the env
+`airops-occ3` released in v0.4.0. v2's world, crews and their checks are unchanged and were not rerun: crews keep their
+seats ahead of passengers, so v2's crew sim plays every day as before. [v2's report](#airopsenv-v2-fidelity-report)
+follows below, unchanged.
+
+The rules are v2's. Every check was pre-registered, and every change to a rule was recorded with its reason before it
+was used: step 0 was re-registered twice and stage 2 twice, each time before the runs it governed. A check that failed
+is reported as it stood, and the call to ship or stop was made once. Nothing was fitted to JetBlue's decisions or to
+its passengers' outcomes, and no language model was called by any check. Before each result was posted an independent
+agent recomputed its bars from the run's per-date files and re-simulated a sample of dates with the pinned code. One
+disclosure: before step 0 was registered, one eval date (2024-07-13) was run once against an earlier model with no seat
+limits in its MIP; that model was discarded, and the bars were written without that result being seen.
+
+**Contents:** [The layers](#v3-the-layers) · [Real data](#v3-real-data-used-as-recorded) ·
+[Generated passengers](#v3-passengers-generated-per-flight) · [Rebooking rules](#v3-the-rebooking-rules) ·
+[Cost P](#v3-cost-p) · [Generator checks](#v3-the-generator-checks) ·
+[Reported only](#v3-reported-only-no-comparable-public-record) · [Controls](#v3-the-controls-under-p) ·
+[Reference and bound](#v3-the-reference-and-its-bound) ·
+[Step 0 and stage 2b](#v3-is-there-something-for-a-customer-desk-to-do) · [Stage 3](#v3-stage-3-the-model-desks) ·
+[Not modelled](#v3-not-modelled-labelled) · [Misses and limits](#v3-misses-and-limits) ·
+[Rerun](#v3-rerun-the-checks)
+
+## v3: the layers
+
+| Layer of the real system | In v3 | Checked by |
+|---|---|---|
+| Passengers per flight | each flight's seats times its route-month load factor from T-100, as in v2 | P1 and P4: bookings against T-100 |
+| Connections | generated per date from the itinerary survey of its own period, at JFK, BOS, FLL, MCO and SJU | P2 and P3: against the survey's connecting shares and DB1C's connection times |
+| Rebooking when a flight goes | JetBlue only, from the decision, earliest arrival first, for up to five days, then a refund; a move 3 h or more earlier only when no other seat is left | the published rules; outcomes reported, with no public record to check them against |
+| What a disruption costs | cost P: delay at the final destination, refund exposure, a lodging night per night away, refunded fares | sourced, not checked against outcomes |
+| The customer desk | requests to ops (hold, don't cancel, this flight's passengers can be moved) and pages of each flight's passengers; rebooking stays automatic | stage 2b (scripted desks), then the model board |
+| International connections, other airlines' seats, compensation, rebooking by hand | not modelled | labelled below |
+
+## v3: real data, used as recorded
+
+| What | Source | Used for |
+|---|---|---|
+| JetBlue's passengers and seats per route and month | BTS T-100 Segment, the census JetBlue files; summed over a year it gives JetBlue's reported load factor (FY2025: 82.37% against 82.4%) | each flight's booked passengers, as in v2; the following days' seats left |
+| Itineraries with connections | BTS Airline Origin and Destination Survey: DB1B Market (a 10% ticket sample, quarterly, to 2025 Q2, when its collection ended) and DB1C Market (40%, monthly, from July 2025, with each connection's scheduled time) | each date's connecting flows, from its own quarter or month; connection times (`data/pax/b6-transfers.csv`, `b6-dwell.csv`) |
+| Fares | the same surveys: the passenger-weighted median one-way market fare on JetBlue per period, taxes included ($163 to $203 in each period's own dollars) | a refunded passenger's fare (`data/pax/b6-fares.csv`) |
+| The following five days' flights | BTS on-time schedules of the next five days, each flight's seats from its tail's type less its own T-100 load | where a passenger with no seat today can go |
+| Lodging | GSA per diem lodging rates by city and season, as v2's crew hotels | a night away |
+| The rules | JetBlue's Contract of Carriage and Customer Service Plan; DOT's refund rule, 14 CFR 260 | rebooking, refunds and what is owed (below) |
+
+## v3: passengers, generated per flight
+
+No airline's itineraries are public, so each date's passengers are generated stand-ins, labelled as such like v2's
+crews (`programs/pax.py`, `book`):
+
+- **Who connects.** A route's departing passengers at a connecting station (JFK, BOS, FLL, MCO, SJU) include those who
+  arrived on an earlier JetBlue flight: per origin, the share the survey of the date's own period shows, times the
+  route's booked passengers that day. Each origin's connecting passengers are spread over the day's scheduled
+  JetBlue-to-JetBlue connections onto the route, from the station's minimum connection time to 6 h, in proportion to
+  DB1C's connection-time distribution at the station, never more passengers than either flight has left to assign. A
+  passenger connects at most once (three-leg itineraries are 0.04% to 0.2% of JetBlue's). Everyone else is local. The
+  same date always gets the same passengers.
+- **Minimum connection times.** JetBlue publishes none. Its sold connections in DB1C hardly ever go below 45 minutes
+  at JFK and BOS or 40 elsewhere, so those are the minimums (labelled).
+- **On an eval date** the generator books a median of 86,148 passenger trips (59,412 to 96,759), 2.7% of them
+  connecting (2.0% to 3.5%), from 11 survey periods: DB1B quarters for dates to June 2025, DB1C months after.
+  JetBlue's own connecting share fell across the window, from about 10% of the passengers on its domestic flights in
+  2023 Q1 to 5% to 6% in 2025 and 2026, so each date takes its own period's flows, never a pooled one.
+
+## v3: the rebooking rules
+
+How passengers move when their flight is cancelled or their connection is missed decides most of P. The rules are
+JetBlue's own, as published, plus DOT's:
+
+| Rule | Source |
+|---|---|
+| **JetBlue only, the next available flight, from the decision.** A passenger off a cancelled flight is rebooked from the minute of the cancellation (or of arriving at the hub, after a missed connection) onto JetBlue flights only | Contract of Carriage §37(c): "reaccommodation on the next available JetBlue flight in the same class of service at no additional charge", word for word in Rev 88 (in force in December 2022), Rev 98 and Rev 103. The contract gives no right to another airline (§25(a)). Chosen over rebooking on other airlines when JetBlue can't, and over v2's flat price |
+| **Up to five days, then a refund.** A passenger with no JetBlue seat today takes the first seat of the next five days' schedules, a night away for each night waited; with none in five days, a refund | JetBlue's Customer Service Plan: "Rebook to an alternate JetBlue flight within five days" or a full refund. The five-day wording is in the plan's archived captures from May 2025 on; the same window is applied on every date (labelled) |
+| **Under 3 h earlier is free; 3 h or more earlier only if no other seat is left.** A move onto a flight leaving 3 h or more before the one booked is taken only when no later seat exists today or in the five days; otherwise it would be a refund | DOT, 14 CFR 260.2 (89 FR 32760, compliance from 2024-10-28): a departure 3 h or more earlier is a significant change the passenger may refuse for a refund. Applied on every date, before 2024-10-28 too (labelled). Airlines do rebook onto earlier flights (American's Rule 240, as quoted in 2003). Drawn after step 0 showed its pass leaning on free moves to any earlier flight |
+| **Earliest scheduled arrival first,** ties by departure; first come, first served in the order passengers are disrupted | JetBlue publishes no rule; this is how automatic re-accommodation works (labelled) |
+| **Ready one minimum connection time after the decision** at the passenger's origin | an assumption: a passenger at its origin is taken to be at the airport (labelled) |
+| **Crews keep seat priority** | so the crew sim is v2's, unchanged |
+| **Nothing owed on a storm day.** No compensation, meals or hotels are charged | the contract treats weather and air traffic control as force majeure, and its chain rule extends that to the crew time-outs and misplaced aircraft that follow. Refunds and rebooking still apply. A night away is charged as one GSA lodging night, the passenger's own cost (labelled: many of those stranded are at their own origin) |
+
+**Why the rules changed before any eval run.** As first registered, passengers were rebooked first come, first served
+by scheduled departure, never before their booked departure, with a next-day fallback. On 8 train dates JetBlue's own
+replayed day then stranded 88% of the passengers off its cancelled flights overnight: 54% had no later JetBlue flight
+to their destination that day, and the rest found the later flights full, at a 0.90 load factor. The public benchmarks
+(about 80% recovered the same day, Bratu and Barnhart, a hub carrier in August 2000; a 457-minute average delay of a
+disrupted passenger, TDI 2010 for US 2007) describe calm periods and carriers that rebook onto other airlines; JetBlue's
+contract doesn't. Re-registration 1 adopted the contract's rules, re-registration 2 the earliest-arrival order, and
+stage 2's registration the 3 h line, each before the runs it governed.
+
+## v3: cost P
+
+P keeps every term of v2's cost but two (`programs/cost.py`, in passenger-minutes at the FAA's $1.07):
+
+- **Delay is charged at each passenger's final destination,** rebooked or a later day's arrival included, in place of
+  v2's delay at every leg. A refunded passenger is charged the time waited, from the booked departure to the refund.
+- **A cancelled flight's passengers cost 66 each,** the refund exposure in v1's 523 (an assumed 0.3 take-up of the $235
+  DB1B median fare), their real delay replacing the flat 457 minutes.
+- **Two terms join the flat cost:** a GSA lodging night per night away, and the fare of every refunded passenger.
+
+The notice term (a cancellation decided under 2 hours ahead costs more) and the airline's aircraft and crew costs are
+v2's. With passengers off, every cost and output is v2's to the byte; a test checks the digests.
+
+## v3: the generator checks
+
+These check that the generated passengers reproduce their public inputs. They are not an independent fidelity test:
+there is no public per-day record of JetBlue's passengers. Registered before stage 2 ran, on all 70 dates.
+
+| Check | What it tests | Result | Bar | Verdict |
+|---|---|---|---|---|
+| P1 | booked passengers per date against T-100's passengers per departure on the date's routes that month, times the day's departures | 70 of 70 within 5% | within 5% on 90% of dates | pass |
+| P2 | connecting share per connecting station against the period's DB1B or DB1C JetBlue-to-JetBlue share | 65 of 75 (period, station) cells within 1.5 points; 66 of the 75 below the survey | within 1.5 points | **fail** |
+| P3 | median scheduled connection time against DB1C's, at stations with 1,000 or more survey transfers | 5 of 5 within 20 min (the largest difference 10.6 min, JFK) | within 20 min | pass |
+| P4 | the following days' loads, tested as P1 | 70 of 70 within 5% | as P1 | pass |
+
+- **Why P2 fails.** The generator drops connecting flows it can't place: about 20% of the connecting passengers it
+  targets (JFK 18.6%, BOS 27%, FLL 20.5%, MCO 22.5%, SJU 3.4%) have no inbound flight from their origin landing
+  between 45 and 360 minutes before the outbound that day, and become locals. DB1C's connection-time distribution stops
+  at 360 minutes and DB1B has no times, so longer connections can't be placed. Seats drop almost none (22 passengers
+  over the 70 dates). Pooled over the dates, the generated shares fall short of the target by 1.9 points at JFK, 1.5
+  at BOS, 1.2 at FLL, 0.5 at MCO and 0.1 at SJU. A second effect hides part of it: the day's route mix can lift the
+  target above the period's share (JFK in 2024 Q1: 11.70% against 10.26%), so some cells pass only because of that.
+- **What it does:** fewer connecting passengers than the survey has, so fewer misconnects in P and fewer batches of
+  passengers large enough for a customer desk to hold a flight for. It works against the desk. Shipped as it is,
+  labelled.
+- **P1 and P4 are close to true by construction:** booked passengers are seats times the route-month load factor, so
+  they test only the day's gauge against the month's.
+
+## v3: reported only, no comparable public record
+
+No public record gives JetBlue's passengers' outcomes on a storm day, nor any airline's on JetBlue-only rebooking. These
+are reported as findings, with no bar (stage 2, medians over the 70 dates):
+
+| Figure | v3 | The nearest public figure, and why it doesn't compare |
+|---|---|---|
+| Passengers disrupted (off a cancelled flight or a missed connection), under the reference | 0.7% of trips | 3.4% of US passengers in 2007, all days and airlines (TDI 2010) |
+| Mean delay of a disrupted passenger, under the reference | 930 min | 457 min (TDI 2010), with rebooking on any airline and caps of 8 h by day and 16 h at night |
+| Misconnects and refunds, under the reference | 250 misconnected a date; refunds none on most dates (at most 96) | none per date |
+| JetBlue's own decisions replayed: of the passengers off its cancelled flights, the same day / overnight / refunded | 15% / 80% / 1.4%, mean delay 1,861 min (over the 64 dates whose cancelled flights carried passengers) | about 80% the same day (Bratu and Barnhart: a hub carrier in calm August 2000, rebooking onto other airlines) |
+
+**Holds.** The reference's holds were counted (a median of 85 a date, up to 303; a median hold of 6 minutes), but the
+count takes in every flight leaving later than its aircraft-only dispatch, crew waits of up to 709 minutes included,
+and 55% of those holds sit on the 25 dates whose reference is v2's own plan. It doesn't measure holds for connecting
+passengers, so the comparison with United's (about 4 minutes) and American's (about 10) published averages was
+withdrawn.
+
+## v3: the controls under P
+
+Two calm control dates. v3's "doing nothing" is the trip rule with no crew desk at all; B0, as in v2, is the standard
+crew desk with the aircraft doing nothing.
+
+| | 2024-07-03 (summer) | 2025-01-15 (winter) |
+|---|---:|---:|
+| Doing nothing, no desk, over the reference | 1.10× | 1.39× |
+| B0 over the reference, under P | 1.05× | 1.14× |
+| B0 over the best plan, under v2's cost (v2's controls) | 1.04× | 1.17× |
+
+- **P barely moves the calm-day gap** against B0; the large ratios are the no-desk arm's. On 2024-07-03 crew cost is
+  100K of the 117K gap.
+- **The winter control's reference cancels 7 flights at 04:00** on a calm day, 497 passengers among them a JFK–Los
+  Angeles round trip (B6 323 and B6 724); v2's best plan cancels 1. Under P a calm-day cancellation whose passengers
+  are rebooked the same day is cheap (66 a passenger, its aircraft costs saved): there it nets out cheaper. P carries
+  no lost revenue or goodwill, which a real airline would weigh (labelled).
+
+## v3: the reference and its bound
+
+**The reference** (registered as v2's): the cheapest plan under P that replays exactly with a legal crew on every flight
+it flies, from a fixed set of candidates: v2's joint best plan; B0; the passenger-aware aircraft plans, re-solved under
+the 3 h line for all 70 dates and played through the standard crew desk (the MIP's incumbent, its rounded LP plan and
+v2's aircraft plan); and one repair of the best of those with v2's own crew-plan search, capped at 1,800 s. No other
+search.
+
+- **Where it came from:** the repair on 42 of the 70 dates, v2's best plan on 25 and B0 on 3; on the 24 eval dates,
+  16, 7 and 1. Re-simulated with the pinned code on the 24 eval and 2 control dates, the P of the reference, v2's best
+  plan, B0 and doing nothing all match the stored values, with no flight uncrewed.
+- **The legality check is weak as a filter:** in the named replay a flight whose named crew can't fly waits for it or
+  cancels at its deadline, and that is priced in P, so no uncrewed flight is near-automatic (as in v2's definition).
+- **The repair's cap was soft:** it ran past 1,800 s on 49 of the 70 dates, up to 2,268 s with setup. That can only
+  make the reference cheaper; even if the five closest passing dates of 2b-1 flipped, 2b-1 would still pass.
+- **B0 can be close to the reference under P.** B0 scores 0.308 where it costs at least 10% over the reference, which
+  holds on 20 of the 24 eval dates. On 2023-07-29 (0.907), 2024-06-23 (where B0 is the reference, 1.0), 2024-07-15
+  (0.697) and 2024-07-22 (0.498) it scores more. Under v2's cost B0 scored 0.308 on every eval date.
+- **The reference is not an optimum.** It is the best of a fixed set and one capped repair, so a run can come in under
+  it; such a run scores 1.0 and is flagged, as in v2.
+
+**The bound** (reported only, no bar):
+
+- **As first registered** (v2's bound machinery with every passenger term at its floor) it came out negative on all 70
+  dates (−1.14M to −2.90M): with a cancelled passenger at its floor of 66, the floor model cancels everything.
+- **Replaced (stage 2's re-registration 2) by a capacity-aware floor** (`pax.Proxy.lower`): a local passenger's delay
+  charged exactly, a held connection at 0, and a disrupted passenger at the cheapest of three outcomes: the earliest
+  possible arrival today on a flight into their destination, with seats relaxed to the family's largest aircraft; the
+  first arrival on a later day plus one night's cheapest lodging; or the refund at the fare alone. The bound is the
+  largest of the A*'s, the restricted A*'s, and the restricted A*'s plus each crew's least cost. It never charges more
+  than P; a test checks that on 10 fixture days and 12 plans each.
+- **A trial on two train dates,** before the run, gave gaps of 58.6% (2024-07-28) and 81.4% (2025-02-18), most of it
+  HiGHS not finishing (49% and 81% left at a 900 s limit).
+- **The registered run** (all 70 dates, 1,800 s each, on one machine): valid on all 70, every plan played on a date
+  (the candidates and doing nothing) costing at least its bound. The gap to the reference is 54.2% to 78.7% on the 24
+  eval dates (median 65.9%), and a median 68.0% over all 70.
+- **Most of it is the solver not finishing.** HiGHS stopped at its limit on every date; on the eval dates its own open
+  gap is a median 69% of the published one (46% to 86%). The relaxation is weak too: on four training dates HiGHS
+  closed to under 1% and the gap still stood at 65% to 70%.
+- **The winter control's bound is negative:** on 2025-01-15 HiGHS's bound was still below zero at the limit (−150K
+  against a reference of 610K, a gap of 124.6%). It is published as it came out, and is still a valid bound.
+- **So the gap mostly measures the bound,** not the reference, and `reward_L`, the reward against the bound, reads low.
+  Read the reward against the reference first.
+
+## v3: is there something for a customer desk to do?
+
+Two pre-registered checks came before the desk was built.
+
+**Step 0, the premise without crews.** Aircraft only, on v2's step-0 world. G1: v2's aircraft plan costs at least 5%
+more under P than the passenger-aware plan, on 12 or more of the 24 eval dates. **Pass, 16 of 24**; the median ratio
+1.098, the range 1.0 to 1.72, the smallest passing ratio 1.069 and the largest failing 1.0025.
+
+- **It is not the connections.** The same 16 dates pass at half and at twice the connecting shares. The pass comes from
+  pricing each cancelled passenger by their real rebooking instead of v2's flat 523: the passenger-aware plan cancels
+  more flights than v2's on 11 of the 16 passing dates, flights whose passengers fit on other JetBlue flights, often
+  earlier ones. That is what led to the 3 h line.
+- **The MIP proved no date** (gaps 4.5% to 34%; on two dates its bounds were negative, −17.1M on 2022-12-07 and −22.1M
+  on 2023-12-18, so their gaps of 799% and 598% say nothing), ran past its 30-minute limit on 16 dates, and the run
+  stored no plans, so the 6 dates it improved can't be re-scored; without them G1 is still 14 of 24.
+- **Assigning the scarce seats optimally** instead of by the default order was worth 0% to 9% of P (median about
+  1.6%) in step 0, before the 3 h line: an upper bound, since that assignment sees the whole day.
+
+**Stage 2b, with crews, under the 3 h line.**
+
+| Bar | Result | Needed | Verdict |
+|---|---|---|---|
+| 2b-1, the premise with crews: P(v2's joint best plan) at least 1.05 × P(the reference) | 17 of 24 eval dates; median 1.096, range 1.000 to 1.721 | 12 of 24 | pass |
+| 2b-2, can a desk capture it: P(three scripted desks) at most 0.98 × P(two scripted desks) | 2 of 24 (2023-07-09 at 0.910, 2023-12-18 at 0.965); median 1.017, worst 1.126 (2023-07-13) | 12 of 24 | **fail** |
+
+- **2b-1 is robust:** five passing dates sit between 1.05 and 1.09, and with all five flipped it would still be 12 of
+  24.
+- **The scripted customer desk** follows published practice, as registered: it holds an outbound up to 15 minutes when
+  10 or more connecting passengers would otherwise misconnect, and asks ops not to cancel a flight when at least half of
+  its passengers have no later JetBlue itinerary that day (stage 2's re-registration 1). An independent re-simulation
+  confirmed both rules on 4 dates.
+- **Why it hurts: the requests not to cancel.** With the customer desk, ops cancels 13 flights by its rule instead of
+  48, and cancellations at the deadline rise from 1 to 32: the protected flights mostly can't fly, so they cancel hours
+  later at late-notice cost (+266K on 2023-07-13, +305K on 2024-07-13). On 2023-07-09, the best date, ops' projection
+  was too pessimistic and the protected flights flew late instead, cutting delay by 1.15M.
+- **Holds alone** move P by −0.4% to +0.35%. The hold rule fired 11 times in 24 dates, partly because P2's thin
+  connecting shares make batches of 10 rare.
+- **Edgar's call: ship the customer desk anyway, labelled,** as v2 shipped its two desks when its coordination
+  gate failed. The premise holds with crews; a scripted desk built from published practice doesn't capture it. Whether
+  a model desk does is what the board measures.
+
+## v3: stage 3, the model desks
+
+[TBD: the env lane's zero-spend checks of `airops-occ3` (doing nothing reproduces the pack's reference, the scripted
+desks reproduce stage 2b's arms, the stored reference plan scores 1.0, the audit, a leak test, determinism), the
+pilot, and the board: runs scored, replayed exactly and audited, and the independent recheck of every reward.]
+
+## v3: not modelled, labelled
+
+| Left out | Why, and what stands in |
+|---|---|
+| International connections | DB1B and DB1C hold domestic itineraries only (US points, Puerto Rico and the USVI included), and BTS on-time data has no international flights, so v2's world has none. JetBlue flew 26% of its departures and 28% of its passengers internationally in 2025 (T-100); from the gap between T-100 and the survey, about 8% to 10% of its domestic passengers at JFK in 2025 Q2 were on itineraries with a foreign point (an estimate). None are generated |
+| Other airlines' rebooking | JetBlue's contract promises JetBlue only; interline connections (0.15% to 0.71% of JetBlue's segment passengers) are not generated |
+| Compensation, meals and hotels on storm days | force majeure under the contract, so none is charged; a night away costs the passenger one GSA lodging night |
+| Rebooking by hand at the customer desk | rebooking stays automatic, earliest arrival first; reassigning the scarce seats by hand is worth 0% to 1% under the 3 h line, and is left out |
+| Passengers who choose a refund | only those with no JetBlue seat within five days are refunded |
+| Itineraries of three or more legs | 0.04% to 0.2% of JetBlue's; a passenger connects at most once |
+| Extra sections and upgauges | no desk can add a flight or a larger aircraft |
+| Lost revenue and goodwill | P carries the refund exposure and the refunded fares, not future revenue |
+| The rules' dates | the five-day window and DOT's 3 h line apply on every date, though the plan's wording dates from 2025 and DOT's rule from 2024-10-28 |
+| The viewer's passengers | the gate crowds, the walks, the counter queue and the hotel shuttle are drawn for display only |
+
+## v3: misses and limits
+
+1. **P2 failed:** the generated connecting shares run 0.1 to 1.9 points below the survey, because connections the
+   generator can't place within 45 to 360 minutes are dropped.
+2. **2b-2 failed:** a scripted customer desk built from published practice did not beat two scripted desks (2 of 24
+   dates against 12 needed). The desk ships anyway, labelled.
+3. **The bound is weak:** a gap of 54% to 79% on the eval dates (median 66%), and negative on the winter control. Most
+   of the published gap is the bound, so `reward_L` reads low.
+4. **The reference is a best-found plan,** from a fixed set of candidates and one capped repair whose cap ran over on
+   49 of 70 dates.
+5. **B0 is near the reference on some dates under P,** so it scores above 0.308 on 4 of the 24 eval dates.
+6. **No public record checks the passengers' outcomes.** JetBlue's replayed day strands 80% of the passengers off its
+   cancelled flights overnight under JetBlue-only rebooking; that is reported, not validated.
+7. **The winter control's reference cancels 7 flights at 04:00** on a calm day, because P prices a calm-day
+   cancellation cheaply.
+8. **Step 0's MIP proved no date** and stored no plans; G1 holds at 14 of 24 without the dates it improved.
+9. **The passengers are generated,** from route-month loads and a ticket survey, not JetBlue's bookings.
+
+## v3: rerun the checks
+
+They need the raw inputs (`scripts/build_pack.py` downloads them into `cache/inputs/`), the survey extracts under
+`data/pax/` (`scripts/pax_shares.py` rebuilds them from DB1B and DB1C) and a large machine: stage 2 took about 2.5 h on
+one r7i.48xlarge.
+
+| Stage | Script |
+|---|---|
+| 0, the premise | `scripts/pax_step0.py --out cache/v3/step0/eval --split eval --seeds 4 --time-limit 1800 --sensitivity 0.5,2`, then `--crew` for v2's crew-world plans |
+| 2, the reference and the checks | `scripts/pax_stage2_box.py --out cache/v3/stage2` (the aircraft plans under the 3 h line, then `scripts/pax_stage2.py`) |
+| 2, the bound | `scripts/pax_bound.py --reference cache/v3/stage2/reference --out cache/v3/bound --limit 1800` |
+| 2b | `scripts/pax_stage2b.py --out cache/v3/stage2b --reference cache/v3/stage2/reference` |
+| the pack | `scripts/build_occ_pack.py --v3 cache/v3/stage2/reference --pack data/b6-v3 --bound cache/v3/bound` |
+| 3, the board | [TBD: env lane's pilot command and the board's folder] |
+
+---
+
 # AirOpsEnv v2: fidelity report
 
 How faithful is the storm day the two desks play? This report says what is real data, what is modelled and what is

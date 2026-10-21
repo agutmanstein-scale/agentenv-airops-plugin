@@ -25,9 +25,13 @@ from agentenv_airops.core.model import load_pack
 from agentenv_airops.core.reward import reward
 from agentenv_airops.day import Day
 from agentenv_airops.episodes import replay
+from agentenv_airops.occ import day3 as occ3_day
 from agentenv_airops.occ import tasks as occ_tasks
+from agentenv_airops.occ import tasks3 as occ3_tasks
+from agentenv_airops.occ.day import EXTRA_TURNS
 from agentenv_airops.occ.day import reward as occ_reward
-from agentenv_airops.occ.pack import Pack
+from agentenv_airops.occ.day import timetable as occ3_timetable
+from agentenv_airops.occ.pack import Pack, Pack3
 from agentenv_airops.schedule import TOOLS, max_turns, timetable
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -121,9 +125,10 @@ def test_the_card_lists_the_tables_with_the_days_first_and_the_bundle_for_agent_
     assert data["agentenv"] == {"default": "airops", "bundles": {"airops": {
         "plugins": [PLUGIN], "setup": "agent-env airops setup --agent"}}}
     assert {"rl-environment", "agentenv"} <= set(data["tags"]) and data["license"] == "other"
-    assert data["pretty_name"] == "AirOpsEnv v2: the ops control center"
-    assert "\n<h1>AirOpsEnv v2: the ops control center</h1>\n" in text
-    assert "\n# AirOpsEnv v1: one desk at one hub\n" in text
+    assert data["pretty_name"] == "AirOpsEnv v3: passengers and the customer desk"
+    assert "\n<h1>AirOpsEnv v3: passengers and the customer desk</h1>\n" in text
+    assert text.index("\n# AirOpsEnv v2: the ops control center\n") < text.index(
+        "\n# AirOpsEnv v1: one desk at one hub\n")
     assert "<!-- board -->\n\n| Claude |\n\n<!-- /board -->" in text
     assert "<!-- board -->\n\n<!-- /board -->" in hub.card_text(PLUGIN, files)
 
@@ -141,6 +146,8 @@ def test_the_readme_and_the_hub_sources_pin_this_version_of_the_plugin_and_the_d
 def _dry_build(hub, tmp_path, monkeypatch, *extra: str) -> Path:
     out = tmp_path / "out"
     occ = [] if "--occ-pack" in extra else ["--occ-pack", str(_occ_pack(tmp_path))]
+    occ += [] if "--occ3-pack" in extra else ["--occ3-pack", str(_occ3_pack(tmp_path, (OCC_EVAL, OCC_CONTROL,
+                                                                                      OCC_OTHER)))]
     monkeypatch.setattr(sys, "argv", ["hub_dataset.py", "--runs", str(tmp_path / "runs"), "--out", str(out),
                                       "--cache", str(tmp_path / "cache"), *occ, *extra])
     hub.main()
@@ -176,9 +183,11 @@ def test_a_dry_build_without_a_sweep_has_the_days_the_bundle_and_no_runs(hub, lo
     assert not (out / "results").exists() and not list(out.glob("episodes/v1-*"))
     assert json.loads((out / "viewer/episodes/index.json").read_text()) == {"version": 1, "episodes": []}
     data = DatasetCard((out / "README.md").read_text()).data.to_dict()
-    assert data["configs"][0]["config_name"] == "v2_tasks" and data["configs"][0]["default"] is True
+    assert data["configs"][0]["config_name"] == "v3_tasks" and data["configs"][0]["default"] is True
     assert data["agentenv"]["default"] == "airops" and data["agentenv"]["bundles"]["airops-occ"] == {
         "plugins": [PLUGIN], "setup": "agent-env airops-occ setup"}
+    assert data["agentenv"]["bundles"]["airops-occ3"] == {"plugins": [PLUGIN], "setup": "agent-env airops-occ3 setup"}
+    assert not list(out.glob("episodes/v3-*")) and not (out / "results/eval-v3.json").exists()
     occ = sorted(p.stem for p in (out / "bundles/airops-occ/tasks").glob("*.json"))
     assert occ == sorted([f"{i}-{m}" for i in (OCC_EVAL, OCC_CONTROL) for m in ("joint", "one")] + ["wiring-noplay"])
     steps = {m: json.loads((out / f"bundles/airops-occ/tasks/{OCC_EVAL}-{m}.json").read_text())
@@ -260,8 +269,8 @@ def test_a_dry_build_with_a_sweep_publishes_its_run_in_both_kinds_of_table_on_th
     text = (out / "README.md").read_text()
     assert "| Claude Sonnet 5.5 | Anthropic | 1 of 1 | **0.841** (0.841 to 0.841) |" in text
     names = [c["config_name"] for c in DatasetCard(text).data.to_dict()["configs"]]
-    assert names == ["v2_tasks", "v1_tasks", "results", "v1_references", "v1_episodes", "airops_tasks",
-                     "airops_episodes"]
+    assert names == ["v3_tasks", "v3_references", "v2_tasks", "v1_tasks", "results", "v1_references", "v1_episodes",
+                     "airops_tasks", "airops_episodes"]
 
 
 def test_a_key_in_a_transcript_stops_the_build_before_anything_is_written(hub, local_stores, tmp_path, monkeypatch):
@@ -471,3 +480,144 @@ def test_the_card_leads_with_v2s_tables_and_board_and_keeps_v1s(hub):
     assert [f["split"] for f in data["configs"][0]["data_files"]] == ["eval", "control", "train"]
     assert "<!-- board-v2 -->\n\n| GPT-6.1 Sol, two desks |\n\n<!-- /board-v2 -->" in text
     assert text.index("<!-- board-v2 -->") < text.index("<!-- board -->")
+
+
+def _occ3_pack(tmp_path: Path, ids: tuple[str, ...] = (OCC_EVAL, OCC_CONTROL, OCC_OTHER)) -> Path:
+    """The packaged b6-v3 pack cut down to ``ids``."""
+    pack, out = Pack3(), tmp_path / "b6-v3"
+    (out / "dates").mkdir(parents=True, exist_ok=True)
+    for i in ids:
+        name = f"{pack.tasks[i]['date']}.json.gz"
+        (out / "dates" / name).write_bytes((pack.path / "dates" / name).read_bytes())
+    (out / "manifest.json").write_text(json.dumps(pack.manifest | {"tasks": {i: pack.tasks[i] for i in ids}}))
+    return out
+
+
+def _raw3(pack: Path, task_id: str) -> dict:
+    return json.loads(gzip.decompress((pack / "dates" / f"{Pack3(pack).tasks[task_id]['date']}.json.gz").read_bytes()))
+
+
+def test_a_v3_day_carries_its_passengers_its_references_under_p_the_desks_rules_and_every_candidate(hub, tmp_path):
+    path = _occ3_pack(tmp_path)
+    pack = Pack3(path)
+    bundle = hub.occ3_bundle(tmp_path / "out", path)
+    days, refs = hub.occ3_rows(pack, hub.bundle_prompts(bundle))
+    assert [d["task_id"] for d in days] == [OCC_EVAL, OCC_OTHER, OCC_CONTROL] == [r["task_id"] for r in refs]
+    day, ref, raw = days[0], refs[0], _raw3(path, OCC_EVAL)
+    p, groups = raw["refs_p"], raw["passengers"]["groups"]
+    assert (day["passengers"], day["connecting"], day["survey"]) == (
+        sum(g[2] for g in groups), sum(g[2] for g in groups if len(g[1]) == 2), raw["passengers"]["source"])
+    assert (day["best"], day["bound"], day["B0"], day["naive"], day["v2_best"]) == (
+        p["best"], p["bound"], p["candidates"]["B0"], p["controls"]["naive"], p["candidates"]["v2_best"])
+    assert day["v2_best_reward"] == round(occ_reward(p["candidates"]["v2_best"], p["best"], p["candidates"]["B0"]), 6)
+    assert day["num_flights"] == len(pack.world(OCC_EVAL).task.flights) and day["drawn_for"] == "BOS"
+    assert {k.removeprefix("system_prompt_"): day[k] for k in day if k.startswith("system_prompt_")} == {
+        r: occ3_tasks.RULES[r] for r in ("both", "crew", "customer", "ops")}
+    assert json.loads(day["world"])["refs_p"] == p
+    assert {c: ref[c] for c in hub.OCC3_CANDIDATES} == p["candidates"] and ref["best_from"] == p["best_from"]
+    assert ref[f"{p['best_from']}_reward"] == 1.0 and ref["v2_best_over_best"] == round(
+        p["candidates"]["v2_best"] / p["best"], 4)
+    assert json.loads(ref["best_plan"]) == raw["best_plan_p"] and refs[2]["split"] == "control"
+    occ = sorted(Path(k).stem for k in bundle if k.startswith("bundles/airops-occ3/tasks/"))
+    assert occ == sorted([f"{i}-{m}" for i in (OCC_EVAL, OCC_CONTROL, OCC_OTHER) for m in ("joint", "one")]
+                         + ["wiring-noplay"])
+
+
+def _occ3_runs(tmp_path: Path) -> tuple[Path, Path]:
+    """The v3 board on two dates, three desks and one agent, with a pilot run on the control day, each recorded day's
+    replay kept as the build keeps it."""
+    runs, replays = tmp_path / "runs", tmp_path / "replays"
+    plan = {"occ3-board-sol": [(f"{OCC_EVAL}-joint", 0.7, 1300.0), (f"{OCC_EVAL}-one", 0.5, 1500.0),
+                               (f"{OCC_OTHER}-joint", 0.4, 1600.0), (f"{OCC_OTHER}-one", 0.6, 1400.0)],
+            "occ3-pilot-canary": [(f"{OCC_CONTROL}-joint", 0.8, 1200.0)]}
+    for name, played in plan.items():
+        folder = runs / name
+        rows = [_occ_row(run, 1, score, cost, ("crew", "customer", "ops") if run.endswith("joint") else ("both",),
+                         folder) for run, score, cost in played]
+        (folder / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+        (folder / "pilot.json").write_text(json.dumps({"name": name, "model": GPT, "runs": [r["run"] for r in rows],
+                                                       "caps": {"joint": 5.0, "one": 12.0}, "budget": 120.0}))
+        replays.mkdir(exist_ok=True)
+        for r in rows:
+            run_id = f"{name}/{r['run']}-a1"
+            (replays / f"{run_id.replace('/', '.')}.json").write_text(json.dumps(
+                {"digest": run_id.split("/")[1], "exact": True, "mismatches": 0, "first": []}))
+    return runs, replays
+
+
+def test_v3s_runs_desks_board_and_eval_card_read_the_three_desk_pilots_and_the_bundle(hub, tmp_path):
+    runs, replays = _occ3_runs(tmp_path)
+    path = _occ3_pack(tmp_path)
+    files, board_md = hub.occ3_files(runs, ["occ3-pilot-canary", "occ3-board-sol"], Pack3(path),
+                                     hub.occ3_bundle(tmp_path / "out", path), replays, 1, "2026-10-22")
+    rows = pq.read_table(io.BytesIO(files["episodes/v3-eval.parquet"])).to_pylist()
+    assert len(rows) == 4 and all(r["on_board"] and r["replays_exactly"] for r in rows)
+    assert rows[0]["desks"] == ["crew", "customer", "ops"] and rows[0]["mode_label"] == "three desks, talking"
+    assert {"cost_lodging", "cost_fare"} <= set(rows[0])
+    [canary] = pq.read_table(io.BytesIO(files["episodes/v3-control.parquet"])).to_pylist()
+    assert (canary["set"], canary["on_board"]) == ("pilot", False)
+    assert pq.read_table(io.BytesIO(files["desks/v3-eval.parquet"])).num_rows == 3 + 1 + 3 + 1
+    joint, one, b0, paired = pq.read_table(io.BytesIO(files["results/v3-board.parquet"])).to_pylist()
+    assert (joint["label"], joint["mean_reward"], one["mean_reward"], b0["mean_reward"]) == (
+        "three desks, talking", 0.55, 0.55, 0.3083)
+    assert (paired["label"], paired["higher_on"], joint["cap_usd_per_desk"]) == (
+        "three desks minus one agent, paired by date", 1, 5.0)
+    card = json.loads(files["results/eval-v3.json"])
+    assert set(card) == EVAL_CARD and (card["env"], card["version"], card["tasks"]["n"]) == ("airops-occ3", "v3", 2)
+    tools = occ3_tasks.OPS_TOOLS + occ3_tasks.CREW_TOOLS + occ3_tasks.CUST_TOOLS + occ3_tasks.SHARED
+    watches = {i: len(occ3_timetable(Pack3(path).world(i).task)) for i in (OCC_EVAL, OCC_OTHER)}
+    assert (card["harness"]["agent"], sorted(card["harness"]["tools"])) == ("airops-desk", sorted(tools))
+    assert card["harness"]["max_turns"] == max(occ3_day.TURNS[m] * w + EXTRA_TURNS for w in watches.values()
+                                               for m in ("joint", "one"))
+    assert [b["name"].split(":")[0] for b in card["baselines"]] == [
+        "B0", "doing nothing", "v2's best plan, blind to passengers, played with them", "the airline"]
+    assert card["models"][0]["model"] == "GPT-6.1 Sol, three desks, talking"
+    assert card["links"]["runs"].endswith("/viewer/v3_episodes")
+    assert "| GPT-6.1 Sol, three desks, talking | 2 | **0.550**" in board_md
+    assert "Three desks minus one agent, paired by date" in board_md
+
+
+def test_a_date_without_a_bound_leaves_reward_l_out_of_the_board(hub):
+    runs = [{"board": True, "folder": "occ3-board-sol", "pilot": {"caps": {"joint": 5.0, "one": 12.0}},
+             "row": {"run": f"{OCC_EVAL}-{m}", "outcome": "scored", "reward": 0.5, "reward_L": None, "cost": 1500.0,
+                     "best": 1000.0, "B0": 1000.0, "over_best_pct": 50.0, "avoidable_share": None, "cost_usd": 1.0,
+                     "wall_seconds": 60.0}} for m in ("joint", "one")]
+    joint, one, b0, paired = hub.occ_board(runs, hub.OCC3_MODES, hub.OCC3_BOARD, "three desks")
+    assert (joint["mean_reward_L"], paired["mean_reward_L"], b0["mean_reward"]) == (None, None, 1.0)
+    assert "| GPT-6.1 Sol, three desks, talking | 1 | **0.500** (0.500–0.500) | – |" in hub.occ_board_markdown(
+        [joint, one, b0, paired], "GPT-6.1 Sol", "three desks")
+
+
+def test_the_card_leads_with_v3s_tables_and_board_then_v2s_and_v1s_and_names_the_three_desk_bundle(hub):
+    files = {p: b"" for p in ("tasks/v3-eval.parquet", "tasks/v3-train.parquet", "references/v3-eval.parquet",
+                              "episodes/v3-eval.parquet", "desks/v3-eval.parquet", "results/v3-board.parquet",
+                              "tasks/v2-eval.parquet", "episodes/v2-eval.parquet", "results/v2-board.parquet",
+                              "tasks/v1-eval.parquet", "bundles/airops-occ3/tasks/x.json",
+                              "bundles/airops-occ/tasks/x.json")}
+    text = hub.card_text(PLUGIN, files, "", "| v2 |", "| GPT-6.1 Sol, three desks |")
+    data = DatasetCard(text).data.to_dict()
+    assert [c["config_name"] for c in data["configs"]] == [
+        "v3_tasks", "v3_board", "v3_references", "v3_episodes", "v3_desks", "v2_tasks", "v2_board", "v2_runs",
+        "v1_tasks", "airops_tasks", "airops_episodes"]
+    assert [c for c in data["configs"] if c.get("default")] == [data["configs"][0]]
+    assert data["agentenv"]["default"] == "airops" and data["agentenv"]["bundles"]["airops-occ3"] == {
+        "plugins": [PLUGIN], "setup": "agent-env airops-occ3 setup"}
+    assert "<!-- board-v3 -->\n\n| GPT-6.1 Sol, three desks |\n\n<!-- /board-v3 -->" in text
+    assert text.index("<!-- board-v3 -->") < text.index("<!-- board-v2 -->") < text.index("<!-- board -->")
+
+
+def test_a_dry_build_publishes_v3s_tables_first_its_runs_and_the_three_desk_bundle(
+        hub, local_stores, tmp_path, monkeypatch):
+    _, replays = _occ3_runs(tmp_path)
+    out = _dry_build(hub, tmp_path, monkeypatch, "--occ-replays", str(replays))
+    assert [r["task_id"] for r in _rows(out, "tasks/v3-eval.parquet")] == [OCC_EVAL, OCC_OTHER]
+    assert len(_rows(out, "episodes/v3-eval.parquet")) == 4 and not list(out.glob("episodes/v2-*"))
+    steps = json.loads((out / f"bundles/airops-occ3/tasks/{OCC_EVAL}-joint.json").read_text())
+    assert {s["env_vars"]["AIROPS_MAX_COST_USD"] for s in steps if s["type"] == "deploy_agent"} == {"5"}
+    assert parse_bundle(out / "bundles/airops-occ3").id_root
+    assert {"runs/occ3-board-sol/pilot.json", "runs/occ3-pilot-canary/results.jsonl"} <= {
+        p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file()}
+    data = DatasetCard((out / "README.md").read_text()).data.to_dict()
+    assert data["configs"][0] == {"config_name": "v3_tasks", "default": True, "data_files": [
+        {"split": "eval", "path": "tasks/v3-eval.parquet"}, {"split": "control", "path": "tasks/v3-control.parquet"}]}
+    assert json.loads((out / "results/eval-v3.json").read_text())["date"]

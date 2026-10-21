@@ -1,12 +1,13 @@
 <div align="center">
 
-<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.3.3/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-banner.jpg" alt="AirOpsEnv v2: JetBlue's operations control center in 3D on the Boston storm day of 13 July 2024, replayed from GPT-6.1 Sol's two desks: the ops controller and the crew scheduler at their pods under the video wall of the network, as the crew desk's hold of B6 515 is accepted" width="100%"></a>
+[TBD: the v3 banner from the viewer lane: the control-center room with its three desks, linked to a board run in the
+Space.]
 
-<h1>AirOpsEnv v2: the ops control center</h1>
+<h1>AirOpsEnv v3: passengers and the customer desk</h1>
 
-<h3>Run an airline's whole network through a real storm day, from the two desks of its control center</h3>
+<h3>Run an airline's whole network through a real storm day, its passengers on board, from the three desks of its control center</h3>
 
-<p>An AgentEnv environment built from public U.S. flight, FAA and crew-rule records, graded with no judge against the best plan of aircraft and crews found in hindsight, next to its proven bound.</p>
+<p>An AgentEnv environment built from public U.S. flight, passenger, FAA and crew-rule records, graded with no judge against the best plan found in hindsight under a passenger cost.</p>
 
 <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Space-Replays%20in%203D-FFD21E?style=for-the-badge&labelColor=1a1a1a" alt="Replays in 3D" height="32"></a>
 <a href="https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-Days%20%26%20runs-4F46E5?style=for-the-badge&labelColor=1a1a1a" alt="Dataset" height="32"></a>
@@ -16,6 +17,251 @@
 </div>
 
 ---
+
+AI agents run JetBlue's operations control center through a real storm day with its passengers on board, from the
+three desks real control centers have. The **ops controller** runs the flights and aircraft with the FAA, the **crew
+scheduler** runs the pilots and flight attendants, as in v2, and the new **customer desk** looks after the passengers.
+Every flight carries its booked passengers, about 86,000 trips on a storm date, some connecting at JFK, Boston, Fort
+Lauderdale, Orlando or San Juan, generated from public records: each flight's load from BTS T-100 and who connects
+where from the DOT's ticket survey of the date's own period. When a flight is cancelled or a connection missed, its
+passengers are rebooked the way JetBlue's contract says: on JetBlue only, the earliest arrival first, for up to five
+days, then a refund. The customer desk sees whose connections are at risk and where a cancellation's passengers would
+go, and asks ops to hold a flight for them, not to cancel one, or to cancel one whose passengers are better off
+rebooked now; ops decides. The day is one of v2's 24 storm dates at JFK or Boston from 2022 to 2026, the whole network
+from 04:00, played watch by watch on AgentEnv's virtual clock and graded once, on what really happened, with no judge,
+under a cost that follows every passenger to their final destination: against the best plan found in hindsight under
+that cost.
+
+[TBD: the v3 hero clip and its caption, from the viewer lane and the board: the customer desk's request crossing the
+room, the passengers at the gate lounge and the counter, the run's reward against the references.]
+
+**Contents:** [The customer desk](#the-customer-desk) · [Passengers](#passengers) · [Grading under P](#grading-under-p)
+· [The v3 board](#the-v3-board) · [Run v3](#run-v3) · [How v3 was validated](#how-v3-was-validated) ·
+[The dataset and the Space](#the-dataset-and-the-space) ·
+[AirOpsEnv v2](#airopsenv-v2-the-ops-control-center) · [AirOpsEnv v1](#airopsenv-v1-one-desk-at-one-hub) ·
+[Repository](#repository) · [Licence and attribution](#licence-and-attribution)
+
+## The customer desk
+
+|  | Ops controller | Crew scheduler | Customer desk |
+|---|---|---|---|
+| **Sees** | v2's picture, now with each flight's passengers (booked, connecting in and out) and the day's passenger costs | v2's picture | the connections at risk in the next 4 h; the flights ops might cancel in the next 6 h, with where their passengers would go if cancelled now (the same day, a later day, a refund) and how many have no later seat today; any flight's passengers by destination |
+| **Does** | as v2; answers the customer desk's requests | as v2 | looks passengers up |
+| **Asks ops** | | HOLD, CANCEL, CANCEL_PAIR, TEXT | HOLD (a departure, for its connecting passengers), PROTECT (don't cancel a flight), SUGGEST_CANCEL (cancel one), TEXT |
+| **Can't** | move or assign crews; rebook passengers | cancel or hold flights; rebook passengers | cancel, hold or crew flights; rebook passengers |
+
+- **The customer desk proposes; ops decides,** as in real control centers, where the passenger desk can say
+  "shouldn't" and crew and aircraft can say "can't". An accepted HOLD is ops' hold, as the crew desk's is; PROTECT and
+  SUGGEST_CANCEL are advice, which ops carries out, if at all, with its own tools. Ops sends the crew desk COVER and
+  TEXT, and the customer desk TEXT.
+- **No desk rebooks.** The passenger system rebooks automatically, on JetBlue only, the earliest arrival first; holds,
+  cancellations and their timing decide where the passengers go.
+- **Turns.** Each hourly watch the crew desk takes its turn, then the customer desk, then ops; then the crew desk again
+  if ops sent it a request or a text, and the customer desk if ops texted it. The env runs the turns, so every run
+  replays exactly.
+- **One agent** (mode `one`) runs all three desks from one page and their tools, with no channel, for comparison.
+
+| Desk | Tools |
+|---|---|
+| ops | `ops_flights`, `ops_program`, `ops_aircraft`, `ops_check`, `ops_confirm`, `ops_request`, `ops_reply` |
+| crew | `crew_flights`, `crew_crews`, `crew_reserves`, `crew_program`, `crew_options`, `crew_check`, `crew_confirm`, `crew_request`, `crew_reply` |
+| customer | `cust_flights`, `cust_flight`, `cust_request` |
+| all three | `end_turn`, `wait_turn`, `resign` |
+
+Each desk is its own A2A agent (`airops-desk`, in role `ops`, `crew`, `customer` or `both`) and sees only its role's
+tools on the AgentEnv gateway. A day's task runs v2's steps ([below](#how-a-day-is-played)) on the env `airops-occ3`,
+with the customer desk deployed and played beside the other two, and the grade's audit checks every desk.
+
+## Passengers
+
+The pack `b6-v3` is v2's 70 dates (24 eval storm dates, 44 training dates and 2 calm controls), each with its
+passengers and its references under the passenger cost. No airline's itineraries are public, so the passengers are
+generated stand-ins, labelled as such like v2's crews:
+
+- **Who flies.** Each flight's booked passengers are its seats times the route's T-100 load factor that month, as in
+  v2.
+- **Who connects.** At JetBlue's connecting stations (JFK, BOS, FLL, MCO, SJU), a route's share of connecting
+  passengers from each origin comes from the DOT's Origin and Destination Survey of the date's own period (the DB1B
+  quarter to June 2025, then the DB1C month), spread over the day's scheduled JetBlue-to-JetBlue connections by DB1C's
+  connection times, with minimum connection times of 45 minutes at JFK and Boston and 40 elsewhere. An eval date has a
+  median of 86,148 passenger trips, 2.7% of them connecting.
+- **How they are rebooked**, by JetBlue's own published rules: on JetBlue only, from the decision, the earliest arrival
+  first (Contract of Carriage §37(c)); for up to five days, then a refund (its Customer Service Plan); a flight 3 h or
+  more earlier only when no other seat is left (DOT's refund rule, 14 CFR 260.2). Crews keep their seats first. On a
+  storm day JetBlue owes no compensation, meals or hotels, so none is charged; a night away costs the passenger a
+  lodging night.
+- **Not modelled, and labelled:** international connections (the public survey and the on-time data are domestic
+  only), rebooking on other airlines, compensation on storm days, rebooking by hand at the desk, and passengers who
+  choose a refund.
+
+[FIDELITY.md](FIDELITY.md) says what is real data and what is generated, the rules' sources, every check against the
+record and every miss.
+
+## Grading under P
+
+The day's cost P, in passenger-minutes: each passenger's arrival delay at their final destination, rebooking included
+(a refunded passenger's wait); 66 for each cancelled flight's passenger, the refund exposure, more when the
+cancellation comes under 2 hours ahead; a lodging night for each night a passenger waits; the fare of each passenger
+refunded; and v2's aircraft and crew costs. v2 charged delay at every leg and a flat 523 per cancelled passenger.
+
+| Reference | What it is |
+|---|---|
+| best plan | the cheapest plan under P from a fixed set: v2's best plan, B0, the passenger-aware aircraft plans played through the standard crew desk, and a repair of the best of them; replayed exactly with a legal crew on every flight; it scores 1.0 |
+| bound | a capacity-aware lower bound under P, published per date: 54% to 79% under the best plan on the eval dates (median 66%), most of it the solver not finishing in its 30 minutes |
+| B0 | standard crew-desk practice with the aircraft doing nothing; 0.308 on 20 of the 24 eval dates, more on the 4 where it comes within 10% of the best plan (a mean of 0.386) |
+| doing nothing | the planned crews by the trip rule, no desk at all (a mean of 0.329) |
+| v2's best plan | v2's best plan of aircraft and crews, blind to passengers, played with them: at least 5% over the best plan on 17 of the 24 eval dates (a mean of 0.602) |
+| the airline | JetBlue's own decisions, replayed with the generated crews and passengers (a mean of 0.239) |
+
+The reward is v2's, under P: 0.2 + 0.8 exp(−g/0.5), with g = max(0, P − best) / max(B0 − best, 0.1 best); `reward_L`
+is the same against the bound. A run is scored only if its audit passes, as in v2: every watch's news on time, every
+call in its desk's turn, no decision reaching back, each desk in its role, a legal crew on every flight, the cost not
+under the bound, and every desk present. No judge. The best plan is a best-found plan, not a proven optimum, and the
+bound is weak, so most of the published gap is the bound's.
+
+## The v3 board
+
+[TBD: the board's model and effort, the 24 eval dates in each mode, pre-registered: the code, the pack's hash, the
+dates, their order, the caps and the budget; every run scored, replays exactly and passes the audit, with an
+independent recheck of every reward.]
+
+| Mode | Mean reward (95% CI) | reward_L (95% CI) | Over the best plan, median | Avoidable cost saved, median | Spend |
+|---|---|---|---:|---:|---:|
+| **Three desks**, talking | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] |
+| **One agent** at all three desks | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] |
+| Standard crew desk (B0) | 0.386 | | | 0% | |
+| v2's best plan, blind to passengers | 0.602 | | | | |
+
+- **Three desks against one agent, paired by date:** [TBD].
+- [TBD: per-date table, as v2's.]
+
+### What the results show, and what they don't
+
+- [TBD: from the board.]
+- **The scripted gate for the customer desk didn't pass.** Before any model ran, a scripted customer desk built from
+  published practice (hold an outbound up to 15 minutes when 10 or more connecting passengers would misconnect; ask
+  ops not to cancel a flight when half its passengers have no later JetBlue seat that day) was measured against two
+  scripted desks: it saved at least 2% on 2 of the 24 eval dates, against 12 needed, and cost more on 15. Its
+  requests not to cancel mostly protected flights that couldn't fly, which then cancelled at their deadline, late.
+  The premise holds (v2's best plan costs at least 5% more than the best plan under P on 17 of 24 dates), but the
+  script didn't capture it. The customer desk ships anyway, labelled; the board shows whether a model desk does
+  better than the script.
+- [TBD: compute: the three desks' spend and tokens against one agent's, as v2's board reported.]
+
+## Run v3
+
+You need Docker (running, with buildx), [uv](https://docs.astral.sh/uv/) and git. Install the plugin with the
+framework, build the env and the desk agent and register them, and check the wiring with a day no model plays:
+
+```bash
+uv tool install agentenv-framework \
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.4.0"
+agent-env airops-occ3 setup                   # builds airops-occ3 and airops-desk for this machine's Docker
+agent-env airops-occ3 tasks --noplay          # writes results/bundles/airops-occ3: each eval date, joint and one
+agent-env run results/bundles/airops-occ3 --task wiring-noplay
+```
+
+`wiring-noplay` loads the first eval date and runs it with no desk: the crew and passenger systems alone, then the
+grade. Then play a day with a model on the endpoint `[model]` in `.agentenv/config.toml` names (LiteLLM, or the
+Hugging Face router):
+
+```bash
+agent-env run results/bundles/airops-occ3 --task b6-20240713-0400-joint --model openai/gpt-6.1-sol
+agent-env run results/bundles/airops-occ3 --task b6-20240713-0400-one --model openai/gpt-6.1-sol
+```
+
+Or play a day straight from the dataset, which pins this release and holds the bundle `airops-occ3`: every date in
+both modes, the very task files the board ran (each desk's cost cap $5 in a three-desk run, $12 for one agent), and
+`wiring-noplay`:
+
+```bash
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.0 --bundle airops-occ3 --task wiring-noplay
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.0 --bundle airops-occ3 --task b6-20240713-0400-joint \
+    --model openai/gpt-6.1-sol
+```
+
+A pilot plays runs in a fixed order under a budget, retries a run that failed for an infrastructure reason at most
+twice, and reports every scored run replayed and audited:
+
+```bash
+agent-env airops-occ3 pilot occ3-my-board --run b6-20240713-0400-joint --run b6-20240713-0400-one \
+    --cap-joint 5 --cap-one 12 --budget 40 --request-margin 0.75 --parallel 2
+agent-env airops-occ3 report occ3-my-board    # results/runs/occ3-my-board/report.json
+```
+
+`tasks --split train` writes the 44 training dates, `--split control` the calm days, `--cap-joint` and `--cap-one`
+set each desk's cost cap, and `--policy script` plays scripted desks with no model. [TBD: a three-desk day's median
+time and spend on the board.] Name a three-desk pilot `occ3-*` so that `scripts/hub_dataset.py` publishes it with v3.
+
+## How v3 was validated
+
+v3 was built in stages as v2 was, each checked before the next with its checks pre-registered, every change to a rule
+recorded with its reason before it was used, and every bar recomputed by an independent agent from the run's files.
+[FIDELITY.md](FIDELITY.md) has the full report.
+
+- **The premise, without crews (step 0).** Priced by P, v2's aircraft plan costs at least 5% more than a
+  passenger-aware plan on 16 of the 24 eval dates (12 needed). It isn't the connections: the same dates pass at half
+  and twice the connecting shares. It is pricing each cancelled passenger by their real rebooking, which favours
+  cancelling flights whose passengers fit on other JetBlue flights.
+- **The passengers.** The generated bookings match T-100 within 5% on all 70 dates, today and on the following days,
+  and the connection times match DB1C's within 20 minutes at every connecting station. The connecting shares run low:
+  0.1 to 1.9 points under the survey, a miss (about 20% of the connections the survey implies can't be placed within 6
+  hours and become local passengers).
+- **The reference and the premise with crews (stage 2 and 2b).** Every best plan replays exactly with a legal crew on
+  every flight, and an independent re-simulation reproduced the 26 eval and control dates exactly. v2's best plan
+  costs at least 5% more than it on 17 of 24 eval dates (12 needed).
+- **The misses, documented and shipped:** the connecting shares (above); the scripted customer desk failed its gate
+  (above); the bound is weak (54% to 79% under the best plan on the eval dates, and negative on the calm winter
+  control); and the best plan's repair overran its time cap on 49 of 70 dates.
+- **The desks.** [TBD: the zero-spend checks through the real harness, the pilot and the board.]
+
+## The dataset and the Space
+
+`scripts/hub_dataset.py` builds [earakely-scale/AirOpsEnv-AgentEnv](https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv)
+from the packs and the recorded runs under `results/runs`:
+
+- v3's tables: `v3_tasks` (the 70 dates with their passengers and their references under P, the default),
+  `v3_references` (every candidate the best plan was chosen from, the bound and the gap, and the best plan itself),
+  `v3_episodes` (every recorded three-desk run, replayed, with its audit), `v3_desks` (each desk's transcript) and
+  `v3_board`; the eval card `results/eval-v3.json`; and the bundle `airops-occ3`, the 70 dates in both modes and
+  `wiring-noplay`, so that `agent-env hf run earakely-scale/AirOpsEnv-AgentEnv --bundle airops-occ3` plays a v3 day;
+- v2's, as at v0.3.x: `v2_tasks`, `v2_runs`, `v2_desks`, `v2_board`, `results/eval-v2.json` and the bundle
+  `airops-occ`;
+- v1's, as at v0.2.0: `v1_tasks`, `results`, `v1_references`, `v1_episodes`, and agentenv-hf's `airops_tasks`,
+  `airops_episodes` and the bundle `airops`, the dataset's default bundle, so that
+  `agent-env hf run earakely-scale/AirOpsEnv-AgentEnv` with no `--bundle` plays a v1 day;
+- `runs/`, the run folders as recorded, with each day's record and each desk's transcript;
+- `viewer/`: the versions' episodes as the viewer reads them, with their traffic, the airport stages, the radar
+  frames, the hub twins and the list's stills.
+
+agentenv-hf scans every file for keys and token shapes first.
+
+```bash
+[TBD: the viewer lane's command that exports the v3 board's runs as viewer episodes into cache/occ/viewer-release]
+python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --workers 6 \
+    --out cache/hub/dataset-v0.4.0 --space-out cache/hub/space-v0.4.0
+python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --workers 6 \
+    --out cache/hub/dataset-v0.4.0 --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.4.0
+```
+
+`hub_dataset.py` replays every recorded control-center day, v2's and v3's, through the env's calls (a few minutes a
+day, `--workers` at once, kept under `cache/occ/replays/` so a rebuild replays only what changed). Without `--occ` it
+takes every folder under `results/runs` with a `pilot.json` for v2, and without `--occ3` every such folder named
+`occ3-*` for v3; v2's retry folder counts as v2's board.
+
+The [replay Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv) is static: `hub/space/` and the
+viewer (`web/`) under `viewer/`, reading the episodes straight from the dataset's resolve URLs at the tag, which
+huggingface.co serves with CORS headers. `--space-out` assembles it and `--space-repo` pushes it.
+
+## AirOpsEnv v2: the ops control center
+
+v2, released in v0.3.0, runs the same network from two desks, the ops controller and the crew scheduler, with no
+passengers on board: a cancelled passenger costs a flat 523 passenger-minutes. It ships unchanged in this release:
+`agent-env airops-occ`, the bundle `airops-occ`, the pack `b6-v2` and its tables in the dataset.
+
+<p align="center">
+  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.0/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-banner.jpg" alt="JetBlue's operations control center in 3D on the Boston storm day of 13 July 2024, replayed from GPT-6.1 Sol's two desks: the ops controller and the crew scheduler at their pods under the video wall of the network, as the crew desk's hold of B6 515 is accepted" width="100%"></a>
+</p>
 
 AI agents run JetBlue's operations control center through a real storm day, split between two desks the way airline
 control centers split the work. The **ops controller** runs the flights and aircraft with the FAA: it cancels flights
@@ -32,7 +278,7 @@ Every recorded run replays exactly through the env and passes its audit, and rep
 control-center room where the desks decide, and the airport where it plays out.
 
 <p align="center">
-  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.3.3/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-hero.webp" width="100%" alt="GPT-6.1 Sol's two desks run JetBlue's control center through the Boston storm of 13 July 2024: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave"></a>
+  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.0/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-hero.webp" width="100%" alt="GPT-6.1 Sol's two desks run JetBlue's control center through the Boston storm of 13 July 2024: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave"></a>
 </p>
 <p align="center"><sub>Two GPT-6.1 Sol desks run JetBlue's network through the Boston storm of Saturday 13 July 2024
 (<code>b6-20240713-0400</code>): 612 flights on 193 aircraft from 04:00, an FAA ground stop and a ground delay program
@@ -51,11 +297,9 @@ walk-rounds are drawn for display only.</sub></p>
 
 **Contents:** [The control center](#the-control-center) · [How a day is played](#how-a-day-is-played) ·
 [The days](#the-days) · [Grading](#grading) · [The Sol board](#the-sol-board) · [Watch a run](#watch-a-run) ·
-[Run it](#run-it) · [How it was validated](#how-it-was-validated) ·
-[The dataset and the Space](#the-dataset-and-the-space) · [AirOpsEnv v1](#airopsenv-v1-one-desk-at-one-hub) ·
-[Repository](#repository) · [Licence and attribution](#licence-and-attribution)
+[Run it](#run-it) · [How it was validated](#how-it-was-validated)
 
-## The control center
+### The control center
 
 |  | Ops controller | Crew scheduler |
 |---|---|---|
@@ -91,7 +335,7 @@ Each desk is its own A2A agent (`airops-desk`, in role `ops`, `crew` or `both`) 
 AgentEnv gateway. The harness plays a model on Anthropic Messages, OpenAI Responses or OpenAI-compatible chat, under a
 cost cap per desk, or a fixed script with no model.
 
-## How a day is played
+### How a day is played
 
 <details open>
 <summary><b>The task's steps</b>, and the turns inside <code>play</code></summary>
@@ -119,7 +363,7 @@ The audit scores a run only if every watch's news arrived on time (A1), every ca
 no decision reached back before its minute (A3), each desk kept to its role (A4), every flight flew with a legal crew
 (A5), the day's cost is not under the proven bound (A6), and both desks were present to the end, or stood down (A7).
 
-## The days
+### The days
 
 The pack `b6-v2` is 70 of JetBlue's real days, each its whole network from 04:00 Eastern:
 
@@ -149,10 +393,10 @@ winter months between December 2022 and July 2026.
 - **Not modelled, and labelled as such:** union contract rules, multi-day limits (crews start the day rested),
   passengers' connections and rebooking, maintenance, dispatch, gates, and other airlines as actors.
 
-[FIDELITY.md](FIDELITY.md) says what is real data, what is modelled and how each layer was checked against the record,
-with every miss.
+[FIDELITY.md](FIDELITY.md#airopsenv-v2-fidelity-report) says what is real data, what is modelled and how each layer was
+checked against the record, with every miss.
 
-## Grading
+### Grading
 
 The day's cost, in passenger-minutes: each passenger's arrival delay; each cancelled passenger (523, more when the
 cancellation comes under 2 hours before departure); the FAA's rates for aircraft time on the ground and in the air,
@@ -170,7 +414,7 @@ The reward is 0.2 + 0.8 exp(−g/0.5), with g = max(0, cost − best) / max(B0 �
 weak. The avoidable share is the part of B0's excess over the best plan a run saved. Since no aircraft-and-crew
 optimum can be proven at this size, a run can come in under the best plan; it then scores 1.0 and is flagged.
 
-## The Sol board
+### The Sol board
 
 GPT-6.1 Sol (`openai/gpt-6.1-sol`, reasoning effort high) on the 24 eval dates, once in each mode, pre-registered
 before the first run: the code, the pack's hash, the dates, their order, the caps and the budget. Every run scored,
@@ -226,7 +470,7 @@ is the fairer reading. "Under FAA programs": JetBlue flights the programs at JFK
 
 </details>
 
-### What the results show, and what they don't
+#### What the results show, and what they don't
 
 - **They show** that on these 24 storm dates two Sol desks beat one Sol agent running both, by a margin whose CI
   excludes zero, and that both recover most of what standard crew-desk practice loses.
@@ -244,7 +488,7 @@ is the fairer reading. "Under FAA programs": JetBlue flights the programs at JFK
   connection at 17:00 and was scored as if it had stood down; the harness now records that as an error, and the
   registered retry (0.464) replaces it on the board. The attempt stays recorded and flagged in the dataset.
 
-## Watch a run
+### Watch a run
 
 The [Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv) replays all 54 recorded control-center
 days (the board's 48 and the pilot's 6) from the dataset, and v1's runs after them. Each replays the run's own day,
@@ -281,14 +525,14 @@ episode JSON (`web/episode.schema.json`) with the hub's traffic, its crews and t
 `scripts/build_pack.py` downloads and the airport stages (`scripts/build_stage.py BOS JFK`). `record.py --director`
 films it, cutting between the room and the airport.
 
-## Run it
+### Run it
 
 You need Docker (running, with buildx), [uv](https://docs.astral.sh/uv/) and git. Install the plugin with the
 framework, build the env and the desk agent and register them, and check the wiring with a day no model plays:
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.3"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.4.0"
 agent-env airops-occ setup                    # builds airops-occ and airops-desk for this machine's Docker
 agent-env airops-occ tasks --noplay           # writes results/bundles/airops-occ: each eval date, joint and one
 agent-env run results/bundles/airops-occ --task wiring-noplay
@@ -309,8 +553,8 @@ both modes, the very task files the board ran (each desk's cost cap $5 in a two-
 `wiring-noplay`. The dataset's default bundle is v1's `airops`, so name this one:
 
 ```bash
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.3 --bundle airops-occ --task wiring-noplay
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.3 --bundle airops-occ --task b6-20240713-0400-joint \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.0 --bundle airops-occ --task wiring-noplay
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.0 --bundle airops-occ --task b6-20240713-0400-joint \
     --model openai/gpt-6.1-sol
 ```
 
@@ -331,11 +575,11 @@ agent-env airops-occ report my-board          # results/runs/my-board/report.jso
 cap, and `--policy script` plays the scripted desks with no model. A two-desk Sol day took a median of 37 minutes and
 $2; one agent, 20 minutes and $1.
 
-## How it was validated
+### How it was validated
 
 v2 was built in stages, each checked against the real record before the next, with its checks pre-registered before it
 ran; a check that failed was reported and the call to ship or stop made once, without fix loops.
-[FIDELITY.md](FIDELITY.md) has the full report.
+[FIDELITY.md](FIDELITY.md#airopsenv-v2-fidelity-report) has the full report.
 
 - **The world without crews.** JetBlue's own decisions, replayed in the world, fly what JetBlue flew: 1 forced
   cancellation in 116,986 flights over 181 storm dates. The modelled FAA program delay of other carriers matches their
@@ -353,43 +597,6 @@ ran; a check that failed was reported and the call to ship or stop made once, wi
   one flight's real 733-minute delay; the standard crew desk missed the controls' 3% margin (+4.0% and +17.4%); the
   crew filter kept somewhat smaller storms (median 20.5 JetBlue cancellations against 28 for the dropped dates), with
   similar room for the crew desk; and the scripted coordination gate failed (above).
-
-## The dataset and the Space
-
-`scripts/hub_dataset.py` builds [earakely-scale/AirOpsEnv-AgentEnv](https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv)
-from the packs and the recorded runs under `results/runs`:
-
-- v2's tables: `v2_tasks` (the 70 dates with their references, the default), `v2_runs` (every recorded run: the board,
-  its retry and the pilot, with the superseded attempt flagged) and `v2_board` (each mode's means with their CIs, and
-  the paired difference); the eval card `results/eval-v2.json`; and `runs/`, the run folders as recorded, with each
-  day's record and each desk's transcript;
-- the bundle `airops-occ` (`bundles/airops-occ/`): the 70 dates in both modes and `wiring-noplay`, as the board ran
-  them, so that `agent-env hf run earakely-scale/AirOpsEnv-AgentEnv --bundle airops-occ` plays a v2 day;
-- v1's, as at v0.2.0: `v1_tasks`, `results`, `v1_references`, `v1_episodes`, and agentenv-hf's `airops_tasks`,
-  `airops_episodes` and the bundle `airops`, the dataset's default bundle, so that
-  `agent-env hf run earakely-scale/AirOpsEnv-AgentEnv` with no `--bundle` plays a v1 day;
-- `viewer/`: both versions' episodes as the viewer reads them, with their traffic, the airport stages, the radar
-  frames, the hub twins and the list's stills.
-
-agentenv-hf scans every file for keys and token shapes first.
-
-```bash
-python scripts/occ_episodes.py occ-board-sol occ-board-sol-retry occ-pilot-sol occ-pilot-canary \
-    --exclude occ-board-sol/b6-20260709-0400-joint --label occ-board-sol-retry=occ-board-sol \
-    --featured occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400 --replay --out cache/occ/viewer-release
-python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --workers 6 \
-    --out cache/hub/dataset-v0.3.3 --space-out cache/hub/space-v0.3.3
-python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --workers 6 \
-    --out cache/hub/dataset-v0.3.3 --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.3.3
-```
-
-`hub_dataset.py` replays every recorded control-center day through the env's calls for `v2_runs` (a few minutes a
-day, `--workers` at once, kept under `cache/occ/replays/` so a rebuild replays only what changed); without `--occ`
-it takes every folder under `results/runs` with a `pilot.json`, and the retry folder counts as the board's.
-
-The [replay Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv) is static: `hub/space/` and the
-viewer (`web/`) under `viewer/`, reading the episodes straight from the dataset's resolve URLs at the tag, which
-huggingface.co serves with CORS headers. `--space-out` assembles it and `--space-repo` pushes it.
 
 ## AirOpsEnv v1: one desk at one hub
 
@@ -580,7 +787,7 @@ framework, build the env and agent images and register them, and check the wirin
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.3"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.4.0"
 agent-env airops setup --agent        # builds airops-day and airops-llm for this machine's Docker
 agent-env run airops --task wiring-noplay
 ```
@@ -597,7 +804,7 @@ agent-env run airops --task b6-bos-20250216-1500 --model openai/gpt-6.1-sol
 Or play one straight from the dataset, which pins this release:
 
 ```bash
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.3 --task b6-bos-20250216-1500 \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.0 --task b6-bos-20250216-1500 \
     --model anthropic/claude-sonnet-5-5
 ```
 
@@ -661,6 +868,11 @@ AirOpsEnv v1 is a model of a day, not an airline's operations system. What it le
 
 | Path | What |
 |---|---|
+| `src/agentenv_airops/programs/pax.py`, `programs/cost.py` | v3's passengers: the generator, the day's rebooking pass, cost P, the MIP's passenger pricing and the capacity-aware floor |
+| `src/agentenv_airops/occ/{day3,customer,tasks3,live3,cli3}.py` | v3's env `airops-occ3`: the three-desk day, the customer desk's page, lookups and requests, the task DAG and `agent-env airops-occ3` |
+| `scripts/pax_shares.py`, `data/pax/` | v3's survey extracts: JetBlue's connecting flows per period and station, DB1C's connection times, the median fares |
+| `scripts/build_occ_pack.py --v3`, `data/b6-v3/` | v3's pack: v2's dates with their passengers and their references under P |
+| `scripts/pax_step0.py`, `pax_stage2.py`, `pax_stage2_box.py`, `pax_bound.py`, `pax_stage2b.py` | v3's validation runs ([FIDELITY.md](FIDELITY.md)) |
 | `src/agentenv_airops/programs/` | v2's world: the whole-network task, the FAA's programs and slots, the costs, the crews (trips, legality, the crew sim, the replays, the standard crew desk), the best joint plan and its bound, `crew_params.json` with every crew parameter's source |
 | `src/agentenv_airops/occ/` | v2's env `airops-occ`: the day, the desks' pages and tools, the turns and the channel, the grade and the audit, the task DAG, pilots, replay, and the viewer's control-center episode |
 | `agents/airops-desk/` | a desk as an A2A agent: ops, crew or both, on Anthropic Messages, OpenAI Responses or OpenAI-compatible chat, or a script |
@@ -672,7 +884,7 @@ AirOpsEnv v1 is a model of a day, not an airline's operations system. What it le
 | `src/agentenv_airops/refs/` | v1: the time-line MIP, the follower, naive and the airline |
 | `src/agentenv_airops/build/`, `scripts/build_pack.py` | v1's data pack builder (BTS, FAA, IEM), `data/b6-v1/` with each source's `SOURCE.md`; it also downloads the raw inputs v2 builds from |
 | `src/agentenv_airops/{day,live,server,schedule}.py` | v1's live env `airops-day`: one day, its tools, extensions and triggers |
-| `src/agentenv_airops/tasks.py`, `bundles/` | the task DAGs, the bundles `airops` and `airops-occ` and their verifiers |
+| `src/agentenv_airops/tasks.py`, `bundles/` | the task DAGs, the bundles `airops`, `airops-occ` and `airops-occ3` and their verifiers |
 | `agents/airops-llm/` | v1's planner harness on Anthropic Messages, OpenAI Responses and OpenAI-compatible chat |
 | `src/agentenv_airops/{sweep,episodes,export,view,record}.py` | v1's sweeps and replay, the Episode JSON, the viewer server, filming |
 | `web/`, `web/stage/` | the viewer; its 3D airport, in Three.js |
@@ -692,16 +904,18 @@ PYTHONPATH=tests python scripts/live_e2e.py   # a zero-spend v1 day through the 
 Code: Apache-2.0 ([LICENSE](LICENSE)). The data: BTS, FAA and NWS records are U.S. Government works in the public
 domain; the Iowa Environmental Mesonet archives the METARs, TAFs, forecast discussions and NEXRAD composites (public
 domain; attribution appreciated, and given); airport names, coordinates and time zones come from airportsdata (MIT).
-v2's crew rules come from the eCFR (14 CFR parts 117 and 121) and the Federal Register, its costs from the FAA's
-economic values (Table 4-7), the BLS, and GSA and DoD per diem rates, all U.S. Government works; its crew bases, fleet
-configurations and deadhead fare are facts cited from JetBlue's 10-K filings and press releases, ALPA and Airline Pilot
-Central, each with its URL in `src/agentenv_airops/programs/crew_params.json`. The airport stages and the hub twins are
-© OpenStreetMap contributors (ODbL 1.0); the aerial photos under the stages are USGS The National Map orthoimagery
-(public domain). Both are built into `cache/` and never committed; beyond the stage the viewer loads coarser USGS
-imagery and hydrography tiles from The National Map as it runs. The US map is Natural Earth relief (public domain) under
-OpenMapTiles vector tiles © OpenStreetMap contributors, served by OpenFreeMap. The 3D scene code in `web/stage/` adapts
-PortSimEnv v1 (FineEnvs, Apache-2.0), named on the first line of each adapted file, and runs on Three.js (MIT); the map
-runs on MapLibre GL JS (BSD-3-Clause), and the control-center room's video wall on topojson-client, us-atlas and
-world-atlas (ISC), all vendored under `web/vendor/` with their licences. See [NOTICE](NOTICE) and each
-`data/*/sources/*/SOURCE.md`. Neither JetBlue, the FAA, the BTS, the NWS, the USGS, the IEM nor any union is affiliated
-with this project or endorses it.
+v3's passengers come from BTS T-100 and the DOT's Airline Origin and Destination Survey (DB1B and DB1C), U.S. Government
+works; its rebooking rules are facts of JetBlue's Contract of Carriage and Customer Service Plan and DOT's refund rule
+(14 CFR part 260). v2's crew rules come from the eCFR (14 CFR parts 117 and 121) and the Federal Register, its costs
+from the FAA's economic values (Table 4-7), the BLS, and GSA and DoD per diem rates, all U.S. Government works; its crew
+bases, fleet configurations and deadhead fare are facts cited from JetBlue's 10-K filings and press releases, ALPA and
+Airline Pilot Central, each with its URL in `src/agentenv_airops/programs/crew_params.json`. The airport stages and the
+hub twins are © OpenStreetMap contributors (ODbL 1.0); the aerial photos under the stages are USGS The National Map
+orthoimagery (public domain). Both are built into `cache/` and never committed; beyond the stage the viewer loads
+coarser USGS imagery and hydrography tiles from The National Map as it runs. The US map is Natural Earth relief (public
+domain) under OpenMapTiles vector tiles © OpenStreetMap contributors, served by OpenFreeMap. The 3D scene code in
+`web/stage/` adapts PortSimEnv v1 (FineEnvs, Apache-2.0), named on the first line of each adapted file, and runs on
+Three.js (MIT); the map runs on MapLibre GL JS (BSD-3-Clause), and the control-center room's video wall on
+topojson-client, us-atlas and world-atlas (ISC), all vendored under `web/vendor/` with their licences. See
+[NOTICE](NOTICE) and each `data/*/sources/*/SOURCE.md`. Neither JetBlue, the FAA, the BTS, the NWS, the USGS, the IEM
+nor any union is affiliated with this project or endorses it.

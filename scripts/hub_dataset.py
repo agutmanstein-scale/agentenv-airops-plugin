@@ -1,7 +1,12 @@
 """Build the Hugging Face dataset earakely-scale/AirOpsEnv-AgentEnv from this checkout and the recorded sweeps, and the
-static replay Space that reads it; push either. Two kinds of tables share the dataset:
+static replay Space that reads it; push either. Three kinds of tables share the dataset:
 
-- v2's, the ops control center (the default): v2_tasks, the b6-v2 pack's dates per split with their references, the
+- v3's, passengers and the customer desk (the default): v3_tasks, the b6-v3 pack's dates per split with their
+  passengers and their references under cost P; v3_references, every candidate the reference was chosen from, the
+  bound and the gap, and the reference plan; v3_episodes, every attempt the three-desk pilots (--occ3) recorded,
+  replayed through the env's calls, and v3_desks, each desk's transcript; v3_board and results/eval-v3.json; and the
+  bundle airops-occ3, every date in both modes, whose task files also give the card the desks' rules, tools and turns.
+- v2's, the ops control center: v2_tasks, the b6-v2 pack's dates per split with their references, the
   FAA's advisories as the desks get them, the desks' rules and each date's world as the env loads it; v2_runs, every
   attempt the control-center pilots recorded under --runs (the board, its labelled retry and the pilot), each replayed
   through the env's calls, with the attempt a retry superseded flagged; v2_desks, each desk of each attempt with its
@@ -26,7 +31,7 @@ Space (hub/space/ and the viewer, web/) and --space-repo pushes it.
     python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --out cache/hub/dataset \\
         --space-out cache/hub/space
     python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --out cache/hub/dataset \\
-        --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.3.3
+        --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.4.0
 """
 
 import argparse
@@ -59,9 +64,13 @@ from agentenv_airops.day import Day
 from agentenv_airops.episodes import Runs
 from agentenv_airops.occ import pages as occ_pages
 from agentenv_airops.occ import tasks as occ_tasks
+from agentenv_airops.occ import tasks3 as occ3_tasks
+from agentenv_airops.occ.day import OccDay
 from agentenv_airops.occ.day import reward as occ_reward
+from agentenv_airops.occ.day3 import OccDay3
 from agentenv_airops.occ.pack import PACK as OCC_PACK
-from agentenv_airops.occ.pack import Pack, World
+from agentenv_airops.occ.pack import PACK3 as OCC3_PACK
+from agentenv_airops.occ.pack import Pack, Pack3, World
 from agentenv_airops.occ.replay import replay as occ_replay
 from agentenv_airops.programs import occ
 from agentenv_airops.schedule import ENV, TOOLS, max_turns, timetable
@@ -128,6 +137,34 @@ OCC_REWARD = ("0.2 + 0.8 exp(-g/0.5), g = max(0, cost - best) / max(B0 - best, 0
               "tomorrow; reward_L is the same against the bound")
 OCC_EXCUSED = ("nothing: a run is scored only if its audit passes (news, turns, causality, roles, crew legality, the "
                "bound, the desks' presence)")
+OCC3 = "v3"
+OCC3_ENV = "airops-occ3"
+OCC3_BUNDLE = "airops-occ3"
+OCC3_SETUP = "agent-env airops-occ3 setup"
+OCC3_PREFIX = "occ3-"
+OCC3_BOARD = "occ3-board-sol"
+OCC3_CAPS = occ3_tasks.CAPS
+OCC3_LABELS: dict[str, str] = {}
+OCC3_MODES = {"joint": "three desks, talking", "one": "one agent at all three desks"}
+OCC3_COSTS = ("delay", "cancel", "notice", "lodging", "fare", "aircraft", "deadhead", "hotel", "end")
+OCC3_CANDIDATES = ("v2_best", "B0", "incumbent_desk", "rounded_desk", "A_v2_desk", "repair")
+OCC3_BOARD_MD = re.compile(r"(<!-- board-v3 -->\n).*?(\n<!-- /board-v3 -->)", re.S)
+OCC3_SOURCE = (OCC_SOURCE + "; passengers generated per flight from BTS T-100 loads and the DB1B (to 2025 Q2) or DB1C "
+               "(from 2025-07) itinerary survey of each date's own period, connecting at JFK, BOS, FLL, MCO and SJU, "
+               "domestic itineraries only")
+OCC3_REFERENCE = ("the cheapest plan of aircraft and crews under the passenger cost P among v2's best plan, B0, the "
+                  "passenger-aware aircraft plans played through the standard crew desk and a repair of the best of "
+                  "them, replayed exactly with a legal crew on every flight; published with a capacity-aware lower "
+                  "bound where one was found")
+OCC3_REWARD = ("0.2 + 0.8 exp(-g/0.5), g = max(0, P - best) / max(B0 - best, 0.1 best), B0 being standard crew-desk "
+               "practice with the aircraft doing nothing; P in passenger-minutes: each passenger's arrival delay at "
+               "the final destination after JetBlue-only rebooking (up to five days, then a refund), 66 per "
+               "cancelled passenger (more when decided under 2 hours ahead), a lodging night per night away, each "
+               "refunded fare, and v2's aircraft and crew costs; reward_L is the same against the bound")
+OCC3_BASELINES = {"B0": "B0: standard crew-desk practice, the aircraft doing nothing",
+                  "naive": "doing nothing: the planned crews by the trip rule, no desk",
+                  "v2_best": "v2's best plan, blind to passengers, played with them",
+                  "airline": "the airline: JetBlue's own decisions, replayed with the generated crews and passengers"}
 
 
 def task_row(task: Task, raw: str) -> dict:
@@ -306,16 +343,21 @@ def months(pack: Path) -> list[str]:
 
 
 def configs(files: dict[str, bytes]) -> list[dict]:
-    """The dataset's own configs, v2's first and its days first of all: one per table, a split per file."""
+    """The dataset's own configs, the newest version's first and its days first of all: one per table, a split per
+    file."""
     out = []
-    for table, name in (("tasks", "tasks"), ("episodes", "runs"), ("desks", "desks")):
-        found = sorted((p for p in files if p.startswith(f"{table}/{OCC}-")), key=lambda p: split_order(p))
-        if found:
-            out.append({"config_name": f"{OCC}_{name}", "data_files": [
-                {"split": p.removesuffix(".parquet").rsplit("-", 1)[1], "path": p} for p in found]})
-    if f"results/{OCC}-board.parquet" in files:
-        out.insert(1, {"config_name": f"{OCC}_board", "data_files": [
-            {"split": SPLIT, "path": f"results/{OCC}-board.parquet"}]})
+    for version, names in ((OCC3, (("tasks", "tasks"), ("references", "references"), ("episodes", "episodes"),
+                                   ("desks", "desks"))),
+                           (OCC, (("tasks", "tasks"), ("episodes", "runs"), ("desks", "desks")))):
+        first = len(out)
+        for table, name in names:
+            found = sorted((p for p in files if p.startswith(f"{table}/{version}-")), key=lambda p: split_order(p))
+            if found:
+                out.append({"config_name": f"{version}_{name}", "data_files": [
+                    {"split": p.removesuffix(".parquet").rsplit("-", 1)[1], "path": p} for p in found]})
+        if f"results/{version}-board.parquet" in files:
+            out.insert(first + 1, {"config_name": f"{version}_board", "data_files": [
+                {"split": SPLIT, "path": f"results/{version}-board.parquet"}]})
     ours = len(out)
     for table in ("tasks", "references", "episodes"):
         found = sorted((p for p in files if p.startswith(f"{table}/{TABLES}-")), key=lambda p: split_order(p))
@@ -333,27 +375,33 @@ def split_order(path: str) -> int:
     return ("eval", "control", "train").index(split)
 
 
-def card_text(plugin: str, files: dict[str, bytes], board_md: str = "", occ_md: str = "") -> str:
+def card_text(plugin: str, files: dict[str, bytes], board_md: str = "", occ_md: str = "", occ3_md: str = "") -> str:
     """hub/dataset/README.md with the dataset's configs, each version's board between its markers, the bundle airops's
-    two configs and needs as agentenv-hf's publish writes them, and airops-occ's needs when the build has it."""
-    text = BOARD.sub(lambda m: m[1] + (f"\n{board_md}\n" if board_md else "") + m[2], CARD.read_text())
-    text = OCC_BOARD_MD.sub(lambda m: m[1] + (f"\n{occ_md}\n" if occ_md else "") + m[2], text)
+    two configs and needs as agentenv-hf's publish writes them, and airops-occ's and airops-occ3's needs when the build
+    has them."""
+    text = CARD.read_text()
+    for marker, md in ((BOARD, board_md), (OCC_BOARD_MD, occ_md), (OCC3_BOARD_MD, occ3_md)):
+        text = marker.sub(lambda m, md=md: m[1] + (f"\n{md}\n" if md else "") + m[2], text)
     ours = DatasetCard(text)
     ours.data.configs = configs(files)
     if ours.data.configs:
         ours.data.configs[0]["default"] = True
     text = card(str(ours), name=BUNDLE, split=SPLIT, repo=None, description=None, license=None,
                 needs={"plugins": [plugin], "setup": SETUP})
-    if not any(p.startswith(f"bundles/{OCC_BUNDLE}/") for p in files):
+    more = {name: setup for name, setup in ((OCC3_BUNDLE, OCC3_SETUP), (OCC_BUNDLE, OCC_SETUP))
+            if any(p.startswith(f"bundles/{name}/") for p in files)}
+    if not more:
         return text
     both = DatasetCard(text)
-    both.data.agentenv["bundles"][OCC_BUNDLE] = {"plugins": [plugin], "setup": OCC_SETUP}
+    for name, setup in more.items():
+        both.data.agentenv["bundles"][name] = {"plugins": [plugin], "setup": setup}
     return str(both)
 
 
 def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str, fixtures: list[Path], cache: Path,
           date: str, occ_pilots: list[str] = (), occ_pack: Path | None = None, occ_viewer: Path | None = None,
-          replays: Path | None = None, workers: int = 1) -> dict[str, bytes]:
+          replays: Path | None = None, workers: int = 1, occ3_pilots: list[str] = (),
+          occ3_pack: Path | None = None) -> dict[str, bytes]:
     days = tasks.pack_tasks(pack)
     raw = {json.loads(line)["task_id"]: line for line in tasks_file(pack).read_text().splitlines() if line.strip()}
     bundle = out / "bundles" / BUNDLE
@@ -382,15 +430,18 @@ def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str,
     files |= {f"viewer/{path}": content for path, content in export.folder(shown, cache).items()}
     if occ_viewer:
         files = merge_viewer(files, occ_viewer)
-    occ_tables, occ_md = occ_files(runs_dir, list(occ_pilots), Pack(occ_pack), replays or cache / "occ" / "replays",
-                                   workers, date)
+    replays = replays or cache / "occ" / "replays"
+    occ_tables, occ_md = occ_files(runs_dir, list(occ_pilots), Pack(occ_pack), replays, workers, date)
     files |= occ_tables | occ_bundle(out, occ_pack)
-    for d in [d for d, _ in played] + [runs_dir / name for name in occ_pilots]:
+    bundle3 = occ3_bundle(out, occ3_pack)
+    occ3_tables, occ3_md = occ3_files(runs_dir, list(occ3_pilots), Pack3(occ3_pack), bundle3, replays, workers, date)
+    files |= occ3_tables | bundle3
+    for d in [d for d, _ in played] + [runs_dir / name for name in [*occ_pilots, *occ3_pilots]]:
         for path in sorted(d.rglob("*")):
             rel = path.relative_to(d)
             if path.is_file() and rel.parts[0] not in ("logs", "bundle"):
                 files[f"runs/{d.name}/{rel.as_posix()}"] = path.read_bytes()
-    return files | {"README.md": card_text(plugin, files, board_md, occ_md).encode()}
+    return files | {"README.md": card_text(plugin, files, board_md, occ_md, occ3_md).encode()}
 
 
 def occ_bundle(out: Path, pack: Path | None) -> dict[str, bytes]:
@@ -402,6 +453,16 @@ def occ_bundle(out: Path, pack: Path | None) -> dict[str, bytes]:
     for mode, cap in OCC_CAPS.items():
         occ_tasks.generate(folder, split="all", modes=(mode,), pack=pack, cap=cap, noplay=mode == "joint")
     return {f"bundles/{OCC_BUNDLE}/{p.relative_to(folder).as_posix()}": p.read_bytes()
+            for p in sorted(folder.rglob("*")) if p.is_file()}
+
+
+def occ3_bundle(out: Path, pack: Path | None) -> dict[str, bytes]:
+    """The bundle airops-occ3 as `agent-env airops-occ3 tasks` writes it, every date of the pack in both modes at the
+    board's caps per desk, with wiring-noplay, which `agent-env hf run --bundle airops-occ3` plays."""
+    folder = out / "bundles" / OCC3_BUNDLE
+    shutil.rmtree(folder, ignore_errors=True)
+    occ3_tasks.generate(folder, split="all", pack=pack, caps=OCC3_CAPS, noplay=True)
+    return {f"bundles/{OCC3_BUNDLE}/{p.relative_to(folder).as_posix()}": p.read_bytes()
             for p in sorted(folder.rglob("*")) if p.is_file()}
 
 
@@ -447,24 +508,15 @@ def occ_task_row(pack: Pack, task_id: str) -> dict:
     entry = pack.tasks[task_id]
     raw = gzip.decompress((pack.path / "dates" / f"{entry['date']}.json.gz").read_bytes()).decode()
     world = World.from_dict(json.loads(raw))
-    task, refs = world.task, world.refs
-    units = Counter((u.kind, "reserve" if u.reserve else "trip") for u in world.units)
-    news = sorted(occ_pages.news(task).values(), key=lambda n: (n["at"], n["id"]))
+    refs = world.refs
+    row, news = occ_day(world, entry["split"], task_id)
     scripted = refs.get("scripted") or {}
-    row = {"task_id": task_id, "date": task.date, "split": entry["split"],
-           "season": "summer" if task.date[5:7] in ("06", "07", "08") else "winter",
-           "drawn_for": OCC_DRAWN.get(task.date) if entry["split"] == "eval" else None, "hub": task.hub,
-           "storm_hubs": list(task.hubs), "num_flights": len(task.flights), "num_aircraft": len(task.tails),
-           "num_airports": len(task.airports), "under_programs": task.clauses.get("controlled_or_held"),
-           "airline_cancelled": sum(f.actual.cancelled for f in task.flights), "num_watches": len(occ.watches(task)),
-           "num_advisories": len(news), "pilot_crews": units["pilot", "trip"], "cabin_crews": units["cabin", "trip"],
-           "pilot_reserves": units["pilot", "reserve"], "cabin_reserves": units["cabin", "reserve"],
-           "best": refs["best"], "bound": refs["bound"], "gap_pct": refs["gap_pct"], "best_from": refs["best_from"],
-           "B0": refs["B0"]["notice"], "B0_flat": refs["B0"]["flat"], "idle": refs.get("idle"),
-           "airline": refs.get("airline"), "scripted_joint": scripted.get("joint"), "scripted_one": scripted.get("one"),
-           "calm": refs["calm"]["base"], "calm_crew_aware": refs["calm"]["crew_aware"],
-           "calm_rise_pct": refs["calm"]["rise_pct"], "reserve_band_pilot": refs["bands"]["pilot"],
-           "reserve_band_cabin": refs["bands"]["cabin"]}
+    row |= {"best": refs["best"], "bound": refs["bound"], "gap_pct": refs["gap_pct"], "best_from": refs["best_from"],
+            "B0": refs["B0"]["notice"], "B0_flat": refs["B0"]["flat"], "idle": refs.get("idle"),
+            "airline": refs.get("airline"), "scripted_joint": scripted.get("joint"),
+            "scripted_one": scripted.get("one"), "calm": refs["calm"]["base"],
+            "calm_crew_aware": refs["calm"]["crew_aware"], "calm_rise_pct": refs["calm"]["rise_pct"],
+            "reserve_band_pilot": refs["bands"]["pilot"], "reserve_band_cabin": refs["bands"]["cabin"]}
     row |= {f"{k}_reward": None if row[k] is None else round(occ_reward(row[k], row["best"], row["B0"]), 6)
             for k in ("B0", "idle", "airline", "scripted_joint", "scripted_one")}
     return row | {"advisories": json.dumps(news, ensure_ascii=False),
@@ -472,10 +524,27 @@ def occ_task_row(pack: Pack, task_id: str) -> dict:
                   "world": raw}
 
 
-def occ_attempts(runs_dir: Path, pilots: list[str], pack: Pack) -> list[dict]:
+def occ_day(world: World, split: str, task_id: str) -> tuple[dict, list[dict]]:
+    """A control-center date's day: the hubs, its size, its crews and reserves, and the FAA's advisories as the desks
+    get them."""
+    task = world.task
+    units = Counter((u.kind, "reserve" if u.reserve else "trip") for u in world.units)
+    news = sorted(occ_pages.news(task).values(), key=lambda n: (n["at"], n["id"]))
+    return {"task_id": task_id, "date": task.date, "split": split,
+            "season": "summer" if task.date[5:7] in ("06", "07", "08") else "winter",
+            "drawn_for": OCC_DRAWN.get(task.date) if split == "eval" else None, "hub": task.hub,
+            "storm_hubs": list(task.hubs), "num_flights": len(task.flights), "num_aircraft": len(task.tails),
+            "num_airports": len(task.airports), "under_programs": task.clauses.get("controlled_or_held"),
+            "airline_cancelled": sum(f.actual.cancelled for f in task.flights), "num_watches": len(occ.watches(task)),
+            "num_advisories": len(news), "pilot_crews": units["pilot", "trip"], "cabin_crews": units["cabin", "trip"],
+            "pilot_reserves": units["pilot", "reserve"], "cabin_reserves": units["cabin", "reserve"]}, news
+
+
+def occ_attempts(runs_dir: Path, pilots: list[str], pack: Pack, board: str = OCC_BOARD,
+                 labels: dict[str, str] = OCC_LABELS) -> list[dict]:
     """Every attempt the pilots recorded, the board's folder and its labelled retries first. A board run's attempt is
     superseded by the last scored attempt of that run after it."""
-    order = sorted(pilots, key=lambda f: (f != OCC_BOARD, OCC_LABELS.get(f) != OCC_BOARD, f))
+    order = sorted(pilots, key=lambda f: (f != board, labels.get(f) != board, f))
     out = []
     for folder in order:
         pilot = json.loads((runs_dir / folder / "pilot.json").read_text())
@@ -484,7 +553,7 @@ def occ_attempts(runs_dir: Path, pilots: list[str], pack: Pack) -> list[dict]:
             out.append({"run_id": f"{folder}/{row['run']}-a{row['attempt']}", "folder": folder, "pilot": pilot,
                         "row": row, "task_id": task_id, "mode": mode, "date": pack.tasks[task_id]["date"],
                         "split": pack.tasks[task_id]["split"],
-                        "board": OCC_LABELS.get(folder, folder) == OCC_BOARD})
+                        "board": labels.get(folder, folder) == board})
     latest = {a["row"]["run"]: a["run_id"] for a in out if a["board"] and a["row"]["outcome"] == "scored"}
     for a in out:
         last = latest.get(a["row"]["run"]) if a["board"] else None
@@ -493,9 +562,10 @@ def occ_attempts(runs_dir: Path, pilots: list[str], pack: Pack) -> list[dict]:
     return out
 
 
-def occ_replays(attempts: list[dict], runs_dir: Path, pack: Pack, cache: Path, workers: int) -> dict[str, dict]:
-    """Each recorded day replayed through the env's calls, kept under ``cache`` by the day's digest (a replay takes
-    minutes), ``workers`` at once."""
+def occ_replays(attempts: list[dict], runs_dir: Path, pack: Pack, cache: Path, workers: int,
+                make: type[OccDay] = OccDay) -> dict[str, dict]:
+    """Each recorded day replayed through the env's calls on a ``make`` of ``pack``'s kind, kept under ``cache`` by the
+    day's digest (a replay takes minutes), ``workers`` at once."""
     out, todo = {}, []
     for a in attempts:
         day = a["row"].get("day")
@@ -508,7 +578,8 @@ def occ_replays(attempts: list[dict], runs_dir: Path, pack: Pack, cache: Path, w
         if kept.get("digest") == digest:
             out[a["run_id"]] = kept
         else:
-            todo.append((a["run_id"], str(runs_dir / a["folder"] / day), str(pack.path), str(path)))
+            todo.append((a["run_id"], str(runs_dir / a["folder"] / day), str(pack.path), str(path), type(pack),
+                         make))
     if todo:
         print(f"replaying {len(todo)} control-center days, {workers} at once")
     if workers > 1 and len(todo) > 1:
@@ -522,10 +593,10 @@ def occ_replays(attempts: list[dict], runs_dir: Path, pack: Pack, cache: Path, w
     return out
 
 
-def replay_day(job: tuple[str, str, str, str]) -> tuple[str, dict]:
-    run_id, day_path, pack_path, keep = job
+def replay_day(job: tuple[str, str, str, str, type[Pack], type[OccDay]]) -> tuple[str, dict]:
+    run_id, day_path, pack_path, keep, kind, make = job
     day = json.loads(Path(day_path).read_text())
-    again = occ_replay(Pack(pack_path).world(day["task_id"]), day)
+    again = occ_replay(kind(pack_path).world(day["task_id"]), day, make)
     result = {"digest": day.get("digest"), "exact": again.exact, "mismatches": len(again.mismatches),
               "first": again.mismatches[:3]}
     Path(keep).parent.mkdir(parents=True, exist_ok=True)
@@ -533,7 +604,8 @@ def replay_day(job: tuple[str, str, str, str]) -> tuple[str, dict]:
     return run_id, result
 
 
-def occ_run_row(a: dict, checked: dict, runs_dir: Path) -> dict:
+def occ_run_row(a: dict, checked: dict, runs_dir: Path, modes: dict[str, str] = OCC_MODES,
+                costs: tuple[str, ...] = OCC_COSTS) -> dict:
     """An attempt: its grade against the best plan, the bound and B0, the day's costs and decisions, the requests
     between the desks, its spend and tokens, how each desk ended, and whether it replays and passes the audit."""
     r, mode = a["row"], a["mode"]
@@ -547,13 +619,13 @@ def occ_run_row(a: dict, checked: dict, runs_dir: Path) -> dict:
     return {
         "run_id": a["run_id"], "pilot": a["folder"], "set": "board" if a["board"] else "pilot",
         "on_board": a["on_board"], "superseded_by": a["superseded_by"], "task_id": a["task_id"], "date": a["date"],
-        "split": a["split"], "mode": mode, "mode_label": OCC_MODES[mode],
+        "split": a["split"], "mode": mode, "mode_label": modes[mode],
         "model": model, "model_name": export.NAMES.get(model, model),
         "effort": next((d["effort"] for d in desks.values() if d.get("effort")), None), "attempt": r["attempt"],
         "outcome": r["outcome"], "started_utc": r.get("started_utc"), "wall_seconds": r.get("wall_seconds"),
         **{k: r.get(k) for k in ("reward", "reward_L", "cost", "best", "bound", "gap_pct", "B0", "over_best_pct",
                                  "over_bound_pct", "avoidable_share", "above_script", "script", "below_best")},
-        **{f"cost_{k}": (grade.get("costs") or {}).get(k) for k in OCC_COSTS},
+        **{f"cost_{k}": (grade.get("costs") or {}).get(k) for k in costs},
         "cancelled": sum((counts.get("cancelled") or {}).values()),
         "cancelled_by": json.dumps(counts.get("cancelled") or {}), "auto_cancelled": counts.get("auto_cancelled"),
         "holds": counts.get("holds"), "claims": counts.get("claims"),
@@ -592,7 +664,8 @@ def occ_desk_rows(a: dict, runs_dir: Path) -> list[dict]:
     return out
 
 
-def occ_board(attempts: list[dict]) -> list[dict]:
+def occ_board(attempts: list[dict], modes: dict[str, str] = OCC_MODES, board: str = OCC_BOARD,
+              lead: str = "two desks") -> list[dict]:
     """Each mode's mean reward and reward_L over the board's dates, with the bootstrap CI its analysis drew (dates in
     the order the board recorded them), B0, and the two modes' paired difference."""
     final: dict[str, dict] = {}
@@ -603,19 +676,19 @@ def occ_board(attempts: list[dict]) -> list[dict]:
     for run, r in final.items():
         task_id, mode = run.rsplit("-", 1)
         by.setdefault(task_id, {})[mode] = r
-    caps = next(a["pilot"]["caps"] for a in attempts if a["folder"] == OCC_BOARD) if by else {}
+    caps = next(a["pilot"]["caps"] for a in attempts if a["folder"] == board) if by else {}
     rows = []
-    for mode, label in OCC_MODES.items():
+    for mode, label in modes.items():
         played = [v[mode] for v in by.values() if mode in v and v[mode]["outcome"] == "scored"]
         if not played:
             continue
         mean, low, high = bootstrap([r["reward"] for r in played])
-        mean_l, low_l, high_l = bootstrap([r["reward_L"] for r in played])
+        mean_l, low_l, high_l = bootstrap_known([r["reward_L"] for r in played])
         desks = [d for r in played for d in (r.get("desks") or {}).values()]
         rows.append({"kind": "mode", "mode": mode, "label": label, "dates": len(played), "mean_reward": mean,
                      "ci_low": low, "ci_high": high, "mean_reward_L": mean_l, "ci_L_low": low_l, "ci_L_high": high_l,
                      "median_over_best_pct": round(statistics.median(r["over_best_pct"] for r in played), 2),
-                     "median_avoidable_share": round(statistics.median(r["avoidable_share"] for r in played), 3),
+                     "median_avoidable_share": median_known([r["avoidable_share"] for r in played], 3),
                      "spend_usd": round(sum(r["cost_usd"] for r in played), 2),
                      "input_tokens": sum(d.get("input_tokens") or 0 for d in desks),
                      "output_tokens": sum(d.get("output_tokens") or 0 for d in desks),
@@ -626,17 +699,19 @@ def occ_board(attempts: list[dict]) -> list[dict]:
     b0 = [occ_reward(r["B0"], r["best"], r["B0"]) for v in by.values() for r in v.values() if r.get("best")]
     rows.append({"kind": "baseline", "mode": "B0", "label": "standard crew desk, aircraft doing nothing",
                  "dates": len(by), "mean_reward": round(statistics.mean(b0), 4)})
-    pairs = [(v["joint"], v["one"]) for _, v in sorted(by.items())
-             if {"joint", "one"} <= set(v) and v["joint"]["outcome"] == v["one"]["outcome"] == "scored"]
+    first, second = modes
+    pairs = [(v[first], v[second]) for _, v in sorted(by.items())
+             if {first, second} <= set(v) and v[first]["outcome"] == v[second]["outcome"] == "scored"]
     if pairs:
         diff = [j["reward"] - o["reward"] for j, o in pairs]
         mean, low, high = bootstrap(diff)
-        mean_l, low_l, high_l = bootstrap([j["reward_L"] - o["reward_L"] for j, o in pairs])
+        mean_l, low_l, high_l = bootstrap_known([None if None in (j["reward_L"], o["reward_L"]) else
+                                                 j["reward_L"] - o["reward_L"] for j, o in pairs])
         cost, cost_low, cost_high = bootstrap([(j["cost"] - o["cost"]) / o["best"] * 100 for j, o in pairs])
-        rows.append({"kind": "paired", "mode": "joint - one", "label": "two desks minus one agent, paired by date",
-                     "dates": len(pairs), "mean_reward": mean, "ci_low": low, "ci_high": high, "mean_reward_L": mean_l,
-                     "ci_L_low": low_l, "ci_L_high": high_l, "cost_diff_pct_of_best": cost,
-                     "cost_diff_ci_low": cost_low, "cost_diff_ci_high": cost_high,
+        rows.append({"kind": "paired", "mode": f"{first} - {second}",
+                     "label": f"{lead} minus one agent, paired by date", "dates": len(pairs), "mean_reward": mean,
+                     "ci_low": low, "ci_high": high, "mean_reward_L": mean_l, "ci_L_low": low_l, "ci_L_high": high_l,
+                     "cost_diff_pct_of_best": cost, "cost_diff_ci_low": cost_low, "cost_diff_ci_high": cost_high,
                      "higher_on": sum(x > 1e-9 for x in diff), "lower_on": sum(x < -1e-9 for x in diff)})
     return rows
 
@@ -648,22 +723,36 @@ def bootstrap(xs: list[float], n: int = OCC_BOOT, seed: int = 0) -> tuple[float,
     return round(statistics.mean(xs), 4), round(means[int(0.025 * n)], 4), round(means[int(0.975 * n)], 4)
 
 
-def occ_board_markdown(rows: list[dict]) -> str:
+def median_known(xs: list[float | None], digits: int) -> float | None:
+    """The median of the values there are (a date whose reference is B0 has no avoidable cost)."""
+    known = [x for x in xs if x is not None]
+    return round(statistics.median(known), digits) if known else None
+
+
+def bootstrap_known(xs: list[float | None]) -> tuple[float | None, float | None, float | None]:
+    """bootstrap, or nothing when a value is missing (a date published without a bound)."""
+    return (None, None, None) if None in xs else bootstrap(xs)
+
+
+def occ_board_markdown(rows: list[dict], model: str = "GPT-6.1 Sol", lead: str = "two desks") -> str:
     modes = [r for r in rows if r["kind"] == "mode"]
     lines = ["| Mode | Dates | Mean reward (95% CI) | reward_L (95% CI) | Over the best plan, median "
              "| Avoidable cost saved, median | Spend |", "|---|---:|---|---|---:|---:|---:|"]
     for r in modes:
-        lines.append(f"| GPT-6.1 Sol, {r['label']} | {r['dates']} | **{r['mean_reward']:.3f}** ({r['ci_low']:.3f}–"
-                     f"{r['ci_high']:.3f}) | {r['mean_reward_L']:.3f} ({r['ci_L_low']:.3f}–{r['ci_L_high']:.3f}) | "
-                     f"{r['median_over_best_pct']:.1f}% | {100 * r['median_avoidable_share']:.0f}% | "
+        bound = "–" if r["mean_reward_L"] is None else (f"{r['mean_reward_L']:.3f} ({r['ci_L_low']:.3f}–"
+                                                       f"{r['ci_L_high']:.3f})")
+        share = "–" if r["median_avoidable_share"] is None else f"{100 * r['median_avoidable_share']:.0f}%"
+        lines.append(f"| {model}, {r['label']} | {r['dates']} | **{r['mean_reward']:.3f}** ({r['ci_low']:.3f}–"
+                     f"{r['ci_high']:.3f}) | {bound} | "
+                     f"{r['median_over_best_pct']:.1f}% | {share} | "
                      f"${r['spend_usd']:.2f} |")
     for r in rows:
         if r["kind"] == "baseline":
             lines.append(f"| Standard crew desk (B0) | {r['dates']} | {r['mean_reward']:.3f} | | | 0% | |")
     for r in rows:
         if r["kind"] == "paired":
-            lines += ["", f"Two desks minus one agent, paired by date: **{r['mean_reward']:+.3f}** reward (95% CI "
-                      f"{r['ci_low']:.3f} to {r['ci_high']:.3f}), two desks higher on {r['higher_on']} of "
+            lines += ["", f"{lead.capitalize()} minus one agent, paired by date: **{r['mean_reward']:+.3f}** reward "
+                      f"(95% CI {r['ci_low']:.3f} to {r['ci_high']:.3f}), {lead} higher on {r['higher_on']} of "
                       f"{r['dates']} dates; their days cost {-r['cost_diff_pct_of_best']:.1f}% of the best plan less "
                       f"(CI {-r['cost_diff_ci_high']:.1f} to {-r['cost_diff_ci_low']:.1f}%)."]
     return "\n".join(lines)
@@ -688,11 +777,123 @@ def occ_eval_card(rows: list[dict], days: list[dict], attempts: list[dict], date
         "grading": {"reference": OCC_REFERENCE, "reward": OCC_REWARD, "excused": OCC_EXCUSED, "judge": False},
         "baselines": [{"name": name, "mean": round(statistics.mean(d[f"{k}_reward"] for d in evals), 4)}
                       for k, name in baselines.items() if all(d[f"{k}_reward"] is not None for d in evals)],
-        "models": [{"model": f"{export.NAMES.get(model, model)}, {r['label']}", "provider": provider(model),
-                    "runs": r["dates"], "mean": r["mean_reward"], "ci95": [r["ci_low"], r["ci_high"]],
-                    "finished": r["dates"], "usd_per_episode": round(r["spend_usd"] / r["dates"], 4)}
-                   for r in rows if r["kind"] == "mode"],
+        "models": occ_models(rows, model),
         "links": {"runs": f"{DATASET_URL}/viewer/{OCC}_runs", "replay": SPACE_URL, "code": CODE_URL,
+                  "fidelity": f"{CODE_URL}/blob/v{VERSION}/FIDELITY.md"},
+        "date": date,
+    }
+
+
+def occ_models(rows: list[dict], model: str) -> list[dict]:
+    """The eval card's model entries, one per mode of the board."""
+    return [{"model": f"{export.NAMES.get(model, model)}, {r['label']}", "provider": provider(model),
+             "runs": r["dates"], "mean": r["mean_reward"], "ci95": [r["ci_low"], r["ci_high"]], "finished": r["dates"],
+             "usd_per_episode": round(r["spend_usd"] / r["dates"], 4)} for r in rows if r["kind"] == "mode"]
+
+
+def occ3_files(runs_dir: Path, pilots: list[str], pack: Pack3, bundle: dict[str, bytes], replays: Path, workers: int,
+               date: str) -> tuple[dict[str, bytes], str]:
+    """v3's tables and eval card, and its board as the card shows it: the b6-v3 pack's dates and their references
+    under cost P, every attempt of ``pilots`` (folders under ``runs_dir`` with a pilot.json) replayed, with each desk's
+    transcript, and from ``bundle`` (bundles/airops-occ3/) the desks' rules, tools and turns."""
+    days, refs = occ3_rows(pack, bundle_prompts(bundle))
+    files = by_split(f"tasks/{OCC3}", days) | by_split(f"references/{OCC3}", refs)
+    attempts = occ_attempts(runs_dir, pilots, pack, OCC3_BOARD, OCC3_LABELS)
+    if not attempts:
+        return files, ""
+    checked = occ_replays(attempts, runs_dir, pack, replays, workers, OccDay3)
+    files |= by_split(f"episodes/{OCC3}", [occ_run_row(a, checked[a["run_id"]], runs_dir, OCC3_MODES, OCC3_COSTS)
+                                          for a in attempts])
+    files |= by_split(f"desks/{OCC3}", [row for a in attempts for row in occ_desk_rows(a, runs_dir)])
+    rows = occ_board(attempts, OCC3_MODES, OCC3_BOARD, "three desks")
+    if not rows:
+        return files, ""
+    model = next(a["pilot"]["model"] for a in attempts if a["board"])
+    card_json = occ3_eval_card(rows, days, model, harness(bundle, pack), date)
+    files[f"results/{OCC3}-board.parquet"] = table_bytes(rows)
+    files[f"results/eval-{OCC3}.json"] = (json.dumps(card_json, indent=2, ensure_ascii=False) + "\n").encode()
+    return files, occ_board_markdown(rows, export.NAMES.get(model, model), "three desks")
+
+
+def occ3_rows(pack: Pack, prompts: dict[str, str]) -> tuple[list[dict], list[dict]]:
+    """The b6-v3 pack's dates as v3_tasks and v3_references rows, eval dates first."""
+    out = sorted((occ3_date(pack, t, prompts) for t in pack.tasks),
+                 key=lambda x: (OCC_SPLITS.index(x[0]["split"]), x[0]["date"]))
+    return [day for day, _ in out], [ref for _, ref in out]
+
+
+def occ3_date(pack: Pack, task_id: str, prompts: dict[str, str]) -> tuple[dict, dict]:
+    """A b6-v3 date: its day as in v2_tasks, its passengers, its references under P with their rewards (against the
+    reference and B0, both under P), the desks' rules and its world; and its references row: every candidate the
+    reference was chosen from, the bound and the gap, and the reference plan."""
+    entry = pack.tasks[task_id]
+    raw = gzip.decompress((pack.path / "dates" / f"{entry['date']}.json.gz").read_bytes()).decode()
+    data = json.loads(raw)
+    world, p, pax = World.from_dict(data), data["refs_p"], data["passengers"]
+    row, news = occ_day(world, entry["split"], task_id)
+    trips = sum(g[2] for g in pax["groups"])
+    connecting = sum(g[2] for g in pax["groups"] if len(g[1]) == 2)
+    best, b0 = p["best"], p["candidates"]["B0"]
+    refs = {"best": best, "bound": p["bound"], "gap_pct": p["gap_pct"], "best_from": p["best_from"], "B0": b0,
+            "naive": p["controls"]["naive"], "v2_best": p["candidates"]["v2_best"], "airline": p.get("airline")}
+
+    def rewarded(cost: float | None) -> float | None:
+        return None if cost is None else round(occ_reward(cost, best, b0), 6)
+
+    row |= {"passengers": trips, "connecting": connecting, "connecting_share": round(connecting / trips, 4),
+            "survey": pax["source"], "refund_fare": round(pax["fare"], 1), "later_flights": len(pax["later"]),
+            **refs, **{f"{k}_reward": rewarded(refs[k]) for k in OCC3_BASELINES}}
+    ref = {"task_id": task_id, "date": row["date"], "split": row["split"], "best": best, "bound": p["bound"],
+           "bound_from": p.get("bound_from"), "gap_pct": p["gap_pct"], "best_from": p["best_from"],
+           "best_replay": p["mode"], **{c: p["candidates"].get(c) for c in OCC3_CANDIDATES},
+           "naive": refs["naive"], "airline": refs["airline"],
+           **{f"{c}_reward": rewarded(p["candidates"].get(c)) for c in OCC3_CANDIDATES},
+           "naive_reward": rewarded(refs["naive"]), "airline_reward": rewarded(refs["airline"]),
+           "v2_best_over_best": round(refs["v2_best"] / best, 4), "best_plan": json.dumps(data["best_plan_p"])}
+    return row | {"advisories": json.dumps(news, ensure_ascii=False),
+                  **{f"system_prompt_{role}": text for role, text in sorted(prompts.items())}, "world": raw}, ref
+
+
+def bundle_tasks(bundle: dict[str, bytes], pack: Pack | None = None, split: str | None = None) -> list[list[dict]]:
+    """The bundle's task files' steps, those of ``split``'s dates only when given."""
+    return [json.loads(content) for path, content in sorted(bundle.items())
+            if path.startswith(f"bundles/{OCC3_BUNDLE}/tasks/") and path.endswith(".json")
+            and (split is None or pack.tasks.get(Path(path).stem.rsplit("-", 1)[0], {}).get("split") == split)]
+
+
+def bundle_prompts(bundle: dict[str, bytes]) -> dict[str, str]:
+    """Each desk role's rules, as the bundle's task files prompt it."""
+    out: dict[str, str] = {}
+    for steps in bundle_tasks(bundle):
+        roles = {s["agent_name"]: s["role"] for s in steps if s["type"] == "deploy_agent"}
+        for s in steps:
+            if s["type"] == "prompt_agent" and s.get("system_prompt"):
+                out.setdefault(roles[s["agent_name"]], s["system_prompt"])
+    return out
+
+
+def harness(bundle: dict[str, bytes], pack: Pack) -> dict:
+    """The desks' agent, the tools the roles are given and the most turns a desk has, over the bundle's eval tasks."""
+    tasks_ = bundle_tasks(bundle, pack, SPLIT)
+    agents = dict.fromkeys(s["a2a_agent_id"] for t in tasks_ for s in t if s["type"] == "deploy_agent")
+    tools = dict.fromkeys(x for t in tasks_ for s in t if s["type"] == "modify_env_tool_access"
+                          and s["action"] == "enable" for x in s["tools"])
+    turns = [s["max_turns"] for t in tasks_ for s in t if s["type"] == "prompt_agent"]
+    return {"agent": ", ".join(agents) or None, "tools": list(tools), "max_turns": max(turns, default=None)}
+
+
+def occ3_eval_card(rows: list[dict], days: list[dict], model: str, harness_: dict, date: str) -> dict:
+    """v3's eval card in the shape FineEnvs' simulation catalog renders, one model entry per mode."""
+    evals = [d for d in days if d["split"] == "eval"]
+    return {
+        "env": OCC3_ENV, "version": OCC3, "authors": AUTHORS, "framework": "agentenv",
+        "tasks": {"split": "eval", "n": len(evals), "source": OCC3_SOURCE, "selection": OCC_SELECTION},
+        "harness": harness_,
+        "grading": {"reference": OCC3_REFERENCE, "reward": OCC3_REWARD, "excused": OCC_EXCUSED, "judge": False},
+        "baselines": [{"name": name, "mean": round(statistics.mean(d[f"{k}_reward"] for d in evals), 4)}
+                      for k, name in OCC3_BASELINES.items() if all(d[f"{k}_reward"] is not None for d in evals)],
+        "models": occ_models(rows, model),
+        "links": {"runs": f"{DATASET_URL}/viewer/{OCC3}_episodes", "replay": SPACE_URL, "code": CODE_URL,
                   "fidelity": f"{CODE_URL}/blob/v{VERSION}/FIDELITY.md"},
         "date": date,
     }
@@ -746,8 +947,8 @@ def main():
                     help="Where the viewer's stages, traffic, radar frames, hub twins and stills are.")
     ap.add_argument("--plugin-ref", default=f"v{VERSION}", help="The plugin tag the card's bundle pins.")
     ap.add_argument("--repo", help="Push the folder to this dataset repo after writing it.")
-    ap.add_argument("--tag", help="Tag the pushed commit, e.g. v0.3.3; the Space reads the dataset at it.")
-    ap.add_argument("--message", default="Publish AirOpsEnv v2")
+    ap.add_argument("--tag", help="Tag the pushed commit, e.g. v0.4.0; the Space reads the dataset at it.")
+    ap.add_argument("--message", default="Publish AirOpsEnv v3")
     ap.add_argument("--date", default=datetime.date.today().isoformat(), help="The eval card's date.")
     ap.add_argument("--space-out", type=Path, help="Write the static Space here.")
     ap.add_argument("--space-repo", help="Push the Space folder to this Space repo after writing it.")
@@ -761,15 +962,22 @@ def main():
     ap.add_argument("--occ-replays", type=Path, help="Where each recorded day's replay is kept (default: --cache/occ/"
                                                      "replays); a day is replayed again only if it changed.")
     ap.add_argument("--workers", type=int, default=1, help="Replay this many control-center days at once.")
+    ap.add_argument("--occ3", action="append", metavar="PILOT",
+                    help=f"A three-desk pilot folder under --runs for v3's tables (repeat); default: every folder "
+                         f"named {OCC3_PREFIX}* with a pilot.json.")
+    ap.add_argument("--occ3-pack", type=Path, default=Path(str(OCC3_PACK)), help="Default: the packaged b6-v3 pack.")
     args = ap.parse_args()
     plugin = f"agentenv-airops @ git+{CODE_URL}@{args.plugin_ref}"
     sweeps = args.sweeps or sorted(p.parent.name for p in args.runs.glob("*/sweep.json"))
-    pilots = args.occ if args.occ is not None else sorted(p.parent.name for p in args.runs.glob("*/pilot.json"))
-    print("sweeps:", " ".join(sweeps) or "none", "\ncontrol-center pilots:", " ".join(pilots) or "none")
+    found = sorted(p.parent.name for p in args.runs.glob("*/pilot.json"))
+    occ3 = args.occ3 if args.occ3 is not None else [f for f in found if f.startswith(OCC3_PREFIX)]
+    pilots = args.occ if args.occ is not None else [f for f in found if not f.startswith(OCC3_PREFIX)]
+    print("sweeps:", " ".join(sweeps) or "none", "\ncontrol-center pilots:", " ".join(pilots) or "none",
+          "\nthree-desk pilots:", " ".join(occ3) or "none")
     with namespace_routing():
         files = build(sweeps, args.runs, args.out, args.pack, plugin, args.fixture, args.cache, args.date,
                       occ_pilots=pilots, occ_pack=args.occ_pack, occ_viewer=args.occ_viewer, replays=args.occ_replays,
-                      workers=args.workers)
+                      workers=args.workers, occ3_pilots=occ3, occ3_pack=args.occ3_pack)
     space = space_files(args.tag or "main") if args.space_out else {}
     scan(files | {f"space/{p}": c for p, c in space.items()}, known_values())
     write(files, args.out)
