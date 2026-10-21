@@ -259,3 +259,8 @@ leg        {flight, kind: "arr" | "dep", other: "MIA", city: "Miami", status: "f
   minutes, `cancel`), the line at the counter as `[t, n]` steps (`queue`), the walking groups in the crews' `segs`
   with `z` their floor (`groups`: connect, misconnect, rebook, hotel and the hotel `shuttle`), and each departure's
   gate tag by flight (`tags`: `{conn, held, missed, sched}`).
+- The viewer's Terminal view, on a day with passengers, stands inside the home terminal at a gate
+  (`web/stage/terminal.js`): lounges whose glass meets are one hall, each gate's departure is on a screen over its
+  podium (its flight, scheduled time and ON TIME, DELAYED, BOARDING, HELD for N connecting, CANCELLED or DEPARTED, from
+  the sidecar's legs and tags), and the camera stands at the back of the hall looking out past the crowd at the stand,
+  at the busiest gate or the director's. JetBlue's gate areas aren't public: the layout is generic, for display.

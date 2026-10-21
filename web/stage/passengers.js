@@ -14,6 +14,11 @@ const SEAT = 0.62;
 const LINE = { gap: 0.62, e: 1.15, ahead: 6, early: 2 };
 /** The boarding line along the glass from the jet bridge door: its spacing and how far in from the glass, the minutes
  * of boarding it holds, and how early before boarding it forms. */
+const LANE = 40;
+const JOIN = 2.5;
+const HALL = 5.6;
+/** The service counter's line its lanes hold at least; the gap between two lounges' glass under which they are one
+ * hall; the hall's height over the departure level's floor at most (under the terminal's roof). */
 const DEG = Math.PI / 180;
 const SKIN = ["#f0c8a8", "#e0b08c", "#c48a62", "#9a6644", "#6e4630", "#d8a07a"].map((c) => new THREE.Color(c));
 const TOPS = ["#2f3d52", "#5b6b7d", "#7a2f35", "#3f5f4a", "#c9c2b5", "#1f2329", "#8a6d4b", "#4a5a8c", "#b5523b", "#d8d4cc", "#2d5d7b", "#6b4f7a", "#e3e1dc", "#394a3c"].map((c) => new THREE.Color(c));
@@ -21,7 +26,9 @@ const BOTTOMS = ["#1d2228", "#2b3442", "#3a3f45", "#4a4038", "#22303f", "#5d6670
 const hash = (s) => {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
-  return (h >>> 0) / 4294967296;
+  h = Math.imul(h ^ (h >>> 16), 2246822507);
+  h = Math.imul(h ^ (h >>> 13), 3266489909);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 };
 
 /** The glass bands buildings.js leaves see-through for the lounges: segments [x0, y0, x1, y1] with the lounge inside on
@@ -49,12 +56,14 @@ export function cutouts(doc, stage) {
   return { lounges, floor, ceil, depth: doc.depth };
 }
 
-/** The departure level's floor and the glass band's top on the home terminal, as buildings.js draws its walls. */
+/** The departure level's floor and the glass band's top on the home terminal, as buildings.js draws its walls, and
+ * the hall's ceiling inside. */
 function levels(doc, stage) {
   const tall = stage.terminals[doc.terminal]?.height || 20;
   const low = Math.min(tall, Math.max(11, Math.min(15, tall * 0.62)));
   const top = tall > low + 2 ? low : tall;
-  return { floor: doc.floor, ceil: Math.max(doc.floor + 3, Math.min(top - 2.2, 11)) };
+  const ceil = Math.max(doc.floor + 3, Math.min(top - 2.2, 11));
+  return { floor: doc.floor, ceil, hall: Math.max(ceil, Math.min(doc.floor + HALL, top - 1)) };
 }
 
 /** The passengers at the hub (traffic.passengers, from occ/paxstage.py): the gate lounges behind the home terminal's
@@ -64,9 +73,11 @@ function levels(doc, stage) {
 export function buildPassengers(doc, stage) {
   const group = new THREE.Group();
   group.name = "passengers";
-  const { floor, ceil } = levels(doc, stage);
+  const { floor, ceil, hall } = levels(doc, stage);
   const lounges = doc.lounges.map((lg, i) => lounge(lg, doc.depth, i === doc.counter));
-  group.add(interiors(lounges, floor, ceil));
+  const halls = runs(lounges);
+  const inside = interiors(lounges, halls, floor, hall);
+  group.add(inside.group);
   const mat = figureMaterial();
   const kit = figureKit();
   const mesh = (geo, cap) => {
@@ -105,9 +116,11 @@ export function buildPassengers(doc, stage) {
   let live = [];
   let line = 0;
   let shown = 0;
+  let clear = null;
 
   const put = (x, y, z, h, look, seated, walking = false, phase = 0) => {
     if (n.head >= CAP) return false;
+    if (clear && Math.hypot(x - clear[0], y - clear[1]) < clear[2] && Math.abs(z - floor) < 1) return false;
     B.makeRotationY(-h * DEG).multiply(S).setPosition(x, z + 0.02, -y);
     const top = seated ? M.seatedTop : M.top;
     const k = seated ? n.seatedTop++ : n.top++;
@@ -138,14 +151,56 @@ export function buildPassengers(doc, stage) {
     return true;
   };
 
+  const people = (k, T) => byLounge[k].reduce((s, c) => s + Math.round(crowdAt(c, T)), 0) + (k === doc.counter ? stepAt(queue, T) : 0);
+
   return {
     group,
+    lounges,
+    halls,
+    walls: inside.walls,
+    floor,
+    hall,
+    counter: doc.counter,
+    /** A jet bridge's fixed walkway (its points from the terminal to its rotunda) kept out of the halls: when the
+     * rotunda is less than r metres outside the glass it faces its cab through (toward `tip`) or the walkway runs
+     * through a hall, a walkway from that glass straight out to the rotunda, moved out to r if it is less. */
+    fit(pts, tip, r) {
+      const P = pts.at(-1);
+      let w = null;
+      for (const run of halls) {
+        const [d, e] = local(run, P[0], P[1]);
+        if (d >= 0 && d <= run.len && e > -40 && e < 60 && local(run, tip[0], tip[1])[1] < 0 && (!w || e < w.e)) w = { run, d, e };
+      }
+      const inside = (q) => halls.some((run) => {
+        const [d, e] = local(run, q[0], q[1]);
+        return d >= 0 && d <= run.len && e > -0.5 && e < run.depth;
+      });
+      if (!w || (w.e <= -r && !pts.slice(0, -1).some(inside))) return pts;
+      return [w.run.pos(w.d, -0.2).slice(0, 2), w.e > -r ? w.run.pos(w.d, -r).slice(0, 2) : P];
+    },
     get count() {
       return shown;
     },
     get waiting() {
       return line;
     },
+    /** Keep the figures on the departure level within r of (x, y) out of sight (a camera standing there), or none. */
+    set clear(c) {
+      clear = c;
+    },
+    /** The people in lounge k at T: its departures' crowds and, at the counter, the line. */
+    at: people,
+    /** The line at the service counter at T, and its [t, n] steps. */
+    line: (T) => stepAt(queue, T),
+    queue,
+    /** The lounge with the most people at T. */
+    busiest(T) {
+      let best = 0;
+      for (let k = 1; k < lounges.length; k++) if (people(k, T) > people(best, T)) best = k;
+      return best;
+    },
+    /** The departures' crowds of lounge k ({flight, n, t, cancel}). */
+    crowds: (k) => byLounge[k],
     /** Pose the passengers at minute T; wall is the wall clock in seconds, rate the replay's clock rate. */
     update(T, wall, rate = 0) {
       n = { top: 0, seatedTop: 0, head: 0, legs: 0, lap: 0, leg: 0, bag: 0 };
@@ -223,13 +278,14 @@ export function buildPassengers(doc, stage) {
         m.instanceColor.needsUpdate = true;
       }
     },
-    /** Tags over the passengers near the camera: the line at the counter, a group walking or the hotel shuttle, those
-     * of the featured aircraft's flights first; at most SAY. */
-    tags(camera, flights = new Set()) {
+    /** Tags over the passengers near the camera: the line at the counter (over its desk from `inside` the terminal,
+     * else outside its glass), a group walking or the hotel shuttle, those of the featured aircraft's flights first; at
+     * most `most`. */
+    tags(camera, flights = new Set(), most = SAY, inside = false) {
       const cam = camera.position;
       const c = [];
       if (line > 0 && desk) {
-        const [x, y] = desk.tagAt;
+        const [x, y] = inside ? desk.desk : desk.tagAt;
         c.push({ key: "pax:queue", anchor: [x, y, floor + 2.6], say: `Customer service · ${line} waiting to rebook`, rank: 1 });
       }
       for (const g of live) {
@@ -241,7 +297,7 @@ export function buildPassengers(doc, stage) {
         .map((x) => ({ ...x, d: Math.hypot(x.anchor[0] - cam.x, x.anchor[2] - cam.y, -x.anchor[1] - cam.z) }))
         .filter((x) => x.rank || x.d < NEAR)
         .sort((a, b) => b.rank - a.rank || a.d - b.d)
-        .slice(0, SAY)
+        .slice(0, most)
         .map((x) => ({
           key: x.key,
           matrix: new THREE.Matrix4().makeTranslation(x.anchor[0], 0, -x.anchor[1]),
@@ -295,26 +351,10 @@ function lookOf(seed, k) {
 
 /** A lounge along its glass: where a point d metres along it and e in from it is, the seats and standing places a
  * crowd fills (seats first, by a stable shuffle), its boarding line from the jet bridge door along the glass, and on
- * the counter's lounge the desk and its line. */
+ * the counter's lounge the desk and its line, its lanes as many as hold LANE people however short the lounge. */
 function lounge(raw, depth, counter) {
   const p = raw.p;
-  const cum = [0];
-  for (let i = 1; i < p.length; i++) cum.push(cum[i - 1] + Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]));
-  const len = cum[cum.length - 1];
-  const pos = (d, e) => {
-    let i = 1;
-    while (i < p.length - 1 && cum[i] < d) i++;
-    const a = p[i - 1];
-    const b = p[i];
-    const L = cum[i] - cum[i - 1] || 1;
-    const u = Math.min(1, Math.max(0, (d - cum[i - 1]) / L));
-    const na = raw.n[i - 1];
-    const nb = raw.n[i];
-    const nx = na[0] + (nb[0] - na[0]) * u;
-    const ny = na[1] + (nb[1] - na[1]) * u;
-    const nl = Math.hypot(nx, ny) || 1;
-    return [a[0] + (b[0] - a[0]) * u + (nx / nl) * e, a[1] + (b[1] - a[1]) * u + (ny / nl) * e, (Math.atan2(-nx, -ny) * 180) / Math.PI];
-  };
+  const { len, pos } = line(p, raw.n);
   const slots = [];
   const benches = [];
   const r = rng(hash(raw.stand));
@@ -351,16 +391,17 @@ function lounge(raw, depth, counter) {
     const [x, y, h] = pos(d, LINE.e);
     board.push({ x, y, h: h + dir * 90 });
   }
-  const out = { stand: raw.stand, p, n: raw.n, len, pos, slots, order, benches, depth, queue: [], board, tagAt: pos(len / 2, -1.5) };
+  const out = { stand: raw.stand, p, n: raw.n, len, pos, slots, order, benches, depth, queue: [], board, tagAt: pos(len / 2, -1.5), door: d0 };
   if (counter) {
     out.desk = pos(len - 4.5, depth - 1.6);
     out.tagAt = pos(len - 10, -1.5);
-    const lanes = [5.6, 4.4, 3.2, 2.0];
+    const from = len - 8;
+    const to = Math.max(1.2, len - 21);
+    const each = Math.max(2, Math.floor((from - to) / 0.62));
+    const lanes = [5.6, 4.4, 3.2, 2.0, 6.8, 0.9].slice(0, Math.max(4, Math.ceil(LANE / (each + 1))));
     lanes.forEach((e, j) => {
-      const from = len - 8;
-      const to = len - 21;
-      for (let k = 0; k <= 18; k++) {
-        const d = j % 2 ? to + (k * (from - to)) / 18 : from - (k * (from - to)) / 18;
+      for (let k = 0; k <= each; k++) {
+        const d = j % 2 ? to + (k * (from - to)) / each : from - (k * (from - to)) / each;
         const [x, y, h] = pos(d, e);
         out.queue.push({ x, y, h: j % 2 ? h + 90 : h - 90 });
       }
@@ -371,33 +412,111 @@ function lounge(raw, depth, counter) {
   return out;
 }
 
+/** A polyline p with inward normals n: its length and pos(d, e), the point d metres along it and e in, with the
+ * heading out through it there. */
+function line(p, n) {
+  const cum = [0];
+  for (let i = 1; i < p.length; i++) cum.push(cum[i - 1] + Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]));
+  const len = cum[cum.length - 1];
+  const pos = (d, e) => {
+    let i = 1;
+    while (i < p.length - 1 && cum[i] < d) i++;
+    const a = p[i - 1];
+    const b = p[i];
+    const L = cum[i] - cum[i - 1] || 1;
+    const u = Math.min(1, Math.max(0, (d - cum[i - 1]) / L));
+    const na = n[i - 1];
+    const nb = n[i];
+    const nx = na[0] + (nb[0] - na[0]) * u;
+    const ny = na[1] + (nb[1] - na[1]) * u;
+    const nl = Math.hypot(nx, ny) || 1;
+    return [a[0] + (b[0] - a[0]) * u + (nx / nl) * e, a[1] + (b[1] - a[1]) * u + (ny / nl) * e, (Math.atan2(-nx, -ny) * 180) / Math.PI];
+  };
+  return { len, pos, cum };
+}
+
+/** The lounges in runs along the glass, those whose ends are within JOIN of each other one hall with no wall between
+ * them: each run's lounges `ks`, polyline, line() and where along it each of its lounges starts (`at`). */
+function runs(lounges) {
+  const out = [];
+  lounges.forEach((lg, k) => {
+    const run = out.at(-1);
+    const last = run && lounges[run.ks.at(-1)];
+    if (last && Math.hypot(last.p.at(-1)[0] - lg.p[0][0], last.p.at(-1)[1] - lg.p[0][1]) < JOIN) {
+      const m = mitre(run.n.at(-1), lg.n[0]);
+      run.ks.push(k);
+      run.first.push(run.p.length);
+      run.n[run.n.length - 1] = m;
+      run.p.push(...lg.p);
+      run.n.push(m, ...lg.n.slice(1));
+    } else out.push({ ks: [k], first: [0], p: [...lg.p], n: [...lg.n] });
+  });
+  for (const run of out) {
+    Object.assign(run, line(run.p, run.n));
+    run.depth = lounges[run.ks[0]].depth;
+    run.at = run.first.map((i) => run.cum[i]);
+    run.marks = [];
+    for (let d = 0; d <= run.len + 0.01; d += 0.5) run.marks.push([...run.pos(d, 0), d]);
+  }
+  return out;
+}
+
+/** The inward normal where two lounges' glass meets at a corner, as long as it must be for the hall's back wall to
+ * keep its depth from both. */
+function mitre(a, b) {
+  const [ax, ay] = [a[0] / Math.hypot(...a), a[1] / Math.hypot(...a)];
+  const [bx, by] = [b[0] / Math.hypot(...b), b[1] / Math.hypot(...b)];
+  const l = Math.hypot(ax + bx, ay + by);
+  if (l < 1e-6) return a;
+  const c = Math.max(0.5, ((ax + bx) * ax + (ay + by) * ay) / l);
+  return [(ax + bx) / l / c, (ay + by) / l / c];
+}
+
+/** Where a point (x, y) is about a run of lounges (runs()): [d along its glass, e in from it]. */
+export function local(run, x, y) {
+  const M = run.marks;
+  let i = 0;
+  let r = Infinity;
+  for (let j = 0; j < M.length; j++) {
+    const q = (M[j][0] - x) ** 2 + (M[j][1] - y) ** 2;
+    if (q < r) [r, i] = [q, j];
+  }
+  const [mx, my, h, d] = M[i];
+  const [ax, ay] = M[Math.max(0, i - 1)];
+  const [bx, by] = M[Math.min(M.length - 1, i + 1)];
+  const L = Math.hypot(bx - ax, by - ay) || 1;
+  return [d + ((x - mx) * (bx - ax) + (y - my) * (by - ay)) / L, -((x - mx) * Math.sin(h * DEG) + (y - my) * Math.cos(h * DEG))];
+}
+
 function rng(seed) {
   let s = Math.floor(seed * 4294967296) >>> 0;
   return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
 }
 
-/** The lounges' rooms behind the glass: carpet, a lit ceiling, back and end walls, the glass itself, rows of seats, a
- * podium by each jet bridge door and the counter with its sign. */
-function interiors(lounges, floor, ceil) {
+/** The lounges' halls behind the glass, a run of lounges one hall: carpet, a lit ceiling, back walls and end walls at a
+ * run's ends, the glass itself, rows of seats, a podium by each jet bridge door and the counter with its sign; the
+ * group and the walls' mesh. */
+function interiors(lounges, halls, floor, ceil) {
   const g = new THREE.Group();
   const floors = [];
   const ceilings = [];
   const walls = [];
   const glass = [];
-  for (const lg of lounges) {
+  for (const run of halls) {
     const front = [];
     const back = [];
-    for (let i = 0; i < lg.p.length; i++) {
-      const [x, y] = lg.p[i];
-      const [nx, ny] = lg.n[i];
+    const depth = run.depth;
+    for (let i = 0; i < run.p.length; i++) {
+      const [x, y] = run.p[i];
+      const [nx, ny] = run.n[i];
       front.push([x + nx * 0.06, y + ny * 0.06]);
-      back.push([x + nx * lg.depth, y + ny * lg.depth]);
+      back.push([x + nx * depth, y + ny * depth]);
     }
     floors.push(band(front, back, floor, true, "#5f6672", "#474d58"));
     ceilings.push(band(front, back, ceil - 0.05, false, "#f3eee4", "#d9d3c7"));
     walls.push(wall(back, floor, ceil, true, "#a8a195", "#d6d0c4"));
     walls.push(wall([front[0], back[0]], floor, ceil, false, "#b3aca0", "#d6d0c4"), wall([front.at(-1), back.at(-1)], floor, ceil, true, "#b3aca0", "#d6d0c4"));
-    glass.push(wall(lg.p.map(([x, y], i) => [x + lg.n[i][0] * 0.03, y + lg.n[i][1] * 0.03]), floor, ceil, false));
+    glass.push(wall(run.p.map(([x, y], i) => [x + run.n[i][0] * 0.03, y + run.n[i][1] * 0.03]), floor, ceil, false));
   }
   const add = (geos, m) => {
     const mesh = new THREE.Mesh(mergeGeometries(geos), m);
@@ -409,7 +528,7 @@ function interiors(lounges, floor, ceil) {
   const lit = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, toneMapped: false });
   add(floors, lit);
   add(ceilings, lit);
-  add(walls, lit);
+  const sides = add(walls, lit);
   const pane = add(glass, new THREE.MeshStandardMaterial({ color: "#a9c2d2", transparent: true, opacity: 0.16, roughness: 0.04, metalness: 0.7, depthWrite: false, side: THREE.DoubleSide }));
   pane.renderOrder = 2;
   const seats = lounges.flatMap((lg) => lg.benches);
@@ -436,10 +555,10 @@ function interiors(lounges, floor, ceil) {
     const [x, y, h] = d.pos(d.len - 4.5, d.depth - 0.08);
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(6.2, 1.1), new THREE.MeshBasicMaterial({ map: signTexture(), toneMapped: false }));
     sign.position.set(x, floor + 2.9, -y);
-    sign.rotation.y = -h * DEG;
+    sign.rotation.y = Math.PI - h * DEG;
     g.add(sign);
   }
-  return g;
+  return { group: g, walls: sides };
 }
 
 /** A floor or ceiling strip between the glass line a and the back line b, shaded from near (glass) to far. */

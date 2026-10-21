@@ -12,8 +12,8 @@ const angDiff = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 const PARTS = { outer: "#BFC3C6", inner: "#C9CCCE", band: "#30383E", cab: "#B9BDC0", cabGlass: "#2A3238", bellows: "#1A1B1D", leg: "#55595C", bogie: "#26282A" };
 
-/** Jet bridges that swing out and dock at the forward door of the aircraft parked at their stand, and tuck back in before it pushes. */
-export function buildBridges(stage, plan) {
+/** Jet bridges that swing out and dock at the forward door of the aircraft parked at their stand, and tuck back in before it pushes; fit(points, tip) gives a fixed walkway (its points from the terminal to the rotunda, its cab toward tip) kept out of the gate lounges' halls. */
+export function buildBridges(stage, plan, { fit = null } = {}) {
   const group = new THREE.Group();
   group.name = "bridges";
   const stands = new Map(stage.stands.map((s) => [s.ref, s]));
@@ -39,10 +39,11 @@ export function buildBridges(stage, plan) {
         k = i;
       }
     }
-    const P = line[k];
+    const fixed = fit ? fit(line.slice(0, k + 1), line[n - 1]) : line.slice(0, k + 1);
+    const P = fixed[fixed.length - 1];
     const tip = line[n - 1];
     const L = Math.max(dist(tip, P), 6);
-    list.push({ stand: st?.ref ?? null, P, fixed: line.slice(0, k + 1), restAng: Math.atan2(tip[0] - P[0], tip[1] - P[1]), restLen: Math.min(30, Math.max(8, 0.7 * L)), reach: Math.max(L * 1.9 + 12, 30) });
+    list.push({ stand: st?.ref ?? null, P, fixed, restAng: Math.atan2(tip[0] - P[0], tip[1] - P[1]), restLen: Math.min(30, Math.max(8, 0.7 * L)), reach: Math.max(L * 1.9 + 12, 30) });
   }
   const byStand = new Map();
   for (const b of list) if (b.stand) (byStand.get(b.stand) || byStand.set(b.stand, []).get(b.stand)).push(b);
