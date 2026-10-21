@@ -585,6 +585,19 @@ def test_v3s_runs_desks_board_and_eval_card_read_the_three_desk_pilots_and_the_b
     assert "Three desks minus one agent, paired by date" in board_md
 
 
+def test_the_three_desk_bundle_is_written_at_the_caps_the_board_ran(hub, tmp_path):
+    path = _occ3_pack(tmp_path)
+    board = tmp_path / "runs" / "occ3-board-sol"
+    board.mkdir(parents=True)
+    (board / "pilot.json").write_text(json.dumps({"name": "occ3-board-sol", "caps": {"joint": 3.0, "one": 6.0}}))
+    caps = hub.board_caps(tmp_path / "runs", ["occ3-board-sol"])
+    assert caps == {"joint": 3.0, "one": 6.0} and hub.board_caps(tmp_path / "runs", []) is None
+    bundle = hub.occ3_bundle(tmp_path / "out", path, caps)
+    found = {(Path(p).stem.rsplit("-", 1)[1], v) for p, c in bundle.items() if p.endswith(".json") and "/tasks/" in p
+             for v in re.findall(r'"AIROPS_MAX_COST_USD": "([^"]+)"', c.decode())}
+    assert found == {("joint", "3"), ("one", "6")}
+
+
 def test_a_date_without_a_bound_leaves_reward_l_out_of_the_board(hub):
     runs = [{"board": True, "folder": "occ3-board-sol", "pilot": {"caps": {"joint": 5.0, "one": 12.0}},
              "row": {"run": f"{OCC_EVAL}-{m}", "outcome": "scored", "reward": 0.5, "reward_L": None, "cost": 1500.0,

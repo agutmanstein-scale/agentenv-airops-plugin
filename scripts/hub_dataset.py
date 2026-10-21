@@ -434,7 +434,7 @@ def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str,
     replays = replays or cache / "occ" / "replays"
     occ_tables, occ_md = occ_files(runs_dir, list(occ_pilots), Pack(occ_pack), replays, workers, date)
     files |= occ_tables | occ_bundle(out, occ_pack)
-    bundle3 = occ3_bundle(out, occ3_pack)
+    bundle3 = occ3_bundle(out, occ3_pack, board_caps(runs_dir, list(occ3_pilots)))
     occ3_tables, occ3_md = occ3_files(runs_dir, list(occ3_pilots), Pack3(occ3_pack), bundle3, replays, workers, date)
     files |= occ3_tables | bundle3
     for d in [d for d, _ in played] + [runs_dir / name for name in [*occ_pilots, *occ3_pilots]]:
@@ -457,14 +457,21 @@ def occ_bundle(out: Path, pack: Path | None) -> dict[str, bytes]:
             for p in sorted(folder.rglob("*")) if p.is_file()}
 
 
-def occ3_bundle(out: Path, pack: Path | None) -> dict[str, bytes]:
+def occ3_bundle(out: Path, pack: Path | None, caps: dict | None = None) -> dict[str, bytes]:
     """The bundle airops-occ3 as `agent-env airops-occ3 tasks` writes it, every date of the pack in both modes at the
-    board's caps per desk, with wiring-noplay, which `agent-env hf run --bundle airops-occ3` plays."""
+    board's caps per desk (``caps``, else the env's defaults), with wiring-noplay, which `agent-env hf run --bundle
+    airops-occ3` plays."""
     folder = out / "bundles" / OCC3_BUNDLE
     shutil.rmtree(folder, ignore_errors=True)
-    occ3_tasks.generate(folder, split="all", pack=pack, caps=OCC3_CAPS, noplay=True)
+    occ3_tasks.generate(folder, split="all", pack=pack, caps=caps or OCC3_CAPS, noplay=True)
     return {f"bundles/{OCC3_BUNDLE}/{p.relative_to(folder).as_posix()}": p.read_bytes()
             for p in sorted(folder.rglob("*")) if p.is_file()}
+
+
+def board_caps(runs_dir: Path, pilots: list[str]) -> dict | None:
+    """The caps per desk the v3 board ran at, from its pilot.json, when the build publishes the board."""
+    path = runs_dir / OCC3_BOARD / "pilot.json"
+    return json.loads(path.read_text())["caps"] if OCC3_BOARD in pilots and path.is_file() else None
 
 
 def merge_viewer(files: dict[str, bytes], folder: Path) -> dict[str, bytes]:
