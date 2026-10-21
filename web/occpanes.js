@@ -13,7 +13,7 @@ const SHORT = { ops: "Ops", crew: "Crew", customer: "Customer", one: "Both" };
 const TYPES = { CANCEL: "Cancel", CANCEL_PAIR: "Cancel round trip", HOLD: "Hold", COVER: "Cover", TEXT: "Message", PROTECT: "Protect", SUGGEST_CANCEL: "Suggest cancelling" };
 const VERBS = { cancel: "cancelled", cancel_pair: "cancelled the round trip of", hold: "held", claim: "took a slot for", release: "released",
   assign: "put a crew on", call_reserve: "called a reserve for", deadhead: "flew a crew as passengers on", swap: "swapped a crew onto", rest: "rested the crew of",
-  rebook: "rebooked passengers off", hotel: "booked hotels for passengers off" };
+  rebook: "rebooked passengers off", hotel: "moved to a later day passengers off" };
 const ROW = 22, BACK = 13 * 60, AHEAD = 9 * 60, PAD = 6;
 
 const left = (m) => {
@@ -237,9 +237,9 @@ export class OccDrawer {
           <td class="n">${hotel || ""}${hotel ? `<small>${esc(stations)}</small>` : ""}</td><td class="n">${sum("home") || ""}</td><td class="n">${r.hold ? `${r.hold} min` : ""}</td></tr>`;
       }).join("");
       pane.innerHTML = `<div class="px-head"><span><b>${a.missed.toLocaleString("en-US")}</b> missed connections</span><span><b>${a.rebooked.toLocaleString("en-US")}</b> rebooked onto later flights</span>
-        <span><b>${a.stranded.toLocaleString("en-US")}</b> stranded overnight, in hotels</span><span><b>${a.home.toLocaleString("en-US")}</b> went home or took a refund</span>
+        <span title="No hotel is owed on a storm day (weather and air traffic control are force majeure): they find their own room, and the env charges one GSA lodging night as the passenger's cost."><b>${a.stranded.toLocaleString("en-US")}</b> stranded overnight, at their own cost</span><span><b>${a.home.toLocaleString("en-US")}</b> went home or took a refund</span>
         ${a.held ? `<span><b>${a.held}</b> departures held for ${a.heldPax} connecting</span>` : ""}<em>by ${clock(t)}</em></div>
-        <table class="rq px"><thead><tr><th>Flight</th><th>Booked</th><th>Connecting in / out</th><th>Flew it</th><th>Missed connection</th><th>Rebooked onto</th><th>Hotels</th><th>Home</th><th>Held for them</th></tr></thead><tbody>${body}</tbody></table>`;
+        <table class="rq px"><thead><tr><th>Flight</th><th>Booked</th><th>Connecting in / out</th><th>Flew it</th><th>Missed connection</th><th>Rebooked onto</th><th title="No hotel is owed on a storm day (weather and air traffic control are force majeure): they find their own room, and the env charges one GSA lodging night as the passenger's cost.">Overnight</th><th>Home</th><th>Held for them</th></tr></thead><tbody>${body}</tbody></table>`;
     });
     if (fresh && !this.scrolled) {
       this.scrolled = true;

@@ -158,7 +158,7 @@ export class Score extends Card {
 }
 
 /** The customer pane of a day with passengers: how many have missed a connection, been rebooked onto a later flight
- * or put up in a hotel overnight so far, the departures held for connecting passengers and where they are stranded. */
+ * or stranded overnight so far, the departures held for connecting passengers and where they are stranded. */
 export class Passengers extends Card {
   constructor(el, P) {
     super(el);
@@ -172,10 +172,10 @@ export class Passengers extends Card {
     this.slot("kpis", `${a.missed}|${a.rebooked}|${a.stranded}`, () => `
       <div><b>${fmt(a.missed)}</b><span>missed connections</span></div>
       <div><b>${fmt(a.rebooked)}</b><span>rebooked</span></div>
-      <div><b>${fmt(a.stranded)}</b><span>stranded overnight</span></div>`);
+      <div title="No hotel is owed on a storm day (weather and air traffic control are force majeure): they find their own room, and the env charges one GSA lodging night as the passenger's cost."><b>${fmt(a.stranded)}</b><span>stranded overnight</span></div>`);
     const where = [...strandedPaxAt(this.X, t)].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]));
     const line = [a.held ? `Held ${a.held} departure${a.held > 1 ? "s" : ""} for ${fmt(a.heldPax)} connecting` : "",
-      where.length ? `in hotels at ${where.slice(0, 3).map(([c, n]) => `${esc(c)} ${fmt(n)}`).join(", ")}${where.length > 3 ? ` and ${where.length - 3} more` : ""}` : ""].filter(Boolean);
+      where.length ? `overnight at ${where.slice(0, 3).map(([c, n]) => `${esc(c)} ${fmt(n)}`).join(", ")}${where.length > 3 ? ` and ${where.length - 3} more` : ""}` : ""].filter(Boolean);
     const text = line.join("; ");
     this.slot("line", text, () => (text ? `${text[0].toUpperCase()}${text.slice(1)}` : "No departure held for connections yet"));
   }

@@ -71,7 +71,7 @@ DESKS = {"ops": "the ops controller", "crew": "the crew scheduler", "customer": 
 ASKS = {"CANCEL": "to cancel", "CANCEL_PAIR": "to cancel the round trip of", "HOLD": "to hold",
         "COVER": "to find a crew for", "PROTECT": "not to cancel", "SUGGEST_CANCEL": "to cancel early"}
 CREW_MOVES = ("assign", "call_reserve", "deadhead", "swap")
-BRAND = "AirOpsEnv v2"
+BRAND, BRAND3 = "AirOpsEnv v2", "AirOpsEnv v3"
 DAWN = -1.0
 """The sun's elevation, in degrees, from which the airport is light enough to open on."""
 REPLY = 5.5
@@ -489,7 +489,7 @@ class Center(Day):
                  "three desks, an ops controller for the flights, a crew scheduler for the crews and a customer desk "
                  "for the passengers" if three else
                  "two desks, an ops controller for the flights and a crew scheduler for the crews")
-        title = {"kicker": f"{BRAND} · the ops control center",
+        title = {"kicker": f"{BRAND3 if self.ep.get('passengers') else BRAND} · the ops control center",
                  "caption": f"{self.model} runs JetBlue's control center through a storm day"}
         if not self.room:
             return [replace(self.dawn()[0][0], **title,
@@ -701,7 +701,7 @@ class Center(Day):
         return [b for _, b in sorted(found, key=lambda f: f[0], reverse=True)]
 
     def rebooks(self) -> list[list[Shot]]:
-        """The customer desk rebooking passengers off a flight, or booking them hotels for the night, in the room (wide,
+        """The customer desk rebooking passengers off a flight, today or on a later day, in the room (wide,
         so as not to cut from its own close shot) at its turn, the most passengers first."""
         turns: dict[tuple, list] = {}
         for d in self.occ["decisions"]:
@@ -714,7 +714,7 @@ class Center(Day):
             onto = sorted({self.sched[d["to"]]["flight"] for d in ds if d.get("to") in self.sched})
             at = min(d["shown"] for d in ds)
             caption = (f"The customer desk rebooks {moved} passengers off {self.trip(fid)}" if moved else
-                       f"The customer desk books hotels for {hotel} passengers off {self.trip(fid)}")
+                       f"The customer desk moves {hotel} passengers off {self.trip(fid)} to a later day")
             subline = ", ".join(x for x in (f"onto {', '.join(onto[:2])}" if onto else "",
                                             f"{hotel} stranded overnight" if moved and hotel else "") if x)
             shot = self.in_room("move", "room", at, at - 0.8, at + 4, desk="customer", caption=caption,
@@ -1375,6 +1375,9 @@ def board(index: Path, ep: Mapping) -> dict | None:
 def end_card(ep: Mapping) -> dict:
     t, model = ep["task"], ep.get("model_label") or ep["model"]
     where = f"{HUBS.get(t['hub'], t['hub'])} · {long_date(t['date'])}"
+    if ep.get("passengers"):
+        return {"title": BRAND3, "sub": "The ops control center · run an airline and its passengers through a real "
+                "storm day", "who": f"{model} · {ep['occ']['label']} · {where}"}
     if ep.get("occ"):
         return {"title": BRAND, "sub": "The ops control center · run an airline through a real storm day",
                 "who": f"{model} · {ep['occ']['label']} · {where}"}

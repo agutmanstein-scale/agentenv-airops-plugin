@@ -3,7 +3,7 @@
 // ringed when the FAA stops or slows their arrivals. One MapLibre map; the inset and the full view are the same map.
 // On a control-center day it also shows the crews: those resting in a hotel away from base, the reserves still on call
 // at each base, the crews riding as passengers on the aircraft in the air, and the legs of a crew picked in the drawer;
-// on a day with passengers, the passengers stranded overnight in hotels at each airport.
+// on a day with passengers, the passengers stranded overnight at each airport.
 import maplibregl from "maplibre-gl";
 import { BASES, CREW_INK, crewIndex, deadheadsOn, reservesAt, strandedAt } from "./crewdata.js";
 import { capsAt, esc } from "./model.js";
@@ -131,7 +131,7 @@ export class NetworkMap {
     injectStyle();
   }
 
-  /** Passengers in hotels at t: a sand disc at each airport, its area by how many, numbered from ten; the corner inset
+  /** Passengers stranded overnight at t: a sand disc at each airport, its area by how many, numbered from ten; the corner inset
    * gives the total. */
   showPax(t) {
     const where = strandedPaxAt(this.pax, t), P = this.P;
@@ -143,7 +143,7 @@ export class NetworkMap {
       this.map.getSource("pax-strand")?.setData({ type: "FeatureCollection", features });
     }
     const total = features.reduce((a, f) => a + f.properties.n, 0), compact = this.el.clientWidth < 700;
-    const html = total ? `<b>Passengers</b><span class="pax"><i></i><b>${total.toLocaleString("en-US")}</b> in hotels overnight</span>` : "";
+    const html = total ? `<b>Passengers</b><span class="pax"><i></i><b>${total.toLocaleString("en-US")}</b> stranded overnight</span>` : "";
     if (this.paxSum.innerHTML !== html) this.paxSum.innerHTML = html;
     this.paxSum.hidden = !compact || !html;
     this.paxShown = total > 0;

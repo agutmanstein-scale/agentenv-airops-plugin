@@ -229,6 +229,9 @@ def test_the_customer_desk_asks_for_a_hold_for_connecting_passengers_and_rebooks
     assert moved.subline == "onto B6 50"
     assert shots[0].subline.endswith("Three desks, an ops controller for the flights, a crew scheduler for the crews "
                                      "and a customer desk for the passengers")
+    assert shots[0].kicker == "AirOpsEnv v3 · the ops control center"
+    assert record.end_card(ep)["title"] == "AirOpsEnv v3" and "its passengers" in record.end_card(ep)["sub"]
+    assert record.title(ep).startswith("AirOpsEnv v3 · ")
 
 
 def test_the_line_at_the_service_counter_is_filmed_through_its_lounge_s_glass_at_its_longest():

@@ -1,5 +1,5 @@
 // The passengers of a v3 day (episode.passengers) at a minute t: how many have missed a connection, been rebooked
-// onto a later flight or been put up in a hotel overnight, and where, and the departures held for them. Pure functions
+// onto a later flight or been stranded overnight, and where, and the departures held for them. Pure functions
 // over the episode, no DOM.
 
 export const PAX_INK = "#e9c27a";

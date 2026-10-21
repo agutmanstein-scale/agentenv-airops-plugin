@@ -9,8 +9,8 @@ from BOARD to CLOSED before. An arrival's passengers come off DEPLANE minutes af
 walk the concourse to the landside, its connecting passengers to their next gate, or, when the departure left without
 them, to the counter. A cancelled departure's crowd goes to the
 counter when it is cancelled, QUEUE of it in line (the rest rebook on their phones). Passengers leave the line when
-the customer desk rebooks them (to their new gate), sends them home, or books a hotel (to the curb and the next
-shuttle, every SHUTTLE minutes)."""
+they are rebooked (to their new gate), go home, or are moved to a later day and find a room for the night (to the
+curb and the next shuttle, every SHUTTLE minutes)."""
 
 import math
 from collections import defaultdict

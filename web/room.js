@@ -142,7 +142,7 @@ export class Room {
       case "rebook":
         return `Rebooked ${c.pax != null ? `${c.pax} ` : ""}off ${f}${c.to != null ? ` onto ${this.P.sched.get(c.to)?.flight ?? `f${c.to}`}` : ""}`;
       case "hotel":
-        return `Hotels for ${c.pax != null ? `${c.pax} ` : ""}off ${f}${c.at ? ` in ${c.at}` : ""}`;
+        return `Moved ${c.pax != null ? `${c.pax} ` : ""}off ${f} to a later day${c.at ? `, a night in ${c.at}` : ""}`;
       default:
         return `${c.action}${f ? ` ${f}` : ""}${c.detail ? ` ${c.detail}` : ""}`;
     }

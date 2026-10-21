@@ -276,7 +276,7 @@ def test_the_space_is_the_viewer_opened_on_the_datasets_episodes_at_a_revision(h
     files = hub.space_files(TAG)
     card = DatasetCard(files["README.md"].decode()).data.to_dict()
     assert (card["sdk"], card["app_file"], card["datasets"]) == ("static", "index.html", [hub.REPO])
-    assert card["title"] == "AirOpsEnv v2" and len(card["short_description"]) <= 60
+    assert card["title"] == "AirOpsEnv v3" and len(card["short_description"]) <= 60
     assert (f"https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/{TAG}".encode()
             in files["index.html"]) and b"viewer/index.html" in files["index.html"]
     web = {f"viewer/{p.relative_to(export.WEB).as_posix()}": p.read_bytes() for p in export.WEB.rglob("*")
