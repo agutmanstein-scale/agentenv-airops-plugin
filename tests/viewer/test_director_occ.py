@@ -275,7 +275,7 @@ def test_passengers_who_missed_their_connection_and_the_stranded_s_shuttle_are_f
     ep["passengers"] = {"flights": [], "connections": [], "events": [
         {"t": 700, "kind": "hotel", "at": "BOS", "flight": 1, "pax": 12, "until": 1860}]}
     walk = {"do": "walk", "t": [640, 646], "p": [[0, 30], [40, 30], [10.0, 26.0]], "z": 5.0, "say": "x"}
-    hotel = {"do": "wait", "t": [700, 719.5], "at": [-77, 46], "z": 0.0, "say": "y"}
+    hotel = {"do": "wait", "t": [700, 719.5], "at": [-80, 40], "z": 0.0, "say": "y"}
     van = {"do": "van", "t": [720, 721], "p": [[-80, 40], [-80, 60], [-80, 120]], "v": "shuttle", "dir": "out",
            "park": 3.0, "z": 0.0, "say": "Hotel shuttle · 12 passengers stranded overnight"}
     traffic["passengers"] = {"lounges": [{"stand": "C-12", "door": [10.0, 26.0], "n": [[0.0, 1.0], [0.0, 1.0]]}],
@@ -289,7 +289,7 @@ def test_passengers_who_missed_their_connection_and_the_stranded_s_shuttle_are_f
     assert (missed.camera, missed.at, missed.ref, missed.focus) == ("terminal", 646, "C-12", "counter")
     assert missed.caption == "7 passengers who missed B6 10 to Miami reach the service counter"
     [[bus]] = c.shuttle()
-    assert (bus.camera, bus.at, bus.path) == ("curb", 720, ((-80, 40), (-80, 60), (-77, 46)))
+    assert (bus.camera, bus.at, bus.path) == ("curb", 720, ((-80, 40), (-80, 60)))
     assert bus.caption == "12 passengers stranded overnight leave for the hotel"
     assert bus.subline == "They fly on tomorrow from 07:00"
     assert record.Center(ep, traffic, None, None, dusk=719).shuttle() == []

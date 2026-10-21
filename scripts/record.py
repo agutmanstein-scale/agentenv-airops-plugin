@@ -100,10 +100,10 @@ SUFFIX = re.compile(r" (International|Intl|Regional|Municipal|Metropolitan|Count
 class Shot:
     """One shot: a camera from minute ``t0`` for ``seconds`` at a clock of ``speed`` (seconds of the day per second,
     ramped from the first to the second), the cards it shows and its caption; ``at`` is the moment it is about,
-    ``reach`` how near the weather brings a wide camera, in metres, and ``path`` the last leg of a crew's walk (the
-    shuttle's stop, its road's next point and where its riders wait) in the stage's metres; ``desk`` and ``ref`` are
-    the desk and the request (a room shot), the crew group or the gate (a terminal shot, its ``focus`` "counter" for
-    the service counter's line, ``flight`` the departure its screen shows) it is about."""
+    ``reach`` how near the weather brings a wide camera, in metres, and ``path`` the last leg of a crew's walk in the
+    stage's metres; ``desk`` and ``ref`` are the desk and the request (a room shot), the crew group or the gate (a
+    terminal shot, its ``focus`` "counter" for the service counter's line, ``flight`` the departure its screen
+    shows) it is about."""
     name: str
     camera: str
     t0: float
@@ -757,7 +757,6 @@ class Center(Day):
             n = int(re.search(r"(\d+) passengers?", s["say"])[1])
             riders = [x for x in pax["groups"] if x["kind"] == "hotel" and x["segs"][-1]["t"][1] <= s["t"][0]
                       and s["t"][0] - x["segs"][-1]["t"][1] < 1]
-            wait = next((x["segs"][-1].get("at") or x["segs"][-1]["p"][-1] for x in riders), s["p"][0])
             until = [e.get("until") for e in (self.ep.get("passengers") or {}).get("events", [])
                      if e["kind"] == "hotel" and e["at"] == self.hub and e.get("until")
                      and any(e["flight"] in [k for k, v in self.sched.items() if v["flight"] in x["flights"]]
@@ -768,7 +767,7 @@ class Center(Day):
                         caption=f"{people(n)} stranded overnight {'leaves' if n == 1 else 'leave'} for the hotel",
                         subline=(f"They fly on {'tomorrow ' if min(until) >= 1440 else ''}from "
                                  f"{clock(min(until) % 1440)}" if until else "No seat left for them today"),
-                        path=(tuple(s["p"][0]), tuple(s["p"][1]), tuple(wait)))
+                        path=(tuple(s["p"][0]), tuple(s["p"][1])))
             if not self.framed(shot):
                 continue
             found.append(((self.window[0] <= s["t"][0] <= self.window[1] + 180, n, -s["t"][0]), [shot]))
@@ -1278,15 +1277,16 @@ FILM_JS = r"""
         return { from: [...from, 11], to: [...to, 10], ...at, fov: c.camera === "push" ? 40 : 44, ...span };
       }
       if (c.camera === "curb") {
-        const [[x0, y0], [x1, y1], w = [x0, y0]] = c.path, n = Math.hypot(x1 - x0, y1 - y0) || 1;
-        const d = [(x1 - x0) / n, (y1 - y0) / n], sd = [-d[1], d[0]];
+        const [[x0, y0], [x1, y1]] = c.path, n = Math.hypot(x1 - x0, y1 - y0) || 1;
+        const d = [(x1 - x0) / n, (y1 - y0) / n], sd = [-d[1], d[0]], line = S.pax?.curb(c.at) ?? [];
+        const ws = [...new Set([line[0], line[line.length >> 1], line[line.length - 1]])].filter(Boolean);
         const bus = (x, y, z) => Math.abs((x - x0) * d[0] + (y - y0) * d[1]) < 4.3
           && Math.abs((x - x0) * sd[0] + (y - y0) * sd[1]) < 1.2 && z < 2.9;
-        const hides = (p) => !bus(...w, 0) && Array.from({ length: 23 }, (_, i) => (i + 1) / 24)
+        const hides = (p, w) => Array.from({ length: 23 }, (_, i) => (i + 1) / 24)
           .some((u) => bus(p[0] + (w[0] - p[0]) * u, p[1] + (w[1] - p[1]) * u, p[2] * (1 - u)));
         for (const [e, k] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
           const from = [...add(add([x0, y0], d, -26 * e), sd, 16 * k), 17], to = [...add(from, d, 3 * e), 16];
-          if ([from, to].every((p) => S.sees(p, [x0, y0]) && S.sees(p, w) && !hides(p))) {
+          if ([from, to].every((p) => S.sees(p, [x0, y0]) && ws.every((w) => S.sees(p, w) && !hides(p, w)))) {
             return { from, to, at: [...add([x0, y0], d, 3 * e), 1.5], fov: 42, fov1: 40, ...span };
           }
         }
