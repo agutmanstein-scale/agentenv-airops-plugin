@@ -299,6 +299,41 @@ def test_passengers_who_missed_their_connection_and_the_stranded_s_shuttle_are_f
     assert (record.people(1, "connecting passengers"), record.people(40)) == ("1 connecting passenger", "40 passengers")
 
 
+def test_a_film_with_no_other_shot_inside_the_terminal_films_a_gate_full_of_its_departure_s_passengers():
+    ep, traffic = day()
+    ep["passengers"] = {"flights": [], "connections": [], "events": []}
+    traffic["passengers"] = {"lounges": [{"stand": "C-11", "door": [0.0, 0.0], "n": [[0.0, 1.0], [0.0, 1.0]]},
+                                         {"stand": "C-12", "door": [10.0, 26.0], "n": [[0.0, 1.0], [0.0, 1.0]]}],
+                             "counter": 1, "queue": [], "groups": [], "tags": {}, "crowds": [
+                                 {"lounge": 0, "flight": "B6 10", "n": 140, "t": [590, 660, 665, 692], "cancel": None},
+                                 {"lounge": 1, "flight": "B6 20", "n": 90, "t": [530, 600, 605, 632], "cancel": 600}]}
+    shots = record.direct(ep, traffic, seconds=70)
+    [crowd] = [s for s in shots if s.camera == "terminal"]
+    assert (crowd.name, crowd.ref, crowd.flight, crowd.key, crowd.at, crowd.cards) == ("crowd", "C-11", "B6 10", "N1",
+                                                                                     662, ("tags",))
+    assert frames(crowd)[0] < 662 < frames(crowd)[-1] and crowd.speed == (6, 6)
+    assert crowd.caption == "135 passengers wait at gate 11 for B6 10 to Miami"
+    assert crowd.subline == "Delayed to 11:40, 1 h 30 min late"
+    assert 69 <= sum(s.seconds for s in shots) <= 71
+    board = record.Center(ep, traffic, None, None).crowd([])[1][0]
+    assert (board.at, board.caption, board.subline) == (
+        669, "119 passengers board B6 10 to Miami at gate 11", "Boarding 1 h 30 min late")
+    traffic["passengers"]["tags"] = {"B6 10": {"conn": 12, "held": 5, "missed": 0, "sched": 610}}
+    held = record.Center(ep, traffic, None, None).crowd([])
+    assert [b[0].subline for b in held] == ["Held 5 min for 12 connecting passengers"] * 2
+    ep["executed"][0] |= {"held": True, "not_before": 700}
+    assert record.Center(ep, traffic, None, None).crowd([])[0][0].subline == \
+        "Held until 11:40 for 12 connecting passengers"
+    assert record.Center(ep, traffic, None, None).crowd([[crowd]]) == []
+    assert record.Center(ep, traffic, None, None, gates={"C-12"}).crowd([]) == []
+    assert record.Center(ep, traffic, None, None, sun=lambda t: 5.0).crowd([]) == []
+    assert [b[0].at for b in record.Center(ep, traffic, None, None, light=665).crowd([])] == [669]
+    assert record.screen_tone({"out": 700, "sched": 695}, {}, 600) == "ok"
+    view = {"placed": True, "screen": {"x": 0.3, "y": -0.05}, "face": 0.8, "seats": 0.3}
+    assert record.reads(view) and not any(record.reads(view | x) for x in (
+        {"placed": False}, {"screen": None}, {"screen": {"x": 0.9, "y": 0}}, {"face": 0.2}, {"seats": 0.05}))
+
+
 def test_the_desks_words_are_quoted_only_when_they_read_plainly():
     ep, traffic = day()
     c = record.Center(ep, traffic, None, None)

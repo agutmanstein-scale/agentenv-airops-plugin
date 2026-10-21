@@ -29,7 +29,7 @@ import threading
 import time
 import urllib.request
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import date
@@ -63,8 +63,15 @@ SECONDS = {"establish": 5.5, "faa": 6, "decide": 6, "flip": 5, "push": 4.5, "tax
            "close": 7, "crew": 4.5, "van": 4.5, "lounge": 5, "curb": 5, "terminal": 5.5}
 STRETCH = ("establish", "faa", "decide", "flip")
 ROOM = ("room", "room-desks", "room-wall")
+HELD, BOARD, KNOWN = 30, 35, 120
+"""Minutes before it would have left that a departure's gate screen shows it held for its connecting passengers, before
+pushback that it boards, and before its schedule that its delay is known (web/stage/terminal.js)."""
+FULL = 40
+"""The fewest of a departure's passengers in its gate's lounge for the director to film them there."""
+TONES = ("ok", "board", "delay", "hold")
+"""A gate screen's departure statuses in the order a crowd shot prefers them, the last first."""
 DAY_SUN = 12
-"""Degrees the sun is up for a still to count as a daylight one (--pick day)."""
+"""Degrees the sun is up for a still (--pick day) or a crowd shot to count as a daylight one."""
 DAY_ORDER = ("pushback", "push", "counter", "missed", "crew", "shuttle", "takeoff", "wait", "taxi", "van")
 """The airport shots a daylight still prefers, aircraft and people first."""
 DESKS = {"ops": "the ops controller", "crew": "the crew scheduler", "customer": "the customer desk"}
@@ -143,16 +150,18 @@ def lead_in(at: float, seconds: float, speed: tuple[float, float], total: float)
 
 def direct(ep: Mapping, traffic: Mapping, events: Sequence[Mapping] | None = None,
            poses: Callable[[str, float, float], list] | None = None, seconds: float = 40,
-           room: bool = True, light: float | None = None, dusk: float | None = None) -> list[Shot]:
+           room: bool = True, light: float | None = None, dusk: float | None = None,
+           gates: Collection[str] | None = None, sun: Callable[[float], float] | None = None) -> list[Shot]:
     """The film of a day about ``seconds`` long, in the order it happened: the hub across the water as the desk opens,
     the FAA's program arriving over a quiet field, a cancellation landing at its gate and on the board, a held flight
     finally pushing back, taxiing and taking off, then the day's score; a control-center day cuts to the room when the
     desks decide or talk (Center), to its 2D card over the tower without a 3D ``room``. ``events`` are the stage's
     movements (AirportStage.events(), else the sidecar's times) and ``poses(key, a, b)`` the stage's
     [[minute, phase, speed]] and ``light`` the first minute the airport is light enough to film (else the day's
-    start), ``dusk`` the last (else its end)."""
+    start), ``dusk`` the last (else its end), ``gates`` the stands whose Terminal view reads (reads(), else any) and
+    ``sun(t)`` the sun's elevation in degrees at minute t (else always up)."""
     if ep.get("occ"):
-        return Center(ep, traffic, events, poses, room, light, dusk).film(seconds)
+        return Center(ep, traffic, events, poses, room, light, dusk, gates, sun).film(seconds)
     return Day(ep, traffic, events, poses).film(seconds)
 
 
@@ -443,12 +452,14 @@ class Day:
 class Center(Day):
     """A control-center day as the director reads it (O39): the room when the desks decide or talk, at the display
     minutes the room shows each request and decision (``shown``, ``answered``), then the airport where it plays out,
-    never before first ``light``. Without a 3D ``room`` its beats go on the room's 2D card over the map."""
+    never before first ``light``. Without a 3D ``room`` its beats go on the room's 2D card over the map; a crowd at a
+    gate is filmed only at ``gates`` (else any) with the ``sun`` up."""
 
     def __init__(self, ep: Mapping, traffic: Mapping, events: Sequence[Mapping] | None, poses, room: bool = True,
-                 light: float | None = None, dusk: float | None = None):
+                 light: float | None = None, dusk: float | None = None, gates: Collection[str] | None = None,
+                 sun: Callable[[float], float] | None = None):
         super().__init__(ep, traffic, events, poses)
-        self.occ, self.room = ep["occ"], room
+        self.occ, self.room, self.gates, self.sun = ep["occ"], room, gates, sun or (lambda t: 90.0)
         self.one = self.occ["mode"] == "one"
         self.sched = {s["id"]: s for s in ep["schedule"]}
         self.light = self.span[0] if light is None else max(self.span[0], light)
@@ -460,7 +471,7 @@ class Center(Day):
         first, leaver, beats = self.opening(), self.leaver(), []
         groups = (self.dawn, lambda: self.faa(first[-1].t1), lambda: self.asks(("CANCEL", "CANCEL_PAIR")),
                   lambda: self.asks(("HOLD",)), lambda: self.asks(("PROTECT", "SUGGEST_CANCEL")), self.counter,
-                  self.missed, self.shuttle, self.rebooks, lambda: self.leave(leaver),
+                  self.missed, lambda: self.crowd(beats), self.shuttle, self.rebooks, lambda: self.leave(leaver),
                   lambda: self.wait(beats, leaver), lambda: self.asks(("COVER",)), self.van, self.map, self.cancels,
                   self.moves, self.landing)
         for options in groups:
@@ -686,6 +697,46 @@ class Center(Day):
                         subline=f"{came} landed too late for their connection", ref=desk["stand"], focus="counter")
             found.append(((self.light <= end <= self.dusk, g["n"], self.window[0] <= end <= self.window[1] + 180, -end),
                           [shot]))
+        return [b for _, b in sorted(found, key=lambda f: f[0], reverse=True)]
+
+    def crowd(self, beats: Sequence[Sequence[Shot]]) -> list[list[Shot]]:
+        """A departure's passengers filling its gate's lounge, then boarding, inside the terminal with the gate's
+        screen showing it and its aircraft at the gate (the sidecar's crowds, display-only), for a film with no other
+        shot inside: in daylight at a gate whose view reads, held for connecting passengers first, then delayed, then
+        boarding, the fullest first."""
+        pax = self.traffic.get("passengers") or {}
+        if not self.ep.get("passengers") or any(s.camera == "terminal" for b in beats for s in b):
+            return []
+        speed, found = (FAST["terminal"],) * 2, []
+        for c in pax.get("crowds") or []:
+            stand = pax["lounges"][c["lounge"]]["stand"]
+            a, v, g = self.legs.get((c["flight"], "dep"), (None, None, None))
+            if c["lounge"] == pax["counter"] or c["cancel"] is not None or g is None or g["status"] != "flown" \
+                    or not g["tag"] or v["stand"] != stand or (self.gates is not None and stand not in self.gates):
+                continue
+            tag = (pax.get("tags") or {}).get(g["flight"]) or {}
+            p = tag if abs(tag.get("sched", g["sched"]) - g["sched"]) <= 5 else {}
+            for t in (c["t"][1] + 2, c["t"][2] + 4):
+                n, t0 = math.floor(crowd_at(c, t) + 0.5), t - SECONDS["terminal"] * speed[0] / 120
+                t1 = t0 + SECONDS["terminal"] * speed[0] / 60
+                if n < FULL or not self.light <= t0 < t1 <= self.dusk or parked(a, t0, t1) is not v \
+                        or self.sun(t) < DAY_SUN:
+                    continue
+                tone, gate, trip = screen_tone(g, p, t), self.gate(a, t), f"{g['flight']} to {g['city']}"
+                if tone == "hold":
+                    subline = (f"Held until {clock(self.held[g['flight']])}" if g["flight"] in self.held else
+                               f"Held {late(p['held'])}") + \
+                        (f" for {people(p['conn'], 'connecting passengers')}" if p["conn"] else "")
+                elif tone == "delay":
+                    subline = f"Delayed to {clock(g['out'])}, {late(g['out'] - g['sched'])} late"
+                else:
+                    subline = f"Boarding {behind(g['out'] - g['sched'])}" if tone == "board" else \
+                        f"Departs on time at {clock(g['sched'])}"
+                found.append(((TONES.index(tone), n, -t), [Shot(
+                    "crowd", "terminal", t0, SECONDS["terminal"], speed, key=a["key"], at=t, cards=("tags",),
+                    kicker=clock(t), subline=subline, ref=stand, flight=g["flight"],
+                    caption=f"{people(n)} {'boards' if n == 1 else 'board'} {trip} at {gate}" if t >= c["t"][2] else
+                    f"{people(n)} {'waits' if n == 1 else 'wait'} at {gate} for {trip}")]))
         return [b for _, b in sorted(found, key=lambda f: f[0], reverse=True)]
 
     def shuttle(self) -> list[list[Shot]]:
@@ -956,6 +1007,35 @@ def behind(minutes: float) -> str:
         f"{late(-minutes)} early"
 
 
+def crowd_at(c: Mapping, t: float) -> float:
+    """A flown departure's crowd in its gate's lounge at t (web/stage/passengers.js crowdAt): arriving from t[0],
+    nearly all there by t[1], boarding from t[2] to t[3]."""
+    a, f, b, g = c["t"]
+    if not a < t < g:
+        return 0.0
+    k = 0.94 * ((t - a) / (f - a)) ** 1.3 if t < f else 0.94 + 0.06 * (t - f) / max(1, b - f) if t < b else \
+        1 - (t - b) / max(1, g - b)
+    return k * c["n"]
+
+
+def screen_tone(g: Mapping, p: Mapping, t: float) -> str:
+    """What a flown departure's gate screen says of it at t, before pushback, as its tone (web/stage/terminal.js
+    status): held for its connecting passengers (``p``, the sidecar's tag), boarding, delayed or on time."""
+    if p.get("held") and t >= min(g["out"] - p["held"], g["sched"]) - HELD:
+        return "hold"
+    if t >= g["out"] - BOARD:
+        return "board"
+    return "delay" if g["out"] - g["sched"] > 10 and t >= g["sched"] - KNOWN else "ok"
+
+
+def reads(view: Mapping) -> bool:
+    """Whether a gate's Terminal view reads for a crowd shot (web/stage/terminal.js framed()): its camera clear, its
+    screen shown within the middle four fifths of the page and facing it within 60°, a tenth of its seats in frame."""
+    s = view["screen"]
+    return bool(view["placed"] and s and max(abs(s["x"]), abs(s["y"])) <= 0.8 and view["face"] >= 0.5
+                and view["seats"] >= 0.1)
+
+
 def waits(g: Mapping) -> list[tuple[float, float]]:
     """The spans in which a flown departure's tag says "waiting for crew" (web/stage/stage.js crewAt)."""
     if not g.get("crew") or g["kind"] != "dep" or g["status"] != "flown" or g["out"] is None:
@@ -1157,6 +1237,15 @@ FILM_JS = r"""
       }
       return out;
     },
+    async gates(T) {
+      const out = {};
+      for (const g of S.gates() ?? []) {
+        await window.airops.view("terminal", { stand: g.stand, t0: T - 1, t1: T + 1 });
+        await window.airops.time(T, { dt: 0, speed: 0 });
+        out[g.stand] = S.terminal.framed(g.lounge, S.camera);
+      }
+      return out;
+    },
     camera(c) {
       const T = c.at ?? c.t0, cfg = S.plan.config(T), home = cams.homeOf(S.data);
       const length = S.plan.tracks.get(c.key)?.spec.length || 40, ref = c.key ? standOf(c.key, c.t0) : null;
@@ -1325,10 +1414,19 @@ def director(page, ep: Mapping, path: Path, seconds: float | None, rollout: bool
     dusk = page.js(f"(() => {{ const e = airops.stage.env; let t = {light}; "
                    f"while (t < {light + 1440} && e.sunAt(t).el >= {DAWN}) t += 2; return t; }})()") \
         if ep.get("passengers") else None
+    def sun(t: float) -> float:
+        return page.js(f"airops.stage.env.sunAt({t}).el")
+
+    gates = None
+    if dusk is not None and not rollout and page.js("!!airops.stage.terminal"):
+        views = page.js(f"film.gates({(light + dusk) / 2})")
+        gates = {stand for stand, view in views.items() if reads(view)}
+        print(f"terminal: {len(gates)} of {len(views)} gates read" +
+              (f", not {', '.join(s for s in views if s not in gates)}" if len(gates) < len(views) else ""))
     if ep.get("occ") and standings and (rows := board(path.parent / "index.json", ep)):
         page.js(f"film.board = {json.dumps(rows)}")
     shots = day.rollout(seconds or 55) if rollout else \
-        direct(ep, traffic, events, poses, seconds or (70 if ep.get("occ") else 40), room, light, dusk)
+        direct(ep, traffic, events, poses, seconds or (70 if ep.get("occ") else 40), room, light, dusk, gates, sun)
     for s in shots:
         print(f"  {s.name:<9} {s.camera:<10} {clock(s.t0)}–{clock(s.t1)} {s.seconds:4.1f} s "
               f"×{s.speed[0]:g}–{s.speed[1]:g} {s.key or ''} {s.caption}")
