@@ -79,6 +79,7 @@ from agentenv_airops.sweep import POLICIES, RUNS, ci, load, priced, results
 ROOT = Path(__file__).resolve().parents[1]
 CARD = ROOT / "hub/dataset/README.md"
 SPACE = ROOT / "hub/space"
+VIEWER = ("episodes", "stage", "twin", "radar", "thumbs")
 VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
 REPO = "earakely-scale/AirOpsEnv-AgentEnv"
 DATASET_URL = f"https://huggingface.co/datasets/{REPO}"
@@ -399,7 +400,7 @@ def card_text(plugin: str, files: dict[str, bytes], board_md: str = "", occ_md: 
 
 
 def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str, fixtures: list[Path], cache: Path,
-          date: str, occ_pilots: list[str] = (), occ_pack: Path | None = None, occ_viewer: Path | None = None,
+          date: str, occ_pilots: list[str] = (), occ_pack: Path | None = None, occ_viewer: list[Path] = (),
           replays: Path | None = None, workers: int = 1, occ3_pilots: list[str] = (),
           occ3_pack: Path | None = None) -> dict[str, bytes]:
     days = tasks.pack_tasks(pack)
@@ -428,8 +429,8 @@ def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str,
     for f in viewer.failed:
         print(f"not in the viewer: {f['run']} {f['model']} {f['task_id']}: {f['error']}")
     files |= {f"viewer/{path}": content for path, content in export.folder(shown, cache).items()}
-    if occ_viewer:
-        files = merge_viewer(files, occ_viewer)
+    for folder in reversed(occ_viewer):
+        files = merge_viewer(files, folder)
     replays = replays or cache / "occ" / "replays"
     occ_tables, occ_md = occ_files(runs_dir, list(occ_pilots), Pack(occ_pack), replays, workers, date)
     files |= occ_tables | occ_bundle(out, occ_pack)
@@ -467,9 +468,11 @@ def occ3_bundle(out: Path, pack: Path | None) -> dict[str, bytes]:
 
 
 def merge_viewer(files: dict[str, bytes], folder: Path) -> dict[str, bytes]:
-    """The control-center viewer folder (scripts/occ_episodes.py --out) merged into the v1 build's viewer/: its index's
-    entries first, then v1's; a file both write is the control-center build's, and each one that differs is named."""
-    ours = {p.relative_to(folder).as_posix(): p.read_bytes() for p in sorted(folder.rglob("*")) if p.is_file()}
+    """A control-center viewer folder (scripts/occ_episodes.py --out, or scripts/occ_films.py's viewer/) merged into
+    the build's viewer/: what the viewer reads of it, its index's entries first, then the build's; a file both write is
+    the folder's, and each one that differs is named."""
+    ours = {p.relative_to(folder).as_posix(): p.read_bytes() for p in sorted(folder.rglob("*"))
+            if p.is_file() and p.relative_to(folder).parts[0] in VIEWER}
     index = json.loads(ours.pop("episodes/index.json"))
     v1 = json.loads(files.get("viewer/episodes/index.json", b'{"version": 1, "episodes": []}'))
     for path, content in ours.items():
@@ -956,9 +959,9 @@ def main():
                     help="A control-center pilot folder under --runs for v2's tables (repeat); default: every folder "
                          "with a pilot.json.")
     ap.add_argument("--occ-pack", type=Path, default=Path(str(OCC_PACK)), help="Default: the packaged b6-v2 pack.")
-    ap.add_argument("--occ-viewer", type=Path,
-                    help="The control-center episodes as scripts/occ_episodes.py --out wrote them, merged into "
-                         "viewer/.")
+    ap.add_argument("--occ-viewer", type=Path, action="append", default=[],
+                    help="Control-center episodes as scripts/occ_episodes.py --out (or occ_films.py's viewer/) wrote "
+                         "them, merged into viewer/; repeat for v3's and v2's, the first given listed first.")
     ap.add_argument("--occ-replays", type=Path, help="Where each recorded day's replay is kept (default: --cache/occ/"
                                                      "replays); a day is replayed again only if it changed.")
     ap.add_argument("--workers", type=int, default=1, help="Replay this many control-center days at once.")

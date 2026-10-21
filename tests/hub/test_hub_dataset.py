@@ -454,17 +454,25 @@ def test_a_recorded_day_is_replayed_again_only_when_it_changed(hub, tmp_path, mo
 def test_the_control_center_viewer_is_merged_in_first_and_its_copy_of_a_shared_file_wins(hub, tmp_path, capsys):
     v1 = {"viewer/episodes/index.json": json.dumps({"version": 1, "episodes": [{"url": "v1.json"}]}).encode(),
           "viewer/episodes/v1.json": b"{}", "viewer/stage/JFK/stage.json.gz": b"old"}
-    occ_viewer = tmp_path / "occ"
-    for path, content in {"episodes/index.json": json.dumps({"version": 1, "episodes": [
+    occ_viewer, films = tmp_path / "occ", tmp_path / "films"
+    for folder, written in ((occ_viewer, {"episodes/index.json": json.dumps({"version": 1, "episodes": [
             {"url": "occ.json", "occ": "two desks", "featured": 1}]}), "episodes/occ.json": "{}",
-            "stage/JFK/stage.json.gz": "new"}.items():
-        (occ_viewer / path).parent.mkdir(parents=True, exist_ok=True)
-        (occ_viewer / path).write_text(content)
+            "stage/JFK/stage.json.gz": "new"}), (films, {"episodes/index.json": json.dumps({"version": 1, "episodes": [
+            {"url": "occ3.json", "occ": "three desks", "passengers": True}]}), "episodes/occ3.json": "{}",
+            "thumbs/occ3.jpg": "jpg", "traffic/day.json.gz": "cache", "occ/projections/day.json": "cache"})):
+        for path, content in written.items():
+            (folder / path).parent.mkdir(parents=True, exist_ok=True)
+            (folder / path).write_text(content)
     files = hub.merge_viewer(v1, occ_viewer)
     assert json.loads(files["viewer/episodes/index.json"])["episodes"] == [
         {"url": "occ.json", "occ": "two desks", "featured": 1}, {"url": "v1.json"}]
     assert files["viewer/stage/JFK/stage.json.gz"] == b"new" and files["viewer/episodes/v1.json"] == b"{}"
     assert "viewer/stage/JFK/stage.json.gz" in capsys.readouterr().out
+    both = hub.merge_viewer(files, films)
+    assert [e["url"] for e in json.loads(both["viewer/episodes/index.json"])["episodes"]] == [
+        "occ3.json", "occ.json", "v1.json"]
+    assert both["viewer/thumbs/occ3.jpg"] == b"jpg"
+    assert not any(p.startswith(("viewer/traffic/", "viewer/occ/")) for p in both)
 
 
 def test_the_card_leads_with_v2s_tables_and_board_and_keeps_v1s(hub):
