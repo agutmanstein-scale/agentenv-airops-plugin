@@ -125,9 +125,12 @@ better than the script.
 
 ## Watch a run
 
-[TBD: the viewer lane's v3 views: the third desk in the room and its requests, the passengers at the gate lounges, the
-connecting walks, the line at the service counter, the hotel shuttle, the passengers' pane; all drawn for display
-only.]
+Every three-desk run replays in the [replay Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv),
+watch by watch, as v2's do, with the passengers added: the customer desk at its pod in the room, its requests
+travelling to ops and back; the gate lounges behind the terminal's glass filling and boarding, connecting passengers
+walking gate to gate, the line at the service counter and the hotel shuttle at the curb; a passengers pane with the
+missed connections, rebookings and nights away; and where passengers are stranded on the US map. The lounges, the
+counter, the passengers' walks and the shuttle are inferred, for display only.
 
 ## Tables
 

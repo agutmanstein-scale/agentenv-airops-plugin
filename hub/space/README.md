@@ -17,6 +17,7 @@ tags:
 - multi-agent
 - airline-operations
 - crew-scheduling
+- passengers
 - disruption-recovery
 - weather
 datasets:
@@ -33,8 +34,7 @@ own room, and the env charges one GSA lodging night as the passenger's cost. The
 the terminal's glass filling and boarding, connecting passengers walking gate to gate, the line at the service counter
 and the hotel shuttle at the curb, a passengers pane with the missed connections, rebookings and nights away, and where
 passengers are stranded on the US map. The lounges, the counter, the passengers' walks and the shuttle are inferred,
-for display. v3's runs head the page once its board is recorded, with the one to watch first under *Start here*; a
-placeholder holds the place until then. v2's runs follow them.
+for display. v3's runs head the page, with the one to watch first under *Start here*; v2's runs follow them.
 
 ## AirOpsEnv v2: the ops control center
 
