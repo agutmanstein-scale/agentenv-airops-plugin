@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.0/viewer/episodes/occ3-board-sol-joint.openai-gpt-6.1-sol.b6-20250708-0400.json&t=498&view=room&play=1&speed=2"><img src="assets/airops-occ3-banner.jpg" alt="AirOpsEnv v3: JetBlue's operations control center in 3D at 19:27 on the storm day of 8 July 2025, replayed from GPT-6.1 Sol's three desks: the customer desk's holds for connecting passengers on their way to the ops controller under the video wall, with ground delay programs at JFK and Boston" width="100%"></a>
+<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.1/viewer/episodes/occ3-board-sol-joint.openai-gpt-6.1-sol.b6-20250708-0400.json&view=terminal&moment=passengers&play=1&speed=1"><img src="assets/airops-occ3-banner.jpg" alt="AirOpsEnv v3: inside JetBlue's Terminal 5 at Kennedy at 18:39 on the storm day of 8 July 2025, replayed from GPT-6.1 Sol's three desks: the crowd at gate 2 for B6 2903 to San Juan, its screen and its aircraft at the jet bridge, with the next gates down the hall" width="100%"></a>
 
 <h1>AirOpsEnv v3: passengers and the customer desk</h1>
 
@@ -32,7 +32,7 @@ under a cost that follows every passenger to their final destination: against th
 that cost.
 
 <p align="center">
-  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.0/viewer/episodes/occ3-board-sol-joint.openai-gpt-6.1-sol.b6-20250708-0400.json&t=498&view=room&play=1&speed=2"><img src="assets/airops-occ3-hero.webp" width="100%" alt="GPT-6.1 Sol's three desks run JetBlue's control center through the storm of 8 July 2025: at Kennedy passengers who missed their connection reach the service counter and the stranded leave on the hotel shuttle, and in the room ops declines the customer desk's request not to cancel B6 675"></a>
+  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.1/viewer/episodes/occ3-board-sol-joint.openai-gpt-6.1-sol.b6-20250708-0400.json&view=terminal&moment=passengers&play=1&speed=1"><img src="assets/airops-occ3-hero.webp" width="100%" alt="GPT-6.1 Sol's three desks run JetBlue's control center through the storm of 8 July 2025: at Kennedy the stranded leave on the hotel shuttle and passengers wait at the service counter after B6 675 is cancelled, in the room ops declines the customer desk's request not to cancel it, and connecting passengers reach the gate of B6 308, held for them"></a>
 </p>
 <p align="center"><sub>Three GPT-6.1 Sol desks run JetBlue's network through the storm of Tuesday 8 July 2025 at
 JFK and Boston (<code>b6-20250708-0400</code>), shown at Kennedy: 637 flights from 04:00 with 81,279 passenger trips, an
@@ -41,20 +41,22 @@ makes 24 crew moves (11 assignments, 7 deadheads, 3 reserve calls, 2 releases an
 departures and cancels one flight; the customer desk sends 60 requests, and ops accepts 30 of its 46 HOLDs and 7 of its
 8 PROTECTs and declines its 3 SUGGEST_CANCELs. Flown on what really happened, the day costs 7.8% more than the best
 plan found and saves 85% of what standard crew-desk practice leaves on the table: reward 0.795, against 0.655 for one
-Sol agent at all three desks and 0.308 for the standard crew desk. In the clip 9 passengers who missed B6 135 to
-Phoenix reach the service counter, 17 passengers stranded overnight leave on the hotel shuttle, the customer desk asks
-ops not to cancel B6 675 to Hartford (51 passengers booked) and ops declines, and B6 675 stays at its gate, cancelled.
-Click it to replay the day in 3D, from the room at 08:18; the
-<a href="https://github.com/earakely-scale/agentenv-airops-plugin/releases/tag/v0.4.0">full film</a> and two more,
-Boston on 10 December 2023 with three desks and with one agent, are on the v0.4.0 release. Airport © OpenStreetMap
+Sol agent at all three desks and 0.308 for the standard crew desk. In the clip 17 passengers stranded overnight leave
+on the hotel shuttle; inside Terminal 5, 9 passengers wait at the service counter to be rebooked after B6 675 to
+Hartford is cancelled; in the room ops declines the customer desk's request not to cancel it (51 passengers booked);
+and 17 connecting passengers reach the gate of B6 308 to Portland, held until 23:45 for them. Click it to replay the
+day in 3D from inside the terminal at 10:01, at gate 20, where B6 2091 to Nantucket is held for 24 connecting
+passengers; the
+<a href="https://github.com/earakely-scale/agentenv-airops-plugin/releases/tag/v0.4.1">full film</a> and two more,
+Boston on 10 December 2023 with three desks and with one agent, are on the v0.4.1 release. Airport © OpenStreetMap
 contributors (ODbL), imagery USGS The National Map; flights BTS; advisories FAA ATCSCC; radar NEXRAD via the Iowa
 Environmental Mesonet; passengers generated from BTS T-100 and the DOT's Origin and Destination Survey. The
-control-center room, the crews' and passengers' paths, the lounges, the counter and the shuttle are drawn for display
-only.</sub></p>
+control-center room, the gate halls, the crews' and passengers' paths, the lounges, the counter and the shuttle are
+drawn for display only.</sub></p>
 
 **Contents:** [The customer desk](#the-customer-desk) · [Passengers](#passengers) · [Grading under P](#grading-under-p)
 · [The v3 board](#the-v3-board) · [Run v3](#run-v3) · [How v3 was validated](#how-v3-was-validated) ·
-[The dataset and the Space](#the-dataset-and-the-space) ·
+[Watch a v3 run](#watch-a-v3-run) · [The dataset and the Space](#the-dataset-and-the-space) ·
 [AirOpsEnv v2](#airopsenv-v2-the-ops-control-center) · [AirOpsEnv v1](#airopsenv-v1-one-desk-at-one-hub) ·
 [Repository](#repository) · [Licence and attribution](#licence-and-attribution)
 
@@ -234,7 +236,7 @@ framework, build the env and the desk agent and register them, and check the wir
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.4.0"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.4.1"
 agent-env airops-occ3 setup                   # builds airops-occ3 and airops-desk for this machine's Docker
 agent-env airops-occ3 tasks --noplay          # writes results/bundles/airops-occ3: each eval date, joint and one
 agent-env run results/bundles/airops-occ3 --task wiring-noplay
@@ -254,8 +256,8 @@ both modes, the very task files the board ran (each desk's cost cap $3 in a thre
 `wiring-noplay`:
 
 ```bash
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.0 --bundle airops-occ3 --task wiring-noplay
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.0 --bundle airops-occ3 --task b6-20240713-0400-joint \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.1 --bundle airops-occ3 --task wiring-noplay
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.1 --bundle airops-occ3 --task b6-20240713-0400-joint \
     --model openai/gpt-6.1-sol
 ```
 
@@ -299,6 +301,30 @@ recorded with its reason before it was used, and every bar recomputed by an inde
   record byte for byte, and the day with every delay a desk couldn't yet know changed giving everything up to each
   watch byte for byte. A Sol pilot on 2 training dates scored all 4 runs for $6.20, and then the board scored all 48.
 
+## Watch a v3 run
+
+The [Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv) replays the board's 48 runs from the
+dataset, ahead of v2's and v1's. A v3 run opens inside the terminal, the day as its passengers see it:
+
+- **The terminal** (key 9): JetBlue's gate hall at its busiest gate, the crowd at the glass, the aircraft at the
+  bridge and the gate's screen with its flight on time, delayed, boarding, held for its connecting passengers,
+  cancelled or departed. ‹ › (or , and .) steps from gate to gate and to the line at the service counter, and the view
+  moves on when a gate empties. *Start here* opens the featured run at a gate held for its connecting passengers.
+- **The control-center room**: on a three-desk day the camera holds the customer desk, ops and crew together. The
+  customer desk's requests travel to ops as cards and pile at the desk they wait on until the answer comes back; the
+  customer desk's own screens show the connections at risk, the passengers rebooked and waiting to fly and those
+  stranded overnight by airport; the video wall adds a PASSENGERS panel with the missed connections, the rebooked, the
+  stranded and the requests to ops still open.
+- **The airport**, as in v2, with the passengers: connecting passengers walk gate to gate and the stranded leave on
+  the hotel shuttle at the curb.
+- **The US map** draws where the passengers off a cancelled flight or a missed connection are rebooked to, wider for
+  more of them, and how many are stranded overnight at each airport, beside v2's crews.
+- **Films** cut between the terminal, the room and the airport: the line at the counter after a cancellation, a gate
+  held for its connecting passengers, a missed connection.
+
+The gate halls, the lounges, the counter, the passengers' walks and the shuttle are inferred, for display only: the
+gate area is a generic one, not JetBlue's real Terminal 5 or Terminal C.
+
 ## The dataset and the Space
 
 `scripts/hub_dataset.py` builds [earakely-scale/AirOpsEnv-AgentEnv](https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv)
@@ -323,10 +349,10 @@ agentenv-hf scans every file for keys and token shapes first.
 ```bash
 python scripts/occ_films.py results/runs/occ3-board-sol --out cache/films --assets cache/occ/viewer-release --final
 python scripts/hub_dataset.py sol-v1 --occ3 occ3-board-sol --occ-viewer cache/films/occ3-board-sol/viewer \
-    --occ-viewer cache/occ/viewer-release --workers 6 --out cache/hub/dataset-v0.4.0 --space-out cache/hub/space-v0.4.0
+    --occ-viewer cache/occ/viewer-release --workers 6 --out cache/hub/dataset-v0.4.1 --space-out cache/hub/space-v0.4.1
 python scripts/hub_dataset.py sol-v1 --occ3 occ3-board-sol --occ-viewer cache/films/occ3-board-sol/viewer \
-    --occ-viewer cache/occ/viewer-release --workers 6 --out cache/hub/dataset-v0.4.0 \
-    --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.4.0
+    --occ-viewer cache/occ/viewer-release --workers 6 --out cache/hub/dataset-v0.4.1 \
+    --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.4.1
 ```
 
 `occ_films.py` builds each scored run of the board into a viewer episode with its passengers, replayed for each
@@ -349,7 +375,7 @@ passengers on board: a cancelled passenger costs a flat 523 passenger-minutes. I
 `agent-env airops-occ`, the bundle `airops-occ`, the pack `b6-v2` and its tables in the dataset.
 
 <p align="center">
-  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.0/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-banner.jpg" alt="JetBlue's operations control center in 3D on the Boston storm day of 13 July 2024, replayed from GPT-6.1 Sol's two desks: the ops controller and the crew scheduler at their pods under the video wall of the network, as the crew desk's hold of B6 515 is accepted" width="100%"></a>
+  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.1/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-banner.jpg" alt="JetBlue's operations control center in 3D on the Boston storm day of 13 July 2024, replayed from GPT-6.1 Sol's two desks: the ops controller and the crew scheduler at their pods under the video wall of the network, as the crew desk's hold of B6 515 is accepted" width="100%"></a>
 </p>
 
 AI agents run JetBlue's operations control center through a real storm day, split between two desks the way airline
@@ -367,7 +393,7 @@ Every recorded run replays exactly through the env and passes its audit, and rep
 control-center room where the desks decide, and the airport where it plays out.
 
 <p align="center">
-  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.0/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-hero.webp" width="100%" alt="GPT-6.1 Sol's two desks run JetBlue's control center through the Boston storm of 13 July 2024: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave"></a>
+  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.1/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-hero.webp" width="100%" alt="GPT-6.1 Sol's two desks run JetBlue's control center through the Boston storm of 13 July 2024: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave"></a>
 </p>
 <p align="center"><sub>Two GPT-6.1 Sol desks run JetBlue's network through the Boston storm of Saturday 13 July 2024
 (<code>b6-20240713-0400</code>): 612 flights on 193 aircraft from 04:00, an FAA ground stop and a ground delay program
@@ -621,7 +647,7 @@ framework, build the env and the desk agent and register them, and check the wir
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.4.0"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.4.1"
 agent-env airops-occ setup                    # builds airops-occ and airops-desk for this machine's Docker
 agent-env airops-occ tasks --noplay           # writes results/bundles/airops-occ: each eval date, joint and one
 agent-env run results/bundles/airops-occ --task wiring-noplay
@@ -642,8 +668,8 @@ both modes, the very task files the board ran (each desk's cost cap $5 in a two-
 `wiring-noplay`. The dataset's default bundle is v1's `airops`, so name this one:
 
 ```bash
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.0 --bundle airops-occ --task wiring-noplay
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.0 --bundle airops-occ --task b6-20240713-0400-joint \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.1 --bundle airops-occ --task wiring-noplay
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.1 --bundle airops-occ --task b6-20240713-0400-joint \
     --model openai/gpt-6.1-sol
 ```
 
@@ -876,7 +902,7 @@ framework, build the env and agent images and register them, and check the wirin
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.4.0"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.4.1"
 agent-env airops setup --agent        # builds airops-day and airops-llm for this machine's Docker
 agent-env run airops --task wiring-noplay
 ```
@@ -893,7 +919,7 @@ agent-env run airops --task b6-bos-20250216-1500 --model openai/gpt-6.1-sol
 Or play one straight from the dataset, which pins this release:
 
 ```bash
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.0 --task b6-bos-20250216-1500 \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.1 --task b6-bos-20250216-1500 \
     --model anthropic/claude-sonnet-5-5
 ```
 
