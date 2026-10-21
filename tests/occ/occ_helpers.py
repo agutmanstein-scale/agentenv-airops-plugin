@@ -1,4 +1,5 @@
-"""A small storm day for the ops control center by hand, as a pack world, and a driver that plays it turn by turn."""
+"""A small storm day for the ops control center by hand, as a pack world (with passengers for airops-occ3), and a
+driver that plays it turn by turn."""
 
 import gzip
 import importlib.util
@@ -16,12 +17,13 @@ from agentenv_airops.occ.day import OccDay
 from agentenv_airops.occ.pack import World
 from agentenv_airops.programs import crewplan, crews, crewsim, occ, sim
 from agentenv_airops.programs.crews import Unit
+from agentenv_airops.programs.pax import Group, Passengers
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("airops_desk", ROOT / "agents" / "airops-desk" / "agent.py")
 desk_agent = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(desk_agent)
-ROLE = {"ops": "ops", "crew": "crew", "one": "both"}
+ROLE = {"ops": "ops", "crew": "crew", "customer": "customer", "one": "both"}
 
 
 def unit(uid: str, kind: str, station: str, report: int, trip: tuple = ()) -> Unit:
@@ -52,6 +54,19 @@ def storm() -> World:
             "B0": {"notice": round(crewplan.worth(b0, False), 1), "flat": round(crewplan.worth(b0, True), 1)},
             "idle": round(crewplan.worth(idle, False), 1)}
     return World(task, units, task.airports, ((0, 1),), refs, {}, lambda s, m: m)
+
+
+def storm3() -> World:
+    """The storm day with passengers: locals on every flight, and 30 connecting from BOS-JFK f1 onto JFK-MCO f3 at JFK;
+    its references under P (B0 the standard crew desk on the empty plan, best and bound set below it)."""
+    w = storm()
+    passengers = Passengers((Group(0, (0,), 100), Group(1, (1,), 60), Group(2, (1, 3), 30), Group(3, (2,), 90),
+                             Group(4, (3,), 70)), fare=200.0)
+    b0 = crewsim.execute(w.task, {}, w.units, sim.truth(w.task), desk=True, pax=passengers)
+    worth = crewplan.worth(b0, False)
+    refs = {"best": round(worth * 0.9, 1), "bound": round(worth * 0.8, 1), "gap_pct": 11.1,
+            "B0": {"notice": round(worth, 1)}, "naive": round(worth * 1.1, 1)}
+    return World(w.task, w.units, w.airports, w.trips, refs, {}, w.local, passengers)
 
 
 def case(w: World) -> occ.Case:

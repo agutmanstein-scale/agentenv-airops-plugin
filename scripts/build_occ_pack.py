@@ -6,6 +6,7 @@ called; the crew and aircraft solvers run (HiGHS, one thread each).
                                      --tasks cache/<world_check run> [--only DATE,...] [--workers 4] [--resume]
                                      [--scale 1.0]
     python scripts/build_occ_pack.py --assemble cache/<build> --pack data/b6-v2 [--scripted cache/<occ_z1 run>]
+    python scripts/build_occ_pack.py --v3 cache/<pax_stage2 run> --pack data/b6-v3 [--base data/b6-v2]
 
 Per date, in its own process:
 1. the trips and the units at the start (crewday.storm_units on --run's own budgets, the middle band), frozen with
@@ -25,6 +26,11 @@ error), then summary.json and report.md. `--assemble` writes the pack: dates/<da
 and its frozen world) and manifest.json (the sha256 of every file, the commit, the framework and crew_params.json);
 with `--scripted`, each date occ_z1 checked gets the env's scripted desks' costs as references (joint: the crew desk
 forwarding its system's words and ops accepting its cancellations; one: one desk running both by script).
+`--v3` writes b6-v3 from b6-v2 (`--base`, only read) and stage 2's reference run (scripts/pax_stage2.py): per date
+with a reference, v2's file with its passengers (groups, the following days' seats, the refund fare, the survey
+period), `refs_p` (the reference under cost P, its bound and gap, where it came from and how it replays, every
+candidate's P, the controls and JetBlue's replayed day) and `best_plan_p`; the manifest adds the base pack's manifest
+sha256 and the passenger data's.
 """
 
 import argparse
@@ -43,7 +49,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import replace
 from pathlib import Path
 
-from agentenv_airops.programs import crewbound, crewday, crewplan, crews, crewsim, occ, references, sim
+from agentenv_airops.programs import crewbound, crewday, crewplan, crews, crewsim, occ, pax, references, sim
 from agentenv_airops.programs.model import Task
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,7 +73,13 @@ def main() -> None:
     ap.add_argument("--assemble", type=Path, help="a build's out directory: write the pack from it")
     ap.add_argument("--pack", type=Path, default=ROOT / "data" / "b6-v2")
     ap.add_argument("--scripted", type=Path, help="an occ_z1 run: its scripted desks' costs become references")
+    ap.add_argument("--v3", type=Path, help="a pax_stage2 run: write b6-v3 from --base and it")
+    ap.add_argument("--base", type=Path, default=ROOT / "data" / "b6-v2")
+    ap.add_argument("--bound", type=Path, help="with --v3, a pax_bound run: each date's capacity-aware bound")
     a = ap.parse_args()
+    if a.v3:
+        print(json.dumps(assemble_v3(a.v3, a.pack, a.base, a.bound), indent=1))
+        return
     if a.assemble:
         print(json.dumps(assemble(a.assemble, a.pack, a.scripted), indent=1))
         return
@@ -293,6 +305,51 @@ def assemble(build: Path, pack: Path, scripted: Path | None = None) -> dict:
                     SKIPPED, "its joint search crashed in the crew run; outside the pool by rule"), "files": files}
     (pack / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
     return {"dates": len(good), "skipped": manifest["skipped"], "files": len(files),
+            "bytes": sum(p.stat().st_size for p in pack.rglob("*") if p.is_file())}
+
+
+def assemble_v3(run: Path, pack: Path, base: Path, bound: Path | None = None) -> dict:
+    """b6-v3 from the base pack and stage 2's reference run (see the module doc); the base pack is only read. With
+    `bound` (scripts/pax_bound.py's run on the same reference) each date's bound is its capacity-aware bound, the gap
+    taken against the reference; a date it has no valid bound for has none."""
+    old = json.loads((base / "manifest.json").read_text())
+    rows = {p.stem: json.loads(p.read_text()) for p in sorted((run / "dates").glob("*.json"))}
+    bounds = {p.stem: json.loads(p.read_text()) for p in sorted((bound / "dates").glob("*.json"))} if bound else {}
+    if pack.exists():
+        shutil.rmtree(pack)
+    (pack / "dates").mkdir(parents=True)
+    tasks, skipped, bounded = {}, dict(old["skipped"]), 0
+    for tid, t in sorted(old["tasks"].items()):
+        r = rows.get(t["date"])
+        if r is None or "error" in r:
+            skipped[t["date"]] = "no reference in the stage-2 run"
+            continue
+        d = json.loads(gzip.decompress((base / "dates" / f"{t['date']}.json.gz").read_bytes()))
+        ref = r["reference"]
+        d["passengers"] = r["passengers"]
+        d["refs_p"] = {"best": ref["P"], "bound": ref["bound"], "gap_pct": ref["gap_pct"], "best_from": ref["from"],
+                       "mode": ref["mode"], "candidates": {n: c["P"] for n, c in r["candidates"].items()},
+                       "controls": r["controls"], "airline": (r.get("airline") or {}).get("P")}
+        if bound:
+            b = bounds.get(t["date"], {})
+            ok = "error" not in b and b.get("valid") and b.get("bound") is not None
+            d["refs_p"] |= {"bound": b["bound"] if ok else None, "bound_from": "capacity-aware" if ok else None,
+                            "gap_pct": round(100 * (ref["P"] - b["bound"]) / ref["P"], 4) if ok else None}
+            bounded += bool(ok)
+        d["best_plan_p"] = ref["plan"]
+        with gzip.GzipFile(pack / "dates" / f"{t['date']}.json.gz", "wb", mtime=0) as fh:
+            fh.write(json.dumps(d, separators=(",", ":")).encode())
+        tasks[tid] = {**t, "best_from_p": ref["from"]}
+    files = {str(p.relative_to(pack)): sha256(p) for p in sorted(pack.rglob("*")) if p.is_file()}
+    manifest = {"pack": pack.name, "base": base.name, "base_manifest_sha256": sha256(base / "manifest.json"),
+                "assembled_at_commit": commit(), "framework": importlib.metadata.version("agentenv-framework"),
+                "crew_params_sha256": sha256(crews.SOURCES),
+                "pax_sha256": {n: sha256(Path(str(pax.DATA / n))) for n in ("b6-transfers.csv", "b6-dwell.csv",
+                                                                             "b6-fares.csv")},
+                "tasks": tasks, "skipped": skipped, "files": files,
+                **({"bound_run": {"name": bound.name, "dates": bounded}} if bound else {})}
+    (pack / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
+    return {"dates": len(tasks), "skipped": skipped, "files": len(files),
             "bytes": sum(p.stat().st_size for p in pack.rglob("*") if p.is_file())}
 
 
