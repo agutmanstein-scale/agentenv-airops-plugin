@@ -1309,8 +1309,8 @@ def director(page, ep: Mapping, path: Path, seconds: float | None, rollout: bool
     light = page.js(f"(() => {{ const e = airops.stage.env; for (let t = {traffic['span'][0]}; "
                     f"t < {traffic['span'][0] + 720}; t += 2) if (e.sunAt(t).el >= {DAWN}) return t; "
                     f"return {traffic['span'][0]}; }})()")
-    dusk = page.js(f"(() => {{ const e = airops.stage.env; for (let t = {traffic['span'][1]}; "
-                   f"t > {light}; t -= 2) if (e.sunAt(t).el >= {DAWN}) return t; return {light}; }})()") \
+    dusk = page.js(f"(() => {{ const e = airops.stage.env; let t = {light}; "
+                   f"while (t < {light + 1440} && e.sunAt(t).el >= {DAWN}) t += 2; return t; }})()") \
         if ep.get("passengers") else None
     if ep.get("occ") and standings and (rows := board(path.parent / "index.json", ep)):
         page.js(f"film.board = {json.dumps(rows)}")
