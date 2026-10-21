@@ -12,9 +12,16 @@ export const BASE = {
   "room-desks": { from: [0, 3.0, 12.2], at: [0, 1.9, 5.3], fov: 42, push: 0.16 },
   "room-wall": { from: [0, 3.25, 14.6], at: [0, 3.2, 0], fov: 40, push: 0.1 },
 };
-/** The close view of the desks with a third one, the customer desk, beside them: back a little and wider. */
-export const THREE_DESKS = { "room-desks": { from: [0, 3.4, 14.2], at: [0, 1.8, 5.3], fov: 50, push: 0.12 } };
+/** The views of a day with a third desk, the customer desk, beside the two: the room from high at the back over all
+ * three desks and the wall's middle, the desks closer, and the wall from the network map to the passengers' panel. */
+export const THREE_DESKS = {
+  room: { from: [0, 5.2, 19.4], at: [0, 2.1, 3.6], fov: 40, push: 0.12, hold: "desks" },
+  "room-desks": { from: [0, 2.75, 12.6], at: [0, 1.6, 5.2], fov: 46, push: 0.14, hold: "desks" },
+  "room-wall": { from: [1.2, 3.25, 14.6], at: [1.2, 3.2, 0], fov: 42, push: 0.1, hold: "wall" },
+};
 const WALL_AT = [0, 3.2, 0.3];
+const WALL_HOLD = [[-3.6, 0.9], [-3.6, 5.62], [6.0, 0.9], [6.0, 5.62]].map(([x, y]) => new THREE.Vector3(x, y, 0.32));
+const BACK = 21.4;
 
 /** The base framing of a named shot favouring the pod at x (0 for a one-agent day's single pod). */
 function favoured(name, x, one) {
@@ -61,9 +68,25 @@ function recentre(from, at, points) {
 const fovOf = (tan) => (2 * Math.atan(tan) * 180) / Math.PI;
 const vec = (a) => new THREE.Vector3(...a);
 
+/** A view of a three-desk day held so that what it is about (every desk, or the wall from the map to the passengers'
+ * panel) sits inside the middle `band` of the frame's width, the part the page's cards leave clear: widened, and past
+ * the widest lens moved back toward the back wall. */
+export function framed(v, { pods, aspect, band = 1 }) {
+  const points = (v.hold === "wall" ? WALL_HOLD : [...pods.values()].flatMap((p) => p.points)).map((p) => ({ p }));
+  const at = vec(v.at), base = Math.tan((v.fov * Math.PI) / 360);
+  let from = vec(v.from), tan = Math.max(base, need(from, at, points, aspect * band));
+  for (let k = 0; k < 16 && fovOf(tan) > MAX_FOV; k++) {
+    const back = at.clone().lerp(from, 1.06);
+    if (back.z > BACK) break;
+    from = back;
+    tan = Math.max(base, need(from, at, points, aspect * band));
+  }
+  return { from: from.toArray(), at: v.at, fov: Math.min(MAX_FOV + 4, fovOf(tan)) };
+}
+
 /** A shot's camera: {name, from, to, at, fov, fov1, t0, t1, desk, ref} in room metres, ready to play by minute. */
 export function compose(spec, { pods, cards, aspect, T }) {
-  const one = pods.size === 1 && pods.has("one");
+  const one = pods.size === 1 && pods.has("one"), three = pods.size === 3;
   let desk = spec.desk, ref = spec.ref, aim = Array.isArray(spec.at) ? vec(spec.at) : null;
   if (typeof spec.at === "string") {
     if (/^R\d+$/.test(spec.at)) ref ??= spec.at;
@@ -74,7 +97,7 @@ export function compose(spec, { pods, cards, aspect, T }) {
   const pod = desk ? pods.get(desk) : null;
   const t0 = spec.t0 ?? T, t1 = spec.t1 ?? spec.t0 ?? T;
   const points = [];
-  for (const p of pod ? [pod] : spec.name === "room-desks" || !spec.name ? [...pods.values()] : []) for (const q of p.points) points.push({ p: q });
+  for (const p of pod ? [pod] : spec.name === "room-desks" || !spec.name || (three && spec.name === "room") ? [...pods.values()] : []) for (const q of p.points) points.push({ p: q });
   if (ref) {
     const span = cards.span(ref);
     let track = cards.track(ref, t0 - 0.5, Math.max(t1, t0 + 6));
@@ -86,7 +109,7 @@ export function compose(spec, { pods, cards, aspect, T }) {
     return { name: spec.name || "shot", from: spec.from, to: spec.to ?? spec.from, at: at.toArray(), fov: spec.fov ?? 45, fov1: spec.fov1 ?? spec.fov ?? 45, t0, t1: spec.t1 > t0 ? spec.t1 : null, desk, ref };
   }
   const name = BASE[spec.name] ? spec.name : "room";
-  const base = pod ? favoured(name, pod.anchor.x, one) : BASE[name];
+  const base = pod ? favoured(name, pod.anchor.x, one) : (three && THREE_DESKS[name]) || BASE[name];
   const from = vec(base.from);
   let at = aim ?? vec(base.at);
   if (!aim && need(from, at, points, aspect) > Math.tan((base.fov * Math.PI) / 360)) at = recentre(from, at, [...points, { p: at }]);
