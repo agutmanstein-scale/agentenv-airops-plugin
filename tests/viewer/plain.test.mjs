@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { boardAt, cities, prepare, programBands, programsAt, rewardOf, scoreAt } from "../../web/model.js";
-import { disrupted, paxAt, paxIndex, strandedPaxAt } from "../../web/paxdata.js";
+import { asksAt, atRisk, disrupted, flowsAt, paxAt, paxIndex, strandedPaxAt, waitingAt } from "../../web/paxdata.js";
 import * as plain from "../../web/plain.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -114,10 +114,12 @@ test("every METAR in the cached traffic sidecars decodes word for word", { skip:
 });
 
 test("a day's passengers count as their events come: missed, rebooked, in hotels until they leave, and the holds for them", () => {
-  const sched = new Map([[1, { id: 1, flight: "B6 1", orig: "BOS", dest: "SYR", sched_dep: 600 }], [2, { id: 2, flight: "B6 2", orig: "JFK", dest: "BOS", sched_dep: 500 }]]);
-  const ep = { occ: { requests: [{ sender: "customer", type: "HOLD", reply: "accept", answered: 610, pax: 12 }, { sender: "customer", type: "HOLD", reply: "decline", answered: 615, pax: 4 }] },
+  const sched = new Map([[1, { id: 1, flight: "B6 1", orig: "BOS", dest: "SYR", sched_dep: 600 }], [2, { id: 2, flight: "B6 2", orig: "JFK", dest: "BOS", sched_dep: 500 }],
+    [3, { id: 3, flight: "B6 3", orig: "BOS", dest: "SYR", sched_dep: 900 }]]);
+  const ep = { occ: { requests: [{ sender: "customer", type: "HOLD", sent: 600, reply: "accept", answered: 610, pax: 12 },
+    { sender: "customer", type: "HOLD", sent: 605, reply: "decline", answered: 615, pax: 4 }, { sender: "customer", type: "TEXT", sent: 605 }] },
     passengers: { flights: [{ id: 1, booked: 100, flown: 90 }], connections: [], events: [
-      { t: 650, kind: "misconnect", at: "BOS", flight: 1, from: 2, pax: 6 }, { t: 700, kind: "rebook", at: "BOS", flight: 1, to: 2, pax: 4 },
+      { t: 650, kind: "misconnect", at: "BOS", flight: 1, from: 2, pax: 6 }, { t: 700, kind: "rebook", at: "BOS", flight: 1, to: 3, pax: 4 },
       { t: 720, kind: "hotel", at: "BOS", flight: 1, pax: 2, until: 1800 }, { t: 730, kind: "home", at: "BOS", flight: 2, pax: 3 }] } };
   const X = paxIndex({ ep, sched, hi: 2000 });
   assert.equal(paxIndex({ ep: { occ: {} } }), null);
@@ -126,4 +128,24 @@ test("a day's passengers count as their events come: missed, rebooked, in hotels
   assert.deepEqual([...strandedPaxAt(X, 725)], [["BOS", 2]]);
   assert.equal(strandedPaxAt(X, 1800).size, 0);
   assert.deepEqual(disrupted(X, { sched }).map((x) => [x.s.flight, x.evs.length]), [["B6 2", 1], ["B6 1", 3]]);
+  assert.deepEqual(asksAt(X, 612), { sent: 2, open: 1, accepted: 1 });
+  const P = { sched, exec: new Map() };
+  assert.deepEqual(waitingAt(X, P, 690), []);
+  assert.deepEqual(waitingAt(X, P, 725), [{ to: 3, at: "BOS", pax: 4, dep: 900 }]);
+  assert.deepEqual(waitingAt(X, { sched, exec: new Map([[3, { id: 3, status: "flown", dep: 720 }]]) }, 725), []);
+  assert.deepEqual(flowsAt(X, P, 704), [{ at: "BOS", dest: "SYR", pax: 4, alpha: 0.5 }]);
+  assert.deepEqual(flowsAt(X, P, 930).map((f) => f.alpha.toFixed(2)), ["0.60"]);
+  assert.deepEqual(flowsAt(X, P, 945), []);
+});
+
+test("the customer desk's connections at risk read off its page, each departure with its connecting passengers and misses", () => {
+  const page = ["# Customer desk, JetBlue, 2025-07-08, 19:00 (watch 16 of 37, customer turn)", "", "## Messages", "R48 accepted: ok.", "",
+    "## Connections at risk: departures in the next 4 h whose booked connecting passengers make it with 15 min or less (negative), both flights flying as projected",
+    "id flight route dep [committed]: inbound station in(arrival) margin pax; misses, the hold that makes them, no later seat today",
+    "f500 95 BOS-PDX 19:41: f352 JFK in 19:46 -50 3, f385 DCA in 20:20 -84 1, f414 JFK in 18:56 +0 5; misses 4, hold to 21:05 makes them, 4 have no later seat today",
+    "f537 473 JFK-BNA 20:21 committed: f361 SJU in 19:33 +3 2", "20 more: cust_flights(status=\"attention\")", "", "## Flights ops might cancel in the next 6 h",
+    "f321 1084 MCO-JFK 13:50 143(0/3) 579 min late"].join("\n");
+  assert.deepEqual(atRisk(page), { more: 20, rows: [{ id: 500, orig: "BOS", dest: "PDX", dep: "19:41", pax: 9, misses: 4, noSeat: 4 },
+    { id: 537, orig: "JFK", dest: "BNA", dep: "20:21", pax: 2, misses: 0, noSeat: 0 }] });
+  assert.deepEqual(atRisk(null), { rows: [], more: 0 });
 });

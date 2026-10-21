@@ -9,7 +9,7 @@ import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUnifo
 import { buildCards } from "./cards.js";
 import { ROOM, buildHall } from "./hall.js";
 import { buildPods } from "./pods.js";
-import { THREE_DESKS, BASE as VIEWS, compose } from "./shots.js";
+import { THREE_DESKS, BASE as VIEWS, compose, framed } from "./shots.js";
 import { WALL, buildWall } from "./wall.js";
 
 const CSS = `.cc-caption { position: absolute; z-index: 2; top: 12px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 4px;
@@ -68,9 +68,10 @@ export class ControlCenter {
     this.flying = buildCards(P, ep, this.pods.pods);
     scene.add(this.flying.group);
     scene.add(new THREE.HemisphereLight(0x8a9bb5, 0x3a3630, 1.1));
-    const glow = new THREE.RectAreaLight(0x9cb8de, 2.4, WALL.w, WALL.h);
-    glow.position.set(0, WALL.y0 + WALL.h / 2, WALL.z + 0.05);
-    glow.lookAt(0, WALL.y0 + WALL.h / 2, 10);
+    const [x0, x1] = this.screen.span, wx = (x0 + x1) / 2;
+    const glow = new THREE.RectAreaLight(0x9cb8de, 2.4, x1 - x0, WALL.h);
+    glow.position.set(wx, WALL.y0 + WALL.h / 2, WALL.z + 0.05);
+    glow.lookAt(wx, WALL.y0 + WALL.h / 2, 10);
     scene.add(glow);
     for (const x of [-8, 0, 8]) {
       for (const z of [5.5, 11, 16.5]) {
@@ -88,8 +89,8 @@ export class ControlCenter {
         scene.add(s, s.target);
       }
     }
-    const cove = new THREE.Mesh(new THREE.BoxGeometry(WALL.w + 4, 0.03, 0.03), new THREE.MeshBasicMaterial({ color: 0x3c4856, toneMapped: false }));
-    cove.position.set(0, ROOM.h - 0.3, 0.45);
+    const cove = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0 + 4, 0.03, 0.03), new THREE.MeshBasicMaterial({ color: 0x3c4856, toneMapped: false }));
+    cove.position.set(wx, ROOM.h - 0.3, 0.45);
     scene.add(cove);
     if (controls && !this.manual) {
       this.controls = new OrbitControls(this.camera, renderer.domElement);
@@ -161,6 +162,21 @@ export class ControlCenter {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.seen = performance.now();
+    if ((this.pods?.pods.size === 3 || this.ep.passengers) && this.rig.kind === "preset") this.rig.set = false;
+  }
+
+  /** The middle of the room's width the page's cards leave clear, as a share of it (1 with none over it). */
+  band() {
+    const box = this.container.getBoundingClientRect(), mid = box.left + box.width / 2;
+    if (!box.width) return 1;
+    let l = box.left, r = box.right;
+    for (const el of this.container.closest(".ep")?.querySelectorAll(".cards .card") ?? []) {
+      const q = el.getBoundingClientRect();
+      if (!q.width || !el.checkVisibility() || q.bottom <= box.top || q.top >= box.bottom || q.right <= box.left || q.left >= box.right) continue;
+      if (q.left + q.right < 2 * mid) l = Math.max(l, q.right);
+      else r = Math.min(r, q.left);
+    }
+    return Math.max(0.3, Math.min(1, (2 * Math.min(mid - l, r - mid)) / box.width));
   }
 
   dispose() {
@@ -193,7 +209,8 @@ export class ControlCenter {
     const cam = this.camera, rig = this.rig;
     if (rig.kind === "preset") {
       if (!rig.set) {
-        const v = (this.pods.pods.size === 3 && THREE_DESKS[rig.name]) || VIEWS[rig.name];
+        const v = (this.pods.pods.size === 3 || (rig.name === "room-wall" && this.ep.passengers)) && THREE_DESKS[rig.name]
+          ? framed(THREE_DESKS[rig.name], { pods: this.pods.pods, aspect: cam.aspect, band: this.band() }) : VIEWS[rig.name];
         cam.position.copy(vec(v.from));
         cam.fov = v.fov;
         cam.updateProjectionMatrix();

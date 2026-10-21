@@ -1,7 +1,8 @@
 // What passes between the desks in the room, display-only: each request rises at the sender's pod when the room shows it
 // sent, flies on an arc to the receiver's pod and waits there; its answer flies back stamped ACCEPTED or DECLINED (a
-// TEXT is a message and gets none). Each decision pops as a chip beside the desk that made it. Camera-facing sprites
-// with canvas text; a card's canvas is drawn once, the first time it shows.
+// TEXT is a message and gets none). Cards up at once stack; with three desks each desk's in a pile of its own, as the
+// customer desk asks in bursts. Each decision pops as a chip beside the desk that made it. Camera-facing sprites with
+// canvas text; a card's canvas is drawn once, the first time it shows.
 import * as THREE from "three";
 import { clock } from "../plain.js";
 import { unitName } from "../room.js";
@@ -15,6 +16,7 @@ const FONT = "Inter, 'Helvetica Neue', Arial, sans-serif";
 const RISE = 1.2, FLY = 4.5, FADE = 1.5, TEXT_REST = 12, OPEN_REST = 20, REPLY_REST = 9;
 const CHIP_LIFE = 9, CHIP_STAGGER = 0.7, CHIPS = 5;
 const CARD = { w: 1.2, h: 0.3, px: 820 };
+const PILE = 0.12;
 const CHIP = { w: 1.2, h: 0.15, px: 720 };
 
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
@@ -69,7 +71,9 @@ export function buildCards(P, ep, pods) {
     cards.push({ r, kind: "ask", from: r.sender, to: r.receiver, start: r.shown, end: Math.max(end, r.shown + RISE + FLY + 1) });
     if (answered != null && r.reply) cards.push({ r, kind: "reply", from: r.receiver, to: r.sender, start: answered, end: answered + RISE + FLY + REPLY_REST });
   }
-  slots(cards);
+  const piles = pods.size === 3, step = piles ? PILE : CARD.h + 0.12;
+  if (piles) for (const d of pods.keys()) slots(cards.filter((it) => it.to === d));
+  else slots(cards);
 
   const drawAsk = (r) => (g, w, h) => {
     g.fillStyle = "#f4efe2";
@@ -176,7 +180,8 @@ export function buildCards(P, ep, pods) {
   const place = (it, t, out) => {
     const u = t - it.start, rise = clamp01(u / RISE), fly = ease(clamp01((u - RISE) / FLY));
     out.lerpVectors(a.copy(at(it.from)), at(it.to), fly);
-    out.y += it.slot * (CARD.h + 0.12) + Math.sin(Math.PI * fly) * (0.1 + 0.08 * Math.max(0, at(it.from).distanceTo(at(it.to)) - 3)) - 0.3 * (1 - rise);
+    out.y += it.slot * step + Math.sin(Math.PI * fly) * (0.1 + 0.08 * Math.max(0, at(it.from).distanceTo(at(it.to)) - 3)) - 0.3 * (1 - rise);
+    if (piles) out.z -= it.slot * 0.03;
     return Math.min(rise, clamp01((it.end - t) / FADE));
   };
   let marked = null;
@@ -222,9 +227,9 @@ export function buildCards(P, ep, pods) {
         }
         const alpha = place(it, t, s.position), hot = it.r.id === marked;
         let k = 1;
-        if (hot && camera) {
+        if ((hot || piles) && camera) {
           const h = 2 * camera.position.distanceTo(s.position) * Math.tan((camera.fov * Math.PI) / 360);
-          k = Math.max(1.25, Math.min(2.6, (0.075 * h) / CARD.h));
+          k = hot ? Math.max(1.25, Math.min(2.6, (0.075 * h) / CARD.h)) : Math.max(1, Math.min(1.5, (0.04 * h) / CARD.h));
         }
         s.scale.set(CARD.w * k, CARD.h * k, 1);
         s.renderOrder = hot ? 22 : 20;

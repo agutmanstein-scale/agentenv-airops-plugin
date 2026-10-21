@@ -1,17 +1,20 @@
 // The control center's video wall, display-only: tiled LCD panels with thin bezels across the front wall, a row of
 // LED clocks above, and five windows drawn on canvases from the episode at minute t: JetBlue's network map with the
 // flights in the air and the FAA's programs ringed, the radar (or the hub's weather from its METARs), the FAA programs
-// at the hub and Boston, the hub's departures and the day's operations so far. A window redraws only when its content
-// changes (the map a few times a sim minute).
+// at the hub and Boston, the hub's departures and the day's operations so far; on a day with passengers the wall is two
+// panels wider, for a sixth window beside the operations: the passengers so far and the customer desk's requests to ops.
+// A window redraws only when its content changes (the map a few times a sim minute).
 import * as THREE from "three";
 import { STATUS, boardAt, cities, flightsAt, positionsAt, programsAt, scoreAt, utcAt } from "../model.js";
-import { PAX_INK, paxAt, paxIndex } from "../paxdata.js";
+import { PAX_INK, asksAt, flowsAt, paxAt, paxIndex, strandedPaxAt, waitingAt } from "../paxdata.js";
 import { clock, metar } from "../plain.js";
 import { radarFrames, rings } from "../map.js";
 
 export const WALL = { cols: 14, rows: 7, pw: 1.2, ph: 0.675, y0: 0.9, z: 0.32 };
 WALL.w = WALL.cols * WALL.pw;
 WALL.h = WALL.rows * WALL.ph;
+const PAX_COLS = 2;
+const BOW = 0.26;
 const PX = 240;
 const FONT = "Inter, 'Helvetica Neue', Arial, sans-serif";
 const MONO = "'SF Mono', Menlo, Consolas, monospace";
@@ -146,13 +149,14 @@ class Window {
 export function buildWall(P, ep) {
   const group = new THREE.Group();
   const task = P.task, hub = task.hub, city = cities(task, null), occ = ep.occ, pax = paxIndex(P);
+  const cols = WALL.cols + (pax ? PAX_COLS : 0), w = cols * WALL.pw, x = -WALL.w / 2 + w / 2;
   const dark = new THREE.MeshStandardMaterial({ color: 0x0b0c0e, roughness: 0.6 });
-  group.add(new THREE.Mesh(new THREE.BoxGeometry(WALL.w + 0.5, WALL.h + 0.4, 0.3).translate(0, WALL.y0 + WALL.h / 2, WALL.z - 0.16), dark));
-  group.add(new THREE.Mesh(new THREE.BoxGeometry(WALL.w + 0.5, WALL.y0 - 0.15, 0.7).translate(0, (WALL.y0 - 0.15) / 2, 0.35),
+  group.add(new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, WALL.h + 0.4, 0.3).translate(x, WALL.y0 + WALL.h / 2, WALL.z - 0.16), dark));
+  group.add(new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, WALL.y0 - 0.15, 0.7).translate(x, (WALL.y0 - 0.15) / 2, 0.35),
     new THREE.MeshStandardMaterial({ color: 0x15181c, roughness: 0.5 })));
   const lines = [];
-  for (let c = 0; c <= WALL.cols; c++) lines.push([-WALL.w / 2 + c * WALL.pw, WALL.y0 + WALL.h / 2, 0.012, WALL.h]);
-  for (let r = 0; r <= WALL.rows; r++) lines.push([0, WALL.y0 + r * WALL.ph, WALL.w, 0.012]);
+  for (let c = 0; c <= cols; c++) lines.push([-WALL.w / 2 + c * WALL.pw, WALL.y0 + WALL.h / 2, 0.012, WALL.h]);
+  for (let r = 0; r <= WALL.rows; r++) lines.push([x, WALL.y0 + r * WALL.ph, w, 0.012]);
   const bezels = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x050607 }), lines.length);
   lines.forEach(([x, y, w, h], k) => bezels.setMatrixAt(k, new THREE.Matrix4().makeScale(w, h, 1).setPosition(x, y, WALL.z + 0.002)));
   group.add(bezels);
@@ -256,6 +260,7 @@ export function buildWall(P, ep) {
         g.textBaseline = "middle";
         g.fillText(r.label, x + (code === hub ? 36 : 25), y + 14);
       }
+      if (pax) drawPassengers(g, t);
       for (const p of air) {
         const [x, y] = proj(...p.pos), [x2, y2] = proj(p.pos[0] + 0.3 * Math.sin(p.heading * rad) / Math.cos(p.pos[1] * rad), p.pos[1] + 0.3 * Math.cos(p.heading * rad));
         g.save();
@@ -271,9 +276,14 @@ export function buildWall(P, ep) {
       let x = 24;
       g.font = `600 20px ${FONT}`;
       g.textBaseline = "middle";
-      for (const [k, label] of [["ontime", "on time"], ["delayed", "delayed"], ["held", "held"], ["cancelled", "ground stop"], ["delayed", "slowed by the FAA"]]) {
-        g.fillStyle = INK[k];
-        if (label === "ground stop" || label === "slowed by the FAA") {
+      for (const [k, label] of [["ontime", "on time"], ["delayed", "delayed"], ["held", "held"], ["cancelled", "ground stop"], ["delayed", "slowed by the FAA"],
+        ...(pax ? [["pax", "passengers rebooked"], ["pax", "stranded overnight"]] : [])]) {
+        g.fillStyle = INK[k] ?? PAX_INK;
+        if (label === "stranded overnight") {
+          g.beginPath();
+          g.arc(x + 9, h - 26, 8, 0, Math.PI * 2);
+          g.fill();
+        } else if (label === "ground stop" || label === "slowed by the FAA") {
           g.strokeStyle = INK[k];
           g.lineWidth = 3;
           g.beginPath();
@@ -287,8 +297,9 @@ export function buildWall(P, ep) {
     } }),
     sky: new Window(group, { col: 0, row: 0, cols: 4, rows: 4, draw: radar ? drawRadar : drawWeather }),
     board: new Window(group, { col: 0, row: 4, cols: 4, rows: 3, draw: drawBoard }),
-    faa: new Window(group, { col: 10, row: 0, cols: 4, rows: 3, draw: drawPrograms }),
-    ops: new Window(group, { col: 10, row: 3, cols: 4, rows: 4, draw: drawOps }),
+    faa: new Window(group, { col: pax ? 10 + PAX_COLS : 10, row: 0, cols: 4, rows: 3, draw: drawPrograms }),
+    ops: new Window(group, { col: pax ? 10 + PAX_COLS : 10, row: 3, cols: 4, rows: 4, draw: drawOps }),
+    pax: pax ? new Window(group, { col: 10, row: 0, cols: PAX_COLS, rows: 7, draw: drawPax }) : null,
   };
 
   const zoneFmt = new Intl.DateTimeFormat("en-US", { timeZone: task.tz, timeZoneName: "short" });
@@ -507,12 +518,7 @@ export function buildWall(P, ep) {
       [String(made.filter((c) => c.desk !== "ops" && !["cancel", "cancel_pair", "rebook", "hotel"].includes(c.action)).length), "crew moves", "#b08cf0"],
       occ.mode === "one" ? [String(made.length), "decisions by the desk", "#9fb6cc"] : [`${sent.length}${waiting ? ` · ${waiting}` : ""}`, waiting ? "requests · waiting" : "requests between desks", "#9fb6cc"],
     ];
-    if (pax) {
-      const a = paxAt(pax, t);
-      tiles.push([a.missed.toLocaleString("en-US"), "missed connections", PAX_INK], [a.rebooked.toLocaleString("en-US"), "passengers rebooked", PAX_INK],
-        [a.stranded.toLocaleString("en-US"), "stranded overnight", PAX_INK]);
-    }
-    const rows = tiles.length / 3, tw = (w - 40) / 3, th = (h - 64) / rows - (rows > 2 ? 2 : 0);
+    const tw = (w - 40) / 3, th = (h - 64) / 2;
     tiles.forEach(([big, label, col], i) => {
       const x = 14 + (i % 3) * (tw + 6), y = 54 + Math.floor(i / 3) * (th + 4);
       g.fillStyle = "#0d1d2e";
@@ -520,7 +526,7 @@ export function buildWall(P, ep) {
       g.fillStyle = col;
       g.fillRect(x, y, 6, th);
       g.textBaseline = "alphabetic";
-      g.font = `700 ${rows > 2 ? 50 : 64}px ${FONT}`;
+      g.font = `700 64px ${FONT}`;
       g.fillStyle = "#f3f6f9";
       g.fillText(big, x + 22, y + th * 0.56);
       g.font = `500 22px ${FONT}`;
@@ -529,10 +535,81 @@ export function buildWall(P, ep) {
     });
   }
 
+  /** Where the passengers off a cancelled flight or a missed connection were rebooked, a sand arc as wide as how many
+   * from their airport to the new flight's destination, and a sand disc with the count where they are stranded overnight. */
+  function drawPassengers(g, t) {
+    const ap = task.airports;
+    g.lineCap = "round";
+    for (const f of flowsAt(pax, P, t).sort((a, b) => a.pax - b.pax)) {
+      if (!ap[f.at] || !ap[f.dest]) continue;
+      const [x0, y0] = proj(ap[f.at].lon, ap[f.at].lat), [x1, y1] = proj(ap[f.dest].lon, ap[f.dest].lat), dx = x1 - x0, dy = y1 - y0;
+      const cx = (x0 + x1) / 2 + dy * BOW, cy = (y0 + y1) / 2 - dx * BOW, wide = 1.5 + 1.25 * Math.sqrt(f.pax);
+      g.globalAlpha = 0.85 * f.alpha;
+      for (const [col, lw] of [["rgba(4,10,16,0.7)", wide + 4], [PAX_INK, wide]]) {
+        g.strokeStyle = col;
+        g.lineWidth = lw;
+        g.beginPath();
+        g.moveTo(x0, y0);
+        g.quadraticCurveTo(cx, cy, x1, y1);
+        g.stroke();
+      }
+    }
+    g.globalAlpha = 1;
+    g.font = `700 22px ${FONT}`;
+    g.textBaseline = "middle";
+    for (const [code, n] of strandedPaxAt(pax, t)) {
+      if (!ap[code]) continue;
+      const [x, y] = proj(ap[code].lon, ap[code].lat), r = 6 + 1.4 * Math.sqrt(n);
+      g.fillStyle = PAX_INK;
+      g.strokeStyle = "#5a3c06";
+      g.lineWidth = 2;
+      g.beginPath();
+      g.arc(x, y, r, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+      g.fillStyle = PAX_INK;
+      g.fillText(n.toLocaleString("en-US"), x - r - 8 - g.measureText(n.toLocaleString("en-US")).width, y + 16);
+    }
+  }
+
+  function drawPax(g, w, h, t) {
+    g.fillStyle = "#081420";
+    g.fillRect(0, 0, w, h);
+    header(g, w, "PASSENGERS", clock(t), 44);
+    const a = paxAt(pax, t), asks = asksAt(pax, t), waiting = waitingAt(pax, P, t).reduce((n, x) => n + x.pax, 0);
+    const where = [...strandedPaxAt(pax, t)].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]));
+    const n = (v) => v.toLocaleString("en-US");
+    const tiles = [
+      [n(a.missed), "missed connections", a.held ? `${a.held} departure${a.held > 1 ? "s" : ""} held for ${n(a.heldPax)} connecting` : "no departure held for them yet", PAX_INK],
+      [n(a.rebooked), "rebooked onto a later flight", waiting ? `${n(waiting)} waiting for it now` : "none waiting now", PAX_INK],
+      [n(a.stranded), "stranded overnight", where.length ? where.slice(0, 3).map(([c, k]) => `${c} ${n(k)}`).join(" · ") : "nobody yet", PAX_INK],
+      [n(asks.open), asks.open === 1 ? "request to ops open" : "requests to ops open", `${asks.sent} sent · ${asks.accepted} accepted`, "#9fb6cc"],
+    ];
+    const th = (h - 60) / tiles.length - 6;
+    tiles.forEach(([big, label, sub, col], i) => {
+      const y = 54 + i * (th + 6);
+      g.fillStyle = "#0d1d2e";
+      g.fillRect(12, y, w - 24, th);
+      g.fillStyle = col;
+      g.fillRect(12, y, 6, th);
+      g.textBaseline = "alphabetic";
+      g.font = `700 76px ${FONT}`;
+      g.fillStyle = "#f3f6f9";
+      g.fillText(big, 36, y + th * 0.47);
+      g.font = `600 27px ${FONT}`;
+      g.fillStyle = "#c9d6e2";
+      g.fillText(label, 36, y + th * 0.68);
+      g.font = `500 22px ${FONT}`;
+      g.fillStyle = "#8ea4b8";
+      g.fillText(sub, 36, y + th * 0.86, w - 60);
+    });
+  }
+
   let lastMap = -Infinity;
   return {
     group,
     ready,
+    span: [-WALL.w / 2, -WALL.w / 2 + w],
     /** Redraw what changed at minute t; `now` (wall ms) throttles the map when the clock runs fast, `force` skips that. */
     update(t, { now = performance.now(), force = false } = {}) {
       const flights = flightsAt(P, t), air = positionsAt(P, flights, t), m = Math.floor(t);
@@ -549,6 +626,7 @@ export function buildWall(P, ep) {
       windows.board.update(`${m}`, t, flights);
       windows.faa.update(`${m}`, t);
       windows.ops.update(`${m}|${air.length}`, t, air.length);
+      windows.pax?.update(`${m}`, t);
       drawLed(t);
     },
     /** Resolves once the radar frames shown at t are loaded, so a recorded frame has them. */

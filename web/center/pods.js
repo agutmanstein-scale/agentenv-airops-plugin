@@ -2,11 +2,14 @@
 // front row, with the customer desk's beside the ops controller on a day with passengers (one pod on a one-agent day),
 // each with a seated figure, a name board on the monitor arm and three monitors
 // showing, in type big enough to read over the desk's shoulder, the page that desk read at the start of its latest turn:
-// its header and summary, then the first items of its first two sections. The desk whose turn it is lights up.
+// its header and summary, then the first items of its first two sections; the customer desk's show its passengers
+// instead (paxdesk.js). The desk whose turn it is lights up.
 import * as THREE from "three";
+import { paxIndex } from "../paxdata.js";
 import { clock } from "../plain.js";
 import { unitName } from "../room.js";
 import { ROWS, chairGeometry, deskGeometry, monitorMatrices, personGeometry, screenMatrix, stationMatrix } from "./hall.js";
+import { paxDesk } from "./paxdesk.js";
 
 export const DESKS = { ops: "Ops controller", crew: "Crew scheduler", customer: "Customer desk", one: "Ops controller · crew scheduler" };
 const ALL = "Ops · crew · customer desks";
@@ -23,6 +26,7 @@ const FONT = "Inter, 'Helvetica Neue', Arial, sans-serif";
 const PAGE = { w: 1024, h: 586, pad: 22, top: 50 };
 const TEXT = { size: 44, line: 53 };
 const EMPTY = /^(none|none new)\.?$/i;
+const SCREEN = { w: PAGE.w, h: PAGE.h, pad: PAGE.pad, top: PAGE.top, size: TEXT.size, line: TEXT.line };
 
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
 
@@ -86,12 +90,13 @@ function signCanvas(title, sub) {
 }
 
 class Pod {
-  constructor(group, desk, s, { label, pages, turns, words, title = DESKS[desk] }) {
+  constructor(group, desk, s, { label, pages, turns, words, title = DESKS[desk], pax = null }) {
     this.desk = desk;
     this.title = title;
     this.words = words;
     this.pages = pages;
     this.turns = turns;
+    this.pax = pax;
     const row = ROWS[0], m = stationMatrix(row, s);
     this.m = m;
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.05 });
@@ -162,7 +167,8 @@ class Pod {
     this.points = [[-1.05, 0.95, -0.5], [1.05, 0.95, -0.5], [-1.05, 1.45, -0.5], [1.05, 1.45, -0.5], [0, 1.35, 0.55], [0, 0.75, 0.75], [0, 2.02, -0.66]]
       .map((p) => new THREE.Vector3(...p).applyMatrix4(m));
     this.key = null;
-    this.paint(null);
+    if (pax) pax.update(this.screens, -Infinity, null, SCREEN);
+    else this.paint(null);
   }
 
   /** The page this desk had up at t: the one of its latest turn begun by then. */
@@ -229,7 +235,8 @@ class Pod {
 
   update(t, wall) {
     const page = this.pageAt(t), key = page ? `${page.t}|${page.desk}` : "none";
-    if (key !== this.key) {
+    if (this.pax) this.pax.update(this.screens, t, page, SCREEN);
+    else if (key !== this.key) {
       this.key = key;
       this.paint(page);
     }
@@ -258,11 +265,12 @@ export function buildPods(P, ep) {
   const desks = one ? ["one"] : three ? ["customer", "ops", "crew"] : ["ops", "crew"];
   const at = one ? [0] : three ? [-POD_GAP, 0, POD_GAP] : [-1.3, 1.3];
   const from = new Map(occ.turns.map((u) => [`${u.t}|${u.desk}`, u.from]));
+  const X = paxIndex(P);
   const pods = new Map(desks.map((d, i) => {
     const pages = occ.pages.filter((p) => one || p.desk === d).map((p) => ({ ...p, from: from.get(`${p.t}|${p.desk}`) ?? p.t }));
     const turns = occ.turns.filter((u) => one || u.desk === d);
     const title = one && ep.passengers ? ALL : DESKS[d];
-    return [d, new Pod(group, d, at[i], { label, pages, turns, words, title })];
+    return [d, new Pod(group, d, at[i], { label, pages, turns, words, title, pax: d === "customer" && X ? paxDesk(P, X) : null })];
   }));
   return {
     group,
