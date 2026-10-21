@@ -1,7 +1,7 @@
 ---
 license: other
 license_name: us-public-domain-iem-mit-odbl-apache-2.0
-license_link: https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.3.3/NOTICE
+license_link: https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.4.0/NOTICE
 pretty_name: 'AirOpsEnv v3: passengers and the customer desk'
 language:
 - en
@@ -86,7 +86,7 @@ decision, the earliest arrival first, for up to five days, then a refund; a flig
 other seat is left, per DOT's refund rule.
 
 How faithful the passengers are, with every check and every miss (a connecting-share check that ran low among them),
-is in [FIDELITY.md](https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.3.3/FIDELITY.md).
+is in [FIDELITY.md](https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.4.0/FIDELITY.md).
 
 ## Grading
 
@@ -176,10 +176,10 @@ the wiring with a day no model plays, then play a day straight from this dataset
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.3.3"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.4.0"
 agent-env airops-occ3 setup
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.3 --bundle airops-occ3 --task wiring-noplay
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.3 --bundle airops-occ3 --task b6-20240713-0400-joint \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.0 --bundle airops-occ3 --task wiring-noplay
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.0 --bundle airops-occ3 --task b6-20240713-0400-joint \
     --model openai/gpt-6.1-sol
 ```
 
@@ -198,7 +198,7 @@ passenger costs a flat 523 passenger-minutes.
 
 <div align="center">
 
-<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.3.3/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="https://raw.githubusercontent.com/earakely-scale/agentenv-airops-plugin/v0.3.3/assets/airops-occ-hero.webp" alt="Two GPT-6.1 Sol desks run JetBlue's operations control center through the Boston storm of 13 July 2024 on AgentEnv: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave" width="100%"></a>
+<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.0/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="https://raw.githubusercontent.com/earakely-scale/agentenv-airops-plugin/v0.4.0/assets/airops-occ-hero.webp" alt="Two GPT-6.1 Sol desks run JetBlue's operations control center through the Boston storm of 13 July 2024 on AgentEnv: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave" width="100%"></a>
 
 <sub>Two GPT-6.1 Sol desks run JetBlue's network through the Boston storm of Saturday 13 July 2024
 (<code>b6-20240713-0400</code>): 612 flights on 193 aircraft from 04:00, an FAA ground stop and a ground delay program
@@ -249,7 +249,7 @@ trips are generated from the published schedule by a cost-optimizing builder, an
 band.
 
 How faithful the day is, layer by layer, with every check against the record and every miss, is in
-[FIDELITY.md](https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.3.3/FIDELITY.md#airopsenv-v2-fidelity-report).
+[FIDELITY.md](https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.4.0/FIDELITY.md#airopsenv-v2-fidelity-report).
 
 ## v2: grading
 
@@ -300,7 +300,7 @@ display only.
 ## v2: run it
 
 Once `agent-env airops-occ setup` has built v2's env and desk agent, play a v2 day from this dataset with
-`agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.3.3 --bundle airops-occ --task b6-20240713-0400-joint --model <model>`.
+`agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.0 --bundle airops-occ --task b6-20240713-0400-joint --model <model>`.
 The bundle `airops-occ` holds every date of `b6-v2` in both modes, `<task id>-joint` and `<task id>-one`, the very
 task files v2's board ran (each desk capped at $5 in a two-desk run, $8 for one agent), and `wiring-noplay`.
 
@@ -374,7 +374,7 @@ hindsight optimum and never below 0.2, since the env never strands a flight. The
 
 ## v1: watch a run
 
-[![GPT-6.1 Sol's run of JetBlue's Boston operations desk through the storm of 16 February 2025, replayed in 3D at Logan](https://raw.githubusercontent.com/earakely-scale/agentenv-airops-plugin/v0.3.3/assets/airops-hero.webp)](https://earakely-scale-airopsenv-agentenv.static.hf.space/viewer/index.html?episode=https%3A%2F%2Fhuggingface.co%2Fdatasets%2Fearakely-scale%2FAirOpsEnv-AgentEnv%2Fresolve%2Fv0.3.3%2Fviewer%2Fepisodes%2Fsol-v1.openai-gpt-6.1-sol.b6-bos-20250216-1500.json)
+[![GPT-6.1 Sol's run of JetBlue's Boston operations desk through the storm of 16 February 2025, replayed in 3D at Logan](https://raw.githubusercontent.com/earakely-scale/agentenv-airops-plugin/v0.4.0/assets/airops-hero.webp)](https://earakely-scale-airopsenv-agentenv.static.hf.space/viewer/index.html?episode=https%3A%2F%2Fhuggingface.co%2Fdatasets%2Fearakely-scale%2FAirOpsEnv-AgentEnv%2Fresolve%2Fv0.4.0%2Fviewer%2Fepisodes%2Fsol-v1.openai-gpt-6.1-sol.b6-bos-20250216-1500.json)
 
 <sub>GPT-6.1 Sol runs JetBlue's Boston desk through the storm of Sunday 16 February 2025 (`b6-bos-20250216-1500`): 81
 flights to 38 airports, 12 hourly watches. The FAA Command Center's ground delay program, three ground stops and their
@@ -418,7 +418,7 @@ v2 lifts several of these (the whole network, FAA slots rather than caps, crews)
 ## Licence and attribution
 
 The dataset carries several sets of terms, hence `license: other`; the plugin's
-[NOTICE](https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.3.3/NOTICE) and each source's `SOURCE.md`
+[NOTICE](https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.4.0/NOTICE) and each source's `SOURCE.md`
 set them out.
 
 - **U.S. Government works, public domain**: the BTS on-time, T-100 and Form 41 data, the DOT's Airline Origin and
