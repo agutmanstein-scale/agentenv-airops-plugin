@@ -1,5 +1,5 @@
 """Film a sweep's control-center days as they finish: each scored run of a pilot or board folder (results/runs/<sweep>/)
-not filmed yet is built into a viewer episode (agentenv_airops.occ.episode, a b6-v3 day with its passengers) and
+not filmed yet is built into a viewer episode (occ_episodes.build, a b6-v3 day with its passengers) and
 filmed, its director's cut (scripts/record.py) and its list thumbnail (scripts/occ_thumbs.py), into OUT/<sweep>/:
 <run>.mp4 and <run>.jpg, the viewer folder they were filmed from (viewer/), each run's log (logs/) and what was made
 from which attempt (done/). Safe to run again, and while the board plays: a run is filmed once per scored attempt, the
@@ -12,6 +12,7 @@ usage: .venv/bin/python scripts/occ_films.py ~/agentenv-airops-plugin/results/ru
 
 import argparse
 import fcntl
+import functools
 import hashlib
 import json
 import os
@@ -22,10 +23,10 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from agentenv_airops import export
-from agentenv_airops.occ import episode
 from agentenv_airops.occ.sweep import final
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -68,6 +69,11 @@ def main(argv: list[str] | None = None) -> int:
         except BlockingIOError:
             print(f"{films.dir} is being filmed by another run of this script")
             return 0
+        while not (films.sweep / "pilot.json").is_file():
+            if args.every is None:
+                print(f"no pilot.json in {films.sweep} yet")
+                return 1
+            time.sleep(args.every)
         films.prepare()
         retry = args.retry
         while True:
@@ -92,8 +98,11 @@ class Films:
         self.dir = out / (sweep.name + ("-mock" if mock else ""))
         self.boards = "-board-" in f"{sweep.name}-"
         self.viewer = self.dir / "viewer"
-        self.manifest = json.loads((sweep / "pilot.json").read_text())
         self.lock = threading.Lock()
+
+    @functools.cached_property
+    def manifest(self) -> dict:
+        return json.loads((self.sweep / "pilot.json").read_text())
 
     def prepare(self) -> None:
         for name in ("episodes", "thumbs", "traffic", "logs", "done"):
@@ -122,7 +131,10 @@ class Films:
         rows = self.rows()
         boarded = again and self.boards and self.boarded(rows)
         out = []
-        for run, row in {r["run"]: r for r in rows if r["outcome"] == "scored" and r.get("day")}.items():
+        scored = {r["run"]: r for r in rows if r["outcome"] == "scored" and r.get("day")}
+        for run, row in scored.items():
+            if not (self.sweep / row["day"]).is_file():
+                continue
             if only and run not in only:
                 continue
             done, failed = self.state(run, "done"), self.state(run, "failed")
@@ -199,17 +211,11 @@ class Films:
         return hashlib.sha256((self.sweep / row["day"]).read_bytes()).hexdigest()
 
     def build(self, row: dict, log: Path) -> str:
-        """The run's episode into the viewer folder, added to its index; its file's stem."""
-        data = json.loads((self.sweep / row["day"]).read_text())
-        world = occ_episodes.world_of(data, self.manifest)
-        path = self.viewer / "occ" / "projections" / f"{row['run']}-a{row['attempt']}.json"
-        projected = occ_episodes.projections(world, data, path) if self.replay else None
-        record = {"folder": self.sweep.name, "run": row["run"], "attempt": row["attempt"],
-                  "cost_usd": row.get("cost_usd"), "wall_seconds": row.get("wall_seconds"), "desks": row.get("desks")}
-        ep = episode.episode(world, data, model=self.manifest["model"], run=self.label(row["run"]), inputs=self.inputs,
-                             cache=self.viewer, record=record, projected=projected)
-        episode.write_traffic(episode.traffic(world, ep, self.inputs), self.viewer)
-        ep["stage"] = episode.stage_of(ep, self.viewer)
+        """The run's episode by occ_episodes.build (its projections replayed unless --no-replay) into the viewer folder,
+        added to its index; its file's stem."""
+        with log.open("a") as f, redirect_stdout(f):
+            [ep] = occ_episodes.build([f"{self.sweep.name}/{row['run']}"], self.sweep.parent, self.inputs, self.viewer,
+                                      None, self.replay)
         if self.mock and not ep.get("passengers"):
             mock_v3.mock(ep, random.Random(ep["task"]["task_id"]))
         export.write(self.viewer, [ep], self.viewer)

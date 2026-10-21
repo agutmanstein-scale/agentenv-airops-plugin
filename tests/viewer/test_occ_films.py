@@ -156,3 +156,13 @@ def test_polling_a_final_sweep_retries_a_failure_once_and_ends(tmp_path, monkeyp
     args = [str(folder), "--out", str(tmp_path / "films"), "--every", "0"]
     assert of.main(args) == 0 and tries == ["a-one", "b-one"]
     assert of.main([*args, "--retry"]) == 0 and tries == ["a-one", "b-one", "b-one"]
+
+
+def test_a_scored_row_whose_day_has_not_landed_waits_and_so_does_a_sweep_without_its_manifest(tmp_path):
+    folder = sweep(tmp_path, "occ3-board-sol", ["a-joint"], [row("a-joint")])
+    (folder / "days" / "a-joint-a1.json").unlink()
+    f = films(tmp_path, folder)
+    assert f.todo([], False, False) == ([], False)
+    add(folder, row("a-joint"))
+    assert [r["run"] for r in f.todo([], False, False)[0]] == ["a-joint"]
+    assert of.main([str(tmp_path / "runs" / "occ3-board-x"), "--out", str(tmp_path / "films")]) == 1
