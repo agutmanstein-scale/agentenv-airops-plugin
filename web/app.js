@@ -2,7 +2,7 @@
 // map in a corner, cards over them and a timeline below; ?index=<url> lists episodes. window.airops {ready, time(t),
 // view(name), show(step), shot(spec), state()} lets a recorder drive it frame by frame.
 import { HUB_NAMES, cities, esc, flagged, flightsAt, positionsAt, prepare, programBands, watchAt } from "./model.js";
-import { Board, Desk, Header, Score, Timeline } from "./cards.js";
+import { Board, Desk, Header, Passengers, Score, Timeline } from "./cards.js";
 import { Room } from "./room.js";
 import { Views } from "./inset.js";
 import { ATTRIBUTION, rings } from "./map.js";
@@ -81,14 +81,16 @@ const longDate = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB
 
 const V2 = { title: "AirOpsEnv v2: the ops control center", sub: "Run an airline's control center through a real storm day",
   intro: "Each run puts a model in JetBlue's operations control center for a whole storm day, from 04:00, as two desks (an ops controller for the flights, a crew scheduler for the crews, asking each other for holds, cancellations and cover) or as one agent at both desks. The day is flown on what really happened and scored against the best plan found. Pick one to replay it." };
+const V3 = { title: "AirOpsEnv v3: passengers and the customer desk", sub: "Run an airline's control center and its passengers through a real storm day",
+  intro: "Each run puts a model in JetBlue's operations control center for a whole storm day, from 04:00, as three desks (an ops controller for the flights, a crew scheduler for the crews and a customer desk for the passengers, who asks ops to hold departures for connecting passengers, not to cancel flights whose passengers have nowhere else to go, or to cancel early) or as one agent at every desk. The airline rebooks whoever misses a connection or loses a flight onto its next seats, today or on a later day; on a storm day it owes no hotel, so those it can't fly today find their own room for the night. Pick one to replay it." };
 const V1 = { title: "AirOpsEnv v1: the operations desk", sub: "Recover an airline's storm day at JFK or Boston",
   intro: "Each run puts a model at JetBlue's operations desk through a real storm day. Every hour it reads the FAA's advisories and the weather and may cancel or hold flights; the day is then flown on what really happened and scored against the best plan in hindsight. Pick one to replay it." };
 
 async function indexPage(app, url) {
   const index = await getJSON(url);
-  const v2 = index.episodes.filter((e) => e.occ), v1 = index.episodes.filter((e) => !e.occ);
+  const v3 = index.episodes.filter((e) => e.occ && e.passengers), v2 = index.episodes.filter((e) => e.occ && !e.passengers), v1 = index.episodes.filter((e) => !e.occ);
   document.documentElement.classList.add("light");
-  document.title = `${v2.length ? V2.title : "AirOpsEnv v1"} · episodes`;
+  document.title = `${v3.length ? V3.title : v2.length ? V2.title : "AirOpsEnv v1"} · episodes`;
   const card = (e) => {
     const href = `?episode=${encodeURIComponent(new URL(e.url, url).href)}${e.occ ? `&t=${e.open ?? ""}&view=room&play=1&speed=2` : ""}`;
     const gap = e.anchor ? (100 * (e.cost - e.anchor)) / e.anchor : null;
@@ -100,17 +102,35 @@ async function indexPage(app, url) {
       ${under ? `<p class="flag">* ${esc(under)}</p>` : ""}<p class="id">${esc(e.task_id)} · ${esc(e.run)}</p></div></a>`;
   };
   const board = (e) => (e.run ?? "").startsWith("occ-board");
-  const rank = (e) => (e.occ ? [e.featured ? 0 : 1, e.featured ?? 0, board(e) ? 0 : 1, e.date, e.occ === "two desks" ? 0 : 1] : [0, 0, 0, "", -(e.reward ?? -1)]);
+  const rank = (e) => (e.occ ? [e.featured ? 0 : 1, e.featured ?? 0, board(e) ? 0 : 1, e.date, e.occ === "two desks" || e.occ === "three desks" ? 0 : 1] : [0, 0, 0, "", -(e.reward ?? -1)]);
   const cmp = (x, y) => (typeof x === "string" ? x.localeCompare(y) : x - y);
   const order = (list) => [...list].sort((a, b) => rank(a).reduce((d, x, i) => d || cmp(x, rank(b)[i]), 0));
   const grid = (list) => `<div class="grid">${order(list).map(card).join("")}</div>`;
   const head = (h) => `<h1>${esc(h.title)}</h1><p class="sub">${esc(h.sub)}</p><p class="intro">${esc(h.intro)}</p>`;
   const sections = [];
-  if (v2.length) sections.push(`<header>${head(V2)}${note(v2)}</header>${grid(v2)}`);
-  if (v1.length) sections.push(`<header class="${v2.length ? "next" : ""}">${head(v2.length ? V1 : { ...V1, title: "AirOpsEnv v1" })}</header>${grid(v1)}`);
+  const control = v3.length + v2.length > 0;
+  if (control) sections.push(start(order(v3)[0] ?? null, order(v2)[0] ?? null, url, longDate));
+  if (control) sections.push(`<header>${head(V3)}</header>${v3.length ? grid(v3) : `<p class="soon-row">The three-desk runs are listed here once the v3 board is recorded.</p>`}`);
+  if (v2.length) sections.push(`<header class="next">${head(V2)}${note(v2)}</header>${grid(v2)}`);
+  if (v1.length) sections.push(`<header class="${control ? "next" : ""}">${head(control ? V1 : { ...V1, title: "AirOpsEnv v1" })}</header>${grid(v1)}`);
   app.innerHTML = `<div class="list">${sections.join("")}
     <p class="credit">Reward from 0.2 to 1: 1 is the best plan ${v2.length ? "found (v2) or the best plan in hindsight (v1)" : "in hindsight"}. Cost in passenger-minutes. ${esc(CREDIT)}</p></div>`;
-  resolveReady({ episodes: index.episodes.length, v2: v2.length, v1: v1.length });
+  resolveReady({ episodes: index.episodes.length, v3: v3.length, v2: v2.length, v1: v1.length });
+}
+
+/** The list's "Start here": the featured v3 run (else v3's first) as a wide card, or until the v3 board is recorded a
+ * placeholder pointing at v2's featured day. */
+function start(e, v2, url, longDate) {
+  const href = (x) => `?episode=${encodeURIComponent(new URL(x.url, url).href)}&t=${x.open ?? ""}&view=room&play=1&speed=2`;
+  const bg = (x) => (x?.thumb ? ` style="background-image:url('${esc(new URL(x.thumb, url).href)}')"` : "");
+  if (!e) {
+    return `<section class="start"><div class="kicker">Start here</div><div class="start-card soon"><div class="body">
+      <h2>AirOpsEnv v3: the featured run</h2><p>Three desks run JetBlue's control center with its passengers: an ops controller, a crew scheduler and a customer desk that asks ops to hold departures for connecting passengers and keeps the stranded moving. The run to watch first lands here once the v3 board is recorded.</p>
+      ${v2 ? `<a class="go" href="${href(v2)}">Meanwhile, watch v2's featured day: ${esc(HUB_NAMES[v2.hub] ?? v2.hub)}, ${esc(longDate(v2.date))} →</a>` : ""}</div></div></section>`;
+  }
+  return `<section class="start"><div class="kicker">Start here</div><a class="start-card" href="${href(e)}"><div class="thumb${e.thumb ? "" : " none"}"${bg(e)}><span>${esc(e.hub)}</span></div><div class="body">
+    <h2>${esc(HUB_NAMES[e.hub] ?? e.hub)} · ${esc(longDate(e.date))}</h2><p class="model">${esc(e.model_label ?? e.model)} · ${esc(e.occ)} · reward ${e.reward?.toFixed(3) ?? "–"}</p>
+    <p>Three desks run JetBlue's control center through a real storm day with its passengers: watch the customer desk ask ops to hold for connecting passengers, the gates fill and board, and the stranded leave for the hotel.</p><span class="go">Watch the run →</span></div></a></section>`;
 }
 
 /** The board's result in a line: each setup's mean reward over the board's days, from the list's own board runs. */
@@ -135,7 +155,7 @@ async function episodePage(app, url) {
   }
   P.lo = traffic?.span?.[0] ?? task.start;
   P.hi = traffic?.span?.[1] ?? P.end;
-  const city = cities(task, traffic), cityOf = (c) => city.get(c) ?? c, model = ep.model_label ?? ep.model, brand = ep.occ ? "AirOpsEnv v2" : "AirOpsEnv v1";
+  const city = cities(task, traffic), cityOf = (c) => city.get(c) ?? c, model = ep.model_label ?? ep.model, brand = ep.passengers ? "AirOpsEnv v3" : ep.occ ? "AirOpsEnv v2" : "AirOpsEnv v1";
   const stands = new Map(), terminals = new Map();
   for (const ac of traffic?.aircraft ?? []) {
     if (!ac.task) continue;
@@ -151,7 +171,7 @@ async function episodePage(app, url) {
     <div class="view view-map"><div class="map"></div><div class="inset-caption">US radar and JetBlue's flights in the air · click to swap</div>
       <div class="radar-key" ${P.radar ? "" : "hidden"}><span>Radar: light</span><i></i><span>heavy</span></div></div>
     <div class="cards left"><section class="card head"></section><section class="card desk"></section></div>
-    <div class="cards right"><section class="card score"></section><section class="card board"></section></div>
+    <div class="cards right"><section class="card score"></section>${ep.passengers ? `<section class="card pax"></section>` : ""}<section class="card board"></section></div>
     <div class="follow-chip" hidden></div>
     <aside class="expert" hidden></aside>
     <footer class="timeline"></footer>
@@ -188,6 +208,7 @@ async function episodePage(app, url) {
   const header = new Header(root.querySelector(".head"), P, { model: ep.occ ? `${model} · ${ep.occ.label}` : model, weather: stage ? traffic.weather : null, brand });
   const desk = ep.occ ? new Room(root.querySelector(".desk"), P, { model }) : new Desk(root.querySelector(".desk"), P, { model, city: cityOf });
   const score = new Score(root.querySelector(".score"), P, { model });
+  const pax = ep.passengers ? new Passengers(root.querySelector(".pax"), P) : null;
   const board = new Board(root.querySelector(".board"), P, { city: cityOf, stands, terminal: home?.replace(/^T/, ""), rows: 8, scene: !!stage,
     scope: ep.occ ? "all of its flights here" : "the task's flights" });
   const expertEl = root.querySelector(".expert");
@@ -197,9 +218,10 @@ async function episodePage(app, url) {
     label: id === "harbour" && task.hub === "JFK" ? "Bay" : CAMERAS[id][0], title: `${CAMERAS[id][1]} (${Object.keys(KEYS).find((k) => KEYS[k] === id)})` }));
   const speed0 = SPEEDS.includes(Number(params.get("speed"))) ? Number(params.get("speed")) : 5;
   const timeline = new Timeline(root.querySelector(".timeline"), P, { bands: programBands(P), speeds: SPEEDS, speed: speed0, cameras });
-  const shown = ep.occ ? "Gates, taxi routes, runways in use, the crew room, crews' walks, van routes and the control-center room are inferred, for display"
-    : "Gates, taxi routes and runways in use are inferred, for display";
-  root.querySelector(".credit").textContent = `${stage ? `${shown} · airport © OpenStreetMap contributors (ODbL), imagery USGS · ` : ""}${ATTRIBUTION} · flights BTS · weather NWS, IEM${ep.occ ? " · crews: generated pairings under FAR 117 and 14 CFR 121.467" : ""}`;
+  const shown = ep.passengers ? "Gates, taxi routes, runways in use, the crew room, crews' walks, van routes, the gate lounges, passengers' walks, the service counter, the hotel shuttle and the control-center room are inferred, for display"
+    : ep.occ ? "Gates, taxi routes, runways in use, the crew room, crews' walks, van routes and the control-center room are inferred, for display"
+      : "Gates, taxi routes and runways in use are inferred, for display";
+  root.querySelector(".credit").textContent = `${stage ? `${shown} · airport © OpenStreetMap contributors (ODbL), imagery USGS · ` : ""}${ATTRIBUTION} · flights BTS · weather NWS, IEM${ep.occ ? " · crews: generated pairings under FAR 117 and 14 CFR 121.467" : ""}${ep.passengers ? " · passengers: simulated by the env" : ""}`;
   const followChip = root.querySelector(".follow-chip");
 
   const moves = ep.executed.filter((e) => e.status === "flown").flatMap((e) => [P.sched.get(e.id).orig === task.hub ? e.dep : null, P.sched.get(e.id).dest === task.hub ? e.arr : null]).filter((m) => m != null);
@@ -216,6 +238,7 @@ async function episodePage(app, url) {
     header.render(m, { rate, quiet: boost > 1 });
     desk.render(m, step);
     score.render(m);
+    pax?.render(m);
     board.render(m, flights);
     timeline.update(m);
     if (expert && !expertEl.hidden) expert.render(m, flights, step);

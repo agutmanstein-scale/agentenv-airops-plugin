@@ -109,7 +109,10 @@ button, select { font: inherit; color: inherit; }
 .desk .cost b { color: var(--ink); }
 .desk blockquote { margin: 0; padding: 4px 10px; border-left: 3px solid #c3d3db; color: #e8eef1; font-style: italic; font-size: 12.5px; }
 
-.score { flex: none; }
+.score, .pax { flex: none; }
+.pax .kpis b { color: #f4dca8; }
+.pax .kpis b { font-size: 19px; }
+.pax-line { margin: 5px 0 0; font-size: 11.5px; line-height: 1.35; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kpis { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
 .kpis b { display: block; font-size: 22px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .kpis span { display: block; font-size: 11.5px; line-height: 1.25; color: var(--muted); }
@@ -277,6 +280,11 @@ html.bare .cards, html.bare .timeline, html.bare .credit, html.bare .follow-chip
 }
 @media (max-height: 820px) {
   :root { --inset-w: min(320px, 20vw); }
+  .card.pax { padding-top: 6px; padding-bottom: 6px; }
+  .pax h5, .pax-line { display: none; }
+  .pax .kpis { display: flex; flex-wrap: wrap; gap: 2px 12px; }
+  .pax .kpis b { display: inline; font-size: 15px; margin-right: 4px; }
+  .pax .kpis span { display: inline; font-size: 11px; white-space: nowrap; }
 }
 
 html.light, html.light body { background: #eef1f4; color: #14202b; overflow: auto; color-scheme: light; }
@@ -289,6 +297,18 @@ html.light, html.light body { background: #eef1f4; color: #14202b; overflow: aut
 .list header.next h1 { font-size: 26px; }
 .thumb em { position: absolute; right: 12px; top: 10px; padding: 2px 8px; border-radius: 4px; background: #f5c84c; color: #2b1c00; font: normal 700 11.5px var(--sans); letter-spacing: 0.04em; text-transform: uppercase; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; margin-top: 28px; }
+.start { margin: 0 0 46px; }
+.start .kicker { margin-bottom: 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #a8701a; }
+.start-card { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); overflow: hidden; border-radius: 14px; background: #fff; color: inherit;
+  text-decoration: none; box-shadow: 0 1px 2px rgba(20, 32, 43, 0.06), 0 8px 26px rgba(20, 32, 43, 0.1); }
+.start-card .body { display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 22px 28px; }
+.start-card h2 { margin: 0; font-size: 22px; }
+.start-card p { margin: 0; font-size: 14px; line-height: 1.5; color: #43525e; }
+.start-card .model { color: #26343f; font-weight: 600; }
+.start-card .go { margin-top: 4px; font-size: 14px; font-weight: 650; color: #1f5f99; text-decoration: none; }
+.start-card.soon { grid-template-columns: 1fr; max-width: 760px; background: #f6f8fa; border: 1px dashed #b8c5cf; box-shadow: none; }
+.list .soon-row { margin: 24px 0 0; padding: 18px 20px; border: 1px dashed #c4cfd8; border-radius: 12px; font-size: 14px; color: #52626e; }
+@media (max-width: 760px) { .start-card { grid-template-columns: 1fr; } }
 .ep-card { display: block; overflow: hidden; border-radius: 12px; background: #fff; color: inherit; text-decoration: none;
   box-shadow: 0 1px 2px rgba(20, 32, 43, 0.06), 0 6px 20px rgba(20, 32, 43, 0.08); transition: transform 0.15s, box-shadow 0.15s; }
 .ep-card:hover { transform: translateY(-2px); box-shadow: 0 2px 4px rgba(20, 32, 43, 0.08), 0 12px 28px rgba(20, 32, 43, 0.14); }
@@ -312,6 +332,8 @@ html.light, html.light body { background: #eef1f4; color: #14202b; overflow: aut
 .reqs li.t-CANCEL, .reqs li.t-CANCEL_PAIR { border-left-color: #e8503f; }
 .reqs li.t-HOLD { border-left-color: #3f8fe0; }
 .reqs li.t-COVER { border-left-color: #a86fe8; }
+.reqs li.t-PROTECT { border-left-color: #2f9d62; }
+.reqs li.t-SUGGEST_CANCEL { border-left-color: #e8503f; }
 .reqs li.fresh { box-shadow: 0 0 0 2px rgba(201, 155, 255, 0.55); }
 .reqs li .when { display: block; font-size: 10.5px; font-weight: 650; color: #6d6455; letter-spacing: 0.02em; }
 .reqs li b { font-weight: 650; }
@@ -331,6 +353,10 @@ html.light, html.light body { background: #eef1f4; color: #14202b; overflow: aut
 .decs li.d-cancel, .decs li.d-cancel_pair { box-shadow: inset 2px 0 0 var(--cancel); }
 .decs li.d-hold, .decs li.d-claim { box-shadow: inset 2px 0 0 var(--hold); }
 .decs li.d-assign, .decs li.d-call_reserve, .decs li.d-deadhead, .decs li.d-swap, .decs li.d-rest { box-shadow: inset 2px 0 0 #c99bff; }
+.decs li.d-rebook, .decs li.d-hotel { box-shadow: inset 2px 0 0 #e9c27a; }
+.decs li.d-protect { box-shadow: inset 2px 0 0 var(--ok); }
+@media (max-height: 960px) { .room.three blockquote { -webkit-line-clamp: 2; } }
+@media (max-height: 820px) { .room.three .decs li:nth-child(n+2) { display: none; } .room.three blockquote { -webkit-line-clamp: 1; } }
 .room blockquote { margin: 5px 0 0; padding: 3px 10px; border-left: 3px solid #c3d3db; color: #dfe7eb; font-style: italic; font-size: 12px;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .room blockquote span { font-style: normal; color: var(--muted); margin-right: 3px; }

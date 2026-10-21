@@ -11,6 +11,7 @@ import { buildFleet } from "./fleet.js";
 import { buildGround } from "./ground.js";
 import { buildLabels } from "./labels.js";
 import { buildTracks, poseAt } from "./motion.js";
+import { buildPassengers, cutouts } from "./passengers.js";
 import { buildSpray } from "./spray.js";
 import { buildWeather } from "./weather.js";
 
@@ -78,7 +79,9 @@ export class AirportStage {
     scene.add(this.ground.group);
     aircraftLook.lightMap.value = this.ground.U.uLightMap.value;
     aircraftLook.lightM.value.copy(this.ground.U.uLightM.value);
-    this.buildings = buildBuildings(stage);
+    const pax = traffic.passengers?.lounges?.length ? traffic.passengers : null;
+    if (pax) annotate(traffic, pax.tags || {});
+    this.buildings = buildBuildings(stage, { cut: pax ? cutouts(pax, stage) : null });
     scene.add(this.buildings.group);
     this.bridges = buildBridges(stage, this.plan);
     scene.add(this.bridges.group);
@@ -87,6 +90,8 @@ export class AirportStage {
     scene.add(this.fleet.group);
     this.crews = buildCrews(traffic.crews || []);
     scene.add(this.crews.group);
+    this.pax = pax ? buildPassengers(pax, stage) : null;
+    if (this.pax) scene.add(this.pax.group);
     this.spray = buildSpray(this.plan);
     scene.add(this.spray.mesh);
     this.labels = buildLabels(this.container, { occluders: occluders(stage), avoid: this.avoid });
@@ -190,6 +195,7 @@ export class AirportStage {
       snow: this.env?.snowAt(this.T),
       frame: ms.length ? { median: ms[ms.length >> 1], p95: ms[Math.floor(ms.length * 0.95)] } : null,
       crew: this.crews?.count || 0,
+      passengers: this.pax ? { shown: this.pax.count, waiting: this.pax.waiting } : null,
       crewFocus: this.rig.at?.startsWith?.("crew:") ? { key: this.rig.at.slice(5), ...this.crews.focus(this.rig.at.slice(5), this.T), people: this.crews.shown(this.rig.at.slice(5))?.n ?? 0 } : null,
     };
   }
@@ -282,6 +288,7 @@ export class AirportStage {
     });
     this.bridges.update(T, live, s);
     this.crews.update(T, this.wall, this.rate || 0, (this.inside ??= (x, y) => this.#indoors(x, y)));
+    this.pax?.update(T, this.wall, this.rate || 0);
     this.spray.update(T, live, s, this.camera);
     this.#aim(dt, live);
     this.env.focus(this.camera, this.focusAt);
@@ -616,6 +623,7 @@ export class AirportStage {
     const flights = this.#flightsOf(this.featured);
     const focus = typeof this.rig.at === "string" && this.rig.at.startsWith("crew:") ? this.rig.at.slice(5) : null;
     const out = this.crews.tags(this.camera, flights, focus, focus && !this.crews.shown(focus) ? this.#crewAt(focus) : null);
+    if (this.pax) out.push(...this.pax.tags(this.camera, flights));
     for (const f of live) {
       const tr = f.c.track;
       if (!tr.task) continue;
@@ -642,13 +650,38 @@ export function crewAt(leg, t) {
   return t < row[2] ? `crew times out ${hhmm(row[2])}` : null;
 }
 
+/** A departure's connecting passengers at the gate at t (control-center days with passengers): "18 connecting" in the
+ * hour and a quarter before pushback, with "held 12 min" when it waits for them; "4 missed connections" for a
+ * quarter of an hour after it leaves without some; null otherwise. */
+export function paxAt(leg, t) {
+  const p = leg.pax;
+  if (!p || leg.kind !== "dep" || leg.status !== "flown" || leg.out == null) return null;
+  if (t >= leg.out - 75 && t < leg.out && (p.conn || p.held)) return [p.conn ? `${p.conn} connecting` : null, p.held ? `held ${p.held} min` : null].filter(Boolean).join(" · ");
+  if (p.missed && t >= leg.out && t < leg.out + 15) return `${p.missed} missed connection${p.missed > 1 ? "s" : ""}`;
+  return null;
+}
+
+/** Each task departure's passengers from the sidecar's tags by flight, on its leg (paxAt). */
+function annotate(traffic, tags) {
+  for (const ac of traffic.aircraft) {
+    if (!ac.task) continue;
+    for (const v of ac.visits) {
+      const l = v.dep;
+      const p = l && tags[l.flight];
+      if (p && Math.abs((p.sched ?? l.sched) - l.sched) <= 5) l.pax = p;
+    }
+  }
+}
+
 /** A task aircraft's tag at t: its leg's (legAt), with the crew status at the gate in place of the leg's own when it
- * has one (crewAt). */
+ * has one (crewAt), else its connecting passengers' (paxAt). */
 export function tagAt(track, t) {
   const leg = legAt(track, t);
   if (!leg?.tag) return null;
   const head = leg.tag.split(" · ")[0], crew = crewAt(leg, t);
   if (crew) return { text: `${head} · ${crew}`, tone: "crew", crew: true };
+  const pax = paxAt(leg, t);
+  if (pax) return { text: `${head} · ${pax}`, tone: leg.pax.held && t < leg.out ? "hold" : leg.pax.missed && t >= leg.out ? "delay" : leg.tone || "ok", crew: false };
   if (leg.tone === "delay" && leg.kind === "dep" && leg.sched != null && t < leg.sched - KNOWN) return { text: `${head} · on time`, tone: "ok", crew: false };
   return { text: leg.tag, tone: leg.tone || "ok", crew: false };
 }

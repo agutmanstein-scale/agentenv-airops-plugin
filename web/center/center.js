@@ -1,6 +1,7 @@
 // The control-center room in 3D, display-only, modelled on real airline system-operations centers: tiered rows of
-// desks facing a video wall of the network, the radar and the FAA's programs, with the model's two desks (the ops
-// controller and the crew scheduler) at their pods in the front row and their requests flying between them.
+// desks facing a video wall of the network, the radar and the FAA's programs, with the model's desks (the ops
+// controller, the crew scheduler and on a day with passengers the customer desk) at their pods in the front row and
+// their requests flying between them.
 // new ControlCenter(host, {P, ep, base, manual, controls}); await ready; then time(t), view(name), shot(spec).
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -8,7 +9,7 @@ import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUnifo
 import { buildCards } from "./cards.js";
 import { ROOM, buildHall } from "./hall.js";
 import { buildPods } from "./pods.js";
-import { BASE as VIEWS, compose } from "./shots.js";
+import { THREE_DESKS, BASE as VIEWS, compose } from "./shots.js";
 import { WALL, buildWall } from "./wall.js";
 
 const CSS = `.cc-caption { position: absolute; z-index: 2; top: 12px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 4px;
@@ -57,7 +58,8 @@ export class ControlCenter {
   async #build(controls) {
     const { scene, renderer, P, ep } = this;
     RectAreaLightUniformsLib.init();
-    this.hall = buildHall({ one: ep.occ.mode === "one" || (ep.occ.desks ?? []).length === 1 });
+    const one = ep.occ.mode === "one" || (ep.occ.desks ?? []).length === 1;
+    this.hall = buildHall({ one, three: !one && (ep.occ.desks ?? []).includes("customer") });
     scene.add(this.hall.group);
     this.screen = buildWall(P, ep);
     scene.add(this.screen.group);
@@ -149,7 +151,7 @@ export class ControlCenter {
   state() {
     const ms = this.frameMs.slice().sort((a, b) => a - b);
     const shot = this.rig.kind === "shot" ? { from: this.rig.from, to: this.rig.to, at: this.rig.at, fov: this.rig.fov, desk: this.rig.desk, ref: this.rig.ref } : null;
-    return { t: this.T, view: this.rig.name, turn: this.pods?.active(this.T) ?? null, cards: this.cards, shot,
+    return { t: this.T, view: this.rig.name, desks: this.pods?.desks ?? [], turn: this.pods?.active(this.T) ?? null, cards: this.cards, shot,
       frame: ms.length ? { median: ms[ms.length >> 1], p95: ms[Math.floor(ms.length * 0.95)] } : null };
   }
 
@@ -191,7 +193,7 @@ export class ControlCenter {
     const cam = this.camera, rig = this.rig;
     if (rig.kind === "preset") {
       if (!rig.set) {
-        const v = VIEWS[rig.name];
+        const v = (this.pods.pods.size === 3 && THREE_DESKS[rig.name]) || VIEWS[rig.name];
         cam.position.copy(vec(v.from));
         cam.fov = v.fov;
         cam.updateProjectionMatrix();

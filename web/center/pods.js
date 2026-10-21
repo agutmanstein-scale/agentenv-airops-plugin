@@ -1,5 +1,6 @@
-// The two desks the model works, display-only: the ops controller's and the crew scheduler's pods at the centre of the
-// front row (one pod on a one-agent day), each with a seated figure, a name board on the monitor arm and three monitors
+// The desks the model works, display-only: the ops controller's and the crew scheduler's pods at the centre of the
+// front row, with the customer desk's beside the ops controller on a day with passengers (one pod on a one-agent day),
+// each with a seated figure, a name board on the monitor arm and three monitors
 // showing, in type big enough to read over the desk's shoulder, the page that desk read at the start of its latest turn:
 // its header and summary, then the first items of its first two sections. The desk whose turn it is lights up.
 import * as THREE from "three";
@@ -7,13 +8,16 @@ import { clock } from "../plain.js";
 import { unitName } from "../room.js";
 import { ROWS, chairGeometry, deskGeometry, monitorMatrices, personGeometry, screenMatrix, stationMatrix } from "./hall.js";
 
-export const DESKS = { ops: "Ops controller", crew: "Crew scheduler", one: "Ops controller · crew scheduler" };
+export const DESKS = { ops: "Ops controller", crew: "Crew scheduler", customer: "Customer desk", one: "Ops controller · crew scheduler" };
+const ALL = "Ops · crew · customer desks";
 const LOOKS = {
   ops: { shirt: 0x24476b, skin: 0xd1a585, hair: 0x4a3426, style: "short" },
   crew: { shirt: 0x5a3f5e, skin: 0xb5835f, hair: 0x1b1410, style: "long" },
+  customer: { shirt: 0x2e5f5a, skin: 0x8d5f43, hair: 0x15100c, style: "bun" },
   one: { shirt: 0x24476b, skin: 0xd1a585, hair: 0x4a3426, style: "short" },
 };
 const POD_W = 2.4;
+export const POD_GAP = 3.0;
 const SCALE = 1.25;
 const FONT = "Inter, 'Helvetica Neue', Arial, sans-serif";
 const PAGE = { w: 1024, h: 586, pad: 22, top: 50 };
@@ -82,8 +86,9 @@ function signCanvas(title, sub) {
 }
 
 class Pod {
-  constructor(group, desk, s, { label, pages, turns, words }) {
+  constructor(group, desk, s, { label, pages, turns, words, title = DESKS[desk] }) {
     this.desk = desk;
+    this.title = title;
     this.words = words;
     this.pages = pages;
     this.turns = turns;
@@ -126,7 +131,7 @@ class Pod {
     this.glow = glow;
 
     const sign = new THREE.Group();
-    const signTex = new THREE.CanvasTexture(signCanvas(DESKS[desk], label));
+    const signTex = new THREE.CanvasTexture(signCanvas(title, label));
     signTex.colorSpace = THREE.SRGBColorSpace;
     signTex.anisotropy = 8;
     this.signMat = new THREE.MeshBasicMaterial({ map: signTex, toneMapped: false, color: 0x9a9a9a });
@@ -179,7 +184,7 @@ class Pod {
       g.font = `600 26px ${FONT}`;
       g.fillStyle = "#a9c3dc";
       g.textBaseline = "middle";
-      g.fillText(`${DESKS[this.desk]}${page ? ` · page at ${clock(page.t)}` : ""}`, PAGE.pad, 21);
+      g.fillText(`${this.title}${page ? ` · page at ${clock(page.t)}` : ""}`, PAGE.pad, 21);
       g.textBaseline = "alphabetic";
       let y = PAGE.top + TEXT.line;
       const room = () => y < PAGE.h - 10;
@@ -249,12 +254,15 @@ export function buildPods(P, ep) {
     .replace(/\bR?[PC]-[A-Z0-9]+-(?:[A-Z]{3}-[AS]\d+|\d+)\b/g, (id) => unitName(id));
   const label = ep.model_label ?? ep.model ?? "";
   const one = occ.mode === "one" || (occ.desks ?? []).length === 1;
-  const desks = one ? ["one"] : ["ops", "crew"];
+  const three = !one && (occ.desks ?? []).includes("customer");
+  const desks = one ? ["one"] : three ? ["customer", "ops", "crew"] : ["ops", "crew"];
+  const at = one ? [0] : three ? [-POD_GAP, 0, POD_GAP] : [-1.3, 1.3];
   const from = new Map(occ.turns.map((u) => [`${u.t}|${u.desk}`, u.from]));
   const pods = new Map(desks.map((d, i) => {
     const pages = occ.pages.filter((p) => one || p.desk === d).map((p) => ({ ...p, from: from.get(`${p.t}|${p.desk}`) ?? p.t }));
     const turns = occ.turns.filter((u) => one || u.desk === d);
-    return [d, new Pod(group, d, one ? 0 : i === 0 ? -1.3 : 1.3, { label, pages, turns, words })];
+    const title = one && ep.passengers ? ALL : DESKS[d];
+    return [d, new Pod(group, d, at[i], { label, pages, turns, words, title })];
   }));
   return {
     group,

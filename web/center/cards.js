@@ -6,11 +6,11 @@ import * as THREE from "three";
 import { clock } from "../plain.js";
 import { unitName } from "../room.js";
 
-const TYPES = { CANCEL: "Cancel", CANCEL_PAIR: "Cancel round trip", HOLD: "Hold", COVER: "Cover", TEXT: "Message" };
-const STRIPE = { CANCEL: "#d9483b", CANCEL_PAIR: "#d9483b", HOLD: "#2a78d6", COVER: "#8a5cd6", TEXT: "#7d8a99" };
-const SHORT = { ops: "Ops", crew: "Crew", one: "Desk" };
+const TYPES = { CANCEL: "Cancel", CANCEL_PAIR: "Cancel round trip", HOLD: "Hold", COVER: "Cover", TEXT: "Message", PROTECT: "Protect", SUGGEST_CANCEL: "Suggest cancelling" };
+const STRIPE = { CANCEL: "#d9483b", CANCEL_PAIR: "#d9483b", HOLD: "#2a78d6", COVER: "#8a5cd6", TEXT: "#7d8a99", PROTECT: "#1f9d5c", SUGGEST_CANCEL: "#d9483b" };
+const SHORT = { ops: "Ops", crew: "Crew", customer: "Customer", one: "Desk" };
 const DOT = { cancel: "#ff6a5c", cancel_pair: "#ff6a5c", hold: "#5aa8ff", claim: "#4fc3c8", release: "#9fb6cc", assign: "#b08cf0",
-  call_reserve: "#b08cf0", deadhead: "#b08cf0", swap: "#b08cf0", rest: "#b08cf0" };
+  call_reserve: "#b08cf0", deadhead: "#b08cf0", swap: "#b08cf0", rest: "#b08cf0", rebook: "#e9c27a", hotel: "#e9c27a" };
 const FONT = "Inter, 'Helvetica Neue', Arial, sans-serif";
 const RISE = 1.2, FLY = 4.5, FADE = 1.5, TEXT_REST = 12, OPEN_REST = 20, REPLY_REST = 9;
 const CHIP_LIFE = 9, CHIP_STAGGER = 0.7, CHIPS = 5;
@@ -85,7 +85,7 @@ export function buildCards(P, ep, pods) {
     g.fillText(fit(g, head, w - 70), 40, h * 0.36);
     g.font = `500 32px ${FONT}`;
     g.fillStyle = "#5b6672";
-    const sub = r.type === "TEXT" ? `${SHORT[r.sender]} → ${SHORT[r.receiver]} · ${words(r.text)}` : `${SHORT[r.sender]} → ${SHORT[r.receiver]} · sent ${clock(r.sent)}${r.time != null ? ` · by ${clock(r.time)}` : ""}`;
+    const sub = r.type === "TEXT" ? `${SHORT[r.sender]} → ${SHORT[r.receiver]} · ${words(r.text)}` : `${SHORT[r.sender]} → ${SHORT[r.receiver]}${r.pax ? ` · ${r.pax} ${r.type === "HOLD" ? "connecting" : "booked"}` : ""} · sent ${clock(r.sent)}${r.time != null ? ` · by ${clock(r.time)}` : ""}`;
     g.fillText(fit(g, sub, w - 70), 40, h * 0.72);
   };
   const drawReply = (r) => (g, w, h) => {
@@ -128,6 +128,8 @@ export function buildCards(P, ep, pods) {
       case "deadhead": return `${unit[0].toUpperCase()}${unit.slice(1)} ride ${f}`;
       case "swap": return `Swapped ${unit} onto ${f}`;
       case "rest": return `Sent ${unit} to rest`;
+      case "rebook": return `Rebooked ${c.pax ?? ""} off ${f}${c.to != null ? ` onto ${number(c.to)}` : ""}`.replace("  ", " ");
+      case "hotel": return `Hotels for ${c.pax ?? ""} off ${f}${c.at ? ` in ${c.at}` : ""}`.replace("  ", " ");
       case "release": return c.desk === "ops" ? `Let ${f} go when it can` : f ? `Took ${unit} off ${f}` : `Released ${unit}`;
       default: return `${c.action}${f ? ` ${f}` : ""}`;
     }
@@ -169,12 +171,12 @@ export function buildCards(P, ep, pods) {
 
   const live = new Map();
   const halo = haloTexture();
-  const side = (desk) => (desk === "ops" ? -1 : desk === "crew" ? 1 : -1);
+  const side = (desk) => (desk === "crew" || pods.size === 3 ? 1 : -1);
   const a = new THREE.Vector3();
   const place = (it, t, out) => {
     const u = t - it.start, rise = clamp01(u / RISE), fly = ease(clamp01((u - RISE) / FLY));
     out.lerpVectors(a.copy(at(it.from)), at(it.to), fly);
-    out.y += it.slot * (CARD.h + 0.12) + Math.sin(Math.PI * fly) * 0.1 - 0.3 * (1 - rise);
+    out.y += it.slot * (CARD.h + 0.12) + Math.sin(Math.PI * fly) * (0.1 + 0.08 * Math.max(0, at(it.from).distanceTo(at(it.to)) - 3)) - 0.3 * (1 - rise);
     return Math.min(rise, clamp01((it.end - t) / FADE));
   };
   let marked = null;

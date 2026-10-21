@@ -5,6 +5,7 @@
 // changes (the map a few times a sim minute).
 import * as THREE from "three";
 import { STATUS, boardAt, cities, flightsAt, positionsAt, programsAt, scoreAt, utcAt } from "../model.js";
+import { PAX_INK, paxAt, paxIndex } from "../paxdata.js";
 import { clock, metar } from "../plain.js";
 import { radarFrames, rings } from "../map.js";
 
@@ -144,7 +145,7 @@ class Window {
 
 export function buildWall(P, ep) {
   const group = new THREE.Group();
-  const task = P.task, hub = task.hub, city = cities(task, null), occ = ep.occ;
+  const task = P.task, hub = task.hub, city = cities(task, null), occ = ep.occ, pax = paxIndex(P);
   const dark = new THREE.MeshStandardMaterial({ color: 0x0b0c0e, roughness: 0.6 });
   group.add(new THREE.Mesh(new THREE.BoxGeometry(WALL.w + 0.5, WALL.h + 0.4, 0.3).translate(0, WALL.y0 + WALL.h / 2, WALL.z - 0.16), dark));
   group.add(new THREE.Mesh(new THREE.BoxGeometry(WALL.w + 0.5, WALL.y0 - 0.15, 0.7).translate(0, (WALL.y0 - 0.15) / 2, 0.35),
@@ -503,10 +504,15 @@ export function buildWall(P, ep) {
       [String(s.cancelled), "flights cancelled", "#ff6a5c"],
       [s.delayedPax.toLocaleString("en-US"), "passengers 15+ min late", "#f3b13f"],
       [String(made.filter((c) => c.action === "hold" || c.action === "claim").length), "holds and slots taken", "#5aa8ff"],
-      [String(made.filter((c) => c.desk !== "ops" && c.action !== "cancel" && c.action !== "cancel_pair").length), "crew moves", "#b08cf0"],
+      [String(made.filter((c) => c.desk !== "ops" && !["cancel", "cancel_pair", "rebook", "hotel"].includes(c.action)).length), "crew moves", "#b08cf0"],
       occ.mode === "one" ? [String(made.length), "decisions by the desk", "#9fb6cc"] : [`${sent.length}${waiting ? ` · ${waiting}` : ""}`, waiting ? "requests · waiting" : "requests between desks", "#9fb6cc"],
     ];
-    const tw = (w - 40) / 3, th = (h - 64) / 2;
+    if (pax) {
+      const a = paxAt(pax, t);
+      tiles.push([a.missed.toLocaleString("en-US"), "missed connections", PAX_INK], [a.rebooked.toLocaleString("en-US"), "passengers rebooked", PAX_INK],
+        [a.stranded.toLocaleString("en-US"), "stranded overnight", PAX_INK]);
+    }
+    const rows = tiles.length / 3, tw = (w - 40) / 3, th = (h - 64) / rows - (rows > 2 ? 2 : 0);
     tiles.forEach(([big, label, col], i) => {
       const x = 14 + (i % 3) * (tw + 6), y = 54 + Math.floor(i / 3) * (th + 4);
       g.fillStyle = "#0d1d2e";
@@ -514,7 +520,7 @@ export function buildWall(P, ep) {
       g.fillStyle = col;
       g.fillRect(x, y, 6, th);
       g.textBaseline = "alphabetic";
-      g.font = `700 64px ${FONT}`;
+      g.font = `700 ${rows > 2 ? 50 : 64}px ${FONT}`;
       g.fillStyle = "#f3f6f9";
       g.fillText(big, x + 22, y + th * 0.56);
       g.font = `500 22px ${FONT}`;

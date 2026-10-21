@@ -1,5 +1,5 @@
 ---
-title: AirOpsEnv v2
+title: AirOpsEnv v3
 emoji: ✈️
 colorFrom: blue
 colorTo: gray
@@ -23,7 +23,20 @@ datasets:
 - earakely-scale/AirOpsEnv-AgentEnv
 ---
 
-# AirOpsEnv v2: the ops control center
+# AirOpsEnv v3: passengers and the customer desk
+
+A third desk joins the ops control center: the customer desk asks ops to hold departures for connecting passengers,
+not to cancel flights whose passengers have nowhere else to go, or to cancel early. The airline rebooks whoever misses
+a connection or loses a flight onto its next seats, today or on a later day, or refunds them. On a storm day it owes
+no hotel (weather and air traffic control are force majeure under its contract): those it can't fly today find their
+own room, and the env charges one GSA lodging night as the passenger's cost. The replay adds the gate lounges behind
+the terminal's glass filling and boarding, connecting passengers walking gate to gate, the line at the service counter
+and the hotel shuttle at the curb, a passengers pane with the missed connections, rebookings and nights away, and where
+passengers are stranded on the US map. The lounges, the counter, the passengers' walks and the shuttle are inferred,
+for display. v3's runs head the page once its board is recorded, with the one to watch first under *Start here*; a
+placeholder holds the place until then. v2's runs follow them.
+
+## AirOpsEnv v2: the ops control center
 
 Two desks run JetBlue's operations control center through a real storm day, from 04:00, on the
 [AgentEnv Framework](https://www.agentenvframework.com)'s virtual clock: an ops controller runs the flights (cancel,

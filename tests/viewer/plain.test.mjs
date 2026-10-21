@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { boardAt, cities, prepare, programBands, programsAt, rewardOf, scoreAt } from "../../web/model.js";
+import { disrupted, paxAt, paxIndex, strandedPaxAt } from "../../web/paxdata.js";
 import * as plain from "../../web/plain.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -110,4 +111,19 @@ test("every METAR in the cached traffic sidecars decodes word for word", { skip:
     const doc = JSON.parse(gunzipSync(readFileSync(join(cached, f))).toString("utf8"));
     for (const w of doc.weather) assert.equal(plain.metar(w.metar).plain, w.plain, w.metar);
   }
+});
+
+test("a day's passengers count as their events come: missed, rebooked, in hotels until they leave, and the holds for them", () => {
+  const sched = new Map([[1, { id: 1, flight: "B6 1", orig: "BOS", dest: "SYR", sched_dep: 600 }], [2, { id: 2, flight: "B6 2", orig: "JFK", dest: "BOS", sched_dep: 500 }]]);
+  const ep = { occ: { requests: [{ sender: "customer", type: "HOLD", reply: "accept", answered: 610, pax: 12 }, { sender: "customer", type: "HOLD", reply: "decline", answered: 615, pax: 4 }] },
+    passengers: { flights: [{ id: 1, booked: 100, flown: 90 }], connections: [], events: [
+      { t: 650, kind: "misconnect", at: "BOS", flight: 1, from: 2, pax: 6 }, { t: 700, kind: "rebook", at: "BOS", flight: 1, to: 2, pax: 4 },
+      { t: 720, kind: "hotel", at: "BOS", flight: 1, pax: 2, until: 1800 }, { t: 730, kind: "home", at: "BOS", flight: 2, pax: 3 }] } };
+  const X = paxIndex({ ep, sched, hi: 2000 });
+  assert.equal(paxIndex({ ep: { occ: {} } }), null);
+  assert.deepEqual(paxAt(X, 640), { missed: 0, rebooked: 0, stranded: 0, home: 0, held: 1, heldPax: 12 });
+  assert.deepEqual(paxAt(X, 725), { missed: 6, rebooked: 4, stranded: 2, home: 0, held: 1, heldPax: 12 });
+  assert.deepEqual([...strandedPaxAt(X, 725)], [["BOS", 2]]);
+  assert.equal(strandedPaxAt(X, 1800).size, 0);
+  assert.deepEqual(disrupted(X, { sched }).map((x) => [x.s.flight, x.evs.length]), [["B6 2", 1], ["B6 1", 3]]);
 });

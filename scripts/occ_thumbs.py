@@ -1,7 +1,9 @@
 """Thumbnails for a viewer folder's control-center days: each day's airport in daylight with aircraft in it, picked by
 score from candidate stills (an aircraft at its gate's jet bridge, a pushback, the tower's view over the apron), the
-views varied down the list and about one card in five the control-center room on its desks; written to the folder's
-thumbs/ as record.py --thumb writes them, with a contact sheet of all of them in the list's order.
+views varied down the list and about one card in five the control-center room on its desks; a v3 day (with passengers)
+leads with a gate lounge's crowd behind the terminal's glass and, in the room, the customer desk's requests; written to
+the folder's thumbs/ as record.py --thumb writes them, with a contact sheet of all of them in the list's order. For v3:
+export the board's days into a viewer folder (occ_episodes.py), then run this on it; --keep keeps the candidates.
 
 A still scores for the aircraft in it (JetBlue's, in sight and not behind a building or a bridge, the nearest one's
 size or how many there are), the light (the sun at the hub and the frame's brightness) and its detail (contrast and
@@ -25,10 +27,14 @@ from urllib.parse import quote
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageStat
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from record import DAY_SUN, FILM_CSS, FILM_JS, ROOT, THUMB, clock, find_chrome, serve, session  # noqa: E402
+from record import DAY_SUN, FILM_CSS, FILM_JS, ROOT, THUMB, clock, door_out, find_chrome, serve, session  # noqa: E402
 
 PATTERN = ("gate", "tower", "push", "gate", "room")
-"""The views the list's cards take in turn after the featured ones, each falling back to the best airport still."""
+PATTERN3 = ("lounge", "gate", "room", "tower", "lounge", "push")
+"""The views the list's cards take in turn after the featured ones, each falling back to the best airport still; v3's
+days (the featured one's a lounge too) PATTERN3."""
+CROWD = 60
+"""The least passengers in a lounge for a still of it to be a candidate."""
 EVERY = 50
 """Minutes between candidate times over the day's daylight."""
 SETTLE = 3
@@ -78,6 +84,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--sheet", type=Path, help="Write a contact sheet of the thumbnails here, in the list's order.")
     p.add_argument("--only", action="append", default=[], metavar="STEM", help="Only these episodes.")
     p.add_argument("--keep", type=Path, help="Keep each day's best few candidate stills here, to review the picks.")
+    p.add_argument("--picks", type=Path,
+                   help="Read and record each card's pick here (JSON), so that a day's other card made in a later run "
+                        "doesn't take the same still.")
     p.add_argument("--workers", type=int, default=3, help="Days rendered at once, a Chrome each.")
     p.add_argument("--size", default="1280x720")
     p.add_argument("--chrome", help="Chrome or Chromium binary.")
@@ -92,14 +101,16 @@ def main(argv: list[str] | None = None) -> int:
         jobs = [(port, folder, e, wants[e["url"]], Path(tmp), chrome, width, height) for e in todo]
         with ProcessPoolExecutor(max_workers=max(1, args.workers)) as pool:
             found = dict(zip((e["url"] for e in todo), pool.map(render, jobs), strict=True))
-        last: dict[str, tuple] = {}
+        known = json.loads(args.picks.read_text()) if args.picks and args.picks.is_file() else {}
+        last = {e["date"]: tuple(known[stem]) for e in entries
+                if (stem := Path(e["url"]).stem) in known and e not in todo}
         picks: dict[str, str] = {}
         for e in todo:
             pick = choose(found[e["url"]], wants[e["url"]], last.get(e["date"]))
             stem = Path(e["url"]).stem
             if pick is None:
                 raise SystemExit(f"{stem}: no daylight still with an aircraft in it")
-            last[e["date"]] = (pick["kind"], pick["key"], pick["t"])
+            last[e["date"]] = known[stem] = (pick["kind"], pick["key"], pick["t"])
             picks[e["url"]] = f"{pick['kind']} {clock(pick['t'])}"
             if args.keep:
                 args.keep.mkdir(parents=True, exist_ok=True)
@@ -112,29 +123,34 @@ def main(argv: list[str] | None = None) -> int:
                                                                          progressive=True)
             print(f"{stem}: {pick['kind']} {clock(pick['t'])} score {pick['score']:.2f}"
                   f"{' (wanted ' + wants[e['url']] + ')' if pick['kind'] != wants[e['url']] else ''}", flush=True)
+    if args.picks:
+        args.picks.write_text(json.dumps(known, indent=1) + "\n")
     if args.sheet:
         sheet(folder, entries, picks, args.sheet)
     return 0
 
 
 def listed(episodes: list[dict]) -> list[dict]:
-    """The control-center days in the order the viewer's list shows them (web/app.js indexPage)."""
-    v2 = [e for e in episodes if e.get("occ")]
-    rank = lambda e: (0 if e.get("featured") else 1, e.get("featured") or 0,  # noqa: E731
+    """The control-center days in the order the viewer's list shows them (web/app.js indexPage): v3's, then v2's."""
+    occ = [e for e in episodes if e.get("occ")]
+    rank = lambda e: (0 if e.get("passengers") else 1, 0 if e.get("featured") else 1, e.get("featured") or 0,  # noqa: E731
                       0 if (e.get("run") or "").startswith("occ-board") else 1, e["date"],
-                      0 if e["occ"] == "two desks" else 1)
-    return sorted(v2, key=rank)
+                      0 if e["occ"] in ("two desks", "three desks") else 1)
+    return sorted(occ, key=rank)
 
 
 def plan(entries: list[dict]) -> dict[str, str]:
-    """The view each card wants: the featured ones their best airport still, the rest PATTERN in turn."""
-    out, k = {}, 0
+    """The view each card wants: the featured ones their best airport still (v3's a lounge), the rest PATTERN (v3's
+    PATTERN3) in turn."""
+    out, k = {}, {False: 0, True: 0}
     for e in entries:
+        v3 = bool(e.get("passengers"))
         if e.get("featured"):
-            out[e["url"]] = "best"
+            out[e["url"]] = "lounge" if v3 else "best"
         else:
-            out[e["url"]] = PATTERN[k % len(PATTERN)]
-            k += 1
+            pattern = PATTERN3 if v3 else PATTERN
+            out[e["url"]] = pattern[k[v3] % len(pattern)]
+            k[v3] += 1
     return out
 
 
@@ -178,7 +194,60 @@ def candidates(page, ready: dict, ep: dict, want: str, tmp: Path, stem: str) -> 
     if want == "room" and ready.get("room"):
         for t, spec in room_shots(ep):
             cands.append(room_still(page, spec, t, tmp / f"{stem}-{len(cands)}.jpg"))
+    if want == "lounge":
+        for t, n, spec in lounge_shots(page, ep, days):
+            cands.append(lounge_still(page, spec, t, n, tmp / f"{stem}-{len(cands)}.jpg"))
     return cands
+
+
+def lounge_shots(page, ep: dict, days: list[float]) -> list[tuple[float, int, dict]]:
+    """At each daylight candidate minute, the gate lounge with the biggest crowd if it has CROWD or more, through
+    its glass (the film's lounge camera)."""
+    pax = page.js("(() => { const t = airops.stage?.traffic?.passengers; "
+                  "return t ? {lounges: t.lounges, crowds: t.crowds} : null; })()")
+    if not pax:
+        return []
+    out = []
+    for t in days:
+        size: dict[int, float] = {}
+        for c in pax["crowds"]:
+            size[c["lounge"]] = size.get(c["lounge"], 0) + crowd_at(c, t)
+        k, n = max(size.items(), key=lambda x: x[1], default=(None, 0))
+        if k is None or n < CROWD:
+            continue
+        lg = pax["lounges"][k]
+        path = door_out(lg)
+        spec = page.js(f"film.camera({json.dumps({'camera': 'lounge', 'path': path, 't0': t, 't1': t + 1})})")
+        if spec:
+            out.append((t, round(n), spec))
+    return out
+
+
+def crowd_at(c: dict, t: float) -> float:
+    """A departure's crowd at its lounge at t, as web/stage/passengers.js draws it."""
+    a, f, b, g = c["t"]
+    k = 0.0
+    if a < t < g:
+        k = 0.94 * ((t - a) / (f - a)) ** 1.3 if t < f else 0.94 + 0.06 * (t - f) / max(1, b - f) if t < b \
+            else 1 - (t - b) / max(1, g - b)
+    if c.get("cancel") is not None and t >= c["cancel"]:
+        k *= max(0.0, 1 - (t - c["cancel"]) / 6)
+    return k * c["n"]
+
+
+def lounge_still(page, spec: dict, t: float, n: int, path: Path) -> dict:
+    """A candidate still of a gate lounge's crowd through the glass at minute t, scored for its crowd, light and
+    detail."""
+    page.js(f"airops.shot({json.dumps(spec)})")
+    page.js(f"airops.time({t}, {{dt: 0, speed: 0}})")
+    for _ in range(SETTLE):
+        page.js(f"airops.time({t}, {{dt: 1 / 30, speed: 0}})")
+    seen = page.js(SEE_JS)
+    image = capture(page, path)
+    light, detail, flat = looks(image)
+    sun = min(1.0, max(0.0, (seen["sun"] - 8) / 22))
+    return {"kind": "lounge", "key": None, "t": t, "path": path, "aircraft": 0, "crowd": n,
+            "score": round(1.5 * min(1.0, n / 120) + 0.5 * sun + 0.5 * light + detail - flat, 3)}
 
 
 def still(page, spec: dict, t: float, kind: str, key: str | None, path: Path) -> dict:
@@ -205,11 +274,13 @@ def room_still(page, spec: dict, t: float, path: Path) -> dict:
 
 
 def room_shots(ep: dict) -> list[tuple[float, dict]]:
-    """Up to three moments over the day for the room: a request between the desks answered, framed on the desk it
-    went to with its cards; on a one-agent day, a decision at its desk."""
+    """Up to three moments over the day for the room: a request between the desks answered (the customer desk's
+    first, on a day with one), framed on the desk it went to with its cards; on a one-agent day, a decision at its
+    desk."""
     occ = ep["occ"]
     asks = sorted((r for r in occ["requests"] if r["type"] != "TEXT" and r.get("answered") is not None),
                   key=lambda r: r["shown"])
+    asks = [r for r in asks if r["sender"] == "customer"] or asks
     if asks:
         picks = [asks[i] for i in sorted({0, len(asks) // 2, len(asks) - 1})]
         return [(r["shown"] + 1.0, {"room": True, "name": "room-desks", "desk": r["receiver"], "ref": r["id"],
@@ -263,7 +334,11 @@ def choose(cands: list[dict], want: str, other: tuple | None = None) -> dict | N
     def apart(c: dict) -> bool:
         return other is None or not (c["kind"] == other[0] and (c["key"] == other[1] or abs(c["t"] - other[2]) < 60))
 
-    air = sorted((c for c in cands if c["kind"] != "room" and c["aircraft"] and apart(c)), key=lambda c: -c["score"])
+    air = sorted((c for c in cands if c["kind"] not in ("room", "lounge") and c["aircraft"] and apart(c)),
+                 key=lambda c: -c["score"])
+    if want == "lounge":
+        lounges = sorted((c for c in cands if c["kind"] == "lounge" and apart(c)), key=lambda c: -c["score"])
+        return lounges[0] if lounges else (air[0] if air else None)
     if want == "room":
         rooms = sorted((c for c in cands if c["kind"] == "room"), key=lambda c: -c["score"])
         return rooms[0] if rooms else (air[0] if air else None)

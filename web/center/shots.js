@@ -12,6 +12,8 @@ export const BASE = {
   "room-desks": { from: [0, 3.0, 12.2], at: [0, 1.9, 5.3], fov: 42, push: 0.16 },
   "room-wall": { from: [0, 3.25, 14.6], at: [0, 3.2, 0], fov: 40, push: 0.1 },
 };
+/** The close view of the desks with a third one, the customer desk, beside them: back a little and wider. */
+export const THREE_DESKS = { "room-desks": { from: [0, 3.4, 14.2], at: [0, 1.8, 5.3], fov: 50, push: 0.12 } };
 const WALL_AT = [0, 3.2, 0.3];
 
 /** The base framing of a named shot favouring the pod at x (0 for a one-agent day's single pod). */

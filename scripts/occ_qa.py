@@ -2,7 +2,8 @@
 session), fail on an uncaught exception, a console error or a script or stylesheet from another host than the
 viewer's (its third-party code is vendored under web/vendor/), check that the 3D airport, the control-center room and
 the US map each come to the front and draw (window.airops.state() and a still that isn't blank) at a few minutes of
-the day, and write the stills, a contact sheet of them and a JSON report.
+the day, with a day's passengers at the airport and its customer desk in the room when it has them, and write the
+stills, a contact sheet of them and a JSON report.
 
 usage: .venv/bin/python scripts/occ_qa.py cache/occ/viewer --out cache/qa [--minutes 840,1075] [--no-room] \
            [--ignore REGEX]
@@ -128,7 +129,8 @@ def episode(base: str, data: str, chrome: str, width: int, height: int, entry: d
                     path = out / f"{name}-{view}-{clock(t).replace(':', '')}.jpg"
                     spread = capture(page, path)
                     check = {"view": view, "t": t, "main": state["main"], "spread": round(spread, 1),
-                             "aircraft": (state.get("stage") or {}).get("aircraft"), "airborne": state["airborne"]}
+                             "aircraft": (state.get("stage") or {}).get("aircraft"), "airborne": state["airborne"],
+                             "passengers": (state.get("stage") or {}).get("passengers")}
                     result["checks"].append(check)
                     stills.append((f"{ep['task']['date']} · {ep['occ']['label'] if ep.get('occ') else 'v1'} · "
                                    f"{view} {clock(t)}", path))
@@ -138,6 +140,11 @@ def episode(base: str, data: str, chrome: str, width: int, height: int, entry: d
                         result["failures"].append(f"{view} at {clock(t)}: blank (spread {spread:.1f})")
                     if view == "tower" and not check["aircraft"]:
                         result["failures"].append(f"tower at {clock(t)}: no aircraft drawn")
+                    if view == "tower" and ep.get("passengers") and check["passengers"] is None:
+                        result["failures"].append(f"tower at {clock(t)}: no passengers at the airport")
+                    desks = (state.get("room") or {}).get("desks") or []
+                    if view == "room" and "customer" in ep["occ"].get("desks", []) and "customer" not in desks:
+                        result["failures"].append(f"room at {clock(t)}: no customer desk")
             result["failures"] += errors(page, ignore, result["notes"])
     except SystemExit as e:
         result["failures"].append(f"did not load: {e}")

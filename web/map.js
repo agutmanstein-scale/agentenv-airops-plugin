@@ -2,10 +2,12 @@
 // between frames, the task's flights in the air along their great circles, coloured by status, and the airports
 // ringed when the FAA stops or slows their arrivals. One MapLibre map; the inset and the full view are the same map.
 // On a control-center day it also shows the crews: those resting in a hotel away from base, the reserves still on call
-// at each base, the crews riding as passengers on the aircraft in the air, and the legs of a crew picked in the drawer.
+// at each base, the crews riding as passengers on the aircraft in the air, and the legs of a crew picked in the drawer;
+// on a day with passengers, the passengers stranded overnight at each airport.
 import maplibregl from "maplibre-gl";
 import { BASES, CREW_INK, crewIndex, deadheadsOn, reservesAt, strandedAt } from "./crewdata.js";
 import { capsAt, esc } from "./model.js";
+import { PAX_INK, paxIndex, strandedPaxAt } from "./paxdata.js";
 
 const TILES = "https://tiles.openfreemap.org";
 const PLANE = '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 64 64"><path d="M32 3c2.4 0 3.8 2.8 3.8 6.6V25l21.8 12.6v5.6L35.8 36v14.2l6.6 5.2V60L32 57l-10.4 3v-4.6l6.6-5.2V36L6.4 43.2v-5.6L28.2 25V9.6C28.2 5.8 29.6 3 32 3z" fill="#fff"/></svg>';
@@ -64,6 +66,7 @@ export class NetworkMap {
     this.padding = { top: 20, bottom: 20, left: 20, right: 20 };
     this.shown = { a: null, b: null };
     this.crews = crewIndex(P);
+    this.pax = paxIndex(P);
     this.tags = new Map();
     this.focus = null;
     this.map = new maplibregl.Map({ container: el, style: style(), bounds: bounds(P), fitBoundsOptions: { padding: 20 }, attributionControl: false,
@@ -102,12 +105,48 @@ export class NetworkMap {
       layout: { "icon-image": "plane", "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.34, 6, 0.62], "icon-rotate": ["get", "heading"],
         "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true },
       paint: { "icon-color": BY_CLASS, "icon-halo-color": "#ffffff", "icon-halo-width": 1.6 } });
+    if (this.pax) this.setupPax(empty);
     if (this.crews) this.setupCrews(empty);
     map.addLayer({ id: "codes", type: "symbol", source: "airports", minzoom: 2.6,
       layout: { "text-field": ["get", "code"], "text-font": ["Noto Sans Bold"], "text-size": ["case", ["get", "hub"], 13, 9.5],
         "text-offset": [0, -1.15], "text-allow-overlap": false, "symbol-sort-key": ["case", ["get", "hub"], 0, 1] },
       paint: { "text-color": "#14324a", "text-halo-color": "rgba(255,255,255,0.92)", "text-halo-width": 1.4 } });
     this.fit();
+  }
+
+  setupPax(empty) {
+    const map = this.map, zoom = (a, b) => ["interpolate", ["linear"], ["zoom"], 2, a, 6, b], n = ["sqrt", ["get", "n"]];
+    map.addSource("pax-strand", { type: "geojson", data: empty });
+    map.addLayer({ id: "pax-strand", type: "circle", source: "pax-strand",
+      paint: { "circle-radius": zoom(["+", 4, ["*", 1.0, n]], ["+", 6, ["*", 2, n]]), "circle-color": PAX_INK, "circle-opacity": 0.55,
+        "circle-stroke-color": "#a4741c", "circle-stroke-width": zoom(1.4, 2.2) } }, "planes");
+    map.addLayer({ id: "pax-strand-n", type: "symbol", source: "pax-strand", filter: [">=", ["get", "n"], 10],
+      layout: { "text-field": ["to-string", ["get", "n"]], "text-font": ["Noto Sans Bold"], "text-size": zoom(8.5, 12), "text-allow-overlap": true,
+        "text-ignore-placement": true },
+      paint: { "text-color": "#5a3c06", "text-halo-color": "rgba(255,246,226,0.95)", "text-halo-width": 1.3 } }, "planes");
+    this.paxSum = document.createElement("div");
+    this.paxSum.className = "cm-sum cm-pax";
+    this.paxSum.hidden = true;
+    this.el.appendChild(this.paxSum);
+    injectStyle();
+  }
+
+  /** Passengers stranded overnight at t: a sand disc at each airport, its area by how many, numbered from ten; the corner inset
+   * gives the total. */
+  showPax(t) {
+    const where = strandedPaxAt(this.pax, t), P = this.P;
+    const features = [...where].filter(([code]) => P.task.airports[code]).map(([code, n]) => ({ type: "Feature", properties: { code, n },
+      geometry: { type: "Point", coordinates: [P.task.airports[code].lon, P.task.airports[code].lat] } }));
+    const key = features.map((f) => `${f.properties.code}:${f.properties.n}`).join("|");
+    if (key !== this.paxKey) {
+      this.paxKey = key;
+      this.map.getSource("pax-strand")?.setData({ type: "FeatureCollection", features });
+    }
+    const total = features.reduce((a, f) => a + f.properties.n, 0), compact = this.el.clientWidth < 700;
+    const html = total ? `<b>Passengers</b><span class="pax"><i></i><b>${total.toLocaleString("en-US")}</b> stranded overnight</span>` : "";
+    if (this.paxSum.innerHTML !== html) this.paxSum.innerHTML = html;
+    this.paxSum.hidden = !compact || !html;
+    this.paxShown = total > 0;
   }
 
   setupCrews(empty) {
@@ -185,6 +224,7 @@ export class NetworkMap {
       return feature([a.lon, a.lat], { hub: code === this.P.task.hub, color: INK[r.key] }, "Point");
     })));
     this.showRadar(frame.radar);
+    if (this.pax && frame.t != null) this.showPax(frame.t);
     if (this.crews && frame.t != null) this.showCrews(frame);
   }
 
@@ -222,9 +262,10 @@ export class NetworkMap {
 
   showKey(rest, res, riding, compact) {
     const items = [res && `<span><i class="k-res">R</i>reserve crews on call at a base (P pilots, C cabin)</span>`, rest && `<span><i class="k-rest">${MOON}</i>crews resting in a hotel away from base</span>`,
-      riding && `<span><i class="k-dh"></i>crews riding as passengers</span>`].filter(Boolean);
+      riding && `<span><i class="k-dh"></i>crews riding as passengers</span>`, this.paxShown && `<span><i class="k-pax"></i>passengers stranded overnight</span>`].filter(Boolean);
     const html = items.join("");
     if (this.key.innerHTML !== html) this.key.innerHTML = html;
+    this.key.classList.toggle("pax", !!this.paxShown);
     this.key.hidden = compact || !items.length;
   }
 
@@ -404,6 +445,10 @@ const STYLE = `
 .cm-key .k-res { padding: 1px 4px; border-radius: 2px; background: #2b7a6a; color: #fff; font-weight: 800; font-size: 9px; }
 .cm-key .k-rest { padding: 1px 4px; border-radius: 3px; background: ${CREW_INK}; color: #2a1446; }
 .cm-key .k-dh { width: 9px; height: 9px; border-radius: 50%; background: ${CREW_INK}; box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px rgba(20, 50, 74, 0.35); }
+.cm-sum.cm-pax { bottom: 27px; }
+.cm-key.pax { flex-wrap: wrap; justify-content: center; row-gap: 3px; max-width: calc(100vw - var(--left, 440px) - var(--right, 420px) - 80px); }
+.cm-sum .pax i { width: 8px; height: 8px; border-radius: 50%; background: ${PAX_INK}; box-shadow: 0 0 0 1px #a4741c; margin-right: 2px; }
+.cm-key .k-pax { width: 10px; height: 10px; border-radius: 50%; background: ${PAX_INK}; box-shadow: 0 0 0 1.5px #a4741c; }
 .view.main .cm-key { left: 50%; transform: translateX(-50%); bottom: calc(var(--tl, 58px) + var(--gap, 14px) * 2 + 64px); }
 .view.corner .cm-key { display: none; }
 `;

@@ -86,18 +86,67 @@ class Massing {
   }
 }
 
-/** Windows are drawn in the shader and fade to their average coverage below a pixel. */
-function facadeMaterial(U) {
+const CUT_BOXES = 40;
+const CUT_SEGS = 15;
+
+/** The lounges' glass (passengers.js cutouts): per lounge its centre and reach, and its first segment and count packed
+ * as start * 16 + count; its segments, the lounge on their left. */
+function cutUniforms(cut) {
+  const boxes = [];
+  const segs = [];
+  for (const lg of cut.lounges.slice(0, CUT_BOXES)) {
+    const s = lg.segs.slice(0, CUT_SEGS);
+    boxes.push(new THREE.Vector4(lg.c[0], lg.c[1], lg.r, segs.length * 16 + s.length));
+    for (const [x0, y0, x1, y1] of s) segs.push(new THREE.Vector4(x0, y0, x1, y1));
+  }
+  while (boxes.length < CUT_BOXES) boxes.push(new THREE.Vector4(0, 0, -1, 0));
+  if (!segs.length) segs.push(new THREE.Vector4());
+  return { uCutBox: { value: boxes }, uCutSeg: { value: segs }, uCutBand: { value: new THREE.Vector3(cut.floor, cut.ceil, cut.depth) } };
+}
+
+/** Windows are drawn in the shader and fade to their average coverage below a pixel; with cut, the home terminal's
+ * glass on the departure level is left open in front of each lounge (and a wide block's walls behind it). */
+function facadeMaterial(U, cut = null) {
   const m = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.85, metalness: 0 });
+  const C = cut ? cutUniforms(cut) : null;
+  const segs = C ? C.uCutSeg.value.length : 1;
   m.onBeforeCompile = (sh) => {
-    Object.assign(sh.uniforms, U);
+    Object.assign(sh.uniforms, U, C || {});
     sh.vertexShader = sh.vertexShader
-      .replace("#include <common>", "#include <common>\nattribute vec3 aInfo;\nvarying vec3 vInfo;\nvarying vec2 vM;")
-      .replace("#include <uv_vertex>", "#include <uv_vertex>\nvInfo = aInfo;\nvM = uv;");
+      .replace("#include <common>", "#include <common>\nattribute vec3 aInfo;\nvarying vec3 vInfo;\nvarying vec2 vM;\nvarying vec2 vQ;")
+      .replace("#include <uv_vertex>", "#include <uv_vertex>\nvInfo = aInfo;\nvM = uv;\nvQ = vec2(position.x, -position.z);");
     sh.fragmentShader = sh.fragmentShader
       .replace(
         "#include <common>",
         `#include <common>
+        ${C ? `#define CUT 1
+        uniform vec4 uCutBox[${CUT_BOXES}];
+        uniform vec4 uCutSeg[${segs}];
+        uniform vec3 uCutBand;
+        bool cutAt(vec2 q, bool hall, float win) {
+          for (int i = 0; i < ${CUT_BOXES}; i++) {
+            vec4 b = uCutBox[i];
+            if (b.z < 0.0 || distance(q, b.xy) > b.z) continue;
+            int pk = int(b.w + 0.5);
+            int s0 = pk / 16;
+            int cnt = pk - s0 * 16;
+            for (int j = 0; j < ${CUT_SEGS}; j++) {
+              if (j >= cnt) break;
+              vec4 sg = uCutSeg[s0 + j];
+              vec2 d = sg.zw - sg.xy;
+              float L = length(d);
+              vec2 t = d / max(L, 1e-4);
+              vec2 r = q - sg.xy;
+              float a = dot(r, t);
+              float e = dot(r, vec2(-t.y, t.x));
+              if (a < -0.4 || a > L + 0.4) continue;
+              if (!hall && abs(e) < 0.9 && win > 0.5) return true;
+              if (hall && e > -3.0 && e < uCutBand.z + 0.5) return true;
+            }
+          }
+          return false;
+        }` : ""}
+        varying vec2 vQ;
         uniform float uNight, uSnow;
         uniform sampler2D uField;
         uniform vec4 uFieldM;
@@ -161,6 +210,9 @@ function facadeMaterial(U) {
           vec3 wall = apron > 0.5 ? vec3(0.34, 0.36, 0.38) : vec3(0.60, 0.61, 0.62);
           wall *= 1.0 - 0.45 * step(g1, y) * step(y, g1 + 0.4) - 0.08 * step(0.92, fract((y - g1) / 1.4)) * step(g1, y) * aa;
           wall = mix(wall, vec3(0.70, 0.71, 0.72), step(vInfo.z - 0.6, y));
+          #ifdef CUT
+          if (y > uCutBand.x + 0.02 && y < uCutBand.y - 0.02 && cutAt(vQ, hall, win)) discard;
+          #endif
           float w2 = max(win, door * 0.9);
           diffuseColor.rgb = mix(wall, vec3(0.3, 0.36, 0.42), w2);
           bRough = mix(0.6, 0.07, w2);
@@ -209,7 +261,7 @@ function facadeMaterial(U) {
       .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor = bMetal;")
       .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += bEmit;");
   };
-  m.customProgramCacheKey = () => "facade";
+  m.customProgramCacheKey = () => (C ? "facade-cut" : "facade");
   return m;
 }
 
@@ -329,8 +381,8 @@ function fieldTexture(f) {
   return t;
 }
 
-/** update(t, light): light is daylight 0..1. */
-export function buildBuildings(stage) {
+/** update(t, light): light is daylight 0..1; cut opens the home terminal's glass in front of the gate lounges. */
+export function buildBuildings(stage, { cut = null } = {}) {
   const group = new THREE.Group();
   group.name = "buildings";
   const terms = massing(stage.terminals);
@@ -359,7 +411,7 @@ export function buildBuildings(stage) {
     for (const h of b.holes || []) mass.walls(h, -2, b.height, info, true);
     mass.roof(b.outer, b.holes, b.height, [ROOF + kind, info[1], b.height]);
   });
-  const facades = new THREE.Mesh(mass.geometry(), facadeMaterial(U));
+  const facades = new THREE.Mesh(mass.geometry(), facadeMaterial(U, cut));
   facades.castShadow = true;
   facades.receiveShadow = true;
   group.add(facades);

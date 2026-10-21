@@ -193,7 +193,17 @@ caps       {...}                                           # truth
 radar      {bounds: [w, s, e, n], frames: [{t, url}]}
 twin       {hub, url}
 stage      {hub, url, traffic} | null                      # the 3D airport and the episode's traffic (Viewer)
+passengers {flights, connections, events} | absent         # v3: the day's passengers (below)
 ```
+
+On a v3 day, `passengers` holds `flights` `[{id, booked, added, conn_in, conn_out, flown, misconnected, rebooked:
+[{to, pax}], stranded, home, dropped, hold}]` (booked + added = flown + Σ rebooked + stranded + home + dropped;
+`misconnected` the sum of its misconnect events, at least Σ (pax − made) over its booked connections, more when
+passengers rebooked onto it miss it on their new itinerary; `hold` the minutes the departure waited for connecting
+passengers), `connections` `[{from, to, at, pax, made}]` (booked at the start of the day) and `events` `[{t, kind:
+misconnect | rebook | hotel | home, at, flight, pax, from, to, until}]`. The customer desk is the role `customer` in
+`occ`: its turns, pages and notes, its requests (a `HOLD` for connecting passengers carries `pax`) and its decisions
+(`rebook` with `to` and `pax`, `hotel` with `at` and `pax`). `web/episode.schema.json` has them all.
 
 ## Viewer
 
@@ -227,6 +237,7 @@ aircraft   [{key, tail, carrier, jetblue: bool, task: bool,
              class: "a320" | "a321" | "a220" | "e190" | "regional" | "regional_t" | "narrowbody" | "widebody",
              type, length, span, visits: [visit]}]
 featured   [{key, flight, reason: "held" | "delayed" | "cancelled" | "first_after_stop" | ..., t}]   # best first
+passengers {terminal, floor, depth, lounges, counter, crowds, queue, groups, tags} | absent  # v3 (occ/paxstage.py)
 visit      {stand: "C11", from: minute | null, to: minute | null, arr: leg | null, dep: leg | null}
 leg        {flight, kind: "arr" | "dep", other: "MIA", city: "Miami", status: "flown" | "cancelled",
             sched, out, off, on, in, tag: str | null, tone: "ok" | "delay" | "hold" | "cancel" | null,
@@ -241,3 +252,10 @@ leg        {flight, kind: "arr" | "dep", other: "MIA", city: "Miami", status: "f
   its scheduled time, or `decided` when the plan or the env cancelled it later (the env 6 hours after schedule).
   Every other aircraft, JetBlue's included, flies its real BTS times, untagged.
 - `featured` lists candidate moments for a film, best first.
+- On a day with passengers, `passengers` is the hub's, display-only like the stands: a lounge behind the home
+  terminal's glass on the departure level at each jet-bridge gate (`lounges`, each its facade polyline `p`, inward
+  normals `n` and `door`; `terminal` indexes the stage's terminals, `floor` and `depth` in metres), the service
+  counter's lounge (`counter`), each departure's crowd there (`crowds`: `n`, `t` its arrive, full, board and gone
+  minutes, `cancel`), the line at the counter as `[t, n]` steps (`queue`), the walking groups in the crews' `segs`
+  with `z` their floor (`groups`: connect, misconnect, rebook, hotel and the hotel `shuttle`), and each departure's
+  gate tag by flight (`tags`: `{conn, held, missed, sched}`).

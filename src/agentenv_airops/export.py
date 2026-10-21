@@ -16,7 +16,7 @@ from . import stage as hub_stage
 from .core.known import known_caps, known_lb
 from .core.model import Caps, Flight, Task
 from .core.sim import AUTO_CANCELLED, CANCELLED, FLOWN, execute
-from .occ import crewstage
+from .occ import crewstage, paxstage
 from .schedule import Watch, timetable
 
 WEB = Path(str(files("agentenv_airops") / "web"))
@@ -194,6 +194,8 @@ def sidecar(ep: Mapping, cache: Path, stages: dict[str, dict] | None = None) -> 
     doc = hub_stage.sidecar(ep["task"], ep["executed"], traffic, stages[hub], crew)
     if ep.get("occ"):
         doc["crews"] = crewstage.crews(ep, doc, stages[hub])
+    if ep.get("passengers") and (pax := paxstage.passengers(ep, doc, stages[hub])):
+        doc["passengers"] = pax
     return gzip.compress(json.dumps(doc, ensure_ascii=False, separators=(",", ":")).encode(), mtime=0)
 
 
@@ -215,7 +217,8 @@ def entry(ep: Mapping, url: str, cache: Path = CACHE) -> dict:
             "model_label": ep["model_label"], "run": ep["run"], "reward": ep["reward"], "cost": ep["cost"]["total"],
             "anchor": ep["reference"]["anchor"]} | ({"thumb": f"../{thumb}"} if (cache / thumb).is_file() else {}) \
         | ({"occ": ep["occ"]["label"], "reward_L": ep["occ"]["grade"].get("reward_L"),
-            "gap_pct": ep["reference"].get("gap_pct"), "open": opening(ep)} if ep.get("occ") else {})
+            "gap_pct": ep["reference"].get("gap_pct"), "open": opening(ep)} if ep.get("occ") else {}) \
+        | ({"passengers": True} if ep.get("passengers") else {})
 
 
 def opening(ep: Mapping) -> int:
