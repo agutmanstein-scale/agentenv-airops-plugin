@@ -596,6 +596,17 @@ def test_a_date_without_a_bound_leaves_reward_l_out_of_the_board(hub):
         [joint, one, b0, paired], "GPT-6.1 Sol", "three desks")
 
 
+def test_the_paired_line_says_more_when_the_leading_mode_costs_more(hub):
+    runs = [{"board": True, "folder": "occ3-board-sol", "pilot": {"caps": {"joint": 5.0, "one": 12.0}},
+             "row": {"run": f"{OCC_EVAL}-{m}", "outcome": "scored", "reward": r, "reward_L": None, "cost": c,
+                     "best": 1000.0, "B0": 2000.0, "over_best_pct": c / 10 - 100, "avoidable_share": None,
+                     "cost_usd": 1.0, "wall_seconds": 60.0}}
+            for m, r, c in (("joint", 0.6, 1600.0), ("one", 0.7, 1500.0))]
+    text = hub.occ_board_markdown(hub.occ_board(runs, hub.OCC3_MODES, hub.OCC3_BOARD, "three desks"), "GPT-6.1 Sol",
+                                  "three desks")
+    assert "**-0.100** reward" in text and "their days cost 10.0% of the best plan more (CI 10.0 to 10.0%)." in text
+
+
 def test_the_card_leads_with_v3s_tables_and_board_then_v2s_and_v1s_and_names_the_three_desk_bundle(hub):
     files = {p: b"" for p in ("tasks/v3-eval.parquet", "tasks/v3-train.parquet", "references/v3-eval.parquet",
                               "episodes/v3-eval.parquet", "desks/v3-eval.parquet", "results/v3-board.parquet",

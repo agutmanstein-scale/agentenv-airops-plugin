@@ -754,10 +754,12 @@ def occ_board_markdown(rows: list[dict], model: str = "GPT-6.1 Sol", lead: str =
             lines.append(f"| Standard crew desk (B0) | {r['dates']} | {r['mean_reward']:.3f} | | | 0% | |")
     for r in rows:
         if r["kind"] == "paired":
+            d, low, high = r["cost_diff_pct_of_best"], r["cost_diff_ci_low"], r["cost_diff_ci_high"]
+            cost = (f"{-d:.1f}% of the best plan less (CI {-high:.1f} to {-low:.1f}%)" if d <= 0 else
+                    f"{d:.1f}% of the best plan more (CI {low:.1f} to {high:.1f}%)")
             lines += ["", f"{lead.capitalize()} minus one agent, paired by date: **{r['mean_reward']:+.3f}** reward "
                       f"(95% CI {r['ci_low']:.3f} to {r['ci_high']:.3f}), {lead} higher on {r['higher_on']} of "
-                      f"{r['dates']} dates; their days cost {-r['cost_diff_pct_of_best']:.1f}% of the best plan less "
-                      f"(CI {-r['cost_diff_ci_high']:.1f} to {-r['cost_diff_ci_low']:.1f}%)."]
+                      f"{r['dates']} dates; their days cost {cost}."]
     return "\n".join(lines)
 
 
