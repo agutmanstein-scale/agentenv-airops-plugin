@@ -65,7 +65,7 @@ STRETCH = ("establish", "faa", "decide", "flip")
 ROOM = ("room", "room-desks", "room-wall")
 DAY_SUN = 12
 """Degrees the sun is up for a still to count as a daylight one (--pick day)."""
-DAY_ORDER = ("pushback", "push", "crew", "takeoff", "wait", "taxi", "van")
+DAY_ORDER = ("pushback", "push", "counter", "missed", "crew", "shuttle", "takeoff", "wait", "taxi", "van")
 """The airport shots a daylight still prefers, aircraft and people first."""
 DESKS = {"ops": "the ops controller", "crew": "the crew scheduler", "customer": "the customer desk"}
 ASKS = {"CANCEL": "to cancel", "CANCEL_PAIR": "to cancel the round trip of", "HOLD": "to hold",
@@ -1469,17 +1469,19 @@ def daylight(page, shots: Sequence[Shot], sun: float = DAY_SUN) -> str | None:
 
 def highlight(shots: Sequence[Shot]) -> list[tuple[float, float]] | None:
     """The film's best 12 seconds or so for the WebP: the pushback's last seconds, the taxi and the takeoff; on a
-    control-center day about 18: a request in the room and where it plays out, a crew walking up and the takeoff."""
+    control-center day about 18: a request in the room (the customer desk's first, on a day with one) and where it
+    plays out, a crew walking up (or the passengers at the counter or the shuttle) and the takeoff."""
     start = dict(zip((s.name for s in shots), itertools.accumulate((s.seconds for s in shots), initial=0),
                      strict=False))
     if any(s.camera in ROOM for s in shots):
         at = list(itertools.accumulate((s.seconds for s in shots), initial=0))
-        k = next((i for i, s in enumerate(shots[:-1]) if s.name == "ask" and shots[i + 1].camera not in (*ROOM, "map")),
-                 next((i for i, s in enumerate(shots) if s.camera in ROOM), None))
+        asks = [i for i, s in enumerate(shots[:-1]) if s.name == "ask" and shots[i + 1].camera not in (*ROOM, "map")]
+        k = next((i for i in asks if shots[i].desk == "customer"), next(iter(asks), None))
+        k = k if k is not None else next((i for i, s in enumerate(shots) if s.camera in ROOM), None)
         parts = [(at[k], shots[k].seconds)] + ([(at[k + 1], shots[k + 1].seconds)] if shots[k].name == "ask" and
                                                 shots[k + 1].camera not in (*ROOM, "map") else [])
         for i, s in enumerate(shots):
-            if s.name in ("crew", "wait") and i > k + 1:
+            if s.name in ("crew", "wait", "counter", "missed", "shuttle") and i > k + 1:
                 parts.append((at[i], s.seconds))
                 break
         if "takeoff" in start:

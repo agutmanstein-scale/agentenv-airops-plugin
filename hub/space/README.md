@@ -23,6 +23,15 @@ datasets:
 - earakely-scale/AirOpsEnv-AgentEnv
 ---
 
+**AirOpsEnv v3: passengers and the customer desk** (its runs head the page once the v3 board is recorded, with
+the one to watch first under *Start here*; a placeholder holds the place until then). A third desk joins the room: the
+customer desk asks ops to hold departures for connecting passengers, not to cancel flights whose passengers have
+nowhere else to go, or to cancel early, while the airline rebooks whoever misses a connection or loses a flight onto
+its next seats and puts up overnight those it can't fly today. The replay adds the gate lounges behind the terminal's
+glass filling and boarding, connecting passengers walking gate to gate, the line at the service counter and the hotel
+shuttle at the curb, a passengers pane with the missed connections, rebookings and nights away, and where passengers
+are stranded on the US map. The lounges, the counter, the passengers' walks and the shuttle are inferred, for display.
+
 # AirOpsEnv v2: the ops control center
 
 Two desks run JetBlue's operations control center through a real storm day, from 04:00, on the
