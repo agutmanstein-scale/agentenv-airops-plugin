@@ -234,8 +234,8 @@ async function episodePage(app, url) {
   const moves = ep.executed.filter((e) => e.status === "flown").flatMap((e) => [P.sched.get(e.id).orig === task.hub ? e.dep : null, P.sched.get(e.id).dest === task.hub ? e.arr : null]).filter((m) => m != null);
   const quiet = (m) => m > P.lastWatch + 60 && !moves.some((x) => x >= m - 5 && x <= m + 30);
   const asked = params.get("view") ?? (terminal ? "terminal" : null);
-  const open = terminal && (ALIASES[asked] ?? asked) === "terminal" && (params.get("moment") || !params.get("t")) ? stage.moment(params.get("moment") ?? "busy") : null;
-  let t = clamp(Number(open?.t ?? params.get("t") ?? P.lo)), step = null, viewName = stage ? "tower" : center ? "room" : "network", stageView = "tower", roomView = "room", following = null;
+  const moment = terminal && (ALIASES[asked] ?? asked) === "terminal" && (params.get("moment") || !params.get("t")) ? params.get("moment") ?? "busy" : null;
+  let t = clamp(Number(params.get("t") ?? P.lo)), step = null, viewName = stage ? "tower" : center ? "room" : "network", stageView = "tower", roomView = "room", following = null;
   let playing = false, speed = speed0, rate = null, boost = 1, last = performance.now(), lastMap = -1, busy = false, busyRoom = false;
 
   function clamp(m) {
@@ -385,6 +385,12 @@ async function episodePage(app, url) {
   }
 
   await views.map.loaded;
+  let open = moment ? stage.moment(moment) : null;
+  if (open) {
+    draw(clamp(open.t), { force: true });
+    open = stage.moment(moment);
+    t = clamp(open.t);
+  }
   await setView(asked ?? viewName, open ? { lounge: open.lounge, focus: open.focus, auto: true } : {});
   if (params.get("expert") === "1") setExpert(true);
   draw(t, { force: true });

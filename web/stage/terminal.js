@@ -17,6 +17,14 @@ const SIGN = 4.5;
  * sight, its field of view, the bearing off the glass it prefers, how far either side of the gate's door it may stand,
  * how far either side of it the hall is dressed, how far a director's shot drifts along the hall and how near it a
  * screen or gate sign is left out. */
+const EDGE = 0.8;
+const FACE = 0.5;
+const SEATS = 0.1;
+const WIDE = 1.92;
+const TURN = 0.25;
+/** How far out across the page (1 its edge) a gate's screen may show, how squarely it must face the camera (1 head on,
+ * 0.5 within 60°) and the least share of its lounge's seats in frame for the gate's view to read; a screen's width and
+ * how far across the page (2 its width) the viewer's own camera may turn to bring it out from under the cards. */
 const ARRIVE = 110;
 const KNOWN = 120;
 const HELD = 30;
@@ -33,9 +41,10 @@ const hhmm = (m) => `${pad2(Math.floor((((Math.round(m) % 1440) + 1440) % 1440) 
 /** Inside the home terminal at its gates (the Terminal view, a day with passengers): each gate's departure on a screen
  * over its podium and a gate sign by its jet bridge door, the glass's mullions and rails and the ceiling's lights,
  * drawn about the gate in view; the camera at the back of the hall looking out past the crowd through the glass at the
- * aircraft on the stand; the busiest gate and a moment to open on. JetBlue's gate areas aren't public: the layout is
- * generic, for display. */
-export function buildTerminal(pax, stage, traffic, { home, bridges }) {
+ * aircraft on the stand; the busiest gate and a moment to open on, at gates whose view reads on the `page` ({camera,
+ * band}: the stage's camera and the part of the page's width its cards leave clear) with the screen clear of the cards.
+ * JetBlue's gate areas aren't public: the layout is generic, for display. */
+export function buildTerminal(pax, stage, traffic, { home, bridges, page }) {
   const group = new THREE.Group();
   group.name = "terminal";
   group.visible = false;
@@ -51,10 +60,12 @@ export function buildTerminal(pax, stage, traffic, { home, bridges }) {
   const ray = new THREE.Raycaster();
   const solid = new THREE.MeshLambertMaterial({ vertexColors: true });
   const glow = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
-  const screens = [0, 1, 2].map(() => sign(1.92, 1.08, 768, 432));
+  const screens = [0, 1, 2].map(() => sign(WIDE, 1.08, 768, 432));
   const signs = [0, 1, 2].map(() => sign(1.5, 0.62, 600, 248));
   for (const x of [...screens, ...signs]) group.add(x.mesh);
   const cameras = new Map();
+  const views = [];
+  const probe = new THREE.Object3D();
   let dressed = null;
 
   function departure(k, T, flight) {
@@ -101,7 +112,8 @@ export function buildTerminal(pax, stage, traffic, { home, bridges }) {
    * clear of and where across the page's clear part the target goes: at the back of the hall, its eye over the crowd,
    * looking a little along the glass at the gate's screen with the aircraft on the stand beside it, clear of the jet
    * bridges' rotundas and of the halls' walls; with focus "counter" on the counter's lounge, from the glass across the
-   * line to the desk. u (0 to 1) drifts it along the hall through a director's shot. */
+   * line to the desk. u (0 to 1) drifts it along the hall through a director's shot; without one, `screen` is the
+   * gate's screen's side edges for aim() to bring between the page's cards (null when it is left out, too near). */
   function camera(k, { focus = null, u = null } = {}) {
     const lg = lounges[k];
     const { run, at } = runOf.get(k);
@@ -116,7 +128,19 @@ export function buildTerminal(pax, stage, traffic, { home, bridges }) {
     if (!cameras.has(k)) cameras.set(k, place(k, z));
     const c = cameras.get(k);
     const [x, y] = run.pos(along(c.d + shift), c.e);
-    return { position: [x, y, z], target: [...c.at, floor + 2.2], fov: FOV, keep: [x, y, KEEP], frame: c.frame };
+    return { position: [x, y, z], target: [...c.at, floor + 2.2], fov: FOV, keep: [x, y, KEEP], frame: c.frame, screen: u == null ? edges(k, x, y) : null };
+  }
+
+  /** Gate k's screen's side edges ([x, y, up] ENU metres) seen from (x, y), or null when it is left out there. */
+  function edges(k, x, y) {
+    const [sx, sy, sz, a] = screenAt(k);
+    put(probe, sx, sy, sz, a, 0.2);
+    if (Math.hypot(probe.position.x - x, -probe.position.z - y) <= SIGN) return null;
+    probe.updateMatrixWorld();
+    return [-1, 1].map((side) => {
+      const p = probe.localToWorld(new THREE.Vector3((side * WIDE) / 2, 0, 0));
+      return [p.x, -p.z, p.y];
+    });
   }
 
   /** The best place in gate k's hall to look from at its screen, {d along it, e in, at, frame}: from the back of the
@@ -200,8 +224,7 @@ export function buildTerminal(pax, stage, traffic, { home, bridges }) {
     for (const [i, s] of [...screens.entries(), ...signs.entries()]) s.used = i < near.length;
     near.forEach((j, i) => {
       const o = lounges[j];
-      const [px, py, pa] = o.pos(o.len / 2 + 3.2, 2.6);
-      const zc = floor + Math.min(3.4, h - 0.5) - 0.6;
+      const [px, py, zc, pa] = screenAt(j);
       frame.push(colored(new THREE.CylinderGeometry(0.05, 0.05, zc - floor - 1.05, 8), "#5d656d").translate(px, (zc + floor + 1.05) / 2, -py));
       put(screens[i].mesh, px, py, zc, pa, 0.2);
       const [gx, gy, ga] = o.pos(o.door, 1.6);
@@ -212,6 +235,13 @@ export function buildTerminal(pax, stage, traffic, { home, bridges }) {
     const meshes = [new THREE.Mesh(mergeGeometries(frame), solid), new THREE.Mesh(mergeGeometries(lights), glow)];
     group.add(...meshes);
     dressed = { k, meshes };
+  }
+
+  /** Where gate j's screen hangs over its podium: [x, y, up] ENU metres and the bearing of its pole's place. */
+  function screenAt(j) {
+    const o = lounges[j];
+    const [x, y, a] = o.pos(o.len / 2 + 3.2, 2.6);
+    return [x, y, floor + Math.min(3.4, hall - floor - 0.5) - 0.6, a];
   }
 
   function put(mesh, x, y, z, a, inward) {
@@ -236,9 +266,10 @@ export function buildTerminal(pax, stage, traffic, { home, bridges }) {
     }
   }
 
-  /** A moment to open the Terminal view on, in daylight: "busy", the busiest lounge with an aircraft at its gate;
-   * "passengers", a held departure's gate as its connecting passengers board (the most of them), else the line at the
-   * service counter at its longest. {t, lounge, focus} or null. */
+  /** A moment to open the Terminal view on, in daylight, at a gate whose view reads with its screen clear of the page's
+   * cards: "busy", the busiest lounge with an aircraft at its gate; "passengers", a held departure's gate as its
+   * connecting passengers board (the most of them), else the line at the service counter at its longest. {t, lounge,
+   * focus} or null. */
   function moment(kind, { span, sun, parked }) {
     const day = (t) => sun(t) >= LIT;
     let best = null;
@@ -251,7 +282,7 @@ export function buildTerminal(pax, stage, traffic, { home, bridges }) {
           const p = leg.pax;
           if (leg.status !== "flown" || !p?.held || !p.conn) continue;
           const t = Math.max(Math.min(leg.out - p.held, leg.sched) - HELD + 6, leg.out - BOARD + 4);
-          if (t >= span[0] && t <= span[1] && day(t) && pax.at(k, t) >= 15) take(1000 + p.conn + p.held / 2, t, k);
+          if (t >= span[0] && t <= span[1] && day(t) && pax.at(k, t) >= 15 && framed(k).clear) take(1000 + p.conn + p.held / 2, t, k);
         }
       });
       if (!best) {
@@ -261,29 +292,45 @@ export function buildTerminal(pax, stage, traffic, { home, bridges }) {
     }
     for (let t = span[0]; t <= span[1]; t += 5) {
       if (!day(t)) continue;
-      const k = pax.busiest(t);
+      const k = busiest(t);
       take(pax.at(k, t) + (parked(lounges[k].stand, t) ? 40 : 0), t, k);
     }
     return best;
   }
 
-  /** How gate k's view reads from `cam` (the stage's camera, on it in the Terminal view): whether place() found it a
-   * clear place, its own screen's centre across the page ({x, y} from -1 to 1, null when hidden or behind the camera),
-   * how squarely that screen faces the camera (1 head on) and the share of its lounge's seats in the frame. */
-  function framed(k, cam) {
-    const s = screens.find((x) => x.used && x.k === k);
-    const at = new THREE.Vector3();
-    let screen = null;
-    let face = 0;
-    if (s?.mesh.visible) {
-      s.mesh.getWorldPosition(at);
-      face = s.mesh.getWorldDirection(new THREE.Vector3()).dot(cam.position.clone().sub(at).normalize());
-      at.project(cam);
-      screen = at.z < 1 ? { x: at.x, y: at.y } : null;
+  /** The lounge with the most people at T whose view then reads, the service counter's while its line is up (the
+   * view across it) and else its gate's with the screen clear of the page's cards (framed()); else the one with the
+   * most. */
+  function busiest(T) {
+    const n = lounges.map((_, k) => pax.at(k, T));
+    const order = n.map((_, k) => k).sort((a, b) => n[b] - n[a]);
+    return order.find((k) => (k === pax.counter && pax.line(T) > 0) || framed(k).clear) ?? order[0];
+  }
+
+  /** How gate k's view reads on the page, from its camera's place as the stage aims it and its screen's and seats'
+   * places, nothing drawn: whether place() found it a clear place, framing()'s measures with the camera aimed as in a
+   * director's shot and whether they read (reads(), the director's verdict, against the whole page, which its films
+   * leave clear), and whether the view as the viewer aims it reads with the screen wholly between the page's cards
+   * (`clear`, the viewer's own); kept per gate while the page's shape and clear band stay. */
+  function framed(k) {
+    const c = camera(k);
+    const band = page.band();
+    const key = `${page.camera.aspect.toFixed(3)} ${band.map((v) => v.toFixed(3)).join(" ")}`;
+    if (views[k]?.key !== key) {
+      const [x, y, z, a] = screenAt(k);
+      const cam = page.camera.clone();
+      const view = (screen) => {
+        aim(cam, { ...c, screen }, band);
+        put(probe, x, y, z, a, 0.2);
+        return { placed: cameras.get(k).score != null, ...framing(cam, c.screen ? probe : null, lounges[k].benches, floor + 1) };
+      };
+      const f = view(null);
+      const g = view(c.screen);
+      const span = c.screen?.map(([px, py, pz]) => new THREE.Vector3(px, pz, -py).project(cam));
+      const inside = !!span?.every((p) => p.z < 1 && p.x >= band[0] - 1e-3 && p.x <= band[1] + 1e-3);
+      views[k] = { key, f: { ...f, reads: reads(f), clear: reads(g) && inside } };
     }
-    const seats = lounges[k].benches;
-    const seen = seats.filter((b) => at.set(b.x, floor + 1, -b.y).project(cam).z < 1 && Math.abs(at.x) <= 1 && Math.abs(at.y) <= 1).length;
-    return { placed: cameras.get(k)?.score != null, screen, face, seats: seats.length ? seen / seats.length : 0 };
+    return views[k].f;
   }
 
   return {
@@ -293,6 +340,7 @@ export function buildTerminal(pax, stage, traffic, { home, bridges }) {
     within,
     camera,
     moment,
+    busiest,
     framed,
     /** Show the hall about gate k at T seen from (x, y), its signs nearer than SIGN hidden and `flight` on its screen
      * when it leaves from there then, or hide it all (k null). */
@@ -304,6 +352,59 @@ export function buildTerminal(pax, stage, traffic, { home, bridges }) {
       paint(T, flight);
     },
   };
+}
+
+/** Point `cam` as the Terminal view does from a camera() place c: at c.position looking toward c.target with c.fov, the
+ * target c.frame across the page's clear `band` ([left, right], -1 to 1); with c.screen, turned at most TURN across the
+ * page to bring the screen wholly into the band. The target in the scene. */
+export function aim(cam, c, [l, r]) {
+  const target = new THREE.Vector3(c.target[0], c.target[2], -c.target[1]);
+  cam.position.set(c.position[0], c.position[2], -c.position[1]);
+  cam.fov = c.fov;
+  cam.updateProjectionMatrix();
+  const dir = target.clone().sub(cam.position);
+  const D = dir.length();
+  const right = new THREE.Vector3().crossVectors(dir.normalize(), new THREE.Vector3(0, 1, 0)).normalize();
+  const nx = l + c.frame * (r - l);
+  const look = (turn) => {
+    cam.lookAt(target.clone().addScaledVector(right, -(nx + turn) * D * Math.tan((cam.fov * DEG) / 2) * cam.aspect));
+    cam.updateMatrixWorld();
+  };
+  let turn = 0;
+  look(turn);
+  for (let i = 0; c.screen && i < 3; i++) {
+    const span = c.screen.map(([x, y, z]) => new THREE.Vector3(x, z, -y).project(cam));
+    if (span.some((p) => p.z >= 1)) break;
+    const [a, b] = span.map((p) => p.x).sort((p, q) => p - q);
+    const want = Math.max(-TURN, Math.min(TURN, turn + (b - a > r - l ? (l + r - a - b) / 2 : Math.max(0, l - a) + Math.min(0, r - b))));
+    if (Math.abs(want - turn) < 1e-3) break;
+    look((turn = want));
+  }
+  return target;
+}
+
+/** How a gate's view frames from `cam` (aim()): its `screen`'s centre across the page ({x, y} from -1 to 1, null when
+ * not drawn or behind the camera), how squarely the screen faces the camera (1 head on) and the share of its lounge's
+ * `seats` ({x, y} ENU metres, at height z) in frame. */
+export function framing(cam, screen, seats, z) {
+  cam.updateMatrixWorld();
+  const at = new THREE.Vector3();
+  let shown = null;
+  let face = 0;
+  if (screen) {
+    screen.getWorldPosition(at);
+    face = screen.getWorldDirection(new THREE.Vector3()).dot(cam.position.clone().sub(at).normalize());
+    at.project(cam);
+    shown = at.z < 1 ? { x: at.x, y: at.y } : null;
+  }
+  const seen = seats.filter((b) => at.set(b.x, z, -b.y).project(cam).z < 1 && Math.abs(at.x) <= 1 && Math.abs(at.y) <= 1).length;
+  return { screen: shown, face, seats: seats.length ? seen / seats.length : 0 };
+}
+
+/** Whether a gate's view reads for a crowd: its camera in a clear place, its screen shown within the middle four fifths
+ * of the page and facing the camera within 60°, a tenth of its seats in frame. */
+export function reads({ placed, screen, face, seats }) {
+  return !!(placed && screen && Math.max(Math.abs(screen.x), Math.abs(screen.y)) <= EDGE && face >= FACE && seats >= SEATS);
 }
 
 /** The minute a departure leaves or would have: its pushback, or its schedule when cancelled. */
