@@ -1,0 +1,291 @@
+[
+  {
+    "id": "deploy",
+    "type": "deploy_env",
+    "env_id": "airops-occ3"
+  },
+  {
+    "id": "load-task",
+    "type": "apply_server_config",
+    "env_id": "airops-occ3",
+    "directives": [
+      {
+        "service": "airops-occ3",
+        "uri": "urn:airops:occ-load/v1",
+        "args": {
+          "task_id": "b6-20221207-0400",
+          "mode": "idle"
+        }
+      }
+    ]
+  },
+  {
+    "id": "watches",
+    "type": "register_env_triggers",
+    "env_id": "airops-occ3",
+    "watch_roles": [
+      "default"
+    ],
+    "triggers": [
+      {
+        "id": "watch-8",
+        "when": {
+          "type": "action",
+          "tool": "end_turn",
+          "where": {
+            "result.opened": {
+              "equals": 8
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20221207-050"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-9",
+        "when": {
+          "type": "action",
+          "tool": "end_turn",
+          "where": {
+            "result.opened": {
+              "equals": 9
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20221207-054"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20221207-055"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-10",
+        "when": {
+          "type": "action",
+          "tool": "end_turn",
+          "where": {
+            "result.opened": {
+              "equals": 10
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20221207-057"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20221207-058"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20221207-059"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20221207-060"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-11",
+        "when": {
+          "type": "action",
+          "tool": "end_turn",
+          "where": {
+            "result.opened": {
+              "equals": 11
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20221207-063"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20221207-066"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20221207-068"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20221207-069"
+            }
+          },
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20221207-070"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-12",
+        "when": {
+          "type": "action",
+          "tool": "end_turn",
+          "where": {
+            "result.opened": {
+              "equals": 12
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20221207-073"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-13",
+        "when": {
+          "type": "action",
+          "tool": "end_turn",
+          "where": {
+            "result.opened": {
+              "equals": 13
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20221207-077"
+            }
+          }
+        ]
+      },
+      {
+        "id": "watch-17",
+        "when": {
+          "type": "action",
+          "tool": "end_turn",
+          "where": {
+            "result.opened": {
+              "equals": 17
+            }
+          }
+        },
+        "barrier": {
+          "at": "provoking_call",
+          "timeout_seconds": 60
+        },
+        "actions": [
+          {
+            "type": "tool",
+            "tool": "airops_notice",
+            "args": {
+              "news_id": "adv-20221208-006"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "clock",
+    "type": "sync_env_clock",
+    "env_id": "airops-occ3",
+    "virtual_time": "2022-12-07T09:00:00Z",
+    "virtual_seconds_per_real_second": 0,
+    "tolerate_missing_sync_time": false
+  },
+  {
+    "id": "end-day",
+    "type": "apply_server_config",
+    "env_id": "airops-occ3",
+    "directives": [
+      {
+        "service": "airops-occ3",
+        "uri": "urn:airops:end-day/v1",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "id": "grade",
+    "type": "env_outcome_verifier",
+    "env_id": "airops-occ3",
+    "file_artifact_id": "airops-occ3-verifier",
+    "verifier_id": "airops-occ3",
+    "score_aggregator": "weighted_average"
+  }
+]

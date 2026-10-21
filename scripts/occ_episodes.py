@@ -2,7 +2,8 @@
 pilot or board folder under --runs, the hub's traffic baked into --cache/traffic, the episodes and what they point at
 written to --out as the viewer reads them (episodes/, stage/, twin/, radar/); --space-out also assembles the static
 Space around them (the page, the viewer under viewer/, the episodes under data/) with a Dockerfile that serves it the
-way the Space is served, as static files.
+way the Space is served, as static files. A day with passengers (airops-occ3) is read on its pilot's b6-v3 pack and
+gets its `passengers`; --schema validates the episodes against another episode schema, e.g. a viewer branch's.
 
     python scripts/occ_episodes.py occ-pilot-sol/b6-20230709-0400-joint occ-pilot-sol/b6-20260715-0400-joint \\
         --runs ~/agentenv-airops-plugin/results/runs --inputs ~/agentenv-airops-plugin/cache/inputs \\
@@ -17,9 +18,11 @@ import sys
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
+from jsonschema import Draft202012Validator, FormatChecker
+
 from agentenv_airops import export
 from agentenv_airops.occ import episode
-from agentenv_airops.occ.pack import Pack
+from agentenv_airops.occ.pack import Pack, Pack3
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = """<!doctype html>
@@ -64,6 +67,11 @@ def load(runs: Path, name: str) -> tuple[dict, dict, dict]:
     return data, row, manifest
 
 
+def world_of(data: dict, manifest: dict):
+    """The day's world on the pack its pilot played: b6-v3 for a day with passengers (airops-occ3), else b6-v2."""
+    return (Pack3 if "passengers" in data else Pack)(manifest.get("pack")).world(data["task_id"])
+
+
 def replay_all(names: list[str], runs: Path, cache: Path, workers: int) -> list[str]:
     """Every run's projections into the cache, `workers` replays at once; the runs that failed, each with why."""
     failed = []
@@ -77,10 +85,10 @@ def replay_all(names: list[str], runs: Path, cache: Path, workers: int) -> list[
 
 def build(names: list[str], runs: Path, inputs: Path, cache: Path, hub: str | None, replay: bool,
           labels: dict[str, str] | None = None) -> list[dict]:
-    pack, out = Pack(), []
+    out = []
     for name in names:
         data, row, manifest = load(runs, name)
-        world = pack.world(data["task_id"])
+        world = world_of(data, manifest)
         source = name.split("/", 1)[0]
         folder = (labels or {}).get(source, source)
         projected = projections(world, data, projection_path(cache, name, row)) if replay else None
@@ -101,8 +109,8 @@ def build(names: list[str], runs: Path, inputs: Path, cache: Path, hub: str | No
 def project(name: str, runs: Path, cache: Path) -> tuple[str, str | None]:
     """One run's projections into the cache (a worker of --workers), or why not."""
     try:
-        data, row, _ = load(runs, name)
-        projections(Pack().world(data["task_id"]), data, projection_path(cache, name, row))
+        data, row, manifest = load(runs, name)
+        projections(world_of(data, manifest), data, projection_path(cache, name, row))
     except Exception as e:
         return name, f"{type(e).__name__}: {e}"
     return name, None
@@ -169,10 +177,14 @@ def main(argv: list[str] | None = None) -> int:
                    help="An episode the list shows first, in the order given (its file name without .json).")
     p.add_argument("--label", action="append", default=[], metavar="FOLDER=AS",
                    help="List a folder's runs as another's, e.g. a retry folder as the board it reruns.")
+    p.add_argument("--schema", type=Path, help="Validate the episodes against this episode schema instead of the "
+                                               "package's web/episode.schema.json.")
     p.add_argument("--projections-only", action="store_true",
                    help="Only replay the runs into --cache/occ/projections (the slow part), e.g. on a large machine.")
     args = p.parse_args(argv)
     names = [n for arg in args.runs_named for n in expand(args.runs, arg) if n not in args.exclude]
+    if args.schema:
+        export.VALIDATOR = Draft202012Validator(json.loads(args.schema.read_text()), format_checker=FormatChecker())
     if args.replay or args.projections_only:
         failed = replay_all(names, args.runs, args.cache, args.workers)
         if failed:
