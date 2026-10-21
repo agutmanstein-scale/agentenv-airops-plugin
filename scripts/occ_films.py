@@ -26,7 +26,6 @@ from pathlib import Path
 
 from agentenv_airops import export
 from agentenv_airops.occ import episode
-from agentenv_airops.occ import pack as packs
 from agentenv_airops.occ.sweep import final
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -202,9 +201,7 @@ class Films:
     def build(self, row: dict, log: Path) -> str:
         """The run's episode into the viewer folder, added to its index; its file's stem."""
         data = json.loads((self.sweep / row["day"]).read_text())
-        kind = packs.Pack3 if "passengers" in data else packs.Pack
-        world = kind(Path(self.manifest["pack"]).expanduser() if self.manifest.get("pack") else None).world(
-            data["task_id"])
+        world = occ_episodes.world_of(data, self.manifest)
         path = self.viewer / "occ" / "projections" / f"{row['run']}-a{row['attempt']}.json"
         projected = occ_episodes.projections(world, data, path) if self.replay else None
         record = {"folder": self.sweep.name, "run": row["run"], "attempt": row["attempt"],
