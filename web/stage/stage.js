@@ -229,6 +229,12 @@ export class AirportStage {
     return this.rig.name;
   }
 
+  /** Whether a scripted camera at `from` ([x, y, up] in ENU metres) stands clear of the buildings and sees people at
+   * `at` ([x, y]) past them, the jet bridges and the aircraft, as the crew camera checks its places. */
+  sees(from, at) {
+    return !this.#indoors(from[0], from[1]) && this.#clearTo(toScene(from, from[2]), toScene(at));
+  }
+
   state() {
     const counts = {};
     for (const f of this.fleet?.live || []) counts[f.pose.phase] = (counts[f.pose.phase] || 0) + 1;

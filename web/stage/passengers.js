@@ -19,6 +19,11 @@ const JOIN = 2.5;
 const HALL = 5.6;
 /** The service counter's line its lanes hold at least; the gap between two lounges' glass under which they are one
  * hall; the hall's height over the departure level's floor at most (under the terminal's roof). */
+const CURB = { gap: 0.8, row: 0.75, out: 2.0, rows: 4, long: 12, door: [3.3, 1.3], walk: 75, board: 0.5 };
+/** The riders' line beside a parked hotel shuttle on its curb side: their spacing along it and between its rows, how
+ * far out from its middle the first row stands (clear of its side), at most how many rows deep and how many to a row
+ * before another, its door ahead of its middle and out from it, the riders' pace in metres a minute, and the minutes
+ * before it leaves that they start to board. */
 const DEG = Math.PI / 180;
 const SKIN = ["#f0c8a8", "#e0b08c", "#c48a62", "#9a6644", "#6e4630", "#d8a07a"].map((c) => new THREE.Color(c));
 const TOPS = ["#2f3d52", "#5b6b7d", "#7a2f35", "#3f5f4a", "#c9c2b5", "#1f2329", "#8a6d4b", "#4a5a8c", "#b5523b", "#d8d4cc", "#2d5d7b", "#6b4f7a", "#e3e1dc", "#394a3c"].map((c) => new THREE.Color(c));
@@ -102,6 +107,7 @@ export function buildPassengers(doc, stage) {
   const byLounge = lounges.map(() => []);
   for (const c of crowds) byLounge[c.lounge]?.push(c);
   const items = doc.groups.map(prepare).sort((a, b) => a.from - b.from);
+  const lines = rides(items);
   const vans = Array.from({ length: VANS }, () => buildVan());
   group.add(...vans);
   const queue = doc.queue || [];
@@ -249,14 +255,15 @@ export function buildPassengers(doc, stage) {
           g.anchor = [pose.x, pose.y, 3.4];
           g.say = s.say;
         }
-        const k = it.segs.findIndex((s) => s.do !== "van" && T >= s.t[0] && T <= s.t[1]);
+        const ride = it.ride && T >= it.ride.walk.t[0] ? it.ride : null;
+        const k = ride ? it.segs.indexOf(ride.walk) : it.segs.findIndex((s) => s.do !== "van" && T >= s.t[0] && T <= s.t[1]);
         if (k >= 0) {
           const s = it.segs[k];
           let sx = 0;
           let sy = 0;
           let m = 0;
           for (const p of it.people) {
-            if (!personAt(it, k, T, p, at)) continue;
+            if (!(ride ? riderAt(it, T, p, at) : personAt(it, k, T, p, at))) continue;
             const phase = rate > 20 ? wall * 11 + p.seed * 6.28 : at[2];
             if (put(at[0], at[1], s.z ?? 0, at[3], p.look, false, at[4] === 1, phase)) {
               sx += at[0];
@@ -311,6 +318,11 @@ export function buildPassengers(doc, stage) {
     /** Every walking group, for a director: {key, kind, n, flights, from, to, says}. */
     list() {
       return items.map((it) => ({ key: it.key, kind: it.kind, n: it.n, flights: it.flights, from: it.from, to: it.to, says: [...new Set(it.segs.map((s) => s.say))] }));
+    },
+    /** Where the riders of the hotel shuttle leaving at minute t wait beside it, [x, y] each, nearest its door first;
+     * none without one. */
+    curb(t) {
+      return lines.find((l) => Math.abs(l.T - t) < 0.05)?.places ?? [];
     },
   };
 }
@@ -634,6 +646,88 @@ function prepare(raw) {
     people.push({ seed, look: lookOf(seed, i), back: row * ROW + (seed - 0.5) * 0.5, side: (count === 1 ? 0 : i % 2 ? 0.36 : -0.36) + (seed - 0.5) * 0.15 });
   }
   return { ...raw, segs, people, tail: Math.max(0, Math.ceil(count / 2) - 1) * ROW + 0.4, from: segs[0].t[0], to: segs[segs.length - 1].t[1] };
+}
+
+/** The hotel shuttles' riders (the hotel groups whose walk ends within a minute before a shuttle leaves), as one line
+ * beside the parked shuttle on the side they come from, the first come nearest its door at the front: each rider's
+ * place in it and when they board, in turn from CURB.board minutes before it leaves, all aboard as it does; each
+ * shuttle's minute and places, nearest the door first. */
+function rides(items) {
+  const out = [];
+  for (const bus of items) {
+    const v = bus.segs[0];
+    if (bus.kind !== "shuttle" || v.do !== "van" || v.p.length < 2) continue;
+    const T = v.t[0];
+    const riders = items
+      .map((it) => ({ it, walk: it.kind === "hotel" ? it.segs.findLast((s) => s.do === "walk") : null }))
+      .filter(({ it, walk }) => walk && it.segs.at(-1).t[1] <= T && T - it.segs.at(-1).t[1] < 1)
+      .sort((a, b) => a.walk.t[1] - b.walk.t[1]);
+    if (!riders.length) continue;
+    const [a, b] = v.p;
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const d = [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
+    const x = riders[0].walk.p[0];
+    const c = (x[1] - a[1]) * d[0] - (x[0] - a[0]) * d[1] < 0 ? -1 : 1;
+    const place = (along, off) => [a[0] + d[0] * along - d[1] * c * off, a[1] + d[1] * along + d[0] * c * off];
+    const door = place(...CURB.door);
+    const h = Math.atan2(d[0], d[1]) / DEG;
+    const all = riders.flatMap(({ it }) => it.people);
+    const rows = Math.min(CURB.rows, Math.ceil(all.length / CURB.long));
+    const turn = Math.min(0.05, (CURB.board * 0.8) / all.length);
+    all.forEach((p, j) => {
+      p.slot = place(CURB.door[0] - 0.8 - Math.floor(j / rows) * CURB.gap, CURB.out + (j % rows) * CURB.row);
+      const far = Math.hypot(door[0] - p.slot[0], door[1] - p.slot[1]) / CURB.walk;
+      p.board = Math.min(T - CURB.board + j * turn, T - 0.03 - far);
+    });
+    for (const { it, walk } of riders) {
+      it.ride = { T, walk, door, h };
+      it.to = Math.max(it.to, T);
+    }
+    out.push({ T, places: all.map((p) => p.slot) });
+  }
+  return out;
+}
+
+/** Rider p of a group for the hotel shuttle at T, from its walk out to the curb on: along the walk, on to its place in
+ * the line beside the shuttle, standing there, then into its door in turn; [x, y, gait phase, heading, walking] into
+ * out, false before it is out and once aboard. */
+function riderAt(it, T, p, out) {
+  const { walk: w, door, h, T: leave } = it.ride;
+  if (T >= leave) return false;
+  const pace = (w.len + it.tail) / Math.max(1e-6, w.t[1] - w.t[0]);
+  const d = T <= w.t[1] ? (T - w.t[0]) * pace - p.back : w.len + it.tail - p.back + (T - w.t[1]) * CURB.walk;
+  if (d < 0) return false;
+  if (d <= w.len) {
+    sample(w.p, w.cum, d, p.side, out);
+    out[2] = (d / STEP) * Math.PI;
+    out[4] = 1;
+    return true;
+  }
+  const end = w.p[w.p.length - 1];
+  const q = d - w.len;
+  const to = Math.hypot(p.slot[0] - end[0], p.slot[1] - end[1]);
+  if (q < to) return toward(end, p.slot, q, d, out);
+  const start = Math.max(p.board, T - (q - to) / (T <= w.t[1] ? pace : CURB.walk));
+  const r = (T - start) * CURB.walk;
+  const aboard = Math.hypot(door[0] - p.slot[0], door[1] - p.slot[1]);
+  if (r >= aboard) return false;
+  if (r > 0) return toward(p.slot, door, r, d + r, out);
+  out[0] = p.slot[0];
+  out[1] = p.slot[1];
+  out[2] = 0;
+  out[3] = h + (p.seed - 0.5) * 40;
+  out[4] = 0;
+  return true;
+}
+
+function toward(a, b, r, walked, out) {
+  const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  out[0] = a[0] + ((b[0] - a[0]) * r) / L;
+  out[1] = a[1] + ((b[1] - a[1]) * r) / L;
+  out[2] = (walked / STEP) * Math.PI;
+  out[3] = Math.atan2(b[0] - a[0], b[1] - a[1]) / DEG;
+  out[4] = 1;
+  return true;
 }
 
 /** Person p of a group at T in its segment k: [x, y, gait phase, heading, walking] into out; false while not in sight. */
