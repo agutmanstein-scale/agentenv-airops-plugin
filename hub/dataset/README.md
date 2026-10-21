@@ -109,19 +109,26 @@ mean 0.602. A run is scored only if its audit passes, as in v2. No judge.
 
 ## Results
 
-[TBD: the board's line: model, effort, the 24 eval dates in each mode, pre-registered; every run scored, replays
-exactly and passes the audit.]
+GPT-6.1 Sol (reasoning effort high) on the 24 eval dates, once in each mode, registered before the first run, at caps
+of $3 a desk and $6 for one agent. All 48 runs scored, every one replays exactly through the env and passes the audit;
+the whole board cost $107.04.
 
 <!-- board-v3 -->
 
 <!-- /board-v3 -->
 
-**What this shows, and what it doesn't.** [TBD: from the board.] Before any model ran, a scripted customer desk built
+**What this shows, and what it doesn't.** Three Sol desks beat one Sol agent running all three on these 24 dates
+(+0.044, CI 0.007 to 0.083, higher on 14 dates and lower on 5), and both recover most of what standard crew-desk
+practice loses. It doesn't show that talking is what helps: the three desks used about twice the compute (2.0× the
+spend, 2.0× the input and 2.4× the output tokens, more spend on every date). Nor does it measure the customer desk by
+itself, as there is no two-desk arm under P; the model customer desk sent 1,303 requests over the 24 days, 664 of them
+accepted by ops. 12 of the 48 runs came in under the best plan found, both modes on 5 dates and three desks alone on 2:
+they score 1.0 and are flagged `below_best`, with `reward_L` beside them (0.32 to 0.59), and on 4 of those 5 dates B0
+itself comes within 10% of the best plan. Before any model ran, a scripted customer desk built
 from published practice (hold up to 15 minutes for 10 or more connecting passengers; ask ops not to cancel a flight
 when half its passengers have no later seat that day) did not beat two scripted desks: better by 2% on 2 of 24 eval
 dates, against 12 needed. Its requests not to cancel mostly protected flights that couldn't fly, which then cancelled
-at their deadline at late notice. The customer desk ships anyway, labelled; the board shows whether a model desk does
-better than the script.
+at their deadline at late notice. The customer desk ships anyway, labelled.
 
 ## Watch a run
 

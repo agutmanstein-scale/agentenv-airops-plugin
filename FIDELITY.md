@@ -246,14 +246,36 @@ more under P than the passenger-aware plan, on 12 or more of the 24 eval dates. 
 - **Holds alone** move P by −0.4% to +0.35%. The hold rule fired 11 times in 24 dates, partly because P2's thin
   connecting shares make batches of 10 rare.
 - **Edgar's call: ship the customer desk anyway, labelled,** as v2 shipped its two desks when its coordination
-  gate failed. The premise holds with crews; a scripted desk built from published practice doesn't capture it. Whether
-  a model desk does is what the board measures.
+  gate failed. The premise holds with crews; a scripted desk built from published practice doesn't capture it. The board
+  plays three model desks against one model agent, with no two-desk arm, so it doesn't measure that either.
 
 ## v3: stage 3, the model desks
 
-[TBD: the env lane's zero-spend checks of `airops-occ3` (doing nothing reproduces the pack's reference, the scripted
-desks reproduce stage 2b's arms, the stored reference plan scores 1.0, the audit, a leak test, determinism), the
-pilot, and the board: runs scored, replayed exactly and audited, and the independent recheck of every reward.]
+- **Zero-spend, in process** (`scripts/occ3_checks.py`), scripted desks and no model, on 4 training dates (2023-06-27,
+  2023-08-07, 2024-07-28, 2025-02-18) in both modes, each desk calling every lookup it has each turn (the crew
+  desk's options every few watches): every day graded,
+  its audit passing and its record replaying byte for byte; L1, the day played again with every reference moved (the
+  best plan's cost and plan, the bound, B0, the gap and the doing-nothing control) gives every page, every tool reply
+  and the env's record at every watch before the end byte for byte, and no page or reply before the end shows a
+  reference, the bound or a reward; L2, the day with every delay and block a desk can't yet know changed gives every
+  reply and record up to each watch byte for byte. The tests add each desk's own tools and the turn order (crew,
+  customer, ops, then the replies), a customer desk that leaves, and a recorded day replaying to its digest in a fresh
+  interpreter under other hash seeds.
+- **The pilot,** 4 runs of GPT-6.1 Sol on 2 training dates (2024-07-28, 2025-02-18) through the real harness: all
+  scored, replayed exactly and passed the audit; $6.20. Both 2024-07-28 runs came in under the best plan found. Before
+  any board result was read, the rule for that was registered: such a run scores 1.0 and is flagged `below_best`, the
+  best plan isn't updated from played runs, and `reward_L` is published beside it.
+- **The board,** 48 runs on the 24 eval dates, three desks and one agent, at caps of $3 a desk and $6 for one agent,
+  run at f232962: all scored, every one replays exactly through the env's calls (`scripts/hub_dataset.py`) and passes
+  the audit, and every reward and `reward_L` recomputes from the graded cost and the pack's best plan, bound and B0
+  (within 1e-6, the stored costs' rounding). $107.04.
+- **12 runs came in under the best plan found:** both modes on 2023-07-13, 2023-07-29, 2024-06-23, 2024-07-15 and
+  2024-07-22, and three desks alone on 2024-07-13 and 2025-12-30 (by 0.8% to 8.9%). On 4 of those 5 dates B0 itself
+  comes within 10% of the best plan: the best plan is weak there, from its fixed candidates and capped repair (limit 4
+  below). Their `reward_L` is 0.32 to 0.59.
+- **How the desks ended:** ops and crew stood down on 20 of 24 three-desk days and the customer desk on 15 (it
+  finished its day on 9); one agent stood down on 21 of 24. No desk ended on an error; 2 crew desks came within 90% of
+  their $3 cap, and none ended by it.
 
 ## v3: not modelled, labelled
 
@@ -279,7 +301,7 @@ pilot, and the board: runs scored, replayed exactly and audited, and the indepen
 3. **The bound is weak:** a gap of 54% to 79% on the eval dates (median 66%), and negative on the winter control. Most
    of the published gap is the bound, so `reward_L` reads low.
 4. **The reference is a best-found plan,** from a fixed set of candidates and one capped repair whose cap ran over on
-   49 of 70 dates.
+   49 of 70 dates. 12 of the board's 48 runs came in under it, on 7 dates; they score 1.0, flagged `below_best`.
 5. **B0 is near the reference on some dates under P,** so it scores above 0.308 on 4 of the 24 eval dates.
 6. **No public record checks the passengers' outcomes.** JetBlue's replayed day strands 80% of the passengers off its
    cancelled flights overnight under JetBlue-only rebooking; that is reported, not validated.
@@ -287,6 +309,8 @@ pilot, and the board: runs scored, replayed exactly and audited, and the indepen
    cancellation cheaply.
 8. **Step 0's MIP proved no date** and stored no plans; G1 holds at 14 of 24 without the dates it improved.
 9. **The passengers are generated,** from route-month loads and a ticket survey, not JetBlue's bookings.
+10. **The board measures three desks against one agent, not talking or the customer desk by itself:** three desks used
+    2.0× one agent's spend, and there is no two-desk arm under P.
 
 ## v3: rerun the checks
 
@@ -301,7 +325,8 @@ one r7i.48xlarge.
 | 2, the bound | `scripts/pax_bound.py --reference cache/v3/stage2/reference --out cache/v3/bound --limit 1800` |
 | 2b | `scripts/pax_stage2b.py --out cache/v3/stage2b --reference cache/v3/stage2/reference` |
 | the pack | `scripts/build_occ_pack.py --v3 cache/v3/stage2/reference --pack data/b6-v3 --bound cache/v3/bound` |
-| 3, the board | [TBD: env lane's pilot command and the board's folder] |
+| 3, zero-spend | `scripts/occ3_checks.py --out cache/v3/checks --split train --only b6-20230627-0400,b6-20230807-0400,b6-20240728-0400,b6-20250218-0400 --workers 4` |
+| 3, the board | `agent-env airops-occ3 pilot` with the board's runs, caps and budget (`results/runs/occ3-board-sol/pilot.json`); `scripts/hub_dataset.py` replays every run |
 
 ---
 

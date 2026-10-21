@@ -121,32 +121,89 @@ bound is weak, so most of the published gap is the bound's.
 
 ## The v3 board
 
-[TBD: the board's model and effort, the 24 eval dates in each mode, pre-registered: the code, the pack's hash, the
-dates, their order, the caps and the budget; every run scored, replays exactly and passes the audit, with an
-independent recheck of every reward.]
+GPT-6.1 Sol (`openai/gpt-6.1-sol`, reasoning effort high) on the 24 eval dates, once in each mode, registered before
+the first run: the code (f232962, the pack with it), the dates, the caps ($3 a desk, $6 for one agent) and the budget.
+All 48 runs scored, every one replays exactly through the env's calls and passes the audit, and every reward and
+`reward_L` recomputes from the graded costs and the pack's best plan, bound and B0.
 
 | Mode | Mean reward (95% CI) | reward_L (95% CI) | Over the best plan, median | Avoidable cost saved, median | Spend |
 |---|---|---|---:|---:|---:|
-| **Three desks**, talking | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] |
-| **One agent** at all three desks | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] |
+| **Three desks**, talking | **0.721** (0.633–0.811) | 0.372 (0.351–0.398) | 7.7% | 71% | $71.38 |
+| **One agent** at all three desks | **0.677** (0.592–0.766) | 0.366 (0.346–0.391) | 7.7% | 72% | $35.66 |
 | Standard crew desk (B0) | 0.386 | | | 0% | |
 | v2's best plan, blind to passengers | 0.602 | | | | |
 
-- **Three desks against one agent, paired by date:** [TBD].
-- [TBD: per-date table, as v2's.]
+- **Three desks against one agent, paired by date:** +0.044 reward (95% CI 0.007–0.083), three desks higher on 14 of
+  24 dates, lower on 5 and level on the 5 where both came in under the best plan; their days cost 1.8% of the best plan
+  less (CI 0.5–3.1%).
+- **Both well above standard practice:** at the median a Sol day saves 71% (three desks) or 72% (one agent) of what
+  B0 leaves on the table and costs 7.7% more than the best plan found, and both modes' means are above v2's best plan
+  played with its passengers (0.602).
+- **12 of the 48 runs came in under the best plan found:** both modes on 5 dates (2023-07-13, 2023-07-29, 2024-06-23,
+  2024-07-15 and 2024-07-22) and three desks alone on 2 (2024-07-13 and 2025-12-30), so 7 three-desk runs and 5
+  one-agent runs. They score 1.0 and are flagged `below_best`, with `reward_L`, against the bound, beside them. On 4 of
+  those 5 dates B0 itself comes within 10% of the best plan, which is weak there. As registered before the board, the
+  best plan isn't updated from played runs, so no run's score depends on another's; a longer search for better plans
+  is left to v3.1.
+- CIs are bootstrap over the 24 dates (10,000 resamples). Spend is the harness's tokens times price; the whole board
+  cost $107.04, the pilot before it $6.20.
+
+<details>
+<summary><b>Per date</b>: each run's reward and reward_L</summary>
+
+| Date | Storm hubs | Flights | Passengers | Connecting | Gap, best to bound | Three desks | One agent | Three desks, reward_L | One agent, reward_L |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2022-12-07 | JFK, BOS | 767 | 86,500 | 3.5% | 78.7% | **0.477** | 0.465 | 0.329 | 0.327 |
+| 2023-06-06 | BOS | 774 | 93,810 | 2.9% | 64.5% | **0.848** | 0.587 | 0.348 | 0.335 |
+| 2023-06-16 | JFK, BOS | 753 | 91,328 | 2.9% | 59.6% | **0.548** | 0.515 | 0.351 | 0.347 |
+| 2023-07-08 | JFK, BOS | 693 | 86,237 | 2.8% | 54.2% | **0.528** | 0.440 | 0.366 | 0.347 |
+| 2023-07-09 | JFK, BOS | 733 | 90,919 | 2.8% | 62.8% | **0.468** | 0.411 | 0.359 | 0.344 |
+| 2023-07-13 | JFK, BOS | 750 | 92,275 | 2.9% | 68.4% | 1.000 \* | 1.000 \* | 0.380 | 0.385 |
+| 2023-07-29 | JFK, BOS | 698 | 87,063 | 2.8% | 69.8% | 1.000 \* | 1.000 \* | 0.339 | 0.334 |
+| 2023-12-10 | JFK, BOS | 665 | 75,737 | 2.4% | 71.6% | **0.825** | 0.663 | 0.393 | 0.375 |
+| 2023-12-18 | BOS | 752 | 86,058 | 2.4% | 73.7% | 0.406 | **0.470** | 0.327 | 0.337 |
+| 2024-06-23 | JFK, BOS | 662 | 81,982 | 2.6% | 66.0% | 1.000 \* | 1.000 \* | 0.337 | 0.324 |
+| 2024-07-13 | BOS | 612 | 78,055 | 2.8% | 69.2% | **1.000** \* | 0.937 | 0.586 | 0.563 |
+| 2024-07-15 | JFK, BOS | 664 | 84,523 | 2.9% | 65.9% | 1.000 \* | 1.000 \* | 0.323 | 0.338 |
+| 2024-07-22 | JFK | 668 | 85,342 | 2.9% | 67.3% | 1.000 \* | 1.000 \* | 0.359 | 0.350 |
+| 2025-01-11 | BOS | 494 | 59,412 | 2.6% | 65.3% | 0.853 | **0.865** | 0.493 | 0.496 |
+| 2025-07-08 | JFK, BOS | 637 | 81,279 | 2.3% | 65.6% | **0.795** | 0.655 | 0.431 | 0.405 |
+| 2025-07-12 | JFK | 647 | 83,103 | 2.2% | 60.5% | **0.587** | 0.560 | 0.344 | 0.342 |
+| 2025-12-02 | BOS | 619 | 76,562 | 2.0% | 60.2% | 0.393 | **0.398** | 0.319 | 0.319 |
+| 2025-12-14 | JFK | 667 | 81,685 | 2.2% | 59.7% | **0.452** | 0.386 | 0.344 | 0.330 |
+| 2025-12-19 | JFK, BOS | 708 | 87,356 | 2.0% | 69.7% | **0.650** | 0.508 | 0.355 | 0.341 |
+| 2025-12-30 | JFK | 689 | 85,650 | 2.0% | 76.0% | **1.000** \* | 0.740 | 0.383 | 0.363 |
+| 2026-06-14 | JFK, BOS | 722 | 89,741 | 2.0% | 73.5% | **0.628** | 0.591 | 0.352 | 0.349 |
+| 2026-07-01 | BOS | 705 | 91,080 | 2.4% | 63.9% | **0.708** | 0.664 | 0.413 | 0.405 |
+| 2026-07-09 | JFK, BOS | 764 | 96,759 | 3.0% | 58.3% | 0.595 | **0.719** | 0.360 | 0.374 |
+| 2026-07-15 | JFK | 739 | 93,021 | 3.0% | 76.6% | 0.538 | **0.669** | 0.341 | 0.352 |
+
+The higher of the two in bold. \* Under the best plan found, so 1.0 and flagged `below_best`; reward_L is the fairer
+reading there. B0 scores 0.308 on 20 of these dates and more on 2023-07-29, 2024-06-23, 2024-07-15 and 2024-07-22.
+"Passengers": the day's passenger trips; "Connecting": the share of them that connect.
+
+</details>
 
 ### What the results show, and what they don't
 
-- [TBD: from the board.]
+- **They show** that on these 24 storm dates three Sol desks score above one Sol agent running all three, by a margin
+  whose CI excludes zero, and that both recover most of what standard crew-desk practice loses.
+- **They don't show that talking is what helps.** The three desks used about twice the compute: 2.0× the spend, 2.0×
+  the input tokens and 2.4× the output tokens, more spend on every date. The caps were $3 a desk against $6 for one
+  agent; 2 crew desks came within 90% of their cap, and none ended by it. The board can't separate three desks from
+  more compute, as v2's couldn't separate two.
+- **Nor what the customer desk adds by itself.** The board has no two-desk arm under P, so the customer desk's own
+  worth isn't measured. It was busy: 1,303 requests over the 24 three-desk days (a median of 56 a day), 887 HOLDs (463
+  accepted by ops), 184 PROTECTs (177 accepted), 76 SUGGEST_CANCELs (24 accepted) and 156 texts.
 - **The scripted gate for the customer desk didn't pass.** Before any model ran, a scripted customer desk built from
   published practice (hold an outbound up to 15 minutes when 10 or more connecting passengers would misconnect; ask
   ops not to cancel a flight when half its passengers have no later JetBlue seat that day) was measured against two
   scripted desks: it saved at least 2% on 2 of the 24 eval dates, against 12 needed, and cost more on 15. Its
   requests not to cancel mostly protected flights that couldn't fly, which then cancelled at their deadline, late.
   The premise holds (v2's best plan costs at least 5% more than the best plan under P on 17 of 24 dates), but the
-  script didn't capture it. The customer desk ships anyway, labelled; the board shows whether a model desk does
-  better than the script.
-- [TBD: compute: the three desks' spend and tokens against one agent's, as v2's board reported.]
+  script didn't capture it. The customer desk ships anyway, labelled.
+- **One model, one run per date and mode.** Sol varies from run to run on the same day: the pilot's one-agent run on
+  2024-07-28 scored 1.0 on a laptop and 0.613 on a test box.
 
 ## Run v3
 
@@ -190,8 +247,9 @@ agent-env airops-occ3 report occ3-my-board    # results/runs/occ3-my-board/repor
 ```
 
 `tasks --split train` writes the 44 training dates, `--split control` the calm days, `--cap-joint` and `--cap-one`
-set each desk's cost cap, and `--policy script` plays scripted desks with no model. [TBD: a three-desk day's median
-time and spend on the board.] Name a three-desk pilot `occ3-*` so that `scripts/hub_dataset.py` publishes it with v3.
+set each desk's cost cap, and `--policy script` plays scripted desks with no model. On the board a three-desk day took a
+median 70 minutes and $2.79, one agent 44 minutes and $1.52. Name a three-desk pilot `occ3-*` so that
+`scripts/hub_dataset.py` publishes it with v3.
 
 ## How v3 was validated
 
@@ -213,7 +271,11 @@ recorded with its reason before it was used, and every bar recomputed by an inde
 - **The misses, documented and shipped:** the connecting shares (above); the scripted customer desk failed its gate
   (above); the bound is weak (54% to 79% under the best plan on the eval dates, and negative on the calm winter
   control); and the best plan's repair overran its time cap on 49 of 70 dates.
-- **The desks.** [TBD: the zero-spend checks through the real harness, the pilot and the board.]
+- **The desks.** Before any model ran, scripted desks played `airops-occ3` in process on 4 training dates in both modes
+  (`scripts/occ3_checks.py`): every day graded, audited and replaying byte for byte, no page or reply before the end
+  showing a reference, the bound or a reward, the day played with every reference moved giving every page, reply and
+  record byte for byte, and the day with every delay a desk couldn't yet know changed giving everything up to each
+  watch byte for byte. A Sol pilot on 2 training dates scored all 4 runs for $6.20, and then the board scored all 48.
 
 ## The dataset and the Space
 
