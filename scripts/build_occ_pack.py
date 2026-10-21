@@ -6,7 +6,8 @@ called; the crew and aircraft solvers run (HiGHS, one thread each).
                                      --tasks cache/<world_check run> [--only DATE,...] [--workers 4] [--resume]
                                      [--scale 1.0]
     python scripts/build_occ_pack.py --assemble cache/<build> --pack data/b6-v2 [--scripted cache/<occ_z1 run>]
-    python scripts/build_occ_pack.py --v3 cache/<pax_stage2 run> --pack data/b6-v3 [--base data/b6-v2]
+    python scripts/build_occ_pack.py --v3 cache/<pax_stage2 run> --bound cache/<pax_bound run> [--pack data/b6-v3]
+                                     [--base data/b6-v2]
 
 Per date, in its own process:
 1. the trips and the units at the start (crewday.storm_units on --run's own budgets, the middle band), frozen with
@@ -71,12 +72,13 @@ def main() -> None:
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--scale", type=float, default=1.0, help="multiplies the joint search's budgets on a rerun")
     ap.add_argument("--assemble", type=Path, help="a build's out directory: write the pack from it")
-    ap.add_argument("--pack", type=Path, default=ROOT / "data" / "b6-v2")
+    ap.add_argument("--pack", type=Path, help="the pack to write (default: data/b6-v3 with --v3, else data/b6-v2)")
     ap.add_argument("--scripted", type=Path, help="an occ_z1 run: its scripted desks' costs become references")
     ap.add_argument("--v3", type=Path, help="a pax_stage2 run: write b6-v3 from --base and it")
     ap.add_argument("--base", type=Path, default=ROOT / "data" / "b6-v2")
     ap.add_argument("--bound", type=Path, help="with --v3, a pax_bound run: each date's capacity-aware bound")
     a = ap.parse_args()
+    a.pack = a.pack or ROOT / "data" / ("b6-v3" if a.v3 else "b6-v2")
     if a.v3:
         print(json.dumps(assemble_v3(a.v3, a.pack, a.base, a.bound), indent=1))
         return

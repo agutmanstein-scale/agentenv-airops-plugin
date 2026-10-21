@@ -213,6 +213,43 @@ def test_the_episode_passengers_balance_as_the_viewer_reads_them(world):
     assert [e["t"] for e in out["events"]] == sorted(e["t"] for e in out["events"])
 
 
+def test_a_day_with_a_customer_hold_is_an_episode_with_the_customer_desk_and_the_minutes_it_held(world, tmp_path):
+    d = OccDay3(world)
+    turn(d, "crew")
+    d.call("crew", "end_turn", END)
+    turn(d, "customer")
+    d.call("customer", "cust_flight", {"flight": "f3"})
+    d.call("customer", "cust_request", {"type": "HOLD", "flight": "f3", "until": "11:00", "note": "30 on f1"})
+    d.call("customer", "end_turn", END)
+    turn(d, "ops")
+    d.call("ops", "ops_reply", {"request": "R1", "answer": "accept", "text": None})
+    while not d.done:
+        d.call(ROLE[d.turn["desk"]], "end_turn", END)
+        for n in list(d.pending):
+            d.notice(n, "trigger")
+        if not d.done:
+            d.call(ROLE[d.turn["desk"]], "wait_turn", {})
+    data = json.loads(json.dumps(d.data(), default=str))
+    ep = episode.episode(world, data, model="openai/gpt-6.1-sol", run="pilot-joint", inputs=tmp_path, cache=tmp_path)
+    assert (ep["occ"]["label"], ep["occ"]["desks"]) == ("three desks", ["crew", "customer", "ops"])
+    [hold] = ep["occ"]["requests"]
+    assert {k: hold[k] for k in ("sender", "receiver", "type", "flight", "time", "pax", "status", "text")} == {
+        "sender": "customer", "receiver": "ops", "type": "HOLD", "flight": 3, "time": 660, "pax": 0,
+        "status": "accepted", "text": "30 on B6 101"}
+    customer_turn = ep["occ"]["turns"][1]
+    assert customer_turn["desk"] == "customer" and customer_turn["from"] < hold["shown"] < customer_turn["to"]
+    [decision] = ep["occ"]["decisions"]
+    assert (decision["desk"], decision["action"], decision["flight"], decision["ref"]) == ("ops", "hold", 3, "R1")
+    rows = {r["id"]: r for r in ep["passengers"]["flights"]}
+    without = OccDay3(world).truth.run.flights[3].dep
+    assert rows[3]["hold"] == d.truth.run.flights[3].dep - without > 0 and rows[0]["hold"] == 0
+    assert ep["passengers"] == episode.passengers(world, data)
+    assert len(episode.projections(world, data)) == len(d.estimates)
+    data["passengers"]["delay"] += 1
+    with pytest.raises(ValueError, match="doesn't give the recorded passengers"):
+        episode.passengers(world, data)
+
+
 def test_a_bundle_day_deploys_three_desks_or_one_agent_capped(world, tmp_path):
     joint = tasks3.steps(world.task, "joint", policy="script")
     agents = [s for s in joint if s["type"] == "deploy_agent"]

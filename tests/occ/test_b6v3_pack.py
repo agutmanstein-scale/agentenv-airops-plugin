@@ -1,5 +1,6 @@
-"""b6-v3 is written from b6-v2 and a stage-2 reference run; b6-v2 stays byte-identical: its manifest is the one
-shipped at 6bc7139 and every file matches the manifest, before and after a v3 build reads it."""
+"""b6-v3 is written from b6-v2, a stage-2 reference run and a bound run; b6-v2 stays byte-identical: its manifest is the
+one shipped at 6bc7139 and every file matches the manifest, before and after a v3 build reads it. The shipped b6-v3 has
+a capacity-aware bound on every date, at or under every candidate, so every day it plays gets reward_L."""
 
 import gzip
 import hashlib
@@ -8,7 +9,7 @@ import json
 import shutil
 from pathlib import Path
 
-from agentenv_airops.occ.pack import Pack
+from agentenv_airops.occ.pack import Pack, Pack3
 from agentenv_airops.programs import pax
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -38,14 +39,30 @@ def test_b6_v2_is_byte_identical_and_a_v3_build_leaves_it_so(tmp_path):
         "reference": {"P": 100.0, "bound": 90.0, "gap_pct": 10.0, "from": "B0", "mode": "desk", "plan": plan},
         "candidates": {"B0": {"P": 100.0}, "v2_best": {"P": 120.0}}, "controls": {"naive": 130.0},
         "airline": {"P": 140.0}}))
-    out = builder.assemble_v3(tmp_path / "run", tmp_path / "b6-v3", B6_V2)
+    (tmp_path / "bound" / "dates").mkdir(parents=True)
+    (tmp_path / "bound" / "dates" / f"{t['date']}.json").write_text(json.dumps({"bound": 80.0, "valid": True}))
+    out = builder.assemble_v3(tmp_path / "run", tmp_path / "b6-v3", B6_V2, tmp_path / "bound")
     assert out["dates"] == 1 and len(out["skipped"]) == len(base.manifest["skipped"]) + len(base.tasks) - 1
     d = json.loads(gzip.decompress((tmp_path / "b6-v3" / "dates" / f"{t['date']}.json.gz").read_bytes()))
     v2 = json.loads(gzip.decompress((B6_V2 / "dates" / f"{t['date']}.json.gz").read_bytes()))
     assert {k: d[k] for k in v2} == v2 and d["best_plan_p"] == plan and d["refs_p"]["best_from"] == "B0"
     assert pax.Passengers.from_dict(d["passengers"]) == passengers
+    assert {k: d["refs_p"][k] for k in ("bound", "gap_pct", "bound_from")} == {"bound": 80.0, "gap_pct": 20.0,
+                                                                                "bound_from": "capacity-aware"}
     manifest = json.loads((tmp_path / "b6-v3" / "manifest.json").read_text())
     assert manifest["base_manifest_sha256"] == MANIFEST_SHA256 and intact(tmp_path / "b6-v3")
+    assert manifest["bound_run"] == {"name": "bound", "dates": 1}
     assert Pack(tmp_path / "b6-v3").world(tid).task == w.task
     assert hashlib.sha256((B6_V2 / "manifest.json").read_bytes()).hexdigest() == MANIFEST_SHA256 and intact(B6_V2)
     shutil.rmtree(tmp_path / "b6-v3")
+
+
+def test_the_shipped_b6_v3_has_a_bound_under_every_candidate_on_every_date():
+    pack = Pack3()
+    assert pack.manifest["base_manifest_sha256"] == MANIFEST_SHA256 and intact(pack.path)
+    assert len(pack.tasks) == pack.manifest["bound_run"]["dates"] == 70
+    for tid, t in sorted(pack.tasks.items()):
+        r = json.loads(gzip.decompress((pack.path / "dates" / f"{t['date']}.json.gz").read_bytes()))["refs_p"]
+        assert r["bound_from"] == "capacity-aware" and r["bound"] <= min(r["candidates"].values()) <= r["best"] + 0.5
+        assert r["gap_pct"] == round(100 * (r["best"] - r["bound"]) / r["best"], 4)
+        assert pack.world(tid).refs["bound"] == r["bound"]
