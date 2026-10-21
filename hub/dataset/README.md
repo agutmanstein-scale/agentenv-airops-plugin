@@ -30,8 +30,16 @@ agentenv:
 
 <div align="center">
 
-[TBD: the v3 hero clip and its caption, from the viewer lane: a three-desk run on the board, the customer desk's request
-in the room and the passengers at the gate.]
+<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.0/viewer/episodes/occ3-board-sol-joint.openai-gpt-6.1-sol.b6-20231210-0400.json&t=371&view=room&play=1&speed=2"><img src="https://raw.githubusercontent.com/earakely-scale/agentenv-airops-plugin/v0.4.0/assets/airops-occ3-hero.webp" alt="GPT-6.1 Sol's three desks run JetBlue's control center through the storm of 10 December 2023: in the room the customer desk's hold of B6 333 for a connecting passenger is accepted, and at Boston Logan B6 333 pushes back held until 21:22" width="100%"></a>
+
+<sub>Three GPT-6.1 Sol desks run JetBlue's network through the storm of Sunday 10 December 2023
+(<code>b6-20231210-0400</code>), shown at Boston Logan: 665 flights from 04:00 with 75,737 passenger trips, fog in the
+morning and an FAA ground delay program from 15:30. The crew scheduler makes 39 crew moves, the ops controller cancels
+4 flights and holds 26, and the customer desk sends 44 requests; ops accepts 23 of its 28 HOLDs, all 8 PROTECTs and its
+one SUGGEST_CANCEL. Flown on what really happened, the day saves 88% of what standard crew-desk practice leaves on the
+table: reward 0.825, against 0.663 for one Sol agent at all three desks and 0.308 for the standard crew desk. In the
+clip the customer desk's HOLD of B6 333 for a connecting passenger is accepted in the room and B6 333 pushes back held
+until 21:22. Click to replay the day in 3D: the control-center room and the airport.</sub>
 
 <h1>AirOpsEnv v3: passengers and the customer desk</h1>
 
@@ -117,11 +125,13 @@ the whole board cost $107.04.
 
 <!-- /board-v3 -->
 
-**What this shows, and what it doesn't.** Three Sol desks beat one Sol agent running all three on these 24 dates
-(+0.044, CI 0.007 to 0.083, higher on 14 dates and lower on 5), and both recover most of what standard crew-desk
-practice loses. It doesn't show that talking is what helps: the three desks used about twice the compute (2.0× the
-spend, 2.0× the input and 2.4× the output tokens, more spend on every date). Nor does it measure the customer desk by
-itself, as there is no two-desk arm under P; the model customer desk sent 1,303 requests over the 24 days, 664 of them
+**What this shows, and what it doesn't.** Three Sol desks scored above one Sol agent running all three on these 24
+dates (+0.044, bootstrap CI 0.007 to 0.083, higher on 14 dates and lower on 5), and both recover most of what standard
+crew-desk practice loses. It doesn't show that the third desk or talking helps. The margin is small (a sign test gives
+p = 0.064, and without the 7 dates with a below_best run the CI is −0.002 to 0.090), Sol's score for the same day and
+mode moves by up to 0.23 from one run to the next, and the three desks used about twice the compute (2.0× the spend,
+2.0× the input and 2.4× the output tokens, more spend on every date). Nor does it measure the customer desk by itself,
+as there is no two-desk arm under P; the model customer desk sent 1,303 requests over the 24 days, 664 of them
 accepted by ops. 12 of the 48 runs came in under the best plan found, both modes on 5 dates and three desks alone on 2:
 they score 1.0 and are flagged `below_best`, with `reward_L` beside them (0.32 to 0.59), and on 4 of those 5 dates B0
 itself comes within 10% of the best plan. Before any model ran, a scripted customer desk built
@@ -194,7 +204,7 @@ agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.0 --bundle airops-occ3 -
 ```
 
 The bundle `airops-occ3` (`bundles/airops-occ3/`) holds every date of the pack in both modes, `<task id>-joint` and
-`<task id>-one`, the very task files the board ran (each desk capped at $5 in a three-desk run, $12 for one agent), and
+`<task id>-one`, the very task files the board ran (each desk capped at $3 in a three-desk run, $6 for one agent), and
 `wiring-noplay`, which runs the first eval date with no desk. v2's two-desk days stay in the bundle `airops-occ`, and
 the dataset's default bundle is v1's `airops`. `hf run` downloads this card and `bundles/` at the tag's commit, checks
 that the plugin the card's `agentenv` table names is installed, shows what it will run and asks first.

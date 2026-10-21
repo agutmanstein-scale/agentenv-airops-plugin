@@ -1,7 +1,6 @@
 <div align="center">
 
-[TBD: the v3 banner from the viewer lane: the control-center room with its three desks, linked to a board run in the
-Space.]
+<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.0/viewer/episodes/occ3-board-sol-joint.openai-gpt-6.1-sol.b6-20231210-0400.json&t=371&view=room&play=1&speed=2"><img src="assets/airops-occ3-banner.jpg" alt="AirOpsEnv v3: JetBlue's operations control center in 3D on the storm day of 10 December 2023, replayed from GPT-6.1 Sol's three desks: the customer desk, the ops controller and the crew scheduler at their pods under the video wall of the network at 04:04" width="100%"></a>
 
 <h1>AirOpsEnv v3: passengers and the customer desk</h1>
 
@@ -32,8 +31,24 @@ from 04:00, played watch by watch on AgentEnv's virtual clock and graded once, o
 under a cost that follows every passenger to their final destination: against the best plan found in hindsight under
 that cost.
 
-[TBD: the v3 hero clip and its caption, from the viewer lane and the board: the customer desk's request crossing the
-room, the passengers at the gate lounge and the counter, the run's reward against the references.]
+<p align="center">
+  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.0/viewer/episodes/occ3-board-sol-joint.openai-gpt-6.1-sol.b6-20231210-0400.json&t=371&view=room&play=1&speed=2"><img src="assets/airops-occ3-hero.webp" width="100%" alt="GPT-6.1 Sol's three desks run JetBlue's control center through the storm of 10 December 2023: in the room the customer desk's hold of B6 333 for a connecting passenger is accepted, and at Boston Logan B6 333 pushes back held until 21:22"></a>
+</p>
+<p align="center"><sub>Three GPT-6.1 Sol desks run JetBlue's network through the storm of Sunday 10 December 2023 at
+JFK and Boston (<code>b6-20231210-0400</code>), shown at Logan: 665 flights from 04:00 with 75,737 passenger trips, fog
+at Logan from first light and an FAA ground delay program there from 15:30. The crew scheduler makes 39 crew moves (31
+assignments, 6 deadheads, a reserve call and a release); the ops controller cancels 4 flights, 3 of them at the crew
+desk's request, and holds 26; the customer desk sends 44 requests, and ops accepts 23 of its 28 HOLDs, all 8 PROTECTs
+and its one SUGGEST_CANCEL. Flown on what really happened, the day costs 4.4% more than the best plan found and saves
+88% of what standard crew-desk practice leaves on the table: reward 0.825, against 0.663 for one Sol agent at all three
+desks and 0.308 for the standard crew desk. In the clip the customer desk's HOLD of B6 333 to San Francisco for a
+connecting passenger is accepted in the room and B6 333 pushes back held until 21:22; later B6 561 to San Juan, held
+until 23:26, takes off. Click it to replay the day in 3D, from the room at 06:11; the
+<a href="https://github.com/earakely-scale/agentenv-airops-plugin/releases/tag/v0.4.0">full film</a> and two more,
+Kennedy on 8 July 2025 and this day at one desk, are on the v0.4.0 release. Airport © OpenStreetMap contributors
+(ODbL), imagery USGS The National Map; flights BTS; advisories FAA ATCSCC; radar NEXRAD via the Iowa Environmental
+Mesonet; passengers generated from BTS T-100 and the DOT's Origin and Destination Survey. The control-center room, the
+crews' and passengers' paths, the lounges, the counter and the shuttle are drawn for display only.</sub></p>
 
 **Contents:** [The customer desk](#the-customer-desk) · [Passengers](#passengers) · [Grading under P](#grading-under-p)
 · [The v3 board](#the-v3-board) · [Run v3](#run-v3) · [How v3 was validated](#how-v3-was-validated) ·
@@ -133,9 +148,9 @@ All 48 runs scored, every one replays exactly through the env's calls and passes
 | Standard crew desk (B0) | 0.386 | | | 0% | |
 | v2's best plan, blind to passengers | 0.602 | | | | |
 
-- **Three desks against one agent, paired by date:** +0.044 reward (95% CI 0.007–0.083), three desks higher on 14 of
-  24 dates, lower on 5 and level on the 5 where both came in under the best plan; their days cost 1.8% of the best plan
-  less (CI 0.5–3.1%).
+- **Three desks against one agent, paired by date:** +0.044 reward (bootstrap 95% CI 0.007–0.083), three desks higher
+  on 14 of 24 dates, lower on 5 and level on the 5 where both came in under the best plan; their days cost 1.8% of the
+  best plan less (CI 0.5–3.1%). A small margin: see below.
 - **Both well above standard practice:** at the median a Sol day saves 71% (three desks) or 72% (one agent) of what
   B0 leaves on the table and costs 7.7% more than the best plan found, and both modes' means are above v2's best plan
   played with its passengers (0.602).
@@ -186,12 +201,16 @@ reading there. B0 scores 0.308 on 20 of these dates and more on 2023-07-29, 2024
 
 ### What the results show, and what they don't
 
-- **They show** that on these 24 storm dates three Sol desks score above one Sol agent running all three, by a margin
-  whose CI excludes zero, and that both recover most of what standard crew-desk practice loses.
-- **They don't show that talking is what helps.** The three desks used about twice the compute: 2.0× the spend, 2.0×
-  the input tokens and 2.4× the output tokens, more spend on every date. The caps were $3 a desk against $6 for one
-  agent; 2 crew desks came within 90% of their cap, and none ended by it. The board can't separate three desks from
-  more compute, as v2's couldn't separate two.
+- **They show** that on these 24 storm dates three Sol desks scored above one Sol agent running all three, +0.044
+  (bootstrap CI 0.007–0.083), higher on 14 dates and lower on 5, and that both recover most of what standard crew-desk
+  practice loses.
+- **They don't show that the third desk or talking helps.** The margin is small: a sign test on the 19 dates where the
+  two differ gives p = 0.064, and leaving out the 7 dates with a below_best run gives +0.043 with a CI of −0.002 to
+  0.090. Sol's score for the same day and mode moves by up to 0.23 from one run to the next, the size of the effect,
+  and the board has one run per date and mode. The three desks also used about twice the compute (2.0× the spend, 2.0×
+  the input tokens and 2.4× the output tokens, more spend on every date), so the board can't separate three desks from
+  more compute, as v2's couldn't separate two. The caps were $3 a desk against $6 for one agent; 2 crew desks reached
+  90% or more of their $3 cap (the highest 96%), and none ended by it.
 - **Nor what the customer desk adds by itself.** The board has no two-desk arm under P, so the customer desk's own
   worth isn't measured. It was busy: 1,303 requests over the 24 three-desk days (a median of 56 a day), 887 HOLDs (463
   accepted by ops), 184 PROTECTs (177 accepted), 76 SUGGEST_CANCELs (24 accepted) and 156 texts.
@@ -202,8 +221,9 @@ reading there. B0 scores 0.308 on 20 of these dates and more on 2023-07-29, 2024
   requests not to cancel mostly protected flights that couldn't fly, which then cancelled at their deadline, late.
   The premise holds (v2's best plan costs at least 5% more than the best plan under P on 17 of 24 dates), but the
   script didn't capture it. The customer desk ships anyway, labelled.
-- **One model, one run per date and mode.** Sol varies from run to run on the same day: the pilot's one-agent run on
-  2024-07-28 scored 1.0 on a laptop and 0.613 on a test box.
+- **One model, one run per date and mode.** Sol varies from run to run on the same day (the pilot's one-agent run on
+  2024-07-28 scored 1.0 on a laptop and 0.613 on a test box); more runs per date and more models would settle the
+  comparison.
 
 ## Run v3
 
@@ -228,7 +248,7 @@ agent-env run results/bundles/airops-occ3 --task b6-20240713-0400-one --model op
 ```
 
 Or play a day straight from the dataset, which pins this release and holds the bundle `airops-occ3`: every date in
-both modes, the very task files the board ran (each desk's cost cap $5 in a three-desk run, $12 for one agent), and
+both modes, the very task files the board ran (each desk's cost cap $3 in a three-desk run, $6 for one agent), and
 `wiring-noplay`:
 
 ```bash
@@ -242,14 +262,14 @@ twice, and reports every scored run replayed and audited:
 
 ```bash
 agent-env airops-occ3 pilot occ3-my-board --run b6-20240713-0400-joint --run b6-20240713-0400-one \
-    --cap-joint 5 --cap-one 12 --budget 40 --request-margin 0.75 --parallel 2
+    --cap-joint 3 --cap-one 6 --budget 40 --request-margin 0.75 --parallel 2
 agent-env airops-occ3 report occ3-my-board    # results/runs/occ3-my-board/report.json
 ```
 
 `tasks --split train` writes the 44 training dates, `--split control` the calm days, `--cap-joint` and `--cap-one`
-set each desk's cost cap, and `--policy script` plays scripted desks with no model. On the board a three-desk day took a
-median 70 minutes and $2.79, one agent 44 minutes and $1.52. Name a three-desk pilot `occ3-*` so that
-`scripts/hub_dataset.py` publishes it with v3.
+set each desk's cost cap (by default $5 and $12; the board ran at $3 and $6), and `--policy script` plays scripted
+desks with no model. On the board a three-desk day took a median 70 minutes and $2.79, one agent 44 minutes and
+$1.52. Name a three-desk pilot `occ3-*` so that `scripts/hub_dataset.py` publishes it with v3.
 
 ## How v3 was validated
 

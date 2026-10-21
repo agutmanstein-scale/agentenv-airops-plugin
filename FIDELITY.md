@@ -274,8 +274,11 @@ more under P than the passenger-aware plan, on 12 or more of the 24 eval dates. 
   comes within 10% of the best plan: the best plan is weak there, from its fixed candidates and capped repair (limit 4
   below). Their `reward_L` is 0.32 to 0.59.
 - **How the desks ended:** ops and crew stood down on 20 of 24 three-desk days and the customer desk on 15 (it
-  finished its day on 9); one agent stood down on 21 of 24. No desk ended on an error; 2 crew desks came within 90% of
-  their $3 cap, and none ended by it.
+  finished its day on 9); one agent stood down on 21 of 24. No desk ended on an error. 2 crew desks reached 90% or
+  more of their $3 cap (96% and 92%), and none ended by it. The desks never see their spend, so a cap acts only by
+  the harness stopping a desk, which never happened; but the crew desk takes 56% of a three-desk day's spend, and at
+  96% with a context near 250k tokens it was a request or two from being stopped: on a rerun, or with another model,
+  $3 a crew desk can bind.
 
 ## v3: not modelled, labelled
 
@@ -309,8 +312,10 @@ more under P than the passenger-aware plan, on 12 or more of the 24 eval dates. 
    cancellation cheaply.
 8. **Step 0's MIP proved no date** and stored no plans; G1 holds at 14 of 24 without the dates it improved.
 9. **The passengers are generated,** from route-month loads and a ticket survey, not JetBlue's bookings.
-10. **The board measures three desks against one agent, not talking or the customer desk by itself:** three desks used
-    2.0× one agent's spend, and there is no two-desk arm under P.
+10. **The board measures three desks against one agent, one run each, not talking or the customer desk by itself:**
+    three desks used 2.0× one agent's spend, there is no two-desk arm under P, and the +0.044 margin is within Sol's
+    run-to-run variation (up to 0.23 for the same day and mode; a sign test gives p = 0.064; without the 7 dates with
+    a below_best run the CI is −0.002 to 0.090).
 
 ## v3: rerun the checks
 
