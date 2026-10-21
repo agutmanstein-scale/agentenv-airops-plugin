@@ -2,8 +2,8 @@
 session), fail on an uncaught exception, a console error or a script or stylesheet from another host than the
 viewer's (its third-party code is vendored under web/vendor/), check that the 3D airport, the control-center room and
 the US map each come to the front and draw (window.airops.state() and a still that isn't blank) at a few minutes of
-the day, with a day's passengers at the airport and its customer desk in the room when it has them, and write the
-stills, a contact sheet of them and a JSON report.
+the day, with a day's passengers at the airport, inside its terminal (where it opens) and its customer desk in the room
+when it has them, and no terminal without them, and write the stills, a contact sheet of them and a JSON report.
 
 usage: .venv/bin/python scripts/occ_qa.py cache/occ/viewer --out cache/qa [--minutes 840,1075] [--no-room] \
            [--ignore REGEX]
@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from record import clock, find_chrome, session  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-VIEWS = {"tower": "stage", "room": "room", "network": "map"}
+VIEWS = {"terminal": "stage", "tower": "stage", "room": "room", "network": "map"}
 BLANK = 6.0
 """The least spread of grey levels a still may have, below which it is blank."""
 TILE = (480, 270)
@@ -95,9 +95,17 @@ def page_list(base: str, data: str, chrome: str, width: int, height: int, index:
                      height, "auto", enable=("Runtime", "Log", "Network")) as (page, ready, _):
             cards = page.js("document.querySelectorAll('.ep-card').length")
             thumbs = page.js("document.querySelectorAll('.ep-card .thumb:not(.none)').length")
-            result |= {"cards": cards, "thumbs": thumbs}
+            inside = page.js("document.querySelectorAll('.ep-card[href*=\"view=terminal\"]').length")
+            start = page.js("[document.querySelector('.start-card')?.href ?? '', "
+                            "document.querySelector('.start .also a')?.href ?? '']")
+            result |= {"cards": cards, "thumbs": thumbs, "terminal": inside, "start": start}
             if cards != len(index["episodes"]):
                 result["failures"].append(f"{cards} cards for {len(index['episodes'])} episodes")
+            v3 = sum(1 for e in index["episodes"] if e.get("passengers"))
+            if inside != v3:
+                result["failures"].append(f"{inside} cards open the terminal for {v3} episodes with passengers")
+            if v3 and not ("view=terminal" in start[0] and "moment=passengers" in start[0] and "view=room" in start[1]):
+                result["failures"].append(f"Start here opens {start}, not the terminal and the room")
             if thumbs < cards:
                 result["notes"] = [f"{cards - thumbs} episodes without a thumbnail (record.py --thumb)"]
             capture(page, out / "index.jpg")
@@ -117,10 +125,18 @@ def episode(base: str, data: str, chrome: str, width: int, height: int, entry: d
            f"&episode={quote(data + '/episodes/' + entry['url'])}")
     try:
         with session(url, chrome, width, height, "auto", enable=("Runtime", "Log", "Network")) as (page, ready, gl):
-            result |= {"gl": gl, "views": ready["views"], "stage": ready["stage"], "room": ready["room"]}
-            wanted = ["tower" if ep.get("stage") else None, "room" if ep.get("occ") and room else None, "network"]
+            inside = bool(ep.get("passengers") and ep.get("stage"))
+            opened = page.js("airops.state().view")
+            result |= {"gl": gl, "views": ready["views"], "stage": ready["stage"], "room": ready["room"],
+                       "opened": opened}
+            wanted = ["terminal" if inside else None, "tower" if ep.get("stage") else None,
+                      "room" if ep.get("occ") and room else None, "network"]
             for missing in [v for v in wanted if v and v != "network" and v not in ready["views"]]:
-                result["failures"].append(f"no {VIEWS[missing]} view")
+                result["failures"].append(f"no {missing if missing == 'terminal' else VIEWS[missing]} view")
+            if not inside and "terminal" in ready["views"]:
+                result["failures"].append("a terminal view without passengers")
+            if ep.get("stage") and opened != ("terminal" if inside else "tower"):
+                result["failures"].append(f"opens on {opened}")
             for t in minutes:
                 for view in [v for v in wanted if v and v in ready["views"]]:
                     page.js(f"airops.view({json.dumps(view)})")
@@ -130,7 +146,8 @@ def episode(base: str, data: str, chrome: str, width: int, height: int, entry: d
                     spread = capture(page, path)
                     check = {"view": view, "t": t, "main": state["main"], "spread": round(spread, 1),
                              "aircraft": (state.get("stage") or {}).get("aircraft"), "airborne": state["airborne"],
-                             "passengers": (state.get("stage") or {}).get("passengers")}
+                             "passengers": (state.get("stage") or {}).get("passengers"),
+                             "gate": ((state.get("stage") or {}).get("terminal") or {}).get("gate")}
                     result["checks"].append(check)
                     stills.append((f"{ep['task']['date']} · {ep['occ']['label'] if ep.get('occ') else 'v1'} · "
                                    f"{view} {clock(t)}", path))
@@ -142,6 +159,8 @@ def episode(base: str, data: str, chrome: str, width: int, height: int, entry: d
                         result["failures"].append(f"tower at {clock(t)}: no aircraft drawn")
                     if view == "tower" and ep.get("passengers") and check["passengers"] is None:
                         result["failures"].append(f"tower at {clock(t)}: no passengers at the airport")
+                    if view == "terminal" and (state["view"] != "terminal" or check["gate"] is None):
+                        result["failures"].append(f"terminal at {clock(t)}: no gate in view")
                     desks = (state.get("room") or {}).get("desks") or []
                     if view == "room" and "customer" in ep["occ"].get("desks", []) and "customer" not in desks:
                         result["failures"].append(f"room at {clock(t)}: no customer desk")
