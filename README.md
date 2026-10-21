@@ -237,17 +237,22 @@ from the packs and the recorded runs under `results/runs`:
 agentenv-hf scans every file for keys and token shapes first.
 
 ```bash
-[TBD: the viewer lane's command that exports the v3 board's runs as viewer episodes into cache/occ/viewer-release]
-python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --workers 6 \
-    --out cache/hub/dataset-v0.4.0 --space-out cache/hub/space-v0.4.0
-python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --workers 6 \
-    --out cache/hub/dataset-v0.4.0 --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.4.0
+python scripts/occ_films.py results/runs/occ3-board-sol --out cache/films --assets cache/occ/viewer-release --final
+python scripts/hub_dataset.py sol-v1 --occ3 occ3-board-sol --occ-viewer cache/films/occ3-board-sol/viewer \
+    --occ-viewer cache/occ/viewer-release --workers 6 --out cache/hub/dataset-v0.4.0 --space-out cache/hub/space-v0.4.0
+python scripts/hub_dataset.py sol-v1 --occ3 occ3-board-sol --occ-viewer cache/films/occ3-board-sol/viewer \
+    --occ-viewer cache/occ/viewer-release --workers 6 --out cache/hub/dataset-v0.4.0 \
+    --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.4.0
 ```
 
-`hub_dataset.py` replays every recorded control-center day, v2's and v3's, through the env's calls (a few minutes a
-day, `--workers` at once, kept under `cache/occ/replays/` so a rebuild replays only what changed). Without `--occ` it
-takes every folder under `results/runs` with a `pilot.json` for v2, and without `--occ3` every such folder named
-`occ3-*` for v3; v2's retry folder counts as v2's board.
+`occ_films.py` builds each scored run of the board into a viewer episode with its passengers, replayed for each
+watch's projections, films it and picks its list still, into `cache/films/occ3-board-sol/` (the episodes under
+`viewer/`); `--assets` names a folder with the airport stages, hub twins and radar frames, such as v2's. `--occ-viewer`
+takes v3's folder, then v2's (`scripts/occ_episodes.py --out`), and lists them in that order. `hub_dataset.py` replays
+every recorded control-center day, v2's and v3's, through the env's calls (a few minutes a day, `--workers` at once,
+kept under `cache/occ/replays/` so a rebuild replays only what changed). Without `--occ` it takes every folder under
+`results/runs` with a `pilot.json` for v2, and without `--occ3` every such folder named `occ3-*` for v3; v2's retry
+folder counts as v2's board.
 
 The [replay Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv) is static: `hub/space/` and the
 viewer (`web/`) under `viewer/`, reading the episodes straight from the dataset's resolve URLs at the tag, which
