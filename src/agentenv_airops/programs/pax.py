@@ -65,6 +65,7 @@ rebooked optimally over its actual flights and seats.
 
 import csv
 import heapq
+import math
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -626,6 +627,56 @@ class Proxy:
         for g in passengers.groups:
             if len(g.legs) == 1:
                 out.term[g.legs[0]] += g.pax
+        return out
+
+    @classmethod
+    def lower(cls, task: Task, passengers: Passengers, arrive: Mapping[int, int]) -> "Proxy":
+        """A model whose optimum is a lower bound on P: the local passengers' delay on their flight, exact; a
+        connection that holds, 0; and every way a group is disrupted (the misconnect binaries as in the proxy) sending
+        each passenger to the cheapest outcome P could give it: a flight into its destination that day from where it
+        is or a connecting station at its earliest possible arrival (`arrive`, whatever the leg before or the minute
+        the passenger is ready), within the largest seats of its family less its local passengers (riders, freed
+        seats and other passengers' legs relaxed); the first scheduled arrival into its destination over the
+        following days and one night at the cheapest lodging of the day's stations (their seats relaxed); or a
+        refund at the fare alone. A flight that costs no less than the later days or the refund, both always open,
+        is left out. A cancellation costs its refund exposure and the notice at the first watch, less the saving, as
+        in P."""
+        out = cls(task, Passengers(()), {})
+        most: dict[str, int] = {}
+        for t in task.tails:
+            most[t.family] = max(most.get(t.family, t.seats), t.seats)
+        local: Counter = Counter()
+        for g in passengers.groups:
+            if len(g.legs) == 1:
+                local[g.legs[0]] += g.pax
+        out.term = local
+        out.free = {f.id: max(0, most[f.family] - local[f.id]) for f in task.flights}
+        into: dict[str, list[Flight]] = defaultdict(list)
+        for f in task.flights:
+            into[f.dest].append(f)
+        first = {}
+        for s in Later(task, passengers.later).flights:
+            first[s.dest] = min(first.get(s.dest, s.arr), s.arr)
+        night = min(crews.lodging(s, task.date) for s in {f.orig for f in task.flights} | set(CONNECT))
+        refund = math.floor(passengers.fare)
+        links: Counter = Counter()
+        modes = []
+        for g in passengers.groups:
+            head, last = task.flight(g.legs[0]), task.flight(g.legs[-1])
+            later = [((), math.floor(max(0, first[last.dest] - last.sched_arr) + night))] if last.dest in first else []
+            worst = min([refund] + [c for _, c in later])
+            today = [(k.orig, (k.id,), c) for k in into[last.dest]
+                     if (c := max(0, arrive[k.id] - last.sched_arr)) < worst]
+            kinds = [(head.id, False, None, head.orig)]
+            kinds += [(head.id, True, None, head.orig)] if head.id in out.lined else []
+            if len(g.legs) == 2:
+                links[(head.id, last.id)] += g.pax
+                kinds.append((None, False, (head.id, last.id), last.orig))
+            modes += [Mode(g.id, g.pax, cut, lapse, link,
+                           tuple([(k, c) for o, k, c in today if o == s or o in CONNECT] + later), refund)
+                      for cut, lapse, link, s in kinds]
+        out.links = tuple(Link(i, j, task.flight(j).orig, n) for (i, j), n in sorted(links.items()))
+        out.modes = tuple(modes)
         return out
 
     def flown(self, f: Flight, dep: int, arr: int) -> int:

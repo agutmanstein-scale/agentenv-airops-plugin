@@ -1,9 +1,11 @@
+import importlib.util
 import random
 from dataclasses import replace
 
 import numpy as np
 import pytest
 from day_helpers import day, flight, network_day, random_day, tail
+from program_helpers import ROOT
 from test_hindsight_mip import feasible
 from v2_digest import DATE, digests
 
@@ -12,6 +14,9 @@ from agentenv_airops.programs import crews, crewsim, mip, pax, sim
 from agentenv_airops.programs.cost import REFUND
 from agentenv_airops.programs.pax import Group, Passengers, Seat
 
+SPEC = importlib.util.spec_from_file_location("pax_bound", ROOT / "scripts" / "pax_bound.py")
+pax_bound = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(pax_bound)
 V2 = {"naive": "d514334e73cae4473da59d945583944ae5e99a25a2b61df00b341bb9e2cea0a2",
       "B0": "a241a221e71e2d363ecec96cf67cb4af37f3185755430e6519bc2d09c4b5608e",
       "best": "5bdc773ac67cb7eb85e82133b3a6fe28b7a55343ee31c00d319825a81cec2949",
@@ -210,3 +215,23 @@ def test_the_rounded_relaxation_is_a_plan_the_sim_plays_and_a_start_the_model_ho
     x = net.vector(run)
     assert x is not None and feasible(net, x)
     assert float(np.dot(net.m.cost, x)) == pytest.approx(proxy.cost(run), abs=1e-6)
+
+
+@pytest.mark.parametrize("seed", range(10))
+def test_the_capacity_aware_floor_is_at_most_p_on_every_day_the_sim_plays(seed):
+    task, passengers = mixed(seed)
+    arrive = pax_bound.arrivals(task, sim.truth(task))
+    lower = pax.Proxy.lower(task, passengers, arrive)
+    rng = random.Random(seed)
+    plans = [{}, mip.solve(task, pax=pax.Proxy(task, passengers), start=sim.execute(task, {})).plan(task.start)]
+    for _ in range(10):
+        plans.append({f.id: {"cancel": rng.random() < 0.3, "decided": rng.randrange(0, 200),
+                             "not_before": rng.randrange(0, 400)} for f in task.flights if rng.random() < 0.6})
+    played = []
+    for plan in plans:
+        run = sim.execute(task, plan, pax=passengers)
+        assert all(r.arr >= arrive[i] for i, r in run.flights.items() if r.status == "flown")
+        assert lower.cost(run) <= run.cost.total + 1e-6
+        played.append(run.cost.total)
+    sol = mip.solve(task, pax=lower, start=sim.execute(task, {}))
+    assert sol.proven and sol.bound <= sol.objective + 1e-6 <= min(played) + 2e-6
