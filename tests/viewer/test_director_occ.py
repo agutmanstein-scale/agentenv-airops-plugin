@@ -288,6 +288,7 @@ def test_passengers_who_missed_their_connection_and_the_stranded_s_shuttle_are_f
     assert (bus.camera, bus.at, bus.path) == ("curb", 720, ((-80, 40), (-80, 60)))
     assert bus.caption == "12 passengers stranded overnight leave for the hotel"
     assert bus.subline == "They fly on tomorrow from 07:00"
+    assert record.Center(ep, traffic, None, None, dusk=719).shuttle() == []
 
 
 def test_the_desks_words_are_quoted_only_when_they_read_plainly():

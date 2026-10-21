@@ -139,16 +139,16 @@ def lead_in(at: float, seconds: float, speed: tuple[float, float], total: float)
 
 def direct(ep: Mapping, traffic: Mapping, events: Sequence[Mapping] | None = None,
            poses: Callable[[str, float, float], list] | None = None, seconds: float = 40,
-           room: bool = True, light: float | None = None) -> list[Shot]:
+           room: bool = True, light: float | None = None, dusk: float | None = None) -> list[Shot]:
     """The film of a day about ``seconds`` long, in the order it happened: the hub across the water as the desk opens,
     the FAA's program arriving over a quiet field, a cancellation landing at its gate and on the board, a held flight
     finally pushing back, taxiing and taking off, then the day's score; a control-center day cuts to the room when the
     desks decide or talk (Center), to its 2D card over the tower without a 3D ``room``. ``events`` are the stage's
     movements (AirportStage.events(), else the sidecar's times) and ``poses(key, a, b)`` the stage's
     [[minute, phase, speed]] and ``light`` the first minute the airport is light enough to film (else the day's
-    start)."""
+    start), ``dusk`` the last (else its end)."""
     if ep.get("occ"):
-        return Center(ep, traffic, events, poses, room, light).film(seconds)
+        return Center(ep, traffic, events, poses, room, light, dusk).film(seconds)
     return Day(ep, traffic, events, poses).film(seconds)
 
 
@@ -442,12 +442,13 @@ class Center(Day):
     never before first ``light``. Without a 3D ``room`` its beats go on the room's 2D card over the map."""
 
     def __init__(self, ep: Mapping, traffic: Mapping, events: Sequence[Mapping] | None, poses, room: bool = True,
-                 light: float | None = None):
+                 light: float | None = None, dusk: float | None = None):
         super().__init__(ep, traffic, events, poses)
         self.occ, self.room = ep["occ"], room
         self.one = self.occ["mode"] == "one"
         self.sched = {s["id"]: s for s in ep["schedule"]}
         self.light = self.span[0] if light is None else max(self.span[0], light)
+        self.dusk = self.span[1] if dusk is None else dusk
 
     def film(self, seconds: float) -> list[Shot]:
         """The beats that fit in ``seconds``, most needed first, each the first of its options clear of the others in
@@ -677,12 +678,12 @@ class Center(Day):
 
     def shuttle(self) -> list[list[Shot]]:
         """Passengers stranded overnight boarding the hotel shuttle at the curb (the sidecar's passengers,
-        display-only), the fullest in light first, from beside it as it stands and pulls away."""
+        display-only), in daylight, the fullest first, from beside it as it stands and pulls away: the curb is unlit."""
         pax = self.traffic.get("passengers") or {}
         found = []
         for g in pax.get("groups") or []:
             s = g["segs"][0]
-            if g["kind"] != "shuttle" or s["t"][0] - 2.5 < self.light:
+            if g["kind"] != "shuttle" or s["t"][0] - 2.5 < self.light or s["t"][0] > self.dusk:
                 continue
             n = int(re.search(r"(\d+) passengers", s["say"])[1])
             riders = [x for x in pax["groups"] if x["kind"] == "hotel" and x["segs"][-1]["t"][1] <= s["t"][0]
@@ -1230,6 +1231,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--titled", action="store_true", help="With --still, the env's name and line over the frame.")
     p.add_argument("--no-room", action="store_true",
                    help="Film a control-center day whose page has no 3D room on the room's 2D card instead of failing.")
+    p.add_argument("--no-board", action="store_true",
+                   help="End a board's day on its own score, without the board's means from the folder's index.")
     p.add_argument("--pick", metavar="SHOT:FRACTION",
                    help="The poster frame: a shot of the director's and how far through it, or 'day' for its first "
                         "airport shot in daylight; by default the first in the control-center room, else the taxi, "
@@ -1269,7 +1272,8 @@ def main(argv: list[str] | None = None) -> int:
             if directed and episode.get("occ") and not ready.get("room") and not args.no_room:
                 raise SystemExit("the 3D control-center room did not load: film again, or pass --no-room for its card")
             if directed:
-                shots = director(page, episode, path, args.seconds, args.rollout, bool(ready.get("room")))
+                shots = director(page, episode, path, args.seconds, args.rollout, bool(ready.get("room")),
+                                 not args.no_board)
                 if args.shots:
                     stills(page, episode, shots, args.shots)
                 if args.thumb or args.still:
@@ -1290,9 +1294,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def director(page, ep: Mapping, path: Path, seconds: float | None, rollout: bool = False,
-             room: bool = False) -> list[Shot]:
+             room: bool = False, standings: bool = True) -> list[Shot]:
     """The director's shots for the episode on the page, or its rollout, with the film helper loaded into it; a
-    control-center day films its ``room`` if the page has the 3D one."""
+    control-center day films its ``room`` if the page has the 3D one, and ends on its board's means if ``standings``."""
     if not page.js(FILM_JS.replace("__CSS__", json.dumps(FILM_CSS))):
         raise SystemExit("the film helper did not load")
     traffic = json.loads(gzip.decompress((path.parent / ep["stage"]["traffic"]).read_bytes()))
@@ -1305,10 +1309,13 @@ def director(page, ep: Mapping, path: Path, seconds: float | None, rollout: bool
     light = page.js(f"(() => {{ const e = airops.stage.env; for (let t = {traffic['span'][0]}; "
                     f"t < {traffic['span'][0] + 720}; t += 2) if (e.sunAt(t).el >= {DAWN}) return t; "
                     f"return {traffic['span'][0]}; }})()")
-    if ep.get("occ") and (rows := board(path.parent / "index.json", ep)):
+    dusk = page.js(f"(() => {{ const e = airops.stage.env; for (let t = {traffic['span'][1]}; "
+                   f"t > {light}; t -= 2) if (e.sunAt(t).el >= {DAWN}) return t; return {light}; }})()") \
+        if ep.get("passengers") else None
+    if ep.get("occ") and standings and (rows := board(path.parent / "index.json", ep)):
         page.js(f"film.board = {json.dumps(rows)}")
     shots = day.rollout(seconds or 55) if rollout else \
-        direct(ep, traffic, events, poses, seconds or (70 if ep.get("occ") else 40), room, light)
+        direct(ep, traffic, events, poses, seconds or (70 if ep.get("occ") else 40), room, light, dusk)
     for s in shots:
         print(f"  {s.name:<9} {s.camera:<10} {clock(s.t0)}–{clock(s.t1)} {s.seconds:4.1f} s "
               f"×{s.speed[0]:g}–{s.speed[1]:g} {s.key or ''} {s.caption}")
