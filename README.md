@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.0/viewer/episodes/occ3-board-sol-joint.openai-gpt-6.1-sol.b6-20231210-0400.json&t=371&view=room&play=1&speed=2"><img src="assets/airops-occ3-banner.jpg" alt="AirOpsEnv v3: JetBlue's operations control center in 3D on the storm day of 10 December 2023, replayed from GPT-6.1 Sol's three desks: the customer desk, the ops controller and the crew scheduler at their pods under the video wall of the network at 04:04" width="100%"></a>
+<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.0/viewer/episodes/occ3-board-sol-joint.openai-gpt-6.1-sol.b6-20250708-0400.json&t=498&view=room&play=1&speed=2"><img src="assets/airops-occ3-banner.jpg" alt="AirOpsEnv v3: JetBlue's operations control center in 3D at 19:27 on the storm day of 8 July 2025, replayed from GPT-6.1 Sol's three desks: the customer desk's holds for connecting passengers on their way to the ops controller under the video wall, with ground delay programs at JFK and Boston" width="100%"></a>
 
 <h1>AirOpsEnv v3: passengers and the customer desk</h1>
 
@@ -32,23 +32,25 @@ under a cost that follows every passenger to their final destination: against th
 that cost.
 
 <p align="center">
-  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.0/viewer/episodes/occ3-board-sol-joint.openai-gpt-6.1-sol.b6-20231210-0400.json&t=371&view=room&play=1&speed=2"><img src="assets/airops-occ3-hero.webp" width="100%" alt="GPT-6.1 Sol's three desks run JetBlue's control center through the storm of 10 December 2023: in the room the customer desk's hold of B6 333 for a connecting passenger is accepted, and at Boston Logan B6 333 pushes back held until 21:22"></a>
+  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.0/viewer/episodes/occ3-board-sol-joint.openai-gpt-6.1-sol.b6-20250708-0400.json&t=498&view=room&play=1&speed=2"><img src="assets/airops-occ3-hero.webp" width="100%" alt="GPT-6.1 Sol's three desks run JetBlue's control center through the storm of 8 July 2025: at Kennedy passengers who missed their connection reach the service counter and the stranded leave on the hotel shuttle, and in the room ops declines the customer desk's request not to cancel B6 675"></a>
 </p>
-<p align="center"><sub>Three GPT-6.1 Sol desks run JetBlue's network through the storm of Sunday 10 December 2023 at
-JFK and Boston (<code>b6-20231210-0400</code>), shown at Logan: 665 flights from 04:00 with 75,737 passenger trips, fog
-at Logan from first light and an FAA ground delay program there from 15:30. The crew scheduler makes 39 crew moves (31
-assignments, 6 deadheads, a reserve call and a release); the ops controller cancels 4 flights, 3 of them at the crew
-desk's request, and holds 26; the customer desk sends 44 requests, and ops accepts 23 of its 28 HOLDs, all 8 PROTECTs
-and its one SUGGEST_CANCEL. Flown on what really happened, the day costs 4.4% more than the best plan found and saves
-88% of what standard crew-desk practice leaves on the table: reward 0.825, against 0.663 for one Sol agent at all three
-desks and 0.308 for the standard crew desk. In the clip the customer desk's HOLD of B6 333 to San Francisco for a
-connecting passenger is accepted in the room and B6 333 pushes back held until 21:22; later B6 561 to San Juan, held
-until 23:26, takes off. Click it to replay the day in 3D, from the room at 06:11; the
+<p align="center"><sub>Three GPT-6.1 Sol desks run JetBlue's network through the storm of Tuesday 8 July 2025 at
+JFK and Boston (<code>b6-20250708-0400</code>), shown at Kennedy: 637 flights from 04:00 with 81,279 passenger trips, an
+FAA ground stop at JFK in the afternoon and ground delay programs at JFK and Boston into the night. The crew scheduler
+makes 24 crew moves (11 assignments, 7 deadheads, 3 reserve calls, 2 releases and a swap); the ops controller holds 31
+departures and cancels one flight; the customer desk sends 60 requests, and ops accepts 30 of its 46 HOLDs and 7 of its
+8 PROTECTs and declines its 3 SUGGEST_CANCELs. Flown on what really happened, the day costs 7.8% more than the best
+plan found and saves 85% of what standard crew-desk practice leaves on the table: reward 0.795, against 0.655 for one
+Sol agent at all three desks and 0.308 for the standard crew desk. In the clip 9 passengers who missed B6 135 to
+Phoenix reach the service counter, 17 passengers stranded overnight leave on the hotel shuttle, the customer desk asks
+ops not to cancel B6 675 to Hartford (51 passengers booked) and ops declines, and B6 675 stays at its gate, cancelled.
+Click it to replay the day in 3D, from the room at 08:18; the
 <a href="https://github.com/earakely-scale/agentenv-airops-plugin/releases/tag/v0.4.0">full film</a> and two more,
-Kennedy on 8 July 2025 and this day at one desk, are on the v0.4.0 release. Airport © OpenStreetMap contributors
-(ODbL), imagery USGS The National Map; flights BTS; advisories FAA ATCSCC; radar NEXRAD via the Iowa Environmental
-Mesonet; passengers generated from BTS T-100 and the DOT's Origin and Destination Survey. The control-center room, the
-crews' and passengers' paths, the lounges, the counter and the shuttle are drawn for display only.</sub></p>
+Boston on 10 December 2023 with three desks and with one agent, are on the v0.4.0 release. Airport © OpenStreetMap
+contributors (ODbL), imagery USGS The National Map; flights BTS; advisories FAA ATCSCC; radar NEXRAD via the Iowa
+Environmental Mesonet; passengers generated from BTS T-100 and the DOT's Origin and Destination Survey. The
+control-center room, the crews' and passengers' paths, the lounges, the counter and the shuttle are drawn for display
+only.</sub></p>
 
 **Contents:** [The customer desk](#the-customer-desk) · [Passengers](#passengers) · [Grading under P](#grading-under-p)
 · [The v3 board](#the-v3-board) · [Run v3](#run-v3) · [How v3 was validated](#how-v3-was-validated) ·
