@@ -445,6 +445,15 @@ def fly(task: Task, passengers: Passengers, runs: Mapping, riders: Mapping[int, 
     return _Pass(task, passengers, runs, riders or {}).run()
 
 
+def ledger(task: Task, passengers: Passengers, runs: Mapping, riders: Mapping[int, int] | None = None
+           ) -> tuple[Day, dict[str, Counter]]:
+    """`fly`'s day and its ledger by flight: who flew it, who was added to it (every leg of an itinerary they were
+    rebooked onto), who dropped it (booked or added, disrupted on an earlier leg of that itinerary), and by group who
+    made its booked connection."""
+    p = _Pass(task, passengers, runs, riders or {})
+    return p.run(), {"flown": p.flown, "added": p.added, "dropped": p.dropped, "made": p.made}
+
+
 class _Pass:
     def __init__(self, task: Task, passengers: Passengers, runs: Mapping, riders: Mapping[int, int]):
         self.task, self.groups, self.runs, self.refunded = task, passengers.groups, runs, passengers.fare
@@ -455,6 +464,7 @@ class _Pass:
         self.heap: list = []
         self.parts: list[Part] = []
         self.events: list[dict] = []
+        self.flown, self.added, self.dropped, self.made = Counter(), Counter(), Counter(), Counter()
 
     def run(self) -> Day:
         for g in self.groups:
@@ -482,6 +492,9 @@ class _Pass:
                                     "pax": n, "group": g.id})
                 return
             flew, prev = (*flew, k), r.arr
+            self.flown[k] += n
+        if flew == g.legs and len(flew) == 2:
+            self.made[g.id] += n
         self.done(g, n, FLEW if flew == g.legs else REBOOKED, flew, prev, None)
 
     def push(self, t: int, g: Group, n: int, f: Flight, *rest) -> None:
@@ -491,6 +504,7 @@ class _Pass:
                   prev: int | None) -> None:
         for k in rest:
             self.hold[k] -= n
+            self.dropped[k] += n
         task, runs, s = self.task, self.runs, was.orig
         dest = task.flight(g.legs[-1]).dest
         ready = t + mct(s) if prev is None else max(t, prev + mct(s))
@@ -528,6 +542,7 @@ class _Pass:
                 continue
             for k in ids:
                 self.hold[k] += m
+                self.added[k] += m
             self.events.append({"t": t, "kind": "rebook", "at": s, "flight": was.id, "to": ids[0], "pax": m,
                                 "group": g.id})
             self.walk(g, m, ids, flew, prev, t)

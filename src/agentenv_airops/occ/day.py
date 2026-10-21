@@ -41,7 +41,8 @@ TURNS = {"joint": 6, "one": 8, "idle": 0}
 EXTRA_TURNS = 10
 EARLY = 720
 SHARED = ("wait_turn", "end_turn", "resign")
-MUTATING = ("ops_confirm", "ops_request", "ops_reply", "crew_confirm", "crew_request", "crew_reply", "end_turn")
+MUTATING = ("ops_confirm", "ops_request", "ops_reply", "crew_confirm", "crew_request", "crew_reply", "cust_request",
+            "end_turn")
 ORDER = {"joint": ("crew", "ops", "reply"), "one": ("one",), "idle": ()}
 
 

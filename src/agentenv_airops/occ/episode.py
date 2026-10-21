@@ -9,11 +9,16 @@ the hub's METARs are read from the raw inputs the pack was built from (cache/inp
 
 The crews come from the day's crew log: each unit's duties with their legal limits, hotels and deadheads, the reserves
 by base and the desks' pages. The desks act at a watch's minute, in turns; the room spreads each watch's turns over the
-hour that follows (`shown`, display only) so that the requests, replies and decisions can be watched one by one."""
+hour that follows (`shown`, display only) so that the requests, replies and decisions can be watched one by one.
+
+A day with passengers (airops-occ3) adds `passengers` (`passengers`, the viewer's schema): the day played again from its
+plan, each flight's passengers by the pass's ledger, the booked connections and the pass's events; a flight's `hold`,
+the minutes its departure waited for the customer desk's holds ops accepted (the day without them played again)."""
 
 import gzip
 import json
 import re
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
@@ -27,7 +32,10 @@ from ..core.model import parse_hhmm
 from ..core.sim import FLOWN
 from ..programs import crews as rules
 from ..programs import occ as programs
+from ..programs import pax, sim
+from . import run as runs
 from .day import MUTATING, SHARED, OccDay, reward
+from .day3 import CUSTOMER, OccDay3
 from .pack import World
 from .replay import ROLE
 
@@ -36,6 +44,7 @@ SOON = 60
 desks' crew flags read it (run.flags)."""
 LOOKBACK = 720
 MODES = {"joint": "two desks", "one": "one agent at both desks"}
+MODES3 = {"joint": "three desks", "one": "one agent at every desk"}
 OPS_CHANGES = {"cancel": "cancel", "cancel_pair": "cancel", "hold": "hold", "release": "release"}
 GLUED_ID = re.compile(r"([A-Za-z]{2,})(f\d)")
 TIMED_ID = re.compile(r"\bf(\d{1,3}?)(\d{2}:\d{2}(?:\+\d)?)")
@@ -98,8 +107,75 @@ def episode(world: World, data: Mapping, *, model: str, run: str, inputs: Path, 
         "sources": SOURCES,
         "occ": room(world, data, executed),
     }
+    if world.passengers is not None and data.get("passengers") is not None:
+        ep["passengers"] = passengers(world, data)
     ep["stage"] = stage_of(ep, cache)
     return ep
+
+
+def passengers(world: World, data: Mapping) -> dict:
+    """The day's passengers in the viewer's shape: per flight booked + added = flown + rebooked + stranded + home +
+    dropped (the pass's ledger), the booked connections and how many made each, and the pass's events."""
+    task, units = world.task, {u.id: u for u in world.units}
+    plan = plan_of(data["plan"])
+    truth = sim.truth(task)
+    day = runs.truth(world, plan, truth)
+    seated = {i: sum(units[u].size for u in us) for i, us in day.riders.items() if us}
+    done, led = pax.ledger(task, world.passengers, day.run.flights, seated)
+    held = held_minutes(world, data, plan, day, truth)
+    booked, cin, cout = Counter(), Counter(), Counter()
+    for g in world.passengers.groups:
+        for k in g.legs:
+            booked[k] += g.pax
+        if len(g.legs) == 2:
+            cout[g.legs[0]] += g.pax
+            cin[g.legs[1]] += g.pax
+    rows = {f.id: {"id": f.id, "booked": booked[f.id], "added": led["added"][f.id], "conn_in": cin[f.id],
+                   "conn_out": cout[f.id], "flown": led["flown"][f.id], "misconnected": 0, "rebooked": [],
+                   "stranded": 0, "home": 0, "dropped": led["dropped"][f.id], "hold": held.get(f.id, 0)}
+            for f in task.flights}
+    moved: dict[int, Counter] = {}
+    for e in done.events:
+        r = rows[e["flight"]]
+        if e["kind"] == "misconnect":
+            r["misconnected"] += e["pax"]
+        elif e["kind"] == "rebook":
+            moved.setdefault(e["flight"], Counter())[e["to"]] += e["pax"]
+        elif e["kind"] == "hotel":
+            r["stranded"] += e["pax"]
+        else:
+            r["home"] += e["pax"]
+    for i, c in moved.items():
+        rows[i]["rebooked"] = [{"to": k, "pax": n} for k, n in sorted(c.items())]
+    return {"flights": [r for r in rows.values() if r["booked"] or r["added"]],
+            "connections": [{"from": g.legs[0], "to": g.legs[1], "at": task.flight(g.legs[1]).orig, "pax": g.pax,
+                             "made": led["made"][g.id]} for g in world.passengers.groups if len(g.legs) == 2],
+            "events": sorted(({k: v for k, v in e.items() if k != "until" or v is not None} for e in done.events),
+                             key=lambda e: (e["t"], e["kind"], e["flight"], e["group"]))}
+
+
+def held_minutes(world: World, data: Mapping, plan: dict, day, truth) -> dict[int, int]:
+    """Per flight held for the customer desk (its HOLD accepted), the minutes it left later than without those holds."""
+    asked = {r["id"] for r in data["requests"] if r["sender"] == CUSTOMER and r["type"] == "HOLD"}
+    mine = [c for c in data["changes"] if c["action"] == "hold" and c["ref"] in asked]
+    if not mine:
+        return {}
+    without = json.loads(json.dumps({str(k): v for k, v in plan.items()}))
+    for c in mine:
+        e = without[str(c["target"])]
+        e["holds"] = [h for h in e["holds"] if not (h[0] == c["t"] and h[1] == parse_hhmm(c["detail"]))]
+    other = runs.truth(world, plan_of(without), truth).run.flights
+    out = {}
+    for c in mine:
+        i = c["target"]
+        a, b = day.run.flights[i], other[i]
+        if a.status == FLOWN and b.status == FLOWN and a.dep > b.dep:
+            out[i] = a.dep - b.dep
+    return out
+
+
+def plan_of(raw: Mapping) -> dict:
+    return {int(k) if k.isdigit() else k: v for k, v in raw.items()}
 
 
 def room(world: World, data: Mapping, executed: Sequence[Mapping]) -> dict:
@@ -111,7 +187,9 @@ def room(world: World, data: Mapping, executed: Sequence[Mapping]) -> dict:
     calls = {c["seq"]: c for c in data["calls"]}
     units = crews(world, data["crews"] or {})
     return {
-        "mode": data["mode"], "label": MODES.get(data["mode"], data["mode"]), "desks": list(data["desks"]),
+        "mode": data["mode"], "label": (MODES3 if world.passengers is not None else MODES).get(data["mode"],
+                                                                                               data["mode"]),
+        "desks": list(data["desks"]),
         "turns": turns,
         "requests": [request(r, world.task) | answered(r, data["calls"], shown, turns) for r in data["requests"]],
         "decisions": [{"t": c["t"], "shown": shown.get(c["seq"], c["t"]), "desk": c["desk"], "action": c["action"],
@@ -251,6 +329,7 @@ def changes(task, log: Sequence[Mapping], k: int) -> list[dict]:
 def request(r: Mapping, task) -> dict:
     p = r.get("params") or {}
     return {"id": r["id"], "sender": r["sender"], "receiver": r["receiver"], "type": r["type"],
+            **({"pax": r["pax"]} if r.get("pax") is not None else {}),
             "flight": p.get("flight"), "time": p.get("time"), "text": prose(r.get("text"), task), "sent": r["sent"],
             "status": r["status"], "reply": r.get("reply"), "replied": r.get("replied"),
             "reply_text": prose(r.get("reply_text"), task),
@@ -361,7 +440,7 @@ def projections(world: World, data: Mapping) -> list[list[dict]]:
     drawn), checked against the recorded plan and cost."""
     out: list[list[dict]] = []
 
-    class Quick(OccDay):
+    class Quick(OccDay3 if world.passengers is not None else OccDay):
         def page(self, desk):
             return ""
 
