@@ -30,7 +30,10 @@ MAKE_IT = 20
 QUEUE, SERVE = 0.6, 4
 """Share of a disrupted group at the airport that queues at the counter; minutes the last of a group takes to be
 served after its turn at the desk."""
-SHUTTLE = 30
+SHUTTLE, DRIVE, CURB_OFF, CLEAR = 30, 200.0, (9.0, 14.0, 20.0), 3.5
+"""Minutes between hotel shuttles; metres a minute they drive; how far out from the terminal's landside face the
+passengers' stop may be, nearest first, when the crews' curb is under a building; and how far from any building a stop
+and its road keep."""
 GATE = 15.0
 """A stand is on the lounge face when its jet bridge root is this close to the home terminal's outline."""
 
@@ -56,6 +59,7 @@ def passengers(ep: Mapping, sidecar: Mapping, stage: Mapping) -> dict | None:
     by_stand = {lg["stand"]: k for k, lg in enumerate(lounges)}
     legs = legs_at(sidecar)
     counter = face.counter(lounges, legs)
+    curb = Curb.of(site, stage)
     events = defaultdict(list)
     for e in pax["events"]:
         if e["at"] == hub:
@@ -101,7 +105,7 @@ def passengers(ep: Mapping, sidecar: Mapping, stage: Mapping) -> dict | None:
                 continue
             n = rows[fid]["flown"] - conn_out[fid]
             if n > 0:
-                walk = face.walk(lounges[by_stand[stand]], face.exit(site), leg["in"] + DEPLANE, site)
+                walk = face.walk(lounges[by_stand[stand]], face.exit(curb), leg["in"] + DEPLANE, site)
                 city = leg.get("city") or leg.get("other") or ""
                 groups.append(group("off", n, [flight], walk, f"{n} off {flight}{f' from {city}' if city else ''}"
                                                               " · to baggage claim"))
@@ -128,7 +132,7 @@ def passengers(ep: Mapping, sidecar: Mapping, stage: Mapping) -> dict | None:
             groups.append(group("misconnect", missed, [a["flight"], b["flight"]], segs,
                                 f"{missed} missed {b['flight']} · to the service counter"))
             joins.append((segs[-1]["t"][1], c["to"], missed, None, "misconnect"))
-    line = queue(joins, events, groups, lounges, counter, face, site, sched, by_stand, legs)
+    line = queue(joins, events, groups, lounges, counter, face, site, sched, by_stand, legs, curb)
     tags = {}
     for i, r in rows.items():
         s = sched.get(i)
@@ -150,7 +154,7 @@ def share(t: float, span: Sequence[float]) -> float:
     return 0.0 if t <= a else 1.0 if t >= b else (t - a) / (b - a)
 
 
-def queue(joins, events, groups, lounges, counter, face, site, sched, by_stand, legs) -> list[list[float]]:
+def queue(joins, events, groups, lounges, counter, face, site, sched, by_stand, legs, curb) -> list[list[float]]:
     """The line at the counter as [t, n] steps, and the groups leaving it: to a new gate, out, or to the curb and the
     hotel shuttle."""
     desk = lounges[counter]
@@ -183,7 +187,7 @@ def queue(joins, events, groups, lounges, counter, face, site, sched, by_stand, 
                                             face.walk(desk, lounges[by_stand[gb["stand"]]], t, site),
                                             f"{k} rebooked onto {g['flight']} · to {gate(gb['stand'])}"))
                 elif e["kind"] == "hotel":
-                    segs = face.to_curb(desk, t, site)
+                    segs = face.to_curb(desk, t, site, curb)
                     shuttles[math.ceil((segs[-1]["t"][1] + 3) / SHUTTLE) * SHUTTLE].append((k, segs, fid))
         for lot in lots:
             if lot[1] > 0:
@@ -193,11 +197,11 @@ def queue(joins, events, groups, lounges, counter, face, site, sched, by_stand, 
         n = sum(k for k, _, _ in rides)
         for k, segs, fid in rides:
             wait = {"do": "wait", "t": [segs[-1]["t"][1], t - 0.5], "at": segs[-1]["p"][-1], "z": 0.0,
-                    "h": site_heading(site)}
+                    "h": curb.heading}
             walk = [*segs, wait] if t - 0.5 > segs[-1]["t"][1] else segs
             say = f"{k} stranded overnight · hotel shuttle {hhmm(t)}"
             groups.append(group("hotel", k, [sched[fid]["flight"]], walk, say))
-        van = site.van("out", t, "shuttle") | {"z": 0.0}
+        van = curb.van(t)
         groups.append(group("shuttle", 0, [], [van], f"Hotel shuttle · {n} passengers stranded overnight"))
     out, n = [], 0
     for t, d in sorted(steps):
@@ -209,9 +213,65 @@ def queue(joins, events, groups, lounges, counter, face, site, sched, by_stand, 
     return out
 
 
-def site_heading(site: Site) -> int:
-    (x0, y0), (x1, y1) = site.lane[0], site.lane[1]
-    return round(math.degrees(math.atan2(x1 - x0, y1 - y0)) % 360)
+class Curb:
+    """Where the hotel shuttle stops for passengers and its road away, display only: the crews' curb and van lane when
+    they are clear of every building, else the nearest point along the home terminal's landside face, toward its middle
+    and CURB_OFF out, whose stop and road are."""
+
+    def __init__(self, xy: Sequence[float], walk: Sequence[float], lane: Sequence[Sequence[float]]):
+        self.xy, self.walk, self.lane = tuple(xy), tuple(walk), [tuple(p) for p in lane]
+        (x0, y0), (x1, y1) = self.lane[0], self.lane[1]
+        self.heading = round(math.degrees(math.atan2(x1 - x0, y1 - y0)) % 360)
+
+    @classmethod
+    def of(cls, site: Site, stage: Mapping) -> "Curb":
+        near = [b["outer"] for kind in ("terminals", "buildings", "hangars") for b in stage.get(kind) or ()
+                if len(b["outer"]) >= 3 and any(dist(q, site.curb.xy) < 600 for q in b["outer"])]
+
+        def clear(p: Sequence[float]) -> bool:
+            return not any(inside(r, p) or edge(r, p) < CLEAR for r in near)
+
+        if all(clear(p) for p in [site.curb.xy, *along(site.lane, 10.0)[:-1]]):
+            return cls(site.curb.xy, site.curb.walk, site.lane)
+        ring, s0 = site.ring, site.curb.s
+        span = (site.landside - s0) % ring.L
+        step = 8.0 if span < ring.L / 2 else -8.0
+        for k in range(1, int(2 * min(span, ring.L - span) / 8)):
+            s = (s0 + step * k) % ring.L
+            for off in CURB_OFF:
+                if not clear(ring.at(s, off)):
+                    continue
+                for sign in (1, -1):
+                    road = [ring.at(s + sign * d, off) for d in range(0, 161, 10)]
+                    if all(clear(q) for q in road):
+                        (x0, y0), (x1, y1) = road[-2], road[-1]
+                        d = math.hypot(x1 - x0, y1 - y0) or 1.0
+                        out = (x1 + (x1 - x0) / d * 60, y1 + (y1 - y0) / d * 60)
+                        return cls(road[0], ring.at(s, 3.5), [*road, out])
+        return cls(site.curb.xy, site.curb.walk, site.lane)
+
+    def van(self, t0: float) -> dict:
+        """The shuttle pulling away from the stop at t0, having stood there PARK minutes."""
+        return {"do": "van", "t": [round(t0, 1), round(t0 + length(self.lane) / DRIVE, 1)],
+                "p": [[num(x), num(y)] for x, y in self.lane], "v": "shuttle", "dir": "out", "park": 3.0, "z": 0.0}
+
+
+def along(path: Sequence[Sequence[float]], step: float) -> list[Sequence[float]]:
+    out = [path[0]]
+    for a, b in zip(path, path[1:], strict=False):
+        n = max(1, int(dist(a, b) / step))
+        out += [(a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n) for k in range(1, n + 1)]
+    return out
+
+
+def edge(ring: Sequence[Sequence[float]], p: Sequence[float]) -> float:
+    best = math.inf
+    for i in range(len(ring)):
+        (ax, ay), (bx, by) = ring[i - 1], ring[i]
+        dx, dy = bx - ax, by - ay
+        w = max(0.0, min(1.0, ((p[0] - ax) * dx + (p[1] - ay) * dy) / ((dx * dx + dy * dy) or 1.0)))
+        best = min(best, math.hypot(ax + dx * w - p[0], ay + dy * w - p[1]))
+    return best
 
 
 def group(kind: str, n: int, flights: list[str], segs: list[dict], say: str) -> dict:
@@ -367,18 +427,18 @@ class Face:
         path = shortcut([p for i, p in enumerate(pts) if i == 0 or dist(p, pts[i - 1]) > 0.3])
         return [seg(t0, path, FLOOR)]
 
-    def exit(self, site: Site) -> dict:
+    def exit(self, curb: "Curb") -> dict:
         """The concourse's way down to the landside, by the curb, as a lounge-like place to walk to."""
-        u = self.project(site.curb.walk)[0]
+        u = self.project(curb.walk)[0]
         return {"c": u, "door": list(self.at(u, INSIDE))}
 
-    def to_curb(self, a: dict, t0: float, site: Site) -> list[dict]:
+    def to_curb(self, a: dict, t0: float, site: Site, curb: "Curb") -> list[dict]:
         """From lounge a along the concourse to the landside, down and out to the curb."""
-        exit_ = self.exit(site)
+        exit_ = self.exit(curb)
         u = exit_["c"]
         inside_ = self.walk(a, exit_, t0, site)
         down = inside_[-1]["t"][1] + 2.0
-        return [*inside_, seg(down, [self.at(u, -1.0), site.curb.xy], 0.0)]
+        return [*inside_, seg(down, [self.at(u, -1.0), curb.xy], 0.0)]
 
 
 def seg(t0: float, path: Sequence[Sequence[float]], z: float) -> dict:

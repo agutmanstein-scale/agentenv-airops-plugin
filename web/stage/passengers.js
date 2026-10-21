@@ -11,6 +11,9 @@ const NEAR = 1500;
 const ROW = 1.05;
 const STEP = 0.72;
 const SEAT = 0.62;
+const LINE = { gap: 0.62, e: 1.15, ahead: 6, early: 2 };
+/** The boarding line along the glass from the jet bridge door: its spacing and how far in from the glass, the minutes
+ * of boarding it holds, and how early before boarding it forms. */
 const DEG = Math.PI / 180;
 const SKIN = ["#f0c8a8", "#e0b08c", "#c48a62", "#9a6644", "#6e4630", "#d8a07a"].map((c) => new THREE.Color(c));
 const TOPS = ["#2f3d52", "#5b6b7d", "#7a2f35", "#3f5f4a", "#c9c2b5", "#1f2329", "#8a6d4b", "#4a5a8c", "#b5523b", "#d8d4cc", "#2d5d7b", "#6b4f7a", "#e3e1dc", "#394a3c"].map((c) => new THREE.Color(c));
@@ -154,9 +157,17 @@ export function buildPassengers(doc, stage) {
         let lo = 0;
         let hi = lg.slots.length - 1;
         here.forEach(({ c, k }, j) => {
+          const [, , b, g] = c.t;
+          const queued = c.cancel == null && T >= b - LINE.early && T < g ? Math.min(lg.board.length, Math.ceil((LINE.ahead * c.n) / Math.max(1, g - b))) : 0;
           for (let p = 0; p < k && lo <= hi; p++) {
             const slot = lg.slots[lg.order[j % 2 ? hi-- : lo++]];
             const look = lookOf(c.seed, p);
+            const r = k - 1 - p;
+            if (r < queued) {
+              const q = lg.board[r];
+              put(q.x, q.y, floor, q.h + look.turn * 0.3, look, false);
+              continue;
+            }
             const sway = slot.seated ? 0 : Math.sin(wall * 0.6 + look.seed * 40) * 4;
             put(slot.x, slot.y, floor, slot.h + look.turn + sway, look, slot.seated);
           }
@@ -283,7 +294,8 @@ function lookOf(seed, k) {
 }
 
 /** A lounge along its glass: where a point d metres along it and e in from it is, the seats and standing places a
- * crowd fills (seats first, by a stable shuffle), and on the counter's lounge the desk and its line. */
+ * crowd fills (seats first, by a stable shuffle), its boarding line from the jet bridge door along the glass, and on
+ * the counter's lounge the desk and its line. */
 function lounge(raw, depth, counter) {
   const p = raw.p;
   const cum = [0];
@@ -319,14 +331,27 @@ function lounge(raw, depth, counter) {
       benches.push({ x, y, h });
     }
   }
-  for (const [e, gap] of [[1.1, 0.78], [1.9, 0.86], [2.5, 1.2]]) {
+  for (const [e, gap] of [[1.9, 0.82], [2.5, 1.0]]) {
     for (let d = 1.2 + r() * 0.4; d < end; d += gap + r() * 0.3) {
       const [x, y, h] = pos(d, e + (r() - 0.5) * 0.3);
       slots.push({ x, y, h, seated: false, w: 0.6 + r() });
     }
   }
   const order = slots.map((_, i) => i).sort((a, b) => slots[a].w - slots[b].w);
-  const out = { stand: raw.stand, p, n: raw.n, len, pos, slots, order, benches, depth, queue: [], tagAt: pos(len / 2, -1.5) };
+  let d0 = 0;
+  let best = Infinity;
+  for (let d = 0; d <= len; d += 0.25) {
+    const [x, y] = pos(d, 0);
+    const k = Math.hypot(x - raw.door[0], y - raw.door[1]);
+    if (k < best) [best, d0] = [k, d];
+  }
+  const dir = counter || d0 > len / 2 ? -1 : 1;
+  const board = [];
+  for (let d = d0 + dir * 0.9; d > 0.6 && d < len - 0.6; d += dir * LINE.gap) {
+    const [x, y, h] = pos(d, LINE.e);
+    board.push({ x, y, h: h + dir * 90 });
+  }
+  const out = { stand: raw.stand, p, n: raw.n, len, pos, slots, order, benches, depth, queue: [], board, tagAt: pos(len / 2, -1.5) };
   if (counter) {
     out.desk = pos(len - 4.5, depth - 1.6);
     out.tagAt = pos(len - 10, -1.5);

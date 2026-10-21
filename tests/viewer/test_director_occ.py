@@ -242,6 +242,51 @@ def test_the_line_at_the_service_counter_is_filmed_through_its_lounge_s_glass_at
     assert shot.subline == "After B6 20 to New York was cancelled" and shot.path == ((10.0, 26.0), (10.0, 25.0))
 
 
+def test_the_customer_desk_s_protect_and_suggested_cancel_cut_to_the_room_and_a_declined_one_says_so():
+    ep, traffic = day()
+    occ = ep["occ"]
+    occ |= {"label": "three desks", "desks": ["crew", "ops", "customer"]}
+    occ["requests"] = [r for r in occ["requests"] if r["id"] != "R1"] + [
+        request("R5", "customer", "SUGGEST_CANCEL", 2, 540, 552, 606, "Cancelling B6 20.") | {"receiver": "ops",
+                                                                                                "pax": 90}]
+    occ["decisions"][0]["ref"] = "R5"
+    ep["passengers"] = {"flights": [], "connections": [], "events": []}
+    shots = record.direct(ep, traffic, seconds=70)
+    asked = next(s for s in shots if s.ref == "R5")
+    assert asked.caption == ("The customer desk asks the ops controller to cancel early B6 20 to New York, 90 "
+                             "passengers booked")
+    gate = shots[shots.index(asked) + 1]
+    assert (gate.name, gate.subline) == ("cancelled", "Cancelled as the customer desk suggested")
+    occ["requests"].append(request("R6", "customer", "PROTECT", 1, 660, 664, 671, "B6 10 stays.", status="declined")
+                           | {"receiver": "ops", "pax": 140})
+    [room, push] = record.Center(ep, traffic, None, None).asks(("PROTECT",))[0]
+    assert room.subline == "The ops controller declines: “B6 10 stays”" and push.name == "pushback"
+
+
+def test_passengers_who_missed_their_connection_and_the_stranded_s_shuttle_are_filmed_at_the_airport():
+    ep, traffic = day()
+    ep["passengers"] = {"flights": [], "connections": [], "events": [
+        {"t": 700, "kind": "hotel", "at": "BOS", "flight": 1, "pax": 12, "until": 1860}]}
+    walk = {"do": "walk", "t": [640, 646], "p": [[0, 30], [40, 30], [10.0, 26.0]], "z": 5.0, "say": "x"}
+    hotel = {"do": "wait", "t": [700, 719.5], "at": [-80, 40], "z": 0.0, "say": "y"}
+    van = {"do": "van", "t": [720, 721], "p": [[-80, 40], [-80, 60], [-80, 120]], "v": "shuttle", "dir": "out",
+           "park": 3.0, "z": 0.0, "say": "Hotel shuttle · 12 passengers stranded overnight"}
+    traffic["passengers"] = {"lounges": [{"stand": "C-12", "door": [10.0, 26.0], "n": [[0.0, 1.0], [0.0, 1.0]]}],
+                             "counter": 0, "queue": [], "groups": [
+                                 {"key": "m", "kind": "misconnect", "n": 7, "flights": ["B6 9", "B6 10"],
+                                  "segs": [walk]},
+                                 {"key": "h", "kind": "hotel", "n": 12, "flights": ["B6 10"], "segs": [hotel]},
+                                 {"key": "s", "kind": "shuttle", "n": 0, "flights": [], "segs": [van]}]}
+    c = record.Center(ep, traffic, None, None)
+    [[missed]] = c.missed()
+    assert (missed.camera, missed.at) == ("lounge", 646)
+    assert missed.caption == "7 passengers who missed B6 10 to Miami reach the service counter"
+    [[bus]] = c.shuttle()
+    assert (bus.camera, bus.at, bus.path) == ("curb", 720, ((-80, 40), (-80, 60)))
+    assert bus.caption == "12 passengers stranded overnight leave for the hotel"
+    assert bus.subline == "They fly on tomorrow from 07:00"
+
+
 def test_the_desks_words_are_quoted_only_when_they_read_plainly():
     ep, traffic = day()
     c = record.Center(ep, traffic, None, None)

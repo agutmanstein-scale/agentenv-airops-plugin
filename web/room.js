@@ -66,6 +66,12 @@ export class Room {
       this.slot("reqs", `${sent.length}|${answered}|${Math.floor(m / FRESH)}`, () => this.requests(sent, t));
     } else this.slot("reqs", "one", () => "");
     for (const d of this.desks) {
+      if (d === "customer" && !occ.decisions.some((c) => c.desk === d)) {
+        const asked = occ.requests.filter((r) => r.sender === d && r.type !== "TEXT" && (r.shown ?? r.sent) <= t), done_ = asked.filter((r) => done(r, t)).length;
+        const note = (occ.notes ?? []).filter((n) => (n.shown ?? n.t) <= t && n.desk === d).at(-1);
+        this.slot(`desk-${d}`, `asks|${asked.length}|${done_}|${note?.t}|${Math.floor(m / FRESH)}`, () => this.asked(asked, note, t));
+        continue;
+      }
       const made = occ.decisions.filter((c) => (c.shown ?? c.t) <= t && (d === "one" || c.desk === d));
       const note = (occ.notes ?? []).filter((n) => (n.shown ?? n.t) <= t && (d === "one" || n.desk === d)).at(-1);
       this.slot(`desk-${d}`, `${made.length}|${note?.t}|${note?.desk}|${Math.floor(m / FRESH)}`, () => this.decisions(d, made, note, t));
@@ -80,13 +86,25 @@ export class Room {
         ? `<div class="reply ${esc(r.reply)}"><b>${r.reply === "accept" ? "Accepted" : "Declined"}</b> by ${SHORT[r.receiver]} at ${clock(r.replied)}${r.reply_text ? ` · ${esc(this.words(r.reply_text))}` : ""}</div>`
         : `<div class="reply wait">Waiting for ${SHORT[r.receiver]}'s answer</div>`;
       const what = r.flight != null ? ` · ${esc(this.flight(r.flight))}` : "";
-      const when = `${r.time != null ? ` by ${clock(r.time)}` : ""}${typed && r.pax ? ` · ${r.pax} connecting` : ""}`;
+      const when = `${r.time != null ? ` by ${clock(r.time)}` : ""}${typed && r.pax ? ` · ${r.pax} ${r.type === "HOLD" ? "connecting" : "booked"}` : ""}`;
       return `<li class="t-${esc(r.type)}${t - (r.shown ?? r.sent) < FRESH ? " fresh" : ""}" title="Click for the whole message">
         <span class="when">${clock(r.sent)} · ${SHORT[r.sender]} → ${SHORT[r.receiver]} · ${esc(r.id)}</span>
         <b>${TYPES[r.type] ?? esc(r.type)}${what}${when}</b><div class="txt">${esc(this.words(r.text))}</div>${reply}</li>`;
     }).join("");
     const open = sent.filter((r) => r.type !== "TEXT" && !done(r, t)).length;
     return `<h5>Between the desks <small>${sent.length} sent${open ? ` · ${open} waiting` : ""}</small></h5><ul class="reqs">${items}</ul>`;
+  }
+
+  /** The customer desk's part when it acts only through its requests: what it asked ops and how ops answered. */
+  asked(asked, note, t) {
+    const verb = { HOLD: "Asked ops to hold", PROTECT: "Asked ops not to cancel", SUGGEST_CANCEL: "Asked ops to cancel" };
+    const items = asked.slice(-this.rows).reverse().map((r) => {
+      const said = done(r, t) ? (r.reply === "accept" ? " · accepted" : " · declined") : " · waiting";
+      return `<li class="d-${r.type === "HOLD" ? "hold" : r.type === "PROTECT" ? "protect" : "cancel"}${t - (r.shown ?? r.sent) < FRESH ? " fresh" : ""}"><span class="t">${clock(r.sent)}</span>${esc(`${verb[r.type] ?? r.type} ${this.flight(r.flight)}${said}`)}</li>`;
+    }).join("");
+    const said = note ? `<blockquote><span>${clock(note.t)}</span> ${esc(this.words(note.note).slice(0, 240))}</blockquote>` : "";
+    return `<h5>${DESKS.customer} <small>${asked.length ? `${asked.length} request${asked.length === 1 ? "" : "s"} to ops so far` : "no requests yet"}</small></h5>
+      ${items ? `<ul class="decs">${items}</ul>` : ""}${said}`;
   }
 
   decisions(d, made, note, t) {

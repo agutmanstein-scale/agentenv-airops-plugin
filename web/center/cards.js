@@ -85,7 +85,7 @@ export function buildCards(P, ep, pods) {
     g.fillText(fit(g, head, w - 70), 40, h * 0.36);
     g.font = `500 32px ${FONT}`;
     g.fillStyle = "#5b6672";
-    const sub = r.type === "TEXT" ? `${SHORT[r.sender]} → ${SHORT[r.receiver]} · ${words(r.text)}` : `${SHORT[r.sender]} → ${SHORT[r.receiver]}${r.pax ? ` · ${r.pax} connecting` : ""} · sent ${clock(r.sent)}${r.time != null ? ` · by ${clock(r.time)}` : ""}`;
+    const sub = r.type === "TEXT" ? `${SHORT[r.sender]} → ${SHORT[r.receiver]} · ${words(r.text)}` : `${SHORT[r.sender]} → ${SHORT[r.receiver]}${r.pax ? ` · ${r.pax} ${r.type === "HOLD" ? "connecting" : "booked"}` : ""} · sent ${clock(r.sent)}${r.time != null ? ` · by ${clock(r.time)}` : ""}`;
     g.fillText(fit(g, sub, w - 70), 40, h * 0.72);
   };
   const drawReply = (r) => (g, w, h) => {
@@ -171,7 +171,7 @@ export function buildCards(P, ep, pods) {
 
   const live = new Map();
   const halo = haloTexture();
-  const side = (desk) => (desk === "crew" ? 1 : -1);
+  const side = (desk) => (desk === "crew" || pods.size === 3 ? 1 : -1);
   const a = new THREE.Vector3();
   const place = (it, t, out) => {
     const u = t - it.start, rise = clamp01(u / RISE), fly = ease(clamp01((u - RISE) / FLY));

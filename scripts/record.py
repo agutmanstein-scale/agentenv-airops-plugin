@@ -56,11 +56,11 @@ RENDERER = ("(() => { const g = document.createElement('canvas').getContext('web
             "return g ? (e ? g.getParameter(e.UNMASKED_RENDERER_WEBGL) : 'webgl2') : null; })()")
 HUBS = {"BOS": "Boston Logan", "JFK": "New York JFK"}
 FAST = {"harbour": 10, "tower": 10, "gate": 6, "push": 6, "taxi": 20, "takeoff": 4, "landing": 4, "map": 300,
-        "room": 180, "room-desks": 180, "room-wall": 180, "crew": 6, "van": 10, "lounge": 6}
+        "room": 180, "room-desks": 180, "room-wall": 180, "crew": 6, "van": 10, "lounge": 6, "curb": 6}
 """The fastest clock each camera films at, in seconds of the day per second of film, so that nothing in frame zips."""
 SECONDS = {"establish": 5.5, "faa": 6, "decide": 6, "flip": 5, "push": 4.5, "taxi": 4.5, "takeoff": 8, "landing": 7,
            "inbound": 7, "end": 7, "map": 4, "ask": 5.5, "cancels": 5, "move": 5, "wait": 4.5, "cancelled": 4.5,
-           "close": 7, "crew": 4.5, "van": 4.5, "lounge": 5}
+           "close": 7, "crew": 4.5, "van": 4.5, "lounge": 5, "curb": 5}
 STRETCH = ("establish", "faa", "decide", "flip")
 ROOM = ("room", "room-desks", "room-wall")
 DAY_SUN = 12
@@ -454,7 +454,8 @@ class Center(Day):
         time and cut hard from its neighbours, in time order; then the still shots stretch to fill."""
         first, leaver, beats = self.opening(), self.leaver(), []
         groups = (self.dawn, lambda: self.faa(first[-1].t1), lambda: self.asks(("CANCEL", "CANCEL_PAIR")),
-                  lambda: self.asks(("HOLD",)), self.counter, self.rebooks, lambda: self.leave(leaver),
+                  lambda: self.asks(("HOLD",)), lambda: self.asks(("PROTECT", "SUGGEST_CANCEL")), self.counter,
+                  self.missed, self.shuttle, self.rebooks, lambda: self.leave(leaver),
                   lambda: self.wait(beats, leaver), lambda: self.asks(("COVER",)), self.van, self.map, self.cancels,
                   self.moves, self.landing)
         for options in groups:
@@ -527,31 +528,35 @@ class Center(Day):
         return out
 
     def asks(self, types: tuple[str, ...]) -> list[list[Shot]]:
-        """The requests of ``types`` the other desk accepted, in the room from as it is sent to its answer, then where
-        it plays out at the airport: those that play out first, in the story's hours, the latest first; then each in
-        the room alone, for one whose airport shot doesn't fit (in the dark, say)."""
+        """The requests of ``types`` the other desk accepted (the customer desk's also those ops declined), in the room
+        from as it is sent to its answer, then where it plays out at the airport: those that play out first, in the
+        story's hours, accepted first, the latest first; then each in the room alone, for one whose airport shot
+        doesn't fit (in the dark, say)."""
         found = []
         for r in self.occ["requests"]:
-            if r["type"] not in types or r["status"] != "accepted" or r.get("answered") is None \
-                    or r["flight"] not in self.sched:
+            ok = r["status"] == "accepted"
+            if r["type"] not in types or not (ok or r["sender"] == "customer" and r["status"] == "declined") \
+                    or r.get("answered") is None or r["flight"] not in self.sched:
                 continue
             said = self.quote(r.get("reply_text"))
             moved = [d for d in self.occ["decisions"] if d.get("ref") == r["id"] and d["action"] in CREW_MOVES]
             who = upper(self.desk(r["receiver"]))
-            subline = (f"{who} accepts: “{said}”" if said else
+            subline = (f"{who} declines: “{said}”" if not ok and said else f"{who} declines" if not ok else
+                       f"{who} accepts: “{said}”" if said else
                        f"{who} accepts and puts {self.unit(moved[0]['detail'])} on it" if moved else f"{who} accepts")
             kw = {"desk": r["sender"], "ref": r["id"], "subline": subline,
                   "caption": f"{upper(self.desk(r['sender']))} asks {self.desk(r['receiver'])} {ASKS[r['type']]} "
                              f"{self.trip(r['flight'])}"
-                             + (f" for {r['pax']} connecting passengers" if r.get("pax") else "")}
+                             + (f" for {r['pax']} connecting passengers" if r.get("pax") and r["type"] == "HOLD"
+                                else f", {r['pax']} passengers booked" if r.get("pax") else "")}
             room = self.in_room("ask", "room-desks", r["answered"], r["shown"] - 0.5, r["answered"] + REPLY, **kw)
-            out = (self.reach(r, room.t1) if r["sender"] == "customer" else None) or self.plays_out(r, room.t1)
+            out = (self.reach(r, room.t1) if r["sender"] == "customer" and ok else None) or self.plays_out(r, room.t1)
             if out is None and (soon := self.plays_out(r, r["answered"] + 0.5)) is not None:
                 room = self.in_room("ask", "room-desks", r["answered"], r["shown"] - 0.5, soon.t0 - 0.1, **kw)
                 out = soon
             story = self.window[0] <= r["sent"] <= self.window[1] + 180
-            found += [((True, story, r["sent"]), [room, out])] if out else []
-            found.append(((False, story, r["sent"]), [room]))
+            found += [((True, story, ok, r["sent"]), [room, out])] if out else []
+            found.append(((False, story, ok, r["sent"]), [room]))
         return [b for _, b in sorted(found, key=lambda f: f[0], reverse=True)]
 
     def plays_out(self, r: Mapping, after: float) -> Shot | None:
@@ -562,8 +567,9 @@ class Center(Day):
         if kind is None or (entry := self.legs.get((s["flight"], kind))) is None:
             return None
         a, _, g = entry
-        if r["type"] in ("CANCEL", "CANCEL_PAIR") or g["status"] == "cancelled":
-            shot = self.cancelled(a, g, after, r["sender"] if r["type"] in ("CANCEL", "CANCEL_PAIR") else None)
+        if r["type"] in ("CANCEL", "CANCEL_PAIR", "SUGGEST_CANCEL") or g["status"] == "cancelled":
+            shot = self.cancelled(a, g, after, r["sender"] if r["type"] in ("CANCEL", "CANCEL_PAIR", "SUGGEST_CANCEL")
+                                  else None)
             return replace(shot, subline=f"Held at {clock(r['sent'])}, then cancelled at {clock(g['decided'])}") \
                 if shot and r["type"] == "HOLD" and g.get("decided") is not None else shot
         if kind == "dep":
@@ -589,7 +595,7 @@ class Center(Day):
         """The cancelled leg's aircraft at its gate with its tag saying so, from just after ``after``."""
         if g["status"] != "cancelled":
             return None
-        why = " at the crew scheduler's request" if asked == "crew" else ""
+        why = {"crew": " at the crew scheduler's request", "customer": " as the customer desk suggested"}.get(asked, "")
         row = next((r for r in reversed(g.get("crew") or []) if r[0] <= (g.get("decided") or g["sched"])), None)
         why += ", with no legal crew to fly it" if row and row[1] == "no crew" else ""
         for k in range(90):
@@ -645,6 +651,54 @@ class Center(Day):
                     kicker=clock(t + 1), caption=f"{n} passengers wait at the service counter to be rebooked",
                     subline=subline, path=door_out(pax["lounges"][pax["counter"]]))
         return [[shot]]
+
+    def missed(self) -> list[list[Shot]]:
+        """Passengers who missed their connection at the hub walking into the service counter's lounge, the biggest
+        group in light first (the sidecar's passengers, display-only), through its glass."""
+        pax = self.traffic.get("passengers") or {}
+        if not pax.get("lounges"):
+            return []
+        desk = pax["lounges"][pax["counter"]]
+        found = []
+        for g in pax.get("groups") or []:
+            end = g["segs"][-1]["t"][1]
+            if g["kind"] != "misconnect" or g["n"] < 3 or end < self.light or g["segs"][-1]["p"][-1] != desk["door"]:
+                continue
+            came, missed = g["flights"]
+            speed = (FAST["lounge"],) * 2
+            leg = self.legs.get((missed, "dep"))
+            whither = f" to {leg[2]['city']}" if leg else ""
+            shot = Shot("missed", "lounge", end - SECONDS["lounge"] * speed[0] / 60 * 0.6, SECONDS["lounge"], speed,
+                        at=end, cards=("tags",), kicker=clock(end),
+                        caption=f"{g['n']} passengers who missed {missed}{whither} reach the service counter",
+                        subline=f"{came} landed too late for their connection", path=door_out(desk))
+            found.append(((g["n"], self.window[0] <= end <= self.window[1] + 180, -end), [shot]))
+        return [b for _, b in sorted(found, key=lambda f: f[0], reverse=True)]
+
+    def shuttle(self) -> list[list[Shot]]:
+        """Passengers stranded overnight boarding the hotel shuttle at the curb (the sidecar's passengers,
+        display-only), the fullest in light first, from beside it as it stands and pulls away."""
+        pax = self.traffic.get("passengers") or {}
+        found = []
+        for g in pax.get("groups") or []:
+            s = g["segs"][0]
+            if g["kind"] != "shuttle" or s["t"][0] - 2.5 < self.light:
+                continue
+            n = int(re.search(r"(\d+) passengers", s["say"])[1])
+            riders = [x for x in pax["groups"] if x["kind"] == "hotel" and x["segs"][-1]["t"][1] <= s["t"][0]
+                      and s["t"][0] - x["segs"][-1]["t"][1] < 1]
+            until = [e.get("until") for e in (self.ep.get("passengers") or {}).get("events", [])
+                     if e["kind"] == "hotel" and e["at"] == self.hub and e.get("until")
+                     and any(e["flight"] in [k for k, v in self.sched.items() if v["flight"] in x["flights"]]
+                             for x in riders)]
+            speed = (FAST["curb"],) * 2
+            shot = Shot("shuttle", "curb", s["t"][0] - 2.6, SECONDS["curb"], speed, at=s["t"][0], cards=("tags",),
+                        kicker=clock(s["t"][0]), caption=f"{n} passengers stranded overnight leave for the hotel",
+                        subline=(f"They fly on {'tomorrow ' if min(until) >= 1440 else ''}from "
+                                 f"{clock(min(until) % 1440)}" if until else "No seat left for them today"),
+                        path=(tuple(s["p"][0]), tuple(s["p"][1])))
+            found.append(((self.window[0] <= s["t"][0] <= self.window[1] + 180, n, -s["t"][0]), [shot]))
+        return [b for _, b in sorted(found, key=lambda f: f[0], reverse=True)]
 
     def rebooks(self) -> list[list[Shot]]:
         """The customer desk rebooking passengers off a flight, or booking them hotels for the night, in the room (wide,
@@ -1110,6 +1164,12 @@ FILM_JS = r"""
         const from = add(add(st.xy, hd, -(length + 26)), sd, 30), to = add(from, hd, 5);
         const at = c.key ? { at: c.key, offset: [0, 0, 3] } : { at: [...add(st.xy, hd, -6), 3.5] };
         return { from: [...from, 11], to: [...to, 10], ...at, fov: c.camera === "push" ? 40 : 44, ...span };
+      }
+      if (c.camera === "curb") {
+        const [[x0, y0], [x1, y1]] = c.path, n = Math.hypot(x1 - x0, y1 - y0) || 1;
+        const d = [(x1 - x0) / n, (y1 - y0) / n], sd = [-d[1], d[0]];
+        const from = add(add([x0, y0], d, -26), sd, 16), to = add(from, d, 3);
+        return { from: [...from, 17], to: [...to, 16], at: [...add([x0, y0], d, 3), 1.5], fov: 42, fov1: 40, ...span };
       }
       if (c.camera === "lounge") {
         const [[x0, y0], [x1, y1]] = c.path, n = Math.hypot(x1 - x0, y1 - y0) || 1;
