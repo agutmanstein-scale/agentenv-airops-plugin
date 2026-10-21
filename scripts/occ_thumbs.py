@@ -1,13 +1,17 @@
 """Thumbnails for a viewer folder's control-center days: each day's airport in daylight with aircraft in it, picked by
 score from candidate stills (an aircraft at its gate's jet bridge, a pushback, the tower's view over the apron), the
 views varied down the list and about one card in five the control-center room on its desks; a v3 day (with passengers)
-leads with a gate lounge's crowd behind the terminal's glass and, in the room, the customer desk's requests; written to
-the folder's thumbs/ as record.py --thumb writes them, with a contact sheet of all of them in the list's order. For v3:
-export the board's days into a viewer folder (occ_episodes.py), then run this on it; --keep keeps the candidates.
+leads with the Terminal view, inside a busy gate's hall with its crowd, its screen and the aircraft at its bridge, and
+its room, on a three-desk day, holds all three desks with the customer desk's requests; written to the folder's thumbs/
+as record.py --thumb writes them, with a contact sheet of all of them in the list's order. For v3: export the board's
+days into a viewer folder (occ_episodes.py), then run this on it; --keep keeps the candidates.
 
 A still scores for the aircraft in it (JetBlue's, in sight and not behind a building or a bridge, the nearest one's
 size or how many there are), the light (the sun at the hub and the frame's brightness) and its detail (contrast and
-edges, so that fog, a blank wall or the sky alone score low); one with no aircraft in sight is never picked.
+edges, so that fog, a blank wall or the sky alone score low); one with no aircraft in sight is never picked. A Terminal
+still scores for the passengers in sight, the gate's screen, the aircraft at its bridge, the light and its detail, less
+where the hall's walls fill the frame; one without a crowd in sight or a whole screen (a gate whose camera looks out a
+window past its crowd) is never picked, and a card without one takes the best airport still.
 
 usage: .venv/bin/python scripts/occ_thumbs.py cache/occ/viewer --sheet cache/occ/thumbs.jpg [--workers 3] [--only STEM]
 """
@@ -20,6 +24,7 @@ import math
 import sys
 import tempfile
 import zlib
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from urllib.parse import quote
@@ -27,14 +32,16 @@ from urllib.parse import quote
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageStat
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from record import DAY_SUN, FILM_CSS, FILM_JS, ROOT, THUMB, clock, door_out, find_chrome, serve, session  # noqa: E402
+from record import DAY_SUN, FILM_CSS, FILM_JS, ROOT, THUMB, clock, find_chrome, serve, session  # noqa: E402
 
 PATTERN = ("gate", "tower", "push", "gate", "room")
-PATTERN3 = ("lounge", "gate", "room", "tower", "lounge", "push")
+PATTERN3 = ("terminal", "gate", "room", "tower", "terminal", "push")
 """The views the list's cards take in turn after the featured ones, each falling back to the best airport still; v3's
-days (the featured one's a lounge too) PATTERN3."""
-CROWD = 60
-"""The least passengers in a lounge for a still of it to be a candidate."""
+days (the featured ones a Terminal still too) PATTERN3."""
+CROWD, BUSIEST, WORN = 15, 3, 0.4
+"""The least passengers in sight in a Terminal still that may be picked, how many of the busiest gate areas a Terminal
+card looks into at each candidate minute, and what its still loses for each card before it at the same gate (so that
+the list's cards show different gates)."""
 EVERY = 50
 """Minutes between candidate times over the day's daylight."""
 SETTLE = 3
@@ -77,6 +84,65 @@ SEE_JS = r"""(async () => {
   return { aircraft: out, sun: s.sun, snow: s.snow, weather: s.weather };
 })()"""
 
+INSIDE_JS = r"""(async () => {
+  const THREE = await import("three"), S = airops.stage, cam = S.camera, P = S.pax, ray = new THREE.Raycaster();
+  const w = S.container.clientWidth, h = S.container.clientHeight, solid = [P.walls, S.buildings.group];
+  const clear = (p, objs) => {
+    const d = p.clone().sub(cam.position);
+    ray.set(cam.position, d.clone().normalize());
+    ray.far = Math.max(0.1, d.length() - 0.3);
+    return !ray.intersectObjects(objs, true).length;
+  };
+  const framed = (v, m) => v.z < 1 && Math.abs(v.x) < m && Math.abs(v.y) < m;
+  const glass = (p) => {
+    const d = p.clone().sub(cam.position);
+    ray.set(cam.position, d.clone().normalize());
+    ray.far = d.length();
+    const hit = ray.intersectObject(P.walls.parent, true)[0];
+    return !hit || hit.object.material.transparent;
+  };
+  const heads = P.group.children.filter((m) => m.isInstancedMesh).reduce((a, m) => (m.count > a.count ? m : a));
+  const M = new THREE.Matrix4(), p = new THREE.Vector3();
+  let crowd = 0, screen = 0, plane = 0, walls = 0;
+  for (let i = 0; i < heads.count; i++) {
+    heads.getMatrixAt(i, M);
+    p.setFromMatrixPosition(M);
+    if (framed(p.clone().project(cam), 0.96) && cam.position.distanceTo(p) < 35 && clear(p, solid)) crowd++;
+  }
+  for (const g of S.terminal.group.children) {
+    const face = g.isGroup && g.visible ? g.children[1] : null, size = face?.geometry.parameters;
+    if (!size || size.width > 2 * size.height) continue;
+    const c = new THREE.Vector3().setFromMatrixPosition(face.matrixWorld);
+    const q = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) =>
+      new THREE.Vector3((a * size.width) / 2, (b * size.height) / 2, 0).applyMatrix4(face.matrixWorld).project(cam));
+    const to = cam.position.clone().sub(c).normalize();
+    const facing = new THREE.Vector3(0, 0, 1).transformDirection(face.matrixWorld).dot(to);
+    if (q.every((v) => framed(v, 0.98)) && facing > 0.2 && clear(c, solid))
+      screen = Math.max(screen, (Math.max(...q.map((v) => v.x)) - Math.min(...q.map((v) => v.x))) / 2);
+  }
+  for (const f of S.fleet.live) {
+    if (!f.c.track.jetblue || f.pose.phase !== "parked") continue;
+    const d = f.dims, at = (x, y, z) => new THREE.Vector3(x, y, z).applyMatrix4(f.matrix);
+    const ndc = [at(0, 0, -d.nose), at(0, 0, d.length - d.nose), at(-d.span / 2, 0, d.lz), at(d.span / 2, 0, d.lz),
+      at(0, d.height, d.length - d.nose - 2)].map((v) => v.project(cam));
+    if (ndc.some((v) => v.z > 1)) continue;
+    const xs = ndc.map((v) => ((v.x + 1) / 2) * w), ys = ndc.map((v) => ((1 - v.y) / 2) * h);
+    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    const cx0 = Math.max(0, x0), cx1 = Math.min(w, x1), cy0 = Math.max(0, y0), cy1 = Math.min(h, y1);
+    if (cx1 <= cx0 || cy1 <= cy0 || ((cx1 - cx0) * (cy1 - cy0)) / Math.max(1, (x1 - x0) * (y1 - y0)) < 0.6) continue;
+    const body = [0.1, 0.3, 0.5, 0.7, 0.9].map((u) => at(0, d.height * 0.35, d.length * u - d.nose));
+    const seen = [...body, at(-d.span / 2, 0, d.lz), at(d.span / 2, 0, d.lz), at(0, d.height, d.length - d.nose - 2)]
+      .filter((v) => framed(v.clone().project(cam), 1) && glass(v) && clear(v, [S.bridges.group])).length / 8;
+    plane = Math.max(plane, ((cx1 - cx0) / w) * seen * (f.key === S.featured ? 1 : 0.6));
+  }
+  for (let i = 0; i < 16; i++) for (let j = 0; j < 9; j++) {
+    ray.setFromCamera(new THREE.Vector2((i + 0.5) / 8 - 1, (j + 0.5) / 4.5 - 1), cam);
+    ray.far = Infinity;
+    if (ray.intersectObject(P.walls.parent, true)[0]?.object === P.walls) walls += 1 / 144;
+  }
+  return { crowd, screen, plane, walls, sun: S.state().sun };
+})()"""
+
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
@@ -86,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--keep", type=Path, help="Keep each day's best few candidate stills here, to review the picks.")
     p.add_argument("--picks", type=Path,
                    help="Read and record each card's pick here (JSON), so that a day's other card made in a later run "
-                        "doesn't take the same still.")
+                        "doesn't take the same still and a Terminal card favours a gate the others don't show.")
     p.add_argument("--workers", type=int, default=3, help="Days rendered at once, a Chrome each.")
     p.add_argument("--size", default="1280x720")
     p.add_argument("--chrome", help="Chrome or Chromium binary.")
@@ -104,13 +170,17 @@ def main(argv: list[str] | None = None) -> int:
         known = json.loads(args.picks.read_text()) if args.picks and args.picks.is_file() else {}
         last = {e["date"]: tuple(known[stem]) for e in entries
                 if (stem := Path(e["url"]).stem) in known and e not in todo}
+        worn = Counter(known[stem][1] for e in entries
+                       if (stem := Path(e["url"]).stem) in known and e not in todo and known[stem][0] == "terminal")
         picks: dict[str, str] = {}
         for e in todo:
-            pick = choose(found[e["url"]], wants[e["url"]], last.get(e["date"]))
+            pick = choose(found[e["url"]], wants[e["url"]], last.get(e["date"]), worn)
             stem = Path(e["url"]).stem
             if pick is None:
                 raise SystemExit(f"{stem}: no daylight still with an aircraft in it")
             last[e["date"]] = known[stem] = (pick["kind"], pick["key"], pick["t"])
+            if pick["kind"] == "terminal":
+                worn[pick["key"]] += 1
             picks[e["url"]] = f"{pick['kind']} {clock(pick['t'])}"
             if args.keep:
                 args.keep.mkdir(parents=True, exist_ok=True)
@@ -140,13 +210,13 @@ def listed(episodes: list[dict]) -> list[dict]:
 
 
 def plan(entries: list[dict]) -> dict[str, str]:
-    """The view each card wants: the featured ones their best airport still (v3's a lounge), the rest PATTERN (v3's
-    PATTERN3) in turn."""
+    """The view each card wants: the featured ones their best airport still (v3's a Terminal still), the rest PATTERN
+    (v3's PATTERN3) in turn."""
     out, k = {}, {False: 0, True: 0}
     for e in entries:
         v3 = bool(e.get("passengers"))
         if e.get("featured"):
-            out[e["url"]] = "lounge" if v3 else "best"
+            out[e["url"]] = "terminal" if v3 else "best"
         else:
             pattern = PATTERN3 if v3 else PATTERN
             out[e["url"]] = pattern[k[v3] % len(pattern)]
@@ -174,7 +244,8 @@ def render(job) -> list[dict]:
 
 def candidates(page, ready: dict, ep: dict, want: str, tmp: Path, stem: str) -> list[dict]:
     """The day's candidate stills, every EVERY minutes of its daylight: the tower's view, two of JetBlue's aircraft
-    parked at their gates, and the next pushback; and for a room card, the room at three requests or decisions."""
+    parked at their gates, and the next pushback; for a room card, the room at three requests or decisions; and for a
+    Terminal card, the Terminal view into the busiest gate areas."""
     if not page.js(FILM_JS.replace("__CSS__", json.dumps(FILM_CSS))):
         raise SystemExit("the film helper did not load")
     page.js("film.look([], '', '', '', {})")
@@ -194,60 +265,41 @@ def candidates(page, ready: dict, ep: dict, want: str, tmp: Path, stem: str) -> 
     if want == "room" and ready.get("room"):
         for t, spec in room_shots(ep):
             cands.append(room_still(page, spec, t, tmp / f"{stem}-{len(cands)}.jpg"))
-    if want == "lounge":
-        for t, n, spec in lounge_shots(page, ep, days):
-            cands.append(lounge_still(page, spec, t, n, tmp / f"{stem}-{len(cands)}.jpg"))
+    if want == "terminal" and "terminal" in ready["views"]:
+        for t, spec in terminal_shots(page, days):
+            cands.append(terminal_still(page, spec, t, tmp / f"{stem}-{len(cands)}.jpg"))
     return cands
 
 
-def lounge_shots(page, ep: dict, days: list[float]) -> list[tuple[float, int, dict]]:
-    """At each daylight candidate minute, the gate lounge with the biggest crowd if it has CROWD or more, through
-    its glass (the film's lounge camera)."""
-    pax = page.js("(() => { const t = airops.stage?.traffic?.passengers; "
-                  "return t ? {lounges: t.lounges, crowds: t.crowds} : null; })()")
-    if not pax:
-        return []
-    out = []
+def terminal_shots(page, days: list[float]) -> list[tuple[float, dict]]:
+    """The Terminal view's candidates, as record.py's director sets up its terminal shots: at each daylight candidate
+    minute the busiest gate areas (BUSIEST of them, the viewer's pick first) with CROWD or more in them, and the
+    moments the viewer opens the view on (its busiest, a held flight's connecting passengers boarding) while the sun is
+    up."""
+    gates = page.js("airops.stage.gates()")
+    out: dict[tuple[float, str], dict] = {}
     for t in days:
-        size: dict[int, float] = {}
-        for c in pax["crowds"]:
-            size[c["lounge"]] = size.get(c["lounge"], 0) + crowd_at(c, t)
-        k, n = max(size.items(), key=lambda x: x[1], default=(None, 0))
-        if k is None or n < CROWD:
-            continue
-        lg = pax["lounges"][k]
-        path = door_out(lg)
-        spec = page.js(f"film.camera({json.dumps({'camera': 'lounge', 'path': path, 't0': t, 't1': t + 1})})")
-        if spec:
-            out.append((t, round(n), spec))
-    return out
+        at = page.js(f"airops.stage.gates().map((g) => airops.stage.pax.at(g.lounge, {t}))")
+        for k in sorted(range(len(at)), key=lambda k: -at[k])[:BUSIEST]:
+            if at[k] >= CROWD:
+                out[t, gates[k]["stand"]] = {"stand": gates[k]["stand"]}
+    for kind in ("busy", "passengers"):
+        m = page.js(f"airops.stage.moment({json.dumps(kind)})")
+        if m and page.js(f"airops.stage.env.sunAt({m['t']}).el") >= DAY_SUN:
+            stand = gates[m["lounge"]]["stand"]
+            out.setdefault((m["t"], stand), {"stand": stand, "focus": m["focus"]})
+    return [(t, spec) for (t, _), spec in out.items()]
 
 
-def crowd_at(c: dict, t: float) -> float:
-    """A departure's crowd at its lounge at t, as web/stage/passengers.js draws it."""
-    a, f, b, g = c["t"]
-    k = 0.0
-    if a < t < g:
-        k = 0.94 * ((t - a) / (f - a)) ** 1.3 if t < f else 0.94 + 0.06 * (t - f) / max(1, b - f) if t < b \
-            else 1 - (t - b) / max(1, g - b)
-    if c.get("cancel") is not None and t >= c["cancel"]:
-        k *= max(0.0, 1 - (t - c["cancel"]) / 6)
-    return k * c["n"]
-
-
-def lounge_still(page, spec: dict, t: float, n: int, path: Path) -> dict:
-    """A candidate still of a gate lounge's crowd through the glass at minute t, scored for its crowd, light and
-    detail."""
-    page.js(f"airops.shot({json.dumps(spec)})")
+def terminal_still(page, spec: dict, t: float, path: Path) -> dict:
+    """A candidate still of the Terminal view at minute t, scored."""
     page.js(f"airops.time({t}, {{dt: 0, speed: 0}})")
+    page.js(f"airops.view('terminal', {json.dumps(spec)})")
     for _ in range(SETTLE):
         page.js(f"airops.time({t}, {{dt: 1 / 30, speed: 0}})")
-    seen = page.js(SEE_JS)
+    seen = page.js(INSIDE_JS)
     image = capture(page, path)
-    light, detail, flat = looks(image)
-    sun = min(1.0, max(0.0, (seen["sun"] - 8) / 22))
-    return {"kind": "lounge", "key": None, "t": t, "path": path, "aircraft": 0, "crowd": n,
-            "score": round(1.5 * min(1.0, n / 120) + 0.5 * sun + 0.5 * light + detail - flat, 3)}
+    return {"kind": "terminal", "key": spec["stand"], "t": t, "path": path, **inside(seen, image)}
 
 
 def still(page, spec: dict, t: float, kind: str, key: str | None, path: Path) -> dict:
@@ -275,16 +327,17 @@ def room_still(page, spec: dict, t: float, path: Path) -> dict:
 
 def room_shots(ep: dict) -> list[tuple[float, dict]]:
     """Up to three moments over the day for the room: a request between the desks answered (the customer desk's
-    first, on a day with one), framed on the desk it went to with its cards; on a one-agent day, a decision at its
-    desk."""
+    first, on a day with one), framed on the desk it went to with its cards, or on a day with the customer desk on all
+    three desks and the wall; on a one-agent day, a decision at its desk."""
     occ = ep["occ"]
     asks = sorted((r for r in occ["requests"] if r["type"] != "TEXT" and r.get("answered") is not None),
                   key=lambda r: r["shown"])
     asks = [r for r in asks if r["sender"] == "customer"] or asks
     if asks:
+        three = "customer" in (occ.get("desks") or [])
         picks = [asks[i] for i in sorted({0, len(asks) // 2, len(asks) - 1})]
-        return [(r["shown"] + 1.0, {"room": True, "name": "room-desks", "desk": r["receiver"], "ref": r["id"],
-                                    "t0": r["shown"] + 1.0, "t1": r["shown"] + 1.0}) for r in picks]
+        return [(r["shown"] + 1.0, {"room": True, "name": "room-desks", "desk": None if three else r["receiver"],
+                                    "ref": r["id"], "t0": r["shown"] + 1.0, "t1": r["shown"] + 1.0}) for r in picks]
     made = sorted(d["shown"] for d in occ["decisions"] if d.get("shown") is not None)
     picks = [made[i] for i in sorted({0, len(made) // 2, len(made) - 1})] if made else [ep["task"]["start"] + 60]
     return [(t + 0.5, {"room": True, "name": "room-desks", "desk": "one", "t0": t + 0.5, "t1": t + 0.5})
@@ -312,6 +365,20 @@ def score(seen: dict, image: Image.Image) -> dict:
             "near": round(near, 3), "sun": round(seen["sun"], 1)}
 
 
+def inside(seen: dict, image: Image.Image) -> dict:
+    """A Terminal still's score: 2 for the passengers in sight (40 of them), 1 for the widest whole screen (a tenth of
+    the frame's width), 1.5 for the aircraft at the gate's bridge (two fifths of the frame's width, less as the jet
+    bridge hides it, another of JetBlue's at the glass less), the light and detail, less for a flat frame or the hall's
+    walls filling more than a tenth of it; one with fewer than CROWD in sight or no whole screen scores nothing."""
+    if seen["crowd"] < CROWD or not seen["screen"]:
+        return {"score": 0.0, "crowd": seen["crowd"]}
+    light, detail, flat = looks(image)
+    sun = min(1.0, max(0.0, (seen["sun"] - 8) / 22))
+    score = 2 * min(1.0, seen["crowd"] / 40) + min(1.0, seen["screen"] / 0.1) + 1.5 * min(1.0, seen["plane"] / 0.4) \
+        + 0.5 * sun + 0.5 * light + 0.5 * detail - flat - 3 * max(0.0, seen["walls"] - 0.1)
+    return {"score": round(score, 3), "crowd": seen["crowd"]}
+
+
 def looks(image: Image.Image) -> tuple[float, float, float]:
     """The frame's light (its brightness in a daylight range), detail (contrast and edges) and flatness (the share
     of it that is one even tone: fog, sky or a wall, beyond a third, and of it blown out to white, beyond 3 %)."""
@@ -327,18 +394,20 @@ def looks(image: Image.Image) -> tuple[float, float, float]:
     return light, detail, flat + 3 * max(0.0, glare - 0.03)
 
 
-def choose(cands: list[dict], want: str, other: tuple | None = None) -> dict | None:
-    """The wanted view's best still if it scores within a fifth of the best airport still, else that one; the
-    featured cards ("best") of the best airport stills the one with the biggest aircraft; never the still `other` (the
-    same day's other card's: kind, aircraft, minute) or one of the same kind within the hour of it."""
+def choose(cands: list[dict], want: str, other: tuple | None = None, worn: Counter | None = None) -> dict | None:
+    """The wanted view's best still if it scores within a fifth of the best airport still, else that one; a Terminal
+    card its best Terminal still that scores, WORN less for each card before it at its gate (`worn`); the featured
+    cards ("best") of the best airport stills the one with the biggest aircraft; never the still `other` (the same
+    day's other card's: kind, aircraft or gate, minute) or one of the same kind within the hour of it."""
     def apart(c: dict) -> bool:
         return other is None or not (c["kind"] == other[0] and (c["key"] == other[1] or abs(c["t"] - other[2]) < 60))
 
-    air = sorted((c for c in cands if c["kind"] not in ("room", "lounge") and c["aircraft"] and apart(c)),
+    air = sorted((c for c in cands if c["kind"] not in ("room", "terminal") and c["aircraft"] and apart(c)),
                  key=lambda c: -c["score"])
-    if want == "lounge":
-        lounges = sorted((c for c in cands if c["kind"] == "lounge" and apart(c)), key=lambda c: -c["score"])
-        return lounges[0] if lounges else (air[0] if air else None)
+    if want == "terminal":
+        halls = sorted((c for c in cands if c["kind"] == "terminal" and c["score"] > 0 and apart(c)),
+                       key=lambda c: WORN * (worn or Counter())[c["key"]] - c["score"])
+        return halls[0] if halls else (air[0] if air else None)
     if want == "room":
         rooms = sorted((c for c in cands if c["kind"] == "room"), key=lambda c: -c["score"])
         return rooms[0] if rooms else (air[0] if air else None)
