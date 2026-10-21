@@ -195,10 +195,16 @@ search.
   first arrival on a later day plus one night's cheapest lodging; or the refund at the fare alone. The bound is the
   largest of the A*'s, the restricted A*'s, and the restricted A*'s plus each crew's least cost. It never charges more
   than P; a test checks that on 10 fixture days and 12 plans each.
-- **On two train dates** its gaps were 58.6% (2024-07-28) and 81.4% (2025-02-18), most of it HiGHS not finishing (49%
-  and 81% left at its 900 s limit).
-- **The registered run** (all 70 dates, 1,800 s each): [TBD: bound run, valid on N of 70; eval-date gaps min to max,
-  median].
+- **A trial on two train dates,** before the run, gave gaps of 58.6% (2024-07-28) and 81.4% (2025-02-18), most of it
+  HiGHS not finishing (49% and 81% left at a 900 s limit).
+- **The registered run** (all 70 dates, 1,800 s each, on one machine): valid on all 70, every plan played on a date
+  (the candidates and doing nothing) costing at least its bound. The gap to the reference is 54.2% to 78.7% on the 24
+  eval dates (median 65.9%), and a median 68.0% over all 70.
+- **Most of it is the solver not finishing.** HiGHS stopped at its limit on every date; on the eval dates its own open
+  gap is a median 69% of the published one (46% to 86%). The relaxation is weak too: on four training dates HiGHS
+  closed to under 1% and the gap still stood at 65% to 70%.
+- **The winter control's bound is negative:** on 2025-01-15 HiGHS's bound was still below zero at the limit (−150K
+  against a reference of 610K, a gap of 124.6%). It is published as it came out, and is still a valid bound.
 - **So the gap mostly measures the bound,** not the reference, and `reward_L`, the reward against the bound, reads low.
   Read the reward against the reference first.
 
@@ -214,9 +220,9 @@ more under P than the passenger-aware plan, on 12 or more of the 24 eval dates. 
   pricing each cancelled passenger by their real rebooking instead of v2's flat 523: the passenger-aware plan cancels
   more flights than v2's on 11 of the 16 passing dates, flights whose passengers fit on other JetBlue flights, often
   earlier ones. That is what led to the 3 h line.
-- **The MIP proved no date** (gaps 4.5% to 34%, and two dates got only negative bounds), ran past its 30-minute limit on
-  16 dates, and the run stored no plans, so the 6 dates it improved can't be re-scored; without them G1 is still 14 of
-  24.
+- **The MIP proved no date** (gaps 4.5% to 34%; on two dates its bounds were negative, −17.1M on 2022-12-07 and −22.1M
+  on 2023-12-18, so their gaps of 799% and 598% say nothing), ran past its 30-minute limit on 16 dates, and the run
+  stored no plans, so the 6 dates it improved can't be re-scored; without them G1 is still 14 of 24.
 - **Assigning the scarce seats optimally** instead of by the default order was worth 0% to 9% of P (median about
   1.6%) in step 0, before the 3 h line: an upper bound, since that assignment sees the whole day.
 
@@ -270,7 +276,8 @@ pilot, and the board: runs scored, replayed exactly and audited, and the indepen
    generator can't place within 45 to 360 minutes are dropped.
 2. **2b-2 failed:** a scripted customer desk built from published practice did not beat two scripted desks (2 of 24
    dates against 12 needed). The desk ships anyway, labelled.
-3. **The bound is weak:** [TBD: bound run]. Most of the published gap is the bound, so `reward_L` reads low.
+3. **The bound is weak:** a gap of 54% to 79% on the eval dates (median 66%), and negative on the winter control. Most
+   of the published gap is the bound, so `reward_L` reads low.
 4. **The reference is a best-found plan,** from a fixed set of candidates and one capped repair whose cap ran over on
    49 of 70 dates.
 5. **B0 is near the reference on some dates under P,** so it scores above 0.308 on 4 of the 24 eval dates.

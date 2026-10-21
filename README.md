@@ -107,7 +107,7 @@ refunded; and v2's aircraft and crew costs. v2 charged delay at every leg and a 
 | Reference | What it is |
 |---|---|
 | best plan | the cheapest plan under P from a fixed set: v2's best plan, B0, the passenger-aware aircraft plans played through the standard crew desk, and a repair of the best of them; replayed exactly with a legal crew on every flight; it scores 1.0 |
-| bound | a capacity-aware lower bound under P, published per date: [TBD: the bound run's eval-date gaps] |
+| bound | a capacity-aware lower bound under P, published per date: 54% to 79% under the best plan on the eval dates (median 66%), most of it the solver not finishing in its 30 minutes |
 | B0 | standard crew-desk practice with the aircraft doing nothing; 0.308 on 20 of the 24 eval dates, more on the 4 where it comes within 10% of the best plan (a mean of 0.386) |
 | doing nothing | the planned crews by the trip rule, no desk at all (a mean of 0.329) |
 | v2's best plan | v2's best plan of aircraft and crews, blind to passengers, played with them: at least 5% over the best plan on 17 of the 24 eval dates (a mean of 0.602) |
@@ -211,7 +211,8 @@ recorded with its reason before it was used, and every bar recomputed by an inde
   every flight, and an independent re-simulation reproduced the 26 eval and control dates exactly. v2's best plan
   costs at least 5% more than it on 17 of 24 eval dates (12 needed).
 - **The misses, documented and shipped:** the connecting shares (above); the scripted customer desk failed its gate
-  (above); the bound is weak ([TBD: the bound run]); and the best plan's repair overran its time cap on 49 of 70 dates.
+  (above); the bound is weak (54% to 79% under the best plan on the eval dates, and negative on the calm winter
+  control); and the best plan's repair overran its time cap on 49 of 70 dates.
 - **The desks.** [TBD: the zero-spend checks through the real harness, the pilot and the board.]
 
 ## The dataset and the Space

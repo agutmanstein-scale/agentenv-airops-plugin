@@ -99,8 +99,8 @@ g = max(0, P − best) / max(B0 − best, 0.1 best):
 - **best** (1.0): the cheapest plan under P a fixed search found knowing the whole day (v2's best plan, B0, the
   passenger-aware aircraft plans with the standard crew desk, and a repair of the best of them), replayed exactly with
   a legal crew on every flight;
-- **bound**: a capacity-aware lower bound under P, published per date: [TBD: bound run, eval-date gaps]; `reward_L` is
-  the reward against it;
+- **bound**: a capacity-aware lower bound under P, published per date, 54% to 79% under the best plan on the eval dates
+  (median 66%), most of it the solver not finishing; `reward_L` is the reward against it, so it reads low;
 - **B0**: standard crew-desk practice with the aircraft doing nothing; 0.308 on 20 of the 24 eval dates, more on the
   4 where it comes within 10% of the best plan.
 
@@ -135,7 +135,7 @@ All parquet, one config per table, a split per split of the pack (`eval`, `contr
 
 | Config | What |
 |---|---|
-| `v3_tasks` (default) | one row per date: v2's day (hubs, size, crews and reserves, the FAA's advisories as the desks get them), its passengers (trips, connecting, the survey period, the refund fare), every reference under P and its reward (best, bound, gap, B0, doing nothing, v2's best plan, JetBlue's own decisions replayed), the desks' rules, and the date's world with its passengers as the env loads it (`world`) |
+| `v3_tasks` (default) | one row per date: v2's day (hubs, size, crews and reserves, the FAA's advisories as the desks get them), its passengers (trips, connecting, the survey period, a refunded passenger's fare in passenger-minutes), every reference under P and its reward (best, bound, gap, B0, doing nothing, v2's best plan, JetBlue's own decisions replayed), the desks' rules, and the date's world with its passengers as the env loads it (`world`) |
 | `v3_board` | one row per mode with its mean reward and reward_L and their 95% bootstrap CIs, B0, and the paired difference of the two modes |
 | `v3_references` | one row per date: every candidate the best plan was chosen from with its P and reward, where the best plan came from, the bound, the gap, v2's best plan over the best, and the best plan itself |
 | `v3_episodes` | one row per recorded attempt: reward, reward_L and the costs against the best plan, the bound and B0, the day's cost by kind (lodging and refunded fares among them), cancellations, holds, crew moves and requests by type and outcome, spend, tokens, turns, each desk's end, the audit, its decisions and the request log; `on_board` and `superseded_by` mark the board's runs |
