@@ -165,7 +165,7 @@ export class Director {
   filler(t, wall, speed) {
     const { stage, room } = this.page, light = this.light(t), lag = this.pacer ? this.pacer.lag() : 0;
     const options = [];
-    const add = (beat, w) => w > 0 && options.push([beat, w * (this.recent.includes(beat.camera) ? 0.25 : 1)]);
+    const add = (beat, w) => w > 0 && options.push([beat, w * (beat.camera === this.recent[0] ? 0.02 : this.recent.includes(beat.camera) ? 0.3 : 1)]);
     const up = this.airborne(t);
     if (stage && wall - this.lastMap > MAP_EVERY && up) add({ kind: "map", camera: "network", spec: {}, prio: 15, kicker: `${hhmm(t)} · The network`, caption: up }, 6);
     const active = room?.pods?.active(t);
@@ -178,7 +178,7 @@ export class Director {
       if (light && off) add(this.movement(off, "takeoff"), 6);
       const moving = this.moving(t);
       if (light && moving) add({ kind: "follow", camera: "follow", spec: { key: moving }, prio: 20, kicker: hhmm(t), caption: this.tagOf(moving, t) ?? "", check: (u) => this.phase(moving, u) !== "parked" && this.phase(moving, u) !== "absent" }, 4);
-      if (this.page.terminal) add({ kind: "terminal", camera: "terminal", spec: { auto: true }, prio: 18, kicker: `${hhmm(t)} · ${this.terminalName()}`, caption: "" }, light ? 3 : 6);
+      if (this.page.terminal && this.crowd(t) >= 12) add({ kind: "terminal", camera: "terminal", spec: { auto: true }, prio: 18, kicker: `${hhmm(t)} · ${this.terminalName()}`, caption: "" }, light ? 3 : 6);
       if (light && this.page.crews) add({ kind: "crew", camera: "crew", spec: {}, prio: 16, kicker: hhmm(t), caption: "" }, 2);
       if (light) add({ kind: "harbour", camera: "harbour", spec: {}, prio: 10, kicker: `${this.where} · ${hhmm(t)}`, caption: "" }, 1.5);
       add({ kind: "tower", camera: "tower", spec: {}, prio: 10, kicker: `${this.where} · ${hhmm(t)}`, caption: "" }, light ? 2 : 3);
@@ -188,6 +188,12 @@ export class Director {
     let r = this.random() * total;
     for (const [beat, w] of options) if ((r -= w) <= 0) return { id: `fill:${beat.kind}:${wall.toFixed(1)}`, ...beat };
     return { id: `fill:${wall}`, ...options.at(-1)[0] };
+  }
+
+  /** People in the terminal's busiest gate area at t. */
+  crowd(t) {
+    const S = this.page.stage, k = S.terminal?.busiest(t);
+    return k == null || !S.pax ? 0 : S.pax.at(k, t);
   }
 
   random() {
@@ -227,7 +233,7 @@ export class Director {
     this.used.add(beat.id);
     const prev = this.cur;
     this.cur = { beat, start: wall, at: t, check: beat.check ?? null };
-    this.recent = [beat.camera, ...this.recent].slice(0, 2);
+    this.recent = [beat.camera, ...this.recent].slice(0, 3);
     if (beat.camera === "network") this.lastMap = wall;
     if (this.pacer) this.pacer.cut(SLOW[beat.camera] ?? Infinity, !SLOW[beat.camera]);
     this.shots.push({ id: beat.id, kind: beat.kind, camera: beat.camera, prio: beat.prio, at: t, wall, caption: beat.caption });
@@ -282,7 +288,7 @@ export class Director {
     const score = (b) => b.prio + (after(b) ? 15 : 0) + (b.kind === "faa" ? 10 : 0);
     const picked = [];
     let room = 0;
-    for (const b of this.beats.filter((b) => !b.after && b.prio >= 60).sort((a, b) => score(b) - score(a) || a.at - b.at)) {
+    for (const b of this.beats.filter((b) => !b.after && b.prio >= 60 && b.at > this.page.P.lo).sort((a, b) => score(b) - score(a) || a.at - b.at)) {
       const f = after(b);
       if (picked.some((p) => Math.abs(p.at - b.at) < 45) || (!f && b.camera.startsWith("room") && room >= 3)) continue;
       room += !f && b.camera.startsWith("room") ? 1 : 0;

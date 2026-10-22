@@ -613,24 +613,24 @@ export function buildWall(P, ep) {
     group,
     ready,
     span: [-WALL.w / 2, -WALL.w / 2 + w],
-    /** Redraw what changed at minute t; `now` (wall ms) throttles the map when the clock runs fast, `force` skips that. */
-    update(t, { now = performance.now(), force = false } = {}) {
+    /** Redraw what changed at minute t; `now` (wall ms) throttles the map when the clock runs fast, `force` skips that;
+     * `one` redraws one window a frame at most, the rest on the frames after, so no frame uploads them all. */
+    update(t, { now = performance.now(), force = false, one = false } = {}) {
       const flights = flightsAt(P, t), air = positionsAt(P, flights, t), m = Math.floor(t);
+      let budget = one ? 1 : Infinity;
+      const redraw = (win, key, ...args) => win && win.key !== key && budget-- > 0 && win.update(key, ...args);
       if (force || now - lastMap > 110 || windows.map.key == null) {
         const k = `${Math.floor(t * 3)}|${!!geo.data}`;
-        if (windows.map.key !== k) {
-          windows.map.update(k, t, air, rings(P, t));
-          lastMap = now;
-        }
+        if (redraw(windows.map, k, t, air, rings(P, t))) lastMap = now;
       }
       const fr = radar?.at(t);
       const okA = fr && image(fr.a.url).ok, okB = fr && image(fr.b.url).ok;
-      windows.sky.update(radar ? `${fr?.a.url}|${fr?.b.url}|${Math.round((fr?.f ?? 0) * 8)}|${okA}|${okB}|${!!geo.data}` : metarAt(t)?.id ?? "none", t);
-      windows.board.update(`${m}`, t, flights);
-      windows.faa.update(`${m}`, t);
-      windows.ops.update(`${m}|${air.length}`, t, air.length);
-      windows.pax?.update(`${m}`, t);
-      drawLed(t);
+      redraw(windows.sky, radar ? `${fr?.a.url}|${fr?.b.url}|${Math.round((fr?.f ?? 0) * 8)}|${okA}|${okB}|${!!geo.data}` : metarAt(t)?.id ?? "none", t);
+      redraw(windows.board, `${m}`, t, flights);
+      redraw(windows.faa, `${m}`, t);
+      redraw(windows.ops, `${m}|${air.length}`, t, air.length);
+      redraw(windows.pax, `${m}`, t);
+      if (budget > 0) drawLed(t);
     },
     /** Resolves once the radar frames shown at t are loaded, so a recorded frame has them. */
     loaded(t) {

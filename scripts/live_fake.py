@@ -6,8 +6,8 @@ serves what CONTRACT.md's live server does: /live/episode.json (the episode so f
 at each watch, the folder's stage/, radar/ and twin/ beside them, and the viewer itself under /web/.
 /live/control?seek=SECONDS&rate=X&pause=0|1 moves its clock, for tests.
 
-usage: .venv/bin/python scripts/live_fake.py FOLDER EPISODE.json [EPISODE.json ...] [--port 8765] [--watch-seconds 20]
-       then open http://127.0.0.1:8765/web/index.html?live=http://127.0.0.1:8765&stream
+usage: .venv/bin/python scripts/live_fake.py FOLDER EPISODE.json [EPISODE.json ...] [--port 8791] [--watch-seconds 20]
+       then open http://127.0.0.1:8791/web/index.html?live=http://127.0.0.1:8791&stream
 """
 
 import argparse
@@ -313,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("folder", type=Path, help="A viewer folder: episodes/, stage/, radar/.")
     p.add_argument("episodes", nargs="+", help="Episode files under FOLDER/episodes, played one after another.")
-    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--port", type=int, default=8791)
     p.add_argument("--viewer-port", type=int, help="Also serve on this port, another origin, for a cross-origin test.")
     p.add_argument("--web", type=Path, default=ROOT / "web")
     p.add_argument("--watch-seconds", type=float, default=20)

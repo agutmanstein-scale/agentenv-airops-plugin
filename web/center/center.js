@@ -31,6 +31,7 @@ export class ControlCenter {
     this.cards = 0;
     this.seen = 0;
     this.frameMs = [];
+    this.stagger = false;
     this.rig = { kind: "preset", name: "room", set: false };
     this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: manual, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(pixelRatio);
@@ -215,7 +216,7 @@ export class ControlCenter {
 
   #frame(dt, force = false) {
     const t0 = performance.now(), T = this.T;
-    this.screen.update(T, { force });
+    this.screen.update(T, { force, one: this.stagger && !force });
     this.pods.update(T, this.wall);
     this.#aim();
     this.cards = this.flying.update(T, this.camera);

@@ -59,6 +59,7 @@ export class AirportStage {
     this.rig = { kind: "preset", name: "tower" };
     this.featured = null;
     this.frameMs = [];
+    this.hidden = false;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, preserveDrawingBuffer: manual, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(pixelRatio);
     this.renderer.shadowMap.enabled = true;
@@ -118,7 +119,7 @@ export class AirportStage {
       renderer.setAnimationLoop(() => {
         const dt = Math.min(clock.getDelta(), 0.1);
         this.wall += dt;
-        this.#frame(dt);
+        if (!this.hidden) this.#frame(dt);
       });
     }
     return { hub: stage.hub, start: traffic.span[0], end: traffic.span[1], views: VIEWS, far, aircraft: this.plan.tracks.size, movements: this.plan.report.movements };

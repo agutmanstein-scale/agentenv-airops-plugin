@@ -192,11 +192,10 @@ def live(web: Path, folder: Path, days: list[str], chrome: str, ignore, out: Pat
     for server in servers:
         threading.Thread(target=server.serve_forever, daemon=True).start()
     feed, site = (f"http://127.0.0.1:{s.server_port}" for s in (servers[0], servers[-1]))
-    audio = "" if (web / "audio.js").is_file() else "&audio=0"
     first = fake.length(0)
     try:
         fake.control({"seek": [str(4 + 8 * 7)]})
-        with session(f"{site}/web/index.html?live={quote(feed)}&stream{audio}", chrome, 1920, 1080, "auto",
+        with session(f"{site}/web/index.html?live={quote(feed)}&stream&sound=0", chrome, 1920, 1080, "auto",
                      enable=("Runtime", "Log", "Network")) as (page, ready, gl):
             result["gl"] = gl
             state = lambda: page.js("airops.live?.state() ?? null")  # noqa: E731

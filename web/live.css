@@ -81,7 +81,14 @@ html.stream .view.corner { bottom: calc(var(--gap) + 26px); border-width: 2px; }
 html.stream .live-cap { bottom: 50px; }
 html.stream .live-panel h2 { font-size: 19px; }
 html.stream .lp-desks li { font-size: 13.5px; }
-html.stream .cm-key { top: 18px !important; bottom: auto !important; left: 50% !important; right: auto !important; transform: translateX(-50%); }
+html.stream .cm-key { top: 84px !important; bottom: auto !important; left: 50% !important; right: auto !important; transform: translateX(-50%); }
 html.stream .live-credit { bottom: 0; padding: 6px 0 8px; background: linear-gradient(rgba(6, 12, 18, 0), rgba(6, 12, 18, 0.55)); }
 .lp-desks li.on { background: rgba(90, 168, 255, 0.16); box-shadow: inset 3px 0 0 #5aa8ff; }
 .live-card p.total { margin: 16px 0 0; font-size: 15px; color: var(--muted); }
+.live-title { position: absolute; z-index: 6; top: var(--gap); left: 50%; transform: translateX(-50%); max-width: calc(100% - var(--left) - var(--right) - 80px);
+  padding: 8px 20px 9px; border-radius: 10px; text-align: center; background: rgba(10, 22, 32, 0.72); border: 1px solid rgba(190, 214, 224, 0.16);
+  backdrop-filter: blur(8px); pointer-events: none; white-space: nowrap; }
+.live-title b { display: block; font-size: 21px; font-weight: 750; letter-spacing: 0.01em; }
+.live-title b i { font-style: normal; color: #ff7a6e; text-transform: uppercase; font-size: 15px; letter-spacing: 0.12em; margin-left: 4px; vertical-align: 2px; }
+.live-title span { display: block; font-size: 13px; color: #c3d3db; overflow: hidden; text-overflow: ellipsis; }
+.ep.over .live-title { visibility: hidden; }
