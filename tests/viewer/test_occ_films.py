@@ -3,12 +3,16 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 SPEC = importlib.util.spec_from_file_location("occ_films", ROOT / "scripts" / "occ_films.py")
 of = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(of)
+SPEC_VIEWER = importlib.util.spec_from_file_location("occ_viewer", ROOT / "scripts" / "occ_viewer.py")
+ov = importlib.util.module_from_spec(SPEC_VIEWER)
+SPEC_VIEWER.loader.exec_module(ov)
 
 
 def sweep(tmp: Path, name: str, runs: list[str], rows: list[dict], tail: str = "") -> Path:
@@ -166,3 +170,33 @@ def test_a_scored_row_whose_day_has_not_landed_waits_and_so_does_a_sweep_without
     add(folder, row("a-joint"))
     assert [r["run"] for r in f.todo([], False, False)[0]] == ["a-joint"]
     assert of.main([str(tmp_path / "runs" / "occ3-board-x"), "--out", str(tmp_path / "films")]) == 1
+
+
+def test_the_viewer_builds_only_the_runs_not_in_its_index_and_points_each_card_at_its_still(tmp_path, monkeypatch):
+    folder = sweep(tmp_path, "occ3-board-opus", ["a-joint", "b-joint"], [row("a-joint"), row("b-joint")])
+    built, thumbed = [], []
+
+    def build(f, runs, workers, builds):
+        built.extend(runs)
+        index = f.viewer / "episodes" / "index.json"
+        doc = json.loads(index.read_text()) if index.is_file() else {"version": 1, "episodes": []}
+        doc["episodes"] += [{"url": f"{f.label(r)}.m.{r[0]}.json", "task_id": r.rsplit("-", 1)[0], "run": f.label(r)}
+                            for r in runs]
+        index.write_text(json.dumps(doc))
+        return []
+
+    def run(cmd, cwd):
+        stems = [cmd[i + 1] for i, x in enumerate(cmd) if x == "--only"]
+        thumbed.append(stems)
+        (Path(cmd[2]) / "thumbs" / f"{stems[0]}.jpg").write_bytes(b"jpg")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(ov, "build", build)
+    monkeypatch.setattr(ov.subprocess, "run", run)
+    args = [str(folder), "--out", str(tmp_path / "films"), "--assets", str(tmp_path)]
+    assert ov.main(args) == 1 and built == ["a-joint", "b-joint"]
+    assert ov.main(args) == 0 and built == ["a-joint", "b-joint"]
+    assert thumbed == [["occ3-board-opus-joint.m.a", "occ3-board-opus-joint.m.b"], ["occ3-board-opus-joint.m.b"]]
+    index = json.loads((tmp_path / "films" / "occ3-board-opus" / "viewer" / "episodes" / "index.json").read_text())
+    assert [e["thumb"] for e in index["episodes"]] == ["../thumbs/occ3-board-opus-joint.m.a.jpg",
+                                                       "../thumbs/occ3-board-opus-joint.m.b.jpg"]
