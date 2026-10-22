@@ -61,13 +61,14 @@ SOURCES = export.SOURCES | {"crews": "Pairings and reserves generated from the p
 
 def episode(world: World, data: Mapping, *, model: str, run: str, inputs: Path, cache: Path = export.CACHE,
             hub: str | None = None, record: Mapping | None = None,
-            projected: Sequence[Sequence[Mapping]] | None = None) -> dict:
+            projected: Sequence[Sequence[Mapping]] | None = None, news: Sequence[Mapping] | None = None) -> dict:
     """``data`` is the env's data/get record of a finished day (days/<run>-a<n>.json); ``hub`` the airport shown in 3D,
-    the task's by default."""
+    the task's by default; ``news``, the hub's advisories and METARs through the last watch when already read
+    (`day_news`), else they are read from ``inputs``."""
     task, grade = world.task, data["grade"]
     hub = hub or task.hub
     times = programs.watches(task)[: data["watch"] + 1]
-    news = advisories(task, inputs, times[-1]) + metars(task, hub, inputs, times[-1])
+    news = day_news(task, hub, inputs, times[-1]) if news is None else list(news)
     by_id = {n["id"]: n for n in news}
     plan = data["plan"]
     executed = [outcome(task, x, plan.get(str(x["id"]), {})) for x in grade["executed"]]
@@ -126,7 +127,12 @@ def passengers(world: World, data: Mapping) -> dict:
     if json.loads(json.dumps(done.to_dict())) != data["passengers"]:
         raise ValueError(f"{data['task_id']} {data['mode']}: the plan played again doesn't give the recorded "
                          "passengers")
-    held = held_minutes(world, data, plan, day, truth)
+    return ledger_rows(world, done, led, held_minutes(world, data, plan, day, truth))
+
+
+def ledger_rows(world: World, done: pax.Day, led: Mapping, held: Mapping[int, int]) -> dict:
+    """`passengers`' shape from the pass's day and ledger (pax.ledger) and the minutes each flight was held."""
+    task = world.task
     booked, cin, cout = Counter(), Counter(), Counter()
     for g in world.passengers.groups:
         for k in g.legs:
@@ -158,8 +164,9 @@ def passengers(world: World, data: Mapping) -> dict:
                              key=lambda e: (e["t"], e["kind"], e["flight"], e["group"]))}
 
 
-def held_minutes(world: World, data: Mapping, plan: dict, day, truth) -> dict[int, int]:
-    """Per flight held for the customer desk (its HOLD accepted), the minutes it left later than without those holds."""
+def held_minutes(world: World, data: Mapping, plan: dict, day, truth, play=None) -> dict[int, int]:
+    """Per flight held for the customer desk (its HOLD accepted), the minutes it left later than without those holds;
+    ``play`` runs a plan (the truth by default)."""
     asked = {r["id"] for r in data["requests"] if r["sender"] == CUSTOMER and r["type"] == "HOLD"}
     mine = [c for c in data["changes"] if c["action"] == "hold" and c["ref"] in asked]
     if not mine:
@@ -168,7 +175,7 @@ def held_minutes(world: World, data: Mapping, plan: dict, day, truth) -> dict[in
     for c in mine:
         e = without[str(c["target"])]
         e["holds"] = [h for h in e["holds"] if not (h[0] == c["t"] and h[1] == parse_hhmm(c["detail"]))]
-    other = runs.truth(world, plan_of(without), truth).run.flights
+    other = (play or (lambda p: runs.truth(world, p, truth)))(plan_of(without)).run.flights
     out = {}
     for c in mine:
         i = c["target"]
@@ -387,6 +394,11 @@ def crew_tags(status: Mapping[str, Sequence[Mapping]], executed: Mapping[int, Ma
         if rows:
             out[key] = rows
     return out
+
+
+def day_news(task, hub: str, inputs: Path, last: int) -> list[dict]:
+    """The FAA's advisories and ``hub``'s METARs through minute ``last``, as an episode's news reads them."""
+    return advisories(task, inputs, last) + metars(task, hub, inputs, last)
 
 
 def advisories(task, inputs: Path, last: int) -> list[dict]:
