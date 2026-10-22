@@ -56,7 +56,7 @@ export async function livePage(app, base, { episodePage, params, ready }) {
       await feed.poll();
       if (feed.ep?.task && runOf(feed.ep.live) === runOf(feed.state) && !["intermission", "stale"].includes(feed.state.status)) break;
       if (feed.state?.status === "intermission" || (feed.state && feed.ep && runOf(feed.ep.live) !== runOf(feed.state))) {
-        app.innerHTML = nextCard(feed.state, feed.ep);
+        app.innerHTML = `<div class="live-wait">${nextCard(feed.state, feed.ep)}</div>`;
       }
     } catch (e) {
       if (n % 10 === 0) console.warn("the live feed is not answering yet:", e.message);
@@ -64,9 +64,12 @@ export async function livePage(app, base, { episodePage, params, ready }) {
     if (n === 0) ready({ live: true, waiting: true });
     await sleep(POLL);
   }
+  const cover = app.querySelector(".live-wait");
+  if (cover) document.body.appendChild(cover).classList.add("cover");
   const live = new Live(feed, { stream, params });
   const page = await episodePage(app, new URL("live/episode.json", feed.root), live);
   live.attach(page, app);
+  cover?.remove();
   ready?.({ live: true });
   return live;
 }

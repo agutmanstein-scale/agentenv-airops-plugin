@@ -50,6 +50,7 @@ html.live .view.corner .inset-caption { pointer-events: none; }
 .ep.over .cards, .ep.over .view.corner, .ep.over .live-cap { visibility: hidden; }
 .live-wait { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
   background: radial-gradient(ellipse at 50% 40%, #1d2c3a, #0b1118 75%); }
+.live-wait.cover { z-index: 1000; }
 .live-card { width: min(980px, calc(100vw - 80px)); padding: 30px 40px 32px; border-radius: 16px; background: rgba(14, 26, 37, 0.92);
   border: 1px solid rgba(190, 214, 224, 0.2); box-shadow: 0 30px 90px rgba(0, 0, 0, 0.5); }
 .live-card small { display: block; font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #ff8a7e; }
