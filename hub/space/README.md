@@ -8,7 +8,7 @@ app_file: index.html
 pinned: true
 license: other
 license_name: us-public-domain-iem-mit-odbl-apache-2.0
-license_link: https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.4.1/NOTICE
+license_link: https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.4.2/NOTICE
 short_description: Run an airline's control center through a storm day
 tags:
 - agentenv
@@ -30,8 +30,8 @@ A third desk joins the ops control center: the customer desk asks ops to hold de
 not to cancel flights whose passengers have nowhere else to go, or to cancel early. The airline rebooks whoever misses
 a connection or loses a flight onto its next seats, today or on a later day, or refunds them. On a storm day it owes
 no hotel (weather and air traffic control are force majeure under its contract): those it can't fly today find their
-own room, and the env charges one GSA lodging night as the passenger's cost. A v3 run opens inside the terminal, at
-the busiest gate: its screen with the flight on time, delayed, boarding, held for its connecting passengers or
+own room, and the env charges one GSA lodging night as the passenger's cost. A v3 run adds a Terminal view in the
+gate hall: a gate's screen with its flight on time, delayed, boarding, held for its connecting passengers or
 cancelled, the crowd at the glass and the aircraft at the bridge, and ‹ › steps from gate to gate and to the line at the
 service counter. The room holds all three desks, the customer desk's requests piling at the desk they wait on, its own
 screens and a PASSENGERS panel on the wall; the stranded leave on the hotel shuttle, and the US map draws where

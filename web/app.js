@@ -93,7 +93,7 @@ async function indexPage(app, url) {
   document.documentElement.classList.add("light");
   document.title = `${v3.length ? V3.title : v2.length ? V2.title : "AirOpsEnv v1"} · episodes`;
   const card = (e) => {
-    const href = `?episode=${encodeURIComponent(new URL(e.url, url).href)}${e.passengers ? "&view=terminal&play=1&speed=2" : e.occ ? `&t=${e.open ?? ""}&view=room&play=1&speed=2` : ""}`;
+    const href = `?episode=${encodeURIComponent(new URL(e.url, url).href)}${e.occ ? `&t=${e.open ?? ""}&view=room&play=1&speed=2` : ""}`;
     const gap = e.anchor ? (100 * (e.cost - e.anchor)) / e.anchor : null;
     const under = e.occ ? flagged(e.cost, e.anchor, e.gap_pct, e.reward_L) : null;
     const thumb = e.thumb ? ` style="background-image:url('${esc(new URL(e.thumb, url).href)}')"` : "";
@@ -119,9 +119,9 @@ async function indexPage(app, url) {
   resolveReady({ episodes: index.episodes.length, v3: v3.length, v2: v2.length, v1: v1.length });
 }
 
-/** The list's "Start here": the featured v3 run (else v3's first) as a wide card opening inside the terminal as a held
- * flight's connecting passengers board or the service counter's line is at its longest, with a link to its control
- * center; or until the v3 board is recorded a placeholder pointing at v2's featured day. */
+/** The list's "Start here": the featured v3 run (else v3's first) as a wide card opening on its control center, with a
+ * link inside the terminal as a held flight's connecting passengers board or the service counter's line is at its
+ * longest; or until the v3 board is recorded a placeholder pointing at v2's featured day. */
 function start(e, v2, url, longDate) {
   const href = (x) => `?episode=${encodeURIComponent(new URL(x.url, url).href)}&t=${x.open ?? ""}&view=room&play=1&speed=2`;
   const inside = (x) => `?episode=${encodeURIComponent(new URL(x.url, url).href)}&view=terminal&moment=passengers&play=1&speed=1`;
@@ -131,10 +131,10 @@ function start(e, v2, url, longDate) {
       <h2>AirOpsEnv v3: the featured run</h2><p>Three desks run JetBlue's control center with its passengers: an ops controller, a crew scheduler and a customer desk that asks ops to hold departures for connecting passengers and keeps the stranded moving. The run to watch first lands here once the v3 board is recorded.</p>
       ${v2 ? `<a class="go" href="${href(v2)}">Meanwhile, watch v2's featured day: ${esc(HUB_NAMES[v2.hub] ?? v2.hub)}, ${esc(longDate(v2.date))} →</a>` : ""}</div></div></section>`;
   }
-  return `<section class="start"><div class="kicker">Start here</div><a class="start-card" href="${inside(e)}"><div class="thumb${e.thumb ? "" : " none"}"${bg(e)}><span>${esc(e.hub)}</span></div><div class="body">
+  return `<section class="start"><div class="kicker">Start here</div><a class="start-card" href="${href(e)}"><div class="thumb${e.thumb ? "" : " none"}"${bg(e)}><span>${esc(e.hub)}</span></div><div class="body">
     <h2>${esc(HUB_NAMES[e.hub] ?? e.hub)} · ${esc(longDate(e.date))}</h2><p class="model">${esc(e.model_label ?? e.model)} · ${esc(e.occ)} · reward ${e.reward?.toFixed(3) ?? "–"}</p>
-    <p>Three desks run JetBlue's control center through a real storm day with its passengers: inside the terminal, watch a gate held for its connecting passengers and the line at the service counter; in the control center, the customer desk asking ops to hold.</p><span class="go">Watch the run from the terminal →</span></div></a>
-    <p class="also"><a href="${href(e)}">Or open it in the control center →</a></p></section>`;
+    <p>Three desks run JetBlue's control center through a real storm day with its passengers: watch the customer desk ask ops to hold for connecting passengers, the gates fill and board inside the terminal, and the stranded leave for the hotel.</p><span class="go">Watch the run →</span></div></a>
+    <p class="also"><a href="${inside(e)}">Or watch it from inside the terminal →</a></p></section>`;
 }
 
 /** The board's result in a line: each setup's mean reward over the board's days, from the list's own board runs. */
@@ -233,7 +233,7 @@ async function episodePage(app, url) {
 
   const moves = ep.executed.filter((e) => e.status === "flown").flatMap((e) => [P.sched.get(e.id).orig === task.hub ? e.dep : null, P.sched.get(e.id).dest === task.hub ? e.arr : null]).filter((m) => m != null);
   const quiet = (m) => m > P.lastWatch + 60 && !moves.some((x) => x >= m - 5 && x <= m + 30);
-  const asked = params.get("view") ?? (terminal ? "terminal" : null);
+  const asked = params.get("view");
   const moment = terminal && (ALIASES[asked] ?? asked) === "terminal" && (params.get("moment") || !params.get("t")) ? params.get("moment") ?? "busy" : null;
   let t = clamp(Number(params.get("t") ?? P.lo)), step = null, viewName = stage ? "tower" : center ? "room" : "network", stageView = "tower", roomView = "room", following = null;
   let playing = false, speed = speed0, rate = null, boost = 1, last = performance.now(), lastMap = -1, busy = false, busyRoom = false;

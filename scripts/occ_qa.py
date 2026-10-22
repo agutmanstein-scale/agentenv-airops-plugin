@@ -2,8 +2,8 @@
 session), fail on an uncaught exception, a console error or a script or stylesheet from another host than the
 viewer's (its third-party code is vendored under web/vendor/), check that the 3D airport, the control-center room and
 the US map each come to the front and draw (window.airops.state() and a still that isn't blank) at a few minutes of
-the day, with a day's passengers at the airport, inside its terminal (where it opens) and its customer desk in the room
-when it has them, and no terminal without them, and write the stills, a contact sheet of them and a JSON report.
+the day, with a day's passengers at the airport, inside its terminal and its customer desk in the room when it has
+them, and no terminal without them, and write the stills, a contact sheet of them and a JSON report.
 
 usage: .venv/bin/python scripts/occ_qa.py cache/occ/viewer --out cache/qa [--minutes 840,1075] [--no-room] \
            [--ignore REGEX]
@@ -95,17 +95,14 @@ def page_list(base: str, data: str, chrome: str, width: int, height: int, index:
                      height, "auto", enable=("Runtime", "Log", "Network")) as (page, ready, _):
             cards = page.js("document.querySelectorAll('.ep-card').length")
             thumbs = page.js("document.querySelectorAll('.ep-card .thumb:not(.none)').length")
-            inside = page.js("document.querySelectorAll('.ep-card[href*=\"view=terminal\"]').length")
             start = page.js("[document.querySelector('.start-card')?.href ?? '', "
                             "document.querySelector('.start .also a')?.href ?? '']")
-            result |= {"cards": cards, "thumbs": thumbs, "terminal": inside, "start": start}
+            result |= {"cards": cards, "thumbs": thumbs, "start": start}
             if cards != len(index["episodes"]):
                 result["failures"].append(f"{cards} cards for {len(index['episodes'])} episodes")
             v3 = sum(1 for e in index["episodes"] if e.get("passengers"))
-            if inside != v3:
-                result["failures"].append(f"{inside} cards open the terminal for {v3} episodes with passengers")
-            if v3 and not ("view=terminal" in start[0] and "moment=passengers" in start[0] and "view=room" in start[1]):
-                result["failures"].append(f"Start here opens {start}, not the terminal and the room")
+            if v3 and not ("view=room" in start[0] and "view=terminal" in start[1] and "moment=passengers" in start[1]):
+                result["failures"].append(f"Start here opens {start}, not the room and the terminal")
             if thumbs < cards:
                 result["notes"] = [f"{cards - thumbs} episodes without a thumbnail (record.py --thumb)"]
             capture(page, out / "index.jpg")
@@ -135,7 +132,7 @@ def episode(base: str, data: str, chrome: str, width: int, height: int, entry: d
                 result["failures"].append(f"no {missing if missing == 'terminal' else VIEWS[missing]} view")
             if not inside and "terminal" in ready["views"]:
                 result["failures"].append("a terminal view without passengers")
-            if ep.get("stage") and opened != ("terminal" if inside else "tower"):
+            if ep.get("stage") and opened != "tower":
                 result["failures"].append(f"opens on {opened}")
             for t in minutes:
                 for view in [v for v in wanted if v and v in ready["views"]]:
