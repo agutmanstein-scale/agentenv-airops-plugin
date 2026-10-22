@@ -14,7 +14,6 @@ const ASKS = { CANCEL: "to cancel", CANCEL_PAIR: "to cancel the round trip of", 
 const ASK_PRIO = { CANCEL: 82, CANCEL_PAIR: 82, HOLD: 80, SUGGEST_CANCEL: 74, PROTECT: 72, COVER: 66, TEXT: 34 };
 const DECIDE_PRIO = { cancel: 78, cancel_pair: 78, hold: 70, rebook: 52, hotel: 52, assign: 50, call_reserve: 50, deadhead: 46, swap: 46,
   claim: 42, swap_slots: 40, release: 36, rest: 34 };
-const CREW_MOVES = new Set(["assign", "call_reserve", "deadhead", "swap"]);
 /** The clock's fastest rate for each camera, in minutes of the day a second (record.py FAST); the room and the map none. */
 const SLOW = { landing: 0.1, takeoff: 0.1, gate: 0.12, terminal: 0.12, crew: 0.12, follow: 0.3, tower: 0.25, harbour: 0.3, threshold: 0.2 };
 const LEN = { ask: [5, 12], answer: [4, 8], decide: [4, 8], cancelled: [4, 7], held: [5, 9], faa: [6, 10], landing: [5, 8],
@@ -23,7 +22,9 @@ const LEN = { ask: [5, 12], answer: [4, 8], decide: [4, 8], cancelled: [4, 7], h
 const REPLY = 5.5;
 const MAP_EVERY = 150;
 const DAWN = -2;
-const LAG = 20;
+/** Wall seconds behind where the clock should be past which the director keeps to the room and the map, where it may
+ * catch up. */
+const LAG = 45;
 
 const upper = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 const people = (n, what = "passengers") => `${n} ${n === 1 ? what.replace(/s$/, "") : what}`;
@@ -163,15 +164,16 @@ export class Director {
 
   /** Between beats: the airport's movements in light, the room while a desk works, the terminal, the map now and then. */
   filler(t, wall, speed) {
-    const { stage, room } = this.page, light = this.light(t), lag = this.pacer ? this.pacer.lag() : 0;
+    const { stage, room } = this.page, light = this.light(t), late = this.pacer ? this.pacer.behind() > LAG : false, end = !!this.pacer?.ending;
     const options = [];
     const add = (beat, w) => w > 0 && options.push([beat, w * (beat.camera === this.recent[0] ? 0.02 : this.recent.includes(beat.camera) ? 0.3 : 1)]);
     const up = this.airborne(t);
-    if (stage && wall - this.lastMap > MAP_EVERY && up) add({ kind: "map", camera: "network", spec: {}, prio: 15, kicker: `${hhmm(t)} · The network`, caption: up }, 6);
-    const active = room?.pods?.active(t);
-    if (room && active) add({ kind: "work", camera: "room-desks", spec: { desk: active, t0: t, t1: t + 6 }, prio: 30, kicker: `${hhmm(t)} · The control center`, caption: `${upper(this.page.ep.occ?.mode === "one" ? "the desk" : DESK[active])} at work` }, lag > LAG ? 8 : 4);
-    if (room && !active) add({ kind: "room", camera: "room", spec: { t0: t, t1: t + 6 }, prio: 12, kicker: `${hhmm(t)} · The control center`, caption: "" }, lag > LAG ? 5 : 1);
-    if (stage && lag < LAG) {
+    if (stage && (end || wall - this.lastMap > MAP_EVERY) && up) add({ kind: "map", camera: "network", spec: {}, prio: 15, kicker: `${hhmm(t)} · The network`, caption: up }, end ? 4 : 6);
+    const active = room?.pods?.active(t), turn = active && (this.page.ep.occ?.turns ?? []).find((u) => u.from <= t && t < u.to);
+    if (room && active) add({ kind: "work", camera: "room-desks", spec: { desk: active, t0: t, t1: t + 6 }, prio: 30, kicker: `${hhmm(t)} · The control center`,
+      caption: `${upper(this.page.ep.occ?.mode === "one" ? "the desk" : DESK[active])} works through the ${hhmm(turn?.t ?? t)} watch`, subline: turn?.calls ? `${turn.calls} calls to its tools this turn` : "" }, late ? 8 : 4);
+    if (room && !active) add({ kind: "room", camera: "room", spec: { t0: t, t1: t + 6 }, prio: 12, kicker: `${hhmm(t)} · The control center`, caption: "" }, end ? 0.5 : late ? 5 : 1);
+    if (stage && !late) {
       const soon = this.events.filter((e) => e.t > t + Math.max(0.15, speed * 1.5) && e.t < t + Math.max(0.7, speed * 3) && this.page.stage.plan.tracks.get(e.key)?.task);
       const land = soon.find((e) => e.kind === "landing"), off = soon.find((e) => e.kind === "takeoff");
       if (light && land) add(this.movement(land, "landing"), 7);

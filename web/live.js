@@ -10,22 +10,28 @@ import { HUB_NAMES, esc, hhmm, short } from "./model.js";
 import { Director } from "./director.js";
 
 const POLL = 3000;
-const WATCH = 150;
 /** Wall seconds the desks take over a watch until the day's own watches time them. */
-const SPEED_MAX = 2.5;
-const SPEED_END = 5;
+const WATCH = 150;
 /** The fastest the clock runs to catch up, in minutes of the day a second; once every watch is decided, through the
  * rest of the day's flying. */
+const SPEED_MAX = 2.5;
+const SPEED_END = 5;
 const TAU = 4;
-const STRETCH = 1.2;
 /** Each decided hour is paced to take this share more than a watch is expected to, so the clock rarely stops. */
-const SKIP = 60;
+const STRETCH = 1.2;
 /** Minutes behind where it should be past which the clock jumps on at a cut to the room or the map. */
+const SKIP = 60;
 const SCORE_SECONDS = 22;
 const HIGHLIGHT_SECONDS = 7;
-const NEXT_SECONDS = 10;
 /** The least the next-storm card shows, when the next day is already on. */
+const NEXT_SECONDS = 10;
 const CARD_KEY = "airops-live-card";
+const FETCH_MS = 30000;
+/** Bytes of JavaScript heap past which the page reloads onto the day, a safety net over a day of updates. */
+const HEAP_MAX = 3e9;
+/** Milliseconds after more of the day is decided that the episode is fetched once more, for the traffic sidecar the
+ * server rebuilds after the watch's last decision. */
+const SETTLE = 20000;
 const DESKS = { ops: "Ops", crew: "Crew", customer: "Customer", one: "Desk" };
 const BRAND = "AirOpsEnv";
 
@@ -34,9 +40,6 @@ const utc = (d) => `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUT
 const runOf = (l) => (l ? l.run_id ?? l.instance_id ?? `${l.task_id ?? l.date}|${l.started_utc ?? ""}` : null);
 const finished = (l) => ["done", "intermission"].includes(l?.status);
 const keyOf = (l) => [runOf(l), l?.status, l?.decided_until].join("|");
-const SETTLE = 20000;
-/** Milliseconds after more of the day is decided that the episode is fetched once more, for the traffic sidecar the
- * server rebuilds after the watch's last decision. */
 
 export async function livePage(app, base, { episodePage, params, ready }) {
   const stream = params.has("stream");
@@ -83,7 +86,7 @@ function normal(ep) {
 }
 
 async function fetchJSON(url) {
-  const r = await fetch(url, { cache: "no-store" });
+  const r = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(FETCH_MS) });
   if (!r.ok) throw Object.assign(new Error(`${url}: HTTP ${r.status}`), { status: r.status });
   const buf = new Uint8Array(await r.arrayBuffer());
   if (buf[0] !== 0x1f || buf[1] !== 0x8b) return JSON.parse(new TextDecoder().decode(buf));
@@ -175,6 +178,16 @@ export class Pacer {
     return this.virtual(now) - this.t;
   }
 
+  /** Wall seconds the clock is behind where it should be, at the pace it should go. */
+  behind(now = performance.now() / 1000) {
+    const { s0, s1, D } = this.seg;
+    return this.lag(now) / Math.max(0.2, (s1 - s0) / D);
+  }
+
+  get ending() {
+    return this.max > SPEED_MAX;
+  }
+
   tick(now, dt) {
     const { s0, s1, w0, D } = this.seg, V = this.virtual(now), slope = now - w0 < D ? (s1 - s0) / D : 0;
     const want = Math.max(0, Math.min(this.cap, this.max, slope + (V - this.t) / TAU));
@@ -219,6 +232,11 @@ class Live {
     return Math.min(hi, l.decided_until ?? (finished(l) ? hi : this.ep.watches?.at(-1)?.t ?? this.ep.task.start));
   }
 
+  /** The server's state while it is about this day, else the day's last (once the next day is on). */
+  mine() {
+    return (runOf(this.feed.state) === this.instance ? this.feed.state : this.ep.live) ?? {};
+  }
+
   /** app.js asks for the clock each frame. */
   clock(now, dt) {
     if (this.override) return this.override(now, dt);
@@ -245,9 +263,10 @@ class Live {
       this.root.appendChild(Object.assign(document.createElement("div"), { className: "live-credit", innerHTML: credit() }));
     }
     this.director = new Director(page, { pacer: this.pacer, caption: (beat, t) => this.caption(beat, t), log: this.params.get("log") === "1" });
-    this.panel.render(this.feed.state ?? this.ep.live, this);
+    this.panel.render(this.mine(), this);
     this.timer = setInterval(() => this.poll(), POLL);
     window.airops.live = this;
+    for (const el of this.root.querySelectorAll("canvas")) el.addEventListener("webglcontextlost", () => this.restart("the GPU dropped a 3D view"));
     if (done) this.score();
   }
 
@@ -260,7 +279,7 @@ class Live {
       if (runOf(st) !== this.instance) return this.nextDay(st);
       if (st.watch_wall_s) this.pacer.wall = st.watch_wall_s;
       if (runOf(ep.live) === this.instance && (keyOf(ep.live) !== this.applied.key || (ep.stage?.traffic ?? null) !== this.applied.traffic)) await this.grow(ep);
-      this.panel.render(st, this);
+      this.panel.render(this.mine(), this);
     } catch (e) {
       this.panel.offline(e);
     } finally {
@@ -275,7 +294,7 @@ class Live {
     if (ep.stage?.traffic && ep.stage.traffic !== this.applied.traffic && this.page.stage) {
       traffic = await fetchJSON(new URL(ep.stage.traffic, new URL("live/episode.json", this.feed.root))).catch((e) => (console.warn("the traffic sidecar did not load:", e), null));
     }
-    this.applied = { key: keyOf(ep.live), traffic: traffic || !this.page.stage ? ep.stage?.traffic ?? null : this.applied.traffic };
+    this.applied = { key: keyOf(ep.live), traffic: ep.stage?.traffic ?? null };
     await this.page.update(ep, traffic);
     this.director.index();
     this.pacer.advance(this.frontier(ep.live ?? {}), performance.now() / 1000, finished(ep.live));
@@ -283,15 +302,17 @@ class Live {
 
   /** Each frame: the director, the transitions at the day's end, the sound. */
   frame(t, now, dt) {
-    const st = this.feed.state ?? this.ep.live ?? {};
+    const st = this.mine();
     if (this.page.stage) this.page.stage.hidden = !this.page.views.visible("stage");
     if (this.phase === "day") {
+      this.brief(t <= this.page.P.lo + 0.5 && this.pacer.holding());
       this.director.tick(t, now / 1000, this.pacer.v);
       if (finished(this.ep.live) && t >= this.pacer.F - 0.5) this.score();
     } else if (this.phase === "highlights") this.highlight(t, now / 1000);
     if (now - (this.drawn ?? 0) > 500) {
       this.drawn = now;
       this.panel.tick(st, this);
+      if ((performance.memory?.usedJSHeapSize ?? 0) > HEAP_MAX && this.phase === "day") this.restart("the heap passed its bound");
     }
     const sound = window.airops?.sound;
     if (sound && !this.mute) {
@@ -314,6 +335,31 @@ class Live {
     this.errors = (this.errors ?? 0) + 1;
   }
 
+  /** The day's briefing while it holds at its start for the desks' first decisions: the hub and date, the network, the
+   * weather and the FAA as the header has them, and what the run is scored against. */
+  brief(on) {
+    this.root.classList.toggle("briefing", on);
+    if (!on) {
+      if (this.briefing) this.briefing.hidden = true;
+      return;
+    }
+    if (!this.briefing) this.briefing = this.root.appendChild(Object.assign(document.createElement("div"), { className: "live-brief", hidden: true }));
+    const ep = this.ep, task = ep.task, pax = ep.schedule.reduce((a, s) => a + (s.pax ?? 0), 0), here = ep.schedule.filter((s) => s.orig === task.hub || s.dest === task.hub).length;
+    const std = (ep.occ?.refs ?? []).find((r) => /standard/i.test(r.label)), day = (this.mine().history ?? []).filter((h) => h.outcome !== "skipped").length + 1;
+    const text = (sel) => {
+      const el = this.root.querySelector(sel), chip = el?.querySelector(".chip")?.textContent ?? "";
+      const rest = (el?.textContent ?? "").replace(chip, "").trim();
+      return chip ? `${chip}: ${rest}` : rest;
+    };
+    const html = `<small>${BRAND} · live · storm day ${day}</small><h1>${esc(HUB_NAMES[task.hub] ?? task.hub)} · ${esc(longDate(task.date))}</h1>
+      <p>${esc(ep.model_label ?? ep.model)} takes JetBlue's control center from ${hhmm(task.start)} ${esc(ep.occ?.label ? `as ${ep.occ.label}` : "")}: an ops controller for the flights, a crew scheduler for the crews${ep.passengers ? " and a customer desk for the passengers" : ""}. The airport plays each hour once they have decided it.</p>
+      <dl><div><dt>JetBlue's network today</dt><dd>${ep.schedule.length.toLocaleString("en-US")} flights, ${here} of them at ${esc(task.hub)} · ${pax.toLocaleString("en-US")} passengers booked</dd></div>
+      <div><dt>The weather</dt><dd>${esc(text(".card.head .wx"))}</dd></div><div><dt>The FAA</dt><dd>${esc(text(".card.head .faa"))}</dd></div>
+      <div><dt>Scored against</dt><dd>the best plan found in hindsight (1.0)${std ? ` and the standard crew desk (${std.reward.toFixed(2)})` : ""}</dd></div></dl>`;
+    if (html !== this.briefing._html) this.briefing.innerHTML = this.briefing._html = html;
+    this.briefing.hidden = false;
+  }
+
   caption(beat, t) {
     const text = [beat?.kicker ?? "", beat?.caption ?? "", typeof beat?.subline === "function" ? beat.subline(t) : beat?.subline ?? ""];
     const key = text.join("|");
@@ -331,7 +377,7 @@ class Live {
     if (this.phase !== "day") return;
     this.phase = "score";
     this.caption(null);
-    this.card = this.root.appendChild(Object.assign(document.createElement("div"), { className: "live-over", innerHTML: scoreCard(this.ep, this.feed.state ?? this.ep.live) }));
+    this.card = this.root.appendChild(Object.assign(document.createElement("div"), { className: "live-over", innerHTML: scoreCard(this.ep, this.mine()) }));
     this.root.classList.add("over");
     setTimeout(() => this.highlights(), SCORE_SECONDS * 1000);
   }
@@ -394,13 +440,20 @@ class Live {
     if (this.phase === "next" && performance.now() - this.nextAt >= NEXT_SECONDS * 1000) this.reload();
   }
 
-  reload() {
+  /** The page again onto the day where it is decided so far, after the GPU drops a view or the heap grows past bounds. */
+  restart(why) {
+    console.warn(`live: reloading, ${why}`);
+    this.reload(false);
+  }
+
+  reload(next = true) {
     if (this.reloading) return;
     this.reloading = true;
     clearInterval(this.timer);
     clearInterval(this.nextTimer);
     try {
-      sessionStorage.setItem(CARD_KEY, `<div class="live-wait">${nextCard(this.feed.state, this.ep, true)}</div>`);
+      sessionStorage.setItem(CARD_KEY, `<div class="live-wait">${next ? nextCard(this.feed.state, this.ep, true)
+        : `<div class="live-card next"><small>${BRAND} · live</small><h1>Back in a moment</h1><p>The day goes on where the desks have got to.</p></div>`}</div>`);
     } catch {}
     location.reload();
   }
@@ -500,7 +553,8 @@ function scoreCard(ep, st) {
 }
 
 function nextCard(st, ep, loading = false) {
-  const n = st?.next ?? null, hist = (st?.history ?? []).filter((h) => h.outcome !== "skipped");
+  const on = !!st?.date && runOf(st) !== runOf(ep?.live) && !finished(st);
+  const n = on ? { date: st.date, hub: st.hub } : st?.next ?? null, hist = (st?.history ?? []).filter((h) => h.outcome !== "skipped");
   const when = n?.starts_utc ? new Date(n.starts_utc) : null, mins = when ? Math.round((when - Date.now()) / 60000) : null;
   const what = n ? `${n.hub ? `${HUB_NAMES[n.hub] ?? n.hub} · ` : ""}${longDate(n.date)}` : loading ? "The next storm day" : "Between storm days";
   const rows = hist.slice(-6).map((h) => `<tr><td>${esc(longDate(h.date))}</td><td>${h.reward != null ? h.reward.toFixed(3) : esc(h.outcome ?? "–")}</td><td>${h.cost_usd != null ? `$${h.cost_usd.toFixed(2)}` : "–"}</td><td>${h.wall_seconds != null ? `${Math.round(h.wall_seconds / 60)} min` : "–"}</td></tr>`).join("");
@@ -508,7 +562,7 @@ function nextCard(st, ep, loading = false) {
   const total = scored.length ? `${scored.length} storm day${scored.length > 1 ? "s" : ""} so far · mean reward ${(scored.reduce((a, h) => a + h.reward, 0) / scored.length).toFixed(3)} · $${spend.toFixed(2)} of model spend` : "";
   const model = st?.model_label ?? ep?.model_label ?? "The model";
   return `<div class="live-card next"><small>${BRAND} · live · next storm</small><h1>${esc(what)}</h1>
-    <p>${esc(model)} takes JetBlue's control center ${hist.length ? "again " : ""}from 04:00 local${when ? `, ${mins > 1 ? `in about ${mins} min` : "any moment now"} (${utc(when).slice(0, 5)} UTC)` : ""}.</p>
+    <p>${esc(model)} takes JetBlue's control center ${hist.length ? "again " : ""}from 04:00 local${on ? ", starting now" : when ? `, ${mins > 1 ? `in about ${mins} min` : "any moment now"} (${utc(when).slice(0, 5)} UTC)` : ""}.</p>
     ${rows ? `<table><thead><tr><th>Storm day</th><th>Reward</th><th>Spend</th><th>Wall</th></tr></thead><tbody>${rows}</tbody></table>` : ""}${total ? `<p class="total">${esc(total)}</p>` : ""}</div>`;
 }
 
