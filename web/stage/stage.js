@@ -15,6 +15,7 @@ import { buildPassengers, cutouts } from "./passengers.js";
 import { buildSpray } from "./spray.js";
 import { aim, buildTerminal } from "./terminal.js";
 import { buildWeather } from "./weather.js";
+import { freed } from "../gc.js";
 
 const DEG = Math.PI / 180;
 const VIEWS = ["tower", "gate", "threshold", "harbour", "follow", "crew"];
@@ -58,6 +59,7 @@ export class AirportStage {
     this.rig = { kind: "preset", name: "tower" };
     this.featured = null;
     this.frameMs = [];
+    this.hidden = false;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, preserveDrawingBuffer: manual, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(pixelRatio);
     this.renderer.shadowMap.enabled = true;
@@ -117,7 +119,7 @@ export class AirportStage {
       renderer.setAnimationLoop(() => {
         const dt = Math.min(clock.getDelta(), 0.1);
         this.wall += dt;
-        this.#frame(dt);
+        if (!this.hidden) this.#frame(dt);
       });
     }
     return { hub: stage.hub, start: traffic.span[0], end: traffic.span[1], views: VIEWS, far, aircraft: this.plan.tracks.size, movements: this.plan.report.movements };
@@ -284,6 +286,33 @@ export class AirportStage {
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+  }
+
+  /** Another traffic sidecar of the same day, as a live day's decisions land: its aircraft, crews and passengers built
+   * again in place, the airport, the buildings, the weather and the camera kept, and what only the old ones used freed. */
+  async retraffic(traffic) {
+    await this.ready;
+    const { data: stage, scene } = this;
+    const old = [this.fleet, this.bridges, this.crews, this.pax, this.terminal].filter(Boolean).map((x) => x.group).concat(this.spray.mesh);
+    this.traffic = traffic;
+    this.plan = buildTracks(stage, traffic);
+    const pax = traffic.passengers?.lounges?.length ? traffic.passengers : null;
+    if (pax) annotate(traffic, pax.tags || {});
+    const people = pax ? buildPassengers(pax, stage) : null;
+    this.bridges = buildBridges(stage, this.plan, people ? { fit: (pts, tip) => people.fit(pts, tip, ROTUNDA) } : undefined);
+    this.fleet = buildFleet(this.plan);
+    this.crews = buildCrews(traffic.crews || []);
+    this.pax = people;
+    this.terminal = people ? buildTerminal(people, stage, traffic, { home: homeOf(stage).ref, bridges: this.bridges, page: { camera: this.camera, band: () => this.#band(true) } }) : null;
+    this.spray = buildSpray(this.plan);
+    const fresh = [this.bridges.group, this.fleet.group, this.crews.group, this.pax?.group, this.terminal?.group, this.spray.mesh].filter(Boolean);
+    scene.remove(...old);
+    scene.add(...fresh);
+    freed(old, [scene]);
+    if (this.rig.kind === "terminal" && !this.terminal) this.#view("tower");
+    else if (this.rig.kind === "terminal") this.#terminalAt();
+    if (this.rig.kind === "crew" && !this.crews.focus(this.rig.key, this.T)) this.#view("crew", {});
+    return { aircraft: this.plan.tracks.size, movements: this.plan.report.movements };
   }
 
   dispose() {
