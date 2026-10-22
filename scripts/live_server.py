@@ -239,8 +239,8 @@ class Day:
         exact = not f.mismatches and (self.data_grade is None or g is None or self.data_grade == onair.jsonable(g))
         return {
             "status": status, "seq": seq, "run_id": self.run_id, "task_id": self.task_id, "date": task.date,
-            "instance_id": self.instance_id, "model": self.model, "model_label": export.NAMES.get(self.model,
-                                                                                                 self.model),
+            "hub": task.hub, "instance_id": self.instance_id, "model": self.model,
+            "model_label": export.NAMES.get(self.model, self.model),
             "mode": self.mode, "pilot": self.pilot, "watch": day.k, "watches": len(day.times), "t": day.t,
             "decided_until": onair.decided_until(day, (self.ep or {}).get("executed") or []),
             "turn": None if day.turn is None else {k: day.turn[k] for k in ("n", "desk", "kind", "calls")},
