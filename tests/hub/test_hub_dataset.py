@@ -41,6 +41,7 @@ DAY = E2E / "e2e-day.jsonl"
 ID = "b6-jfk-20240109-1800"
 OCC_EVAL, OCC_CONTROL, OCC_OTHER = "b6-20240713-0400", "b6-20240703-0400", "b6-20250111-0400"
 SONNET, GPT = "anthropic/claude-sonnet-5-5", "openai/gpt-6.1-sol"
+OPUS, ASTRA = "anthropic/claude-opus-5-5", "openai/gpt-6-astra"
 TAG = f"v{tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']['version']}"
 PLUGIN = f"agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@{TAG}"
 FILMS = {"v0.2.0": "v1's films", "v0.3.0": "v2's films", "v0.4.1": "v3's films"}
@@ -535,22 +536,28 @@ def _occ3_runs(tmp_path: Path) -> tuple[Path, Path]:
     """The v3 board on two dates, three desks and one agent, with a pilot run on the control day, each recorded day's
     replay kept as the build keeps it."""
     runs, replays = tmp_path / "runs", tmp_path / "replays"
-    plan = {"occ3-board-sol": [(f"{OCC_EVAL}-joint", 0.7, 1300.0), (f"{OCC_EVAL}-one", 0.5, 1500.0),
-                               (f"{OCC_OTHER}-joint", 0.4, 1600.0), (f"{OCC_OTHER}-one", 0.6, 1400.0)],
-            "occ3-pilot-canary": [(f"{OCC_CONTROL}-joint", 0.8, 1200.0)]}
-    for name, played in plan.items():
-        folder = runs / name
-        rows = [_occ_row(run, 1, score, cost, ("crew", "customer", "ops") if run.endswith("joint") else ("both",),
-                         folder) for run, score, cost in played]
-        (folder / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-        (folder / "pilot.json").write_text(json.dumps({"name": name, "model": GPT, "runs": [r["run"] for r in rows],
-                                                       "caps": {"joint": 5.0, "one": 12.0}, "budget": 120.0}))
-        replays.mkdir(exist_ok=True)
-        for r in rows:
-            run_id = f"{name}/{r['run']}-a1"
-            (replays / f"{run_id.replace('/', '.')}.json").write_text(json.dumps(
-                {"digest": run_id.split("/")[1], "exact": True, "mismatches": 0, "first": []}))
+    _occ3_folder(runs, replays, "occ3-board-sol", GPT, [
+        (f"{OCC_EVAL}-joint", 0.7, 1300.0), (f"{OCC_EVAL}-one", 0.5, 1500.0), (f"{OCC_OTHER}-joint", 0.4, 1600.0),
+        (f"{OCC_OTHER}-one", 0.6, 1400.0)])
+    _occ3_folder(runs, replays, "occ3-pilot-canary", GPT, [(f"{OCC_CONTROL}-joint", 0.8, 1200.0)])
     return runs, replays
+
+
+def _occ3_folder(runs: Path, replays: Path, name: str, model: str, played: list[tuple[str, float, float]],
+                 caps: dict | None = None, tweak=lambda r: r) -> None:
+    """A three-desk pilot folder as `agent-env airops-occ3 pilot` writes it, its rows passed through ``tweak``, with
+    each recorded day's replay kept as the build keeps it."""
+    folder = runs / name
+    rows = [tweak(_occ_row(run, 1, score, cost, ("crew", "customer", "ops") if run.endswith("joint") else ("both",),
+                           folder)) for run, score, cost in played]
+    (folder / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    (folder / "pilot.json").write_text(json.dumps({"name": name, "model": model, "runs": [r["run"] for r in rows],
+                                                   "caps": caps or {"joint": 5.0, "one": 12.0}, "budget": 120.0}))
+    replays.mkdir(exist_ok=True)
+    for r in rows:
+        run_id = f"{name}/{r['run']}-a1"
+        (replays / f"{run_id.replace('/', '.')}.json").write_text(json.dumps(
+            {"digest": run_id.split("/")[1], "exact": True, "mismatches": 0, "first": []}))
 
 
 def test_v3s_runs_desks_board_and_eval_card_read_the_three_desk_pilots_and_the_bundle(hub, tmp_path):
@@ -568,8 +575,10 @@ def test_v3s_runs_desks_board_and_eval_card_read_the_three_desk_pilots_and_the_b
     joint, one, b0, paired = pq.read_table(io.BytesIO(files["results/v3-board.parquet"])).to_pylist()
     assert (joint["label"], joint["mean_reward"], one["mean_reward"], b0["mean_reward"]) == (
         "three desks, talking", 0.55, 0.55, 0.3083)
-    assert (paired["label"], paired["higher_on"], joint["cap_usd_per_desk"]) == (
-        "three desks minus one agent, paired by date", 1, 5.0)
+    assert (paired["label"], paired["higher_on"], paired["model"], joint["cap_usd_per_desk"]) == (
+        "three desks minus one agent, paired by date", 1, GPT, 5.0)
+    assert (joint["model_name"], joint["runs"], joint["B0_reward"], joint["desks"], joint["desks_at_cap"]) == (
+        "GPT-6.1 Sol", 2, 0.3083, 6, 0)
     card = json.loads(files["results/eval-v3.json"])
     assert set(card) == EVAL_CARD and (card["env"], card["version"], card["tasks"]["n"]) == ("airops-occ3", "v3", 2)
     tools = occ3_tasks.OPS_TOOLS + occ3_tasks.CREW_TOOLS + occ3_tasks.CUST_TOOLS + occ3_tasks.SHARED
@@ -581,8 +590,70 @@ def test_v3s_runs_desks_board_and_eval_card_read_the_three_desk_pilots_and_the_b
         "B0", "doing nothing", "v2's best plan, blind to passengers, played with them", "the airline"]
     assert card["models"][0]["model"] == "GPT-6.1 Sol, three desks, talking"
     assert card["links"]["runs"].endswith("/viewer/v3_episodes")
-    assert "| GPT-6.1 Sol, three desks, talking | 2 | **0.550**" in board_md
-    assert "Three desks minus one agent, paired by date" in board_md
+    assert "\n| 1 | GPT-6.1 Sol | three desks, talking | 2 | **0.550** (0.400–0.700) |" in board_md
+    assert "\n| | GPT-6.1 Sol | one agent at all three desks | 2 | 0.550 (" in board_md
+    assert "\n\nGPT-6.1 Sol, three desks minus one agent, paired by date: **+0.000** reward" in board_md
+    assert "leader" not in board_md and "running" not in board_md
+
+
+def test_the_v3_board_ranks_each_models_three_desks_and_pairs_only_sols_two_modes(hub, tmp_path):
+    runs, replays = _occ3_runs(tmp_path)
+    first, second = f"{OCC_EVAL}-joint", f"{OCC_OTHER}-joint"
+
+    def capped(r: dict) -> dict:
+        r["desks"]["crew"]["end_reason"] = "cost_cap"
+        return r | {"below_best": r["run"] == first}
+
+    _occ3_folder(runs, replays, "occ3-board-opus", OPUS, [(first, 0.95, 1100.0), (second, 0.75, 1200.0)],
+                 {"joint": 6.0, "one": 12.0}, capped)
+    _occ3_folder(runs, replays, "occ3-board-sonnet", SONNET, [(first, 0.9, 1150.0), (second, 0.6, 1300.0)])
+    _occ3_folder(runs, replays, "occ3-board-astra", ASTRA, [(first, 0.3, 1800.0), (second, 0.2, 1900.0)])
+    _occ3_folder(runs, replays, "occ3-board-sol-retry", GPT, [(first, 0.1, 1950.0)])
+    path = _occ3_pack(tmp_path)
+    pilots = ["occ3-board-sonnet", "occ3-pilot-canary", "occ3-board-sol-retry", "occ3-board-astra", "occ3-board-sol",
+              "occ3-board-opus"]
+    files, board_md = hub.occ3_files(runs, pilots, Pack3(path), hub.occ3_bundle(tmp_path / "out", path), replays, 1,
+                                     "2026-10-22", [OPUS, "fireworks_ai/kimi-k3", "openai/gpt-5.6-terra"])
+    rows = pq.read_table(io.BytesIO(files["results/v3-board.parquet"])).to_pylist()
+    assert [(r["kind"], r["model"], r["mode"]) for r in rows] == [
+        ("mode", OPUS, "joint"), ("mode", SONNET, "joint"), ("mode", GPT, "joint"), ("mode", ASTRA, "joint"),
+        ("mode", GPT, "one"), ("baseline", None, "B0"), ("paired", GPT, "joint - one")]
+    opus, sol, b0, paired = rows[0], rows[2], rows[5], rows[6]
+    assert (opus["model_name"], opus["provider"], opus["runs"], opus["dates"], opus["mean_reward"]) == (
+        "Claude Opus 5.5", "Anthropic", 2, 2, 0.85)
+    assert (opus["below_best"], opus["desks"], opus["desks_at_cap"], opus["cap_usd_per_desk"]) == (1, 6, 2, 6.0)
+    assert opus["B0_reward"] == b0["mean_reward"] == 0.3083 and b0["dates"] == 2
+    assert (sol["mean_reward"], paired["mean_reward"], paired["dates"]) == (0.55, 0.0, 2)
+    episodes = pq.read_table(io.BytesIO(files["episodes/v3-eval.parquet"])).to_pylist()
+    assert [e["pilot"] for e in episodes] == ["occ3-board-sol"] * 4 + ["occ3-board-sonnet"] * 2 + [
+        "occ3-board-astra"] * 2 + ["occ3-board-opus"] * 2 + ["occ3-board-sol-retry"]
+    assert (episodes[4]["model_name"], episodes[4]["set"], episodes[4]["on_board"]) == ("Claude Sonnet 5.5", "board",
+                                                                                         True)
+    assert (episodes[-1]["set"], episodes[-1]["on_board"]) == ("pilot", False)
+    assert pq.read_table(io.BytesIO(files["desks/v3-eval.parquet"])).num_rows == 3 + 1 + 3 + 1 + 3 * 6 + 3
+    card = json.loads(files["results/eval-v3.json"])
+    assert [(m["model"], m["provider"], m["runs"], m["usd_per_episode"]) for m in card["models"]] == [
+        ("Claude Opus 5.5, three desks, talking", "Anthropic", 2, 1.5),
+        ("Claude Sonnet 5.5, three desks, talking", "Anthropic", 2, 1.5),
+        ("GPT-6.1 Sol, three desks, talking", "Azure OpenAI", 2, 1.5),
+        ("GPT-6 Astra, three desks, talking", "Azure OpenAI", 2, 1.5),
+        ("GPT-6.1 Sol, one agent at all three desks", "Azure OpenAI", 2, 0.5)]
+    assert card["models"][0]["ci95"] == [0.75, 0.95]
+    lines = board_md.splitlines()
+    assert lines[2].startswith("| 1 | Claude Opus 5.5 | three desks, talking | 2 | **0.850** (0.750–0.950) |")
+    assert lines[2].endswith("| 1 | $3.00 | $6 | 2 of 6 |")
+    assert lines[5].startswith("| 4 | GPT-6 Astra | three desks, talking | 2 | 0.250 (0.200–0.300) |")
+    assert lines[6].startswith("| | GPT-6.1 Sol | one agent at all three desks | 2 | 0.550 (")
+    assert lines[7] == "| | Standard crew desk (B0) | | 2 | 0.308 | | | 0% | | | | |"
+    assert lines[8:13] == [
+        "", "Claude Opus 5.5 leads with three desks. Claude Sonnet 5.5 is not separated from the leader: its 95% "
+            "interval overlaps Claude Opus 5.5's. GPT-6.1 Sol and GPT-6 Astra are below the leader: their 95% "
+            "intervals lie wholly under Claude Opus 5.5's.",
+        "", "Still running: Kimi K3 and GPT-5.6 Terra. The board adds each model as its runs land.", ""]
+    assert lines[13].startswith("GPT-6.1 Sol, three desks minus one agent, paired by date: **+0.000** reward (95% CI "
+                                "-0.200 to 0.200), three desks higher on 1 of 2 dates;") and len(lines) == 14
+    assert hub.separation(rows[2:4]) == ("GPT-6.1 Sol leads with three desks. GPT-6 Astra is below the leader: its "
+                                         "95% interval lies wholly under GPT-6.1 Sol's.")
 
 
 def test_the_three_desk_bundle_is_written_at_the_caps_the_board_ran(hub, tmp_path):
@@ -598,25 +669,24 @@ def test_the_three_desk_bundle_is_written_at_the_caps_the_board_ran(hub, tmp_pat
     assert found == {("joint", "3"), ("one", "6")}
 
 
+def _sol_attempt(mode: str, reward_: float, cost: float, b0: float) -> dict:
+    return {"board": "occ3-board-sol", "folder": "occ3-board-sol", "task_id": OCC_EVAL, "mode": mode,
+            "pilot": {"model": GPT, "caps": {"joint": 5.0, "one": 12.0}},
+            "row": {"run": f"{OCC_EVAL}-{mode}", "outcome": "scored", "reward": reward_, "reward_L": None, "cost": cost,
+                    "best": 1000.0, "B0": b0, "over_best_pct": cost / 10 - 100, "avoidable_share": None,
+                    "cost_usd": 1.0, "wall_seconds": 60.0}}
+
+
 def test_a_date_without_a_bound_leaves_reward_l_out_of_the_board(hub):
-    runs = [{"board": True, "folder": "occ3-board-sol", "pilot": {"caps": {"joint": 5.0, "one": 12.0}},
-             "row": {"run": f"{OCC_EVAL}-{m}", "outcome": "scored", "reward": 0.5, "reward_L": None, "cost": 1500.0,
-                     "best": 1000.0, "B0": 1000.0, "over_best_pct": 50.0, "avoidable_share": None, "cost_usd": 1.0,
-                     "wall_seconds": 60.0}} for m in ("joint", "one")]
-    joint, one, b0, paired = hub.occ_board(runs, hub.OCC3_MODES, hub.OCC3_BOARD, "three desks")
+    joint, one, b0, paired = hub.occ3_board([_sol_attempt(m, 0.5, 1500.0, 1000.0) for m in ("joint", "one")])
     assert (joint["mean_reward_L"], paired["mean_reward_L"], b0["mean_reward"]) == (None, None, 1.0)
-    assert "| GPT-6.1 Sol, three desks, talking | 1 | **0.500** (0.500–0.500) | – |" in hub.occ_board_markdown(
-        [joint, one, b0, paired], "GPT-6.1 Sol", "three desks")
+    assert "| 1 | GPT-6.1 Sol | three desks, talking | 1 | **0.500** (0.500–0.500) | – |" in hub.occ3_board_markdown(
+        [joint, one, b0, paired])
 
 
 def test_the_paired_line_says_more_when_the_leading_mode_costs_more(hub):
-    runs = [{"board": True, "folder": "occ3-board-sol", "pilot": {"caps": {"joint": 5.0, "one": 12.0}},
-             "row": {"run": f"{OCC_EVAL}-{m}", "outcome": "scored", "reward": r, "reward_L": None, "cost": c,
-                     "best": 1000.0, "B0": 2000.0, "over_best_pct": c / 10 - 100, "avoidable_share": None,
-                     "cost_usd": 1.0, "wall_seconds": 60.0}}
-            for m, r, c in (("joint", 0.6, 1600.0), ("one", 0.7, 1500.0))]
-    text = hub.occ_board_markdown(hub.occ_board(runs, hub.OCC3_MODES, hub.OCC3_BOARD, "three desks"), "GPT-6.1 Sol",
-                                  "three desks")
+    text = hub.occ3_board_markdown(hub.occ3_board([_sol_attempt("joint", 0.6, 1600.0, 2000.0),
+                                                   _sol_attempt("one", 0.7, 1500.0, 2000.0)]))
     assert "**-0.100** reward" in text and "their days cost 10.0% of the best plan more (CI 10.0 to 10.0%)." in text
 
 

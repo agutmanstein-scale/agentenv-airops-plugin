@@ -121,39 +121,55 @@ mean 0.602. A run is scored only if its audit passes, as in v2. No judge.
 
 GPT-6.1 Sol (reasoning effort high) on the 24 eval dates, once in each mode, registered before the first run, at caps
 of $3 a desk and $6 for one agent. All 48 runs scored, every one replays exactly through the env and passes the audit;
-the whole board cost $107.04.
+Sol's board cost $107.04.
+
+Five more models play the same 24 dates with three desks, once a date, and no one-agent runs: GPT-6 Astra, Claude
+Opus 5.5, Claude Sonnet 5.5, GPT-5.6 Terra and Kimi K3. Each desk's cap is Sol's $3 scaled by the model's price against
+Sol's, so the caps differ in dollars; the board gives each model's cap and how many desks it stopped. The board ranks
+the models by their three-desk mean, with Sol's one agent under them for comparison, and adds a model once all its runs
+are in. <!-- FINAL: once all six are in: "played" for "play"; each model's reasoning effort; that its dates, cap and
+budget were registered before its first run (if so); the five boards' budget and what they spent; every run scored,
+replays exactly and passes the audit (or what didn't). -->
 
 <!-- board-v3 -->
 
 <!-- /board-v3 -->
 
-**What this shows, and what it doesn't.** Three Sol desks scored above one Sol agent running all three on these 24
-dates (+0.044, bootstrap CI 0.007 to 0.083, higher on 14 dates and lower on 5), and both recover most of what standard
-crew-desk practice loses. It doesn't show that the third desk or talking helps. The margin is small (a sign test gives
-p = 0.064, and without the 7 dates with a below_best run the CI is −0.002 to 0.090), Sol's score for the same day and
-mode moves by up to 0.23 from one run to the next, and the three desks used about twice the compute (2.0× the spend,
-2.0× the input and 2.4× the output tokens, more spend on every date). Nor does it measure the customer desk by itself,
-as there is no two-desk arm under P; the model customer desk sent 1,303 requests over the 24 days, 664 of them
-accepted by ops. 12 of the 48 runs came in under the best plan found, both modes on 5 dates and three desks alone on 2:
-they score 1.0 and are flagged `below_best`, with `reward_L` beside them (0.32 to 0.59), and on 4 of those 5 dates B0
-itself comes within 10% of the best plan. Before any model ran, a scripted customer desk built
-from published practice (hold up to 15 minutes for 10 or more connecting passengers; ask ops not to cancel a flight
-when half its passengers have no later seat that day) did not beat two scripted desks: better by 2% on 2 of 24 eval
-dates, against 12 needed. Its requests not to cancel mostly protected flights that couldn't fly, which then cancelled
-at their deadline at late notice. The customer desk ships anyway, labelled.
+**Comparing models.** Each model on the board played each date once in each mode it ran, so its 95% interval is over
+the 24 dates, not over runs, and Sol's own score for the same day and mode moves by up to 0.23 from one run to the
+next: a model whose interval overlaps the leader's is not separated from it. A run under the best plan found scores
+1.0 whichever model played it, flagged `below_best` with `reward_L` beside it. <!-- FINAL: a sentence or two on what
+the six models' board shows, once all six are in: who leads, who isn't separated from the leader, how spend and the
+caps compare. -->
+
+**What Sol's two modes show, and what they don't.** Three Sol desks scored above one Sol agent running all three on
+these 24 dates (+0.044, bootstrap CI 0.007 to 0.083, higher on 14 dates and lower on 5), and both recover most of what
+standard crew-desk practice loses. They don't show that the third desk or talking helps. The margin is small (a sign
+test gives p = 0.064, and without the 7 dates with a below_best run the CI is −0.002 to 0.090), Sol's score for the
+same day and mode moves by up to 0.23 from one run to the next, and the three desks used about twice the compute (2.0×
+the spend, 2.0× the input and 2.4× the output tokens, more spend on every date). Nor do they measure the customer desk
+by itself, as there is no two-desk arm under P; Sol's customer desk sent 1,303 requests over the 24 days, 664 of them
+accepted by ops. 12 of Sol's 48 runs came in under the best plan found, both modes on 5 dates and three desks alone on
+2: they score 1.0 and are flagged `below_best`, with `reward_L` beside them (0.32 to 0.59), and on 4 of those 5 dates
+B0 itself comes within 10% of the best plan. Before any model ran, a scripted customer desk built from published
+practice (hold up to 15 minutes for 10 or more connecting passengers; ask ops not to cancel a flight when half its
+passengers have no later seat that day) did not beat two scripted desks: better by 2% on 2 of 24 eval dates, against
+12 needed. Its requests not to cancel mostly protected flights that couldn't fly, which then cancelled at their
+deadline at late notice. The customer desk ships anyway, labelled.
 
 ## Watch a run
 
-Every run on the v3 board replays in the [replay Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv),
-watch by watch, as v2's do, from the control-center room, and adds a Terminal view in JetBlue's gate hall: the
-gate's screen with its flight on time, delayed, boarding, held for its connecting passengers or cancelled, the crowd at
-the glass and the aircraft at the bridge; ‹ › steps from gate to gate and to the line at the service counter. On a
-three-desk day the control-center room holds all three desks: the customer desk's requests travel to ops and back and
-pile at the desk they wait on, the customer desk's own screens show the connections at risk, the rebooked and the
-stranded, and the video wall adds a PASSENGERS panel. Connecting passengers walk gate to gate, the stranded leave on the
-hotel shuttle, and the US map draws where the passengers off a cancelled flight or a missed connection are rebooked to
-and how many are stranded overnight at each airport. The gate halls, the lounges, the counter, the passengers' walks
-and the shuttle are inferred, for display only.
+Every run on the v3 board replays in the [replay Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv)
+(a model's from the tagged release that adds it to the board), watch by watch, as v2's do, from the control-center
+room, and adds a Terminal view in JetBlue's gate hall: the gate's screen with its flight on time, delayed, boarding,
+held for its connecting passengers or cancelled, the crowd at the glass and the aircraft at the bridge; ‹ › steps from
+gate to gate and to the line at the service counter. On a three-desk day the control-center room holds all three
+desks: the customer desk's requests travel to ops and back and pile at the desk they wait on, the customer desk's own
+screens show the connections at risk, the rebooked and the stranded, and the video wall adds a PASSENGERS panel.
+Connecting passengers walk gate to gate, the stranded leave on the hotel shuttle, and the US map draws where the
+passengers off a cancelled flight or a missed connection are rebooked to and how many are stranded overnight at each
+airport. The gate halls, the lounges, the counter, the passengers' walks and the shuttle are inferred, for display
+only. <!-- FINAL: drop the parenthesis in the first line once every model's runs are in the Space. -->
 
 ## Tables
 
@@ -162,9 +178,9 @@ All parquet, one config per table, a split per split of the pack (`eval`, `contr
 | Config | What |
 |---|---|
 | `v3_tasks` (default) | one row per date: v2's day (hubs, size, crews and reserves, the FAA's advisories as the desks get them), its passengers (trips, connecting, the survey period, a refunded passenger's fare in passenger-minutes), every reference under P and its reward (best, bound, gap, B0, doing nothing, v2's best plan, JetBlue's own decisions replayed), the desks' rules, and the date's world with its passengers as the env loads it (`world`) |
-| `v3_board` | one row per mode with its mean reward and reward_L and their 95% bootstrap CIs, B0, and the paired difference of the two modes |
+| `v3_board` | one row per model and mode, the three-desk rows best first: its mean reward and reward_L with their 95% bootstrap CIs over the dates, B0 on the same dates, its runs and how many came in under the best plan, its spend and tokens, its cap a desk and how many desks the cap stopped; then B0 over every date, and Sol's two modes paired by date |
 | `v3_references` | one row per date: every candidate the best plan was chosen from with its P and reward, where the best plan came from, the bound, the gap, v2's best plan over the best, and the best plan itself |
-| `v3_episodes` | one row per recorded attempt: reward, reward_L and the costs against the best plan, the bound and B0, the day's cost by kind (lodging and refunded fares among them), cancellations, holds, crew moves and requests by type and outcome, spend, tokens, turns, each desk's end, the audit, its decisions and the request log; `on_board` and `superseded_by` mark the board's runs |
+| `v3_episodes` | one row per recorded attempt: reward, reward_L and the costs against the best plan, the bound and B0, the day's cost by kind (lodging and refunded fares among them), cancellations, holds, crew moves and requests by type and outcome, spend, tokens, turns, each desk's end, the audit, its decisions and the request log; `model` names the model, `pilot` the run's folder, and `on_board` and `superseded_by` mark the board's runs |
 | `v3_desks` | one row per desk of each attempt, the customer desk's included, with its usage and its transcript as chat `messages` |
 | `v2_tasks`, `v2_board`, `v2_runs`, `v2_desks` | AirOpsEnv v2, as published in v0.3.0 (below) |
 | `v1_tasks`, `results`, `v1_references`, `v1_episodes` | AirOpsEnv v1, as published in v0.2.0 (below) |
@@ -210,9 +226,10 @@ agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.2 --bundle airops-occ3 -
 ```
 
 The bundle `airops-occ3` (`bundles/airops-occ3/`) holds every date of the pack in both modes, `<task id>-joint` and
-`<task id>-one`, the very task files the board ran (each desk capped at $3 in a three-desk run, $6 for one agent), and
-`wiring-noplay`, which runs the first eval date with no desk. v2's two-desk days stay in the bundle `airops-occ`, and
-the dataset's default bundle is v1's `airops`. `hf run` downloads this card and `bundles/` at the tag's commit, checks
+`<task id>-one`, the very task files Sol's board ran (each desk capped at $3 in a three-desk run, $6 for one agent; the
+other models played the same dates at the caps the board above gives), and `wiring-noplay`, which runs the first eval
+date with no desk. v2's two-desk days stay in the bundle `airops-occ`, and the dataset's default bundle is v1's
+`airops`. `hf run` downloads this card and `bundles/` at the tag's commit, checks
 that the plugin the card's `agentenv` table names is installed, shows what it will run and asks first.
 
 ---

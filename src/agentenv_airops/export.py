@@ -35,8 +35,9 @@ SOURCES = {"flights": "BTS On-Time Reporting Carrier On-Time Performance and T-1
 NAMES = {
     "anthropic/claude-opus-5-5": "Claude Opus 5.5", "anthropic/claude-sonnet-5-5": "Claude Sonnet 5.5",
     "anthropic/claude-haiku-5-5": "Claude Haiku 5.5", "openai/gpt-6-astra": "GPT-6 Astra",
-    "openai/gpt-6.1-sol": "GPT-6.1 Sol", "openai/gpt-6-luna": "GPT-6 Luna", "fireworks_ai/kimi-k3": "Kimi K3",
-    "fireworks_ai/glm-5p3": "GLM-5.3", "fireworks_ai/glm-5p3-flash": "GLM-5.3-Flash",
+    "openai/gpt-6.1-sol": "GPT-6.1 Sol", "openai/gpt-6-luna": "GPT-6 Luna", "openai/gpt-5.6-terra": "GPT-5.6 Terra",
+    "fireworks_ai/kimi-k3": "Kimi K3", "bedrock/us.moonshotai.kimi-k3": "Kimi K3", "fireworks_ai/glm-5p3": "GLM-5.3",
+    "fireworks_ai/glm-5p3-flash": "GLM-5.3-Flash",
     "fireworks_ai/qwen3p8-2p4t-a95b": "Qwen3.8-2.4T", "groq/qwen/qwen3.8-27b": "Qwen3.8-27B",
     "fireworks_ai/deepseek-v4p1-flash": "DeepSeek V4.1 Flash",
     "Qwen/Qwen3.8-2.4T-A95B:together": "Qwen3.8-2.4T", "Qwen/Qwen3.8-27B:ovhcloud": "Qwen3.8-27B",

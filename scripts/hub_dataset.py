@@ -4,8 +4,10 @@ static replay Space that reads it; push either. Three kinds of tables share the 
 - v3's, passengers and the customer desk (the default): v3_tasks, the b6-v3 pack's dates per split with their
   passengers and their references under cost P; v3_references, every candidate the reference was chosen from, the
   bound and the gap, and the reference plan; v3_episodes, every attempt the three-desk pilots (--occ3) recorded,
-  replayed through the env's calls, and v3_desks, each desk's transcript; v3_board and results/eval-v3.json; and the
-  bundle airops-occ3, every date in both modes, whose task files also give the card the desks' rules, tools and turns.
+  replayed through the env's calls, and v3_desks, each desk's transcript; v3_board, each board's model in each mode it
+  played, ranked by the three-desk mean, and results/eval-v3.json; and the bundle airops-occ3, every date in both
+  modes, whose task files also give the card the desks' rules, tools and turns. A folder occ3-board-<model> is a
+  board, occ3-board-sol the one whose two modes are paired.
 - v2's, the ops control center: v2_tasks, the b6-v2 pack's dates per split with their references, the
   FAA's advisories as the desks get them, the desks' rules and each date's world as the env loads it; v2_runs, every
   attempt the control-center pilots recorded under --runs (the board, its labelled retry and the pilot), each replayed
@@ -90,7 +92,8 @@ TABLES = "v1"
 SPLIT = "eval"
 SETUP = "agent-env airops setup --agent"
 AUTHORS = [{"name": "Edgar Arakelyan", "github": "earakely-scale", "affiliation": "Scale AI"}]
-PROVIDERS = {"anthropic": "Anthropic", "openai": "Azure OpenAI", "fireworks_ai": "Fireworks", "groq": "Groq"}
+PROVIDERS = {"anthropic": "Anthropic", "openai": "Azure OpenAI", "fireworks_ai": "Fireworks", "groq": "Groq",
+             "bedrock": "Amazon Bedrock"}
 MESSAGES = pa.field("messages", pa.list_(tables.MESSAGE))
 BOARD = re.compile(r"(<!-- board -->\n).*?(\n<!-- /board -->)", re.S)
 BASELINES = {"follower": "the follower: the time-line MIP re-solved at every watch on the day as known",
@@ -144,6 +147,7 @@ OCC3_BUNDLE = "airops-occ3"
 OCC3_SETUP = "agent-env airops-occ3 setup"
 OCC3_PREFIX = "occ3-"
 OCC3_BOARD = "occ3-board-sol"
+OCC3_BOARDS = re.compile(r"occ3-board-[^-]+")
 OCC3_CAPS = occ3_tasks.CAPS
 OCC3_LABELS: dict[str, str] = {}
 OCC3_MODES = {"joint": "three desks, talking", "one": "one agent at all three desks"}
@@ -402,7 +406,7 @@ def card_text(plugin: str, files: dict[str, bytes], board_md: str = "", occ_md: 
 def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str, fixtures: list[Path], cache: Path,
           date: str, occ_pilots: list[str] = (), occ_pack: Path | None = None, occ_viewer: list[Path] = (),
           replays: Path | None = None, workers: int = 1, occ3_pilots: list[str] = (),
-          occ3_pack: Path | None = None) -> dict[str, bytes]:
+          occ3_pack: Path | None = None, occ3_running: list[str] = ()) -> dict[str, bytes]:
     days = tasks.pack_tasks(pack)
     raw = {json.loads(line)["task_id"]: line for line in tasks_file(pack).read_text().splitlines() if line.strip()}
     bundle = out / "bundles" / BUNDLE
@@ -435,7 +439,8 @@ def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str,
     occ_tables, occ_md = occ_files(runs_dir, list(occ_pilots), Pack(occ_pack), replays, workers, date)
     files |= occ_tables | occ_bundle(out, occ_pack)
     bundle3 = occ3_bundle(out, occ3_pack, board_caps(runs_dir, list(occ3_pilots)))
-    occ3_tables, occ3_md = occ3_files(runs_dir, list(occ3_pilots), Pack3(occ3_pack), bundle3, replays, workers, date)
+    occ3_tables, occ3_md = occ3_files(runs_dir, list(occ3_pilots), Pack3(occ3_pack), bundle3, replays, workers, date,
+                                      list(occ3_running))
     files |= occ3_tables | bundle3
     for d in [d for d, _ in played] + [runs_dir / name for name in [*occ_pilots, *occ3_pilots]]:
         for path in sorted(d.rglob("*")):
@@ -550,11 +555,15 @@ def occ_day(world: World, split: str, task_id: str) -> tuple[dict, list[dict]]:
             "pilot_reserves": units["pilot", "reserve"], "cabin_reserves": units["cabin", "reserve"]}, news
 
 
-def occ_attempts(runs_dir: Path, pilots: list[str], pack: Pack, board: str = OCC_BOARD,
+def occ_attempts(runs_dir: Path, pilots: list[str], pack: Pack, boards: tuple[str, ...] = (OCC_BOARD,),
                  labels: dict[str, str] = OCC_LABELS) -> list[dict]:
-    """Every attempt the pilots recorded, the board's folder and its labelled retries first. A board run's attempt is
-    superseded by the last scored attempt of that run after it."""
-    order = sorted(pilots, key=lambda f: (f != board, labels.get(f) != board, f))
+    """Every attempt the pilots recorded, each board's folder and its labelled retries first, in ``boards``' order;
+    ``board`` names the board an attempt is of. A board run's attempt is superseded by the last scored attempt of that
+    board's run after it."""
+    def board_of(folder: str) -> str | None:
+        return labels.get(folder, folder) if labels.get(folder, folder) in boards else None
+
+    order = sorted(pilots, key=lambda f: (boards.index(board_of(f)) if board_of(f) else len(boards), f in labels, f))
     out = []
     for folder in order:
         pilot = json.loads((runs_dir / folder / "pilot.json").read_text())
@@ -562,13 +571,13 @@ def occ_attempts(runs_dir: Path, pilots: list[str], pack: Pack, board: str = OCC
             task_id, mode = row["run"].rsplit("-", 1)
             out.append({"run_id": f"{folder}/{row['run']}-a{row['attempt']}", "folder": folder, "pilot": pilot,
                         "row": row, "task_id": task_id, "mode": mode, "date": pack.tasks[task_id]["date"],
-                        "split": pack.tasks[task_id]["split"],
-                        "board": labels.get(folder, folder) == board})
-    latest = {a["row"]["run"]: a["run_id"] for a in out if a["board"] and a["row"]["outcome"] == "scored"}
+                        "split": pack.tasks[task_id]["split"], "board": board_of(folder)})
+    latest = {(a["board"], a["row"]["run"]): a["run_id"] for a in out
+              if a["board"] and a["row"]["outcome"] == "scored"}
     for a in out:
-        last = latest.get(a["row"]["run"]) if a["board"] else None
+        last = latest.get((a["board"], a["row"]["run"])) if a["board"] else None
         a["superseded_by"] = last if last and last != a["run_id"] else None
-        a["on_board"] = a["board"] and last == a["run_id"]
+        a["on_board"] = a["board"] is not None and last == a["run_id"]
     return out
 
 
@@ -690,40 +699,53 @@ def occ_board(attempts: list[dict], modes: dict[str, str] = OCC_MODES, board: st
     rows = []
     for mode, label in modes.items():
         played = [v[mode] for v in by.values() if mode in v and v[mode]["outcome"] == "scored"]
-        if not played:
-            continue
-        mean, low, high = bootstrap([r["reward"] for r in played])
-        mean_l, low_l, high_l = bootstrap_known([r["reward_L"] for r in played])
-        desks = [d for r in played for d in (r.get("desks") or {}).values()]
-        rows.append({"kind": "mode", "mode": mode, "label": label, "dates": len(played), "mean_reward": mean,
-                     "ci_low": low, "ci_high": high, "mean_reward_L": mean_l, "ci_L_low": low_l, "ci_L_high": high_l,
-                     "median_over_best_pct": round(statistics.median(r["over_best_pct"] for r in played), 2),
-                     "median_avoidable_share": median_known([r["avoidable_share"] for r in played], 3),
-                     "spend_usd": round(sum(r["cost_usd"] for r in played), 2),
-                     "input_tokens": sum(d.get("input_tokens") or 0 for d in desks),
-                     "output_tokens": sum(d.get("output_tokens") or 0 for d in desks),
-                     "median_wall_seconds": statistics.median(r["wall_seconds"] for r in played),
-                     "cap_usd_per_desk": caps.get(mode)})
+        if played:
+            rows.append({"kind": "mode", "mode": mode, "label": label, "dates": len(played), **mode_stats(played),
+                         "cap_usd_per_desk": caps.get(mode)})
     if not rows:
         return []
     b0 = [occ_reward(r["B0"], r["best"], r["B0"]) for v in by.values() for r in v.values() if r.get("best")]
     rows.append({"kind": "baseline", "mode": "B0", "label": "standard crew desk, aircraft doing nothing",
                  "dates": len(by), "mean_reward": round(statistics.mean(b0), 4)})
+    pair = paired(by, modes, lead)
+    return rows + ([pair] if pair else [])
+
+
+def mode_stats(played: list[dict]) -> dict:
+    """A mode's mean reward and reward_L over its scored runs with their bootstrap CIs, its medians over the best plan
+    and of the avoidable cost saved, its spend, its desks' tokens and its median wall time."""
+    mean, low, high = bootstrap([r["reward"] for r in played])
+    mean_l, low_l, high_l = bootstrap_known([r["reward_L"] for r in played])
+    desks = [d for r in played for d in (r.get("desks") or {}).values()]
+    return {"mean_reward": mean, "ci_low": low, "ci_high": high, "mean_reward_L": mean_l, "ci_L_low": low_l,
+            "ci_L_high": high_l,
+            "median_over_best_pct": round(statistics.median(r["over_best_pct"] for r in played), 2),
+            "median_avoidable_share": median_known([r["avoidable_share"] for r in played], 3),
+            "spend_usd": round(sum(r["cost_usd"] for r in played), 2),
+            "input_tokens": sum(d.get("input_tokens") or 0 for d in desks),
+            "output_tokens": sum(d.get("output_tokens") or 0 for d in desks),
+            "median_wall_seconds": statistics.median(r["wall_seconds"] for r in played)}
+
+
+def paired(by: dict[str, dict], modes: dict[str, str], lead: str) -> dict | None:
+    """The first mode minus the second over the dates both scored (``by``: each date's runs by mode), with the
+    bootstrap CIs of the reward's, reward_L's and the days' cost's differences, and on how many dates it is higher and
+    lower."""
     first, second = modes
     pairs = [(v[first], v[second]) for _, v in sorted(by.items())
              if {first, second} <= set(v) and v[first]["outcome"] == v[second]["outcome"] == "scored"]
-    if pairs:
-        diff = [j["reward"] - o["reward"] for j, o in pairs]
-        mean, low, high = bootstrap(diff)
-        mean_l, low_l, high_l = bootstrap_known([None if None in (j["reward_L"], o["reward_L"]) else
-                                                 j["reward_L"] - o["reward_L"] for j, o in pairs])
-        cost, cost_low, cost_high = bootstrap([(j["cost"] - o["cost"]) / o["best"] * 100 for j, o in pairs])
-        rows.append({"kind": "paired", "mode": f"{first} - {second}",
-                     "label": f"{lead} minus one agent, paired by date", "dates": len(pairs), "mean_reward": mean,
-                     "ci_low": low, "ci_high": high, "mean_reward_L": mean_l, "ci_L_low": low_l, "ci_L_high": high_l,
-                     "cost_diff_pct_of_best": cost, "cost_diff_ci_low": cost_low, "cost_diff_ci_high": cost_high,
-                     "higher_on": sum(x > 1e-9 for x in diff), "lower_on": sum(x < -1e-9 for x in diff)})
-    return rows
+    if not pairs:
+        return None
+    diff = [j["reward"] - o["reward"] for j, o in pairs]
+    mean, low, high = bootstrap(diff)
+    mean_l, low_l, high_l = bootstrap_known([None if None in (j["reward_L"], o["reward_L"]) else
+                                             j["reward_L"] - o["reward_L"] for j, o in pairs])
+    cost, cost_low, cost_high = bootstrap([(j["cost"] - o["cost"]) / o["best"] * 100 for j, o in pairs])
+    return {"kind": "paired", "mode": f"{first} - {second}", "label": f"{lead} minus one agent, paired by date",
+            "dates": len(pairs), "mean_reward": mean, "ci_low": low, "ci_high": high, "mean_reward_L": mean_l,
+            "ci_L_low": low_l, "ci_L_high": high_l, "cost_diff_pct_of_best": cost, "cost_diff_ci_low": cost_low,
+            "cost_diff_ci_high": cost_high, "higher_on": sum(x > 1e-9 for x in diff),
+            "lower_on": sum(x < -1e-9 for x in diff)}
 
 
 def bootstrap(xs: list[float], n: int = OCC_BOOT, seed: int = 0) -> tuple[float, float, float]:
@@ -761,13 +783,16 @@ def occ_board_markdown(rows: list[dict], model: str = "GPT-6.1 Sol", lead: str =
             lines.append(f"| Standard crew desk (B0) | {r['dates']} | {r['mean_reward']:.3f} | | | 0% | |")
     for r in rows:
         if r["kind"] == "paired":
-            d, low, high = r["cost_diff_pct_of_best"], r["cost_diff_ci_low"], r["cost_diff_ci_high"]
-            cost = (f"{-d:.1f}% of the best plan less (CI {-high:.1f} to {-low:.1f}%)" if d <= 0 else
-                    f"{d:.1f}% of the best plan more (CI {low:.1f} to {high:.1f}%)")
-            lines += ["", f"{lead.capitalize()} minus one agent, paired by date: **{r['mean_reward']:+.3f}** reward "
-                      f"(95% CI {r['ci_low']:.3f} to {r['ci_high']:.3f}), {lead} higher on {r['higher_on']} of "
-                      f"{r['dates']} dates; their days cost {cost}."]
+            lines += ["", f"{lead.capitalize()} minus one agent, {paired_text(r, lead)}"]
     return "\n".join(lines)
+
+
+def paired_text(r: dict, lead: str) -> str:
+    d, low, high = r["cost_diff_pct_of_best"], r["cost_diff_ci_low"], r["cost_diff_ci_high"]
+    cost = (f"{-d:.1f}% of the best plan less (CI {-high:.1f} to {-low:.1f}%)" if d <= 0 else
+            f"{d:.1f}% of the best plan more (CI {low:.1f} to {high:.1f}%)")
+    return (f"paired by date: **{r['mean_reward']:+.3f}** reward (95% CI {r['ci_low']:.3f} to {r['ci_high']:.3f}), "
+            f"{lead} higher on {r['higher_on']} of {r['dates']} dates; their days cost {cost}.")
 
 
 def occ_eval_card(rows: list[dict], days: list[dict], attempts: list[dict], date: str) -> dict:
@@ -804,27 +829,140 @@ def occ_models(rows: list[dict], model: str) -> list[dict]:
 
 
 def occ3_files(runs_dir: Path, pilots: list[str], pack: Pack3, bundle: dict[str, bytes], replays: Path, workers: int,
-               date: str) -> tuple[dict[str, bytes], str]:
+               date: str, running: list[str] = ()) -> tuple[dict[str, bytes], str]:
     """v3's tables and eval card, and its board as the card shows it: the b6-v3 pack's dates and their references
-    under cost P, every attempt of ``pilots`` (folders under ``runs_dir`` with a pilot.json) replayed, with each desk's
-    transcript, and from ``bundle`` (bundles/airops-occ3/) the desks' rules, tools and turns."""
+    under cost P, every attempt of ``pilots`` (folders under ``runs_dir`` with a pilot.json, the boards among them)
+    replayed, with each desk's transcript, and from ``bundle`` (bundles/airops-occ3/) the desks' rules, tools and
+    turns. ``running`` names the models whose boards are still to land."""
     days, refs = occ3_rows(pack, bundle_prompts(bundle))
     files = by_split(f"tasks/{OCC3}", days) | by_split(f"references/{OCC3}", refs)
-    attempts = occ_attempts(runs_dir, pilots, pack, OCC3_BOARD, OCC3_LABELS)
+    named = dict.fromkeys(OCC3_LABELS.get(f, f) for f in pilots)
+    boards = tuple(sorted((b for b in named if OCC3_BOARDS.fullmatch(b)), key=lambda b: b != OCC3_BOARD))
+    attempts = occ_attempts(runs_dir, pilots, pack, boards, OCC3_LABELS)
     if not attempts:
         return files, ""
     checked = occ_replays(attempts, runs_dir, pack, replays, workers, OccDay3)
     files |= by_split(f"episodes/{OCC3}", [occ_run_row(a, checked[a["run_id"]], runs_dir, OCC3_MODES, OCC3_COSTS)
                                           for a in attempts])
     files |= by_split(f"desks/{OCC3}", [row for a in attempts for row in occ_desk_rows(a, runs_dir)])
-    rows = occ_board(attempts, OCC3_MODES, OCC3_BOARD, "three desks")
+    rows = occ3_board(attempts)
     if not rows:
         return files, ""
-    model = next(a["pilot"]["model"] for a in attempts if a["board"])
-    card_json = occ3_eval_card(rows, days, model, harness(bundle, pack), date)
+    card_json = occ3_eval_card(rows, days, harness(bundle, pack), date)
     files[f"results/{OCC3}-board.parquet"] = table_bytes(rows)
     files[f"results/eval-{OCC3}.json"] = (json.dumps(card_json, indent=2, ensure_ascii=False) + "\n").encode()
-    return files, occ_board_markdown(rows, export.NAMES.get(model, model), "three desks")
+    return files, occ3_board_markdown(rows, running)
+
+
+def occ3_board(attempts: list[dict], lead: str = OCC3_BOARD) -> list[dict]:
+    """Each board's model in each mode it played, as occ_board's mode rows with the model, its runs, B0's mean on the
+    dates it scored, how many came in under the best plan, how many desks their cap stopped and the cap: the
+    three-desk rows best first, then the one-agent rows; then B0 over the boards' dates, and the ``lead`` board's two
+    modes paired by date."""
+    final: dict[str, dict[str, dict[str, dict]]] = {}
+    for a in attempts:
+        if a["board"]:
+            final.setdefault(a["board"], {}).setdefault(a["task_id"], {})[a["mode"]] = a
+    rows = []
+    for board, by in final.items():
+        pilot = next(a["pilot"] for a in attempts if a["board"] == board)
+        for mode, label in OCC3_MODES.items():
+            mine = [v[mode]["row"] for v in by.values() if mode in v]
+            played = [r for r in mine if r["outcome"] == "scored"]
+            if not played:
+                continue
+            desks = [d for r in played for d in (r.get("desks") or {}).values()]
+            rows.append({"kind": "mode", "model": pilot["model"],
+                         "model_name": export.NAMES.get(pilot["model"], pilot["model"]),
+                         "provider": provider(pilot["model"]), "mode": mode, "label": label, "runs": len(mine),
+                         "dates": len(played), **mode_stats(played),
+                         "B0_reward": round(statistics.mean(occ_reward(r["B0"], r["best"], r["B0"])
+                                                            for r in played), 4),
+                         "below_best": sum(bool(r.get("below_best")) for r in played), "desks": len(desks),
+                         "desks_at_cap": sum(d.get("end_reason") == "cost_cap" for d in desks),
+                         "cap_usd_per_desk": pilot["caps"].get(mode)})
+    if not rows:
+        return []
+    first = next(iter(OCC3_MODES))
+    rows = sorted(rows, key=lambda r: (r["mode"] != first, -r["mean_reward"]))
+    every = [a for by in final.values() for v in by.values() for a in v.values()]
+    b0 = {a["task_id"]: occ_reward(a["row"]["B0"], a["row"]["best"], a["row"]["B0"]) for a in every
+          if a["row"].get("best")}
+    rows.append({"kind": "baseline", "mode": "B0", "label": "standard crew desk, aircraft doing nothing",
+                 "dates": len({a["task_id"] for a in every}),
+                 "mean_reward": round(statistics.mean(b0.values()), 4)})
+    pair = paired({t: {m: a["row"] for m, a in v.items()} for t, v in final.get(lead, {}).items()}, OCC3_MODES,
+                  "three desks")
+    if pair:
+        model = next(a["pilot"]["model"] for a in attempts if a["board"] == lead)
+        rows.append(pair | {"model": model, "model_name": export.NAMES.get(model, model)})
+    return rows
+
+
+def occ3_board_markdown(rows: list[dict], running: list[str] = ()) -> str:
+    """v3's board as the card shows it: the three-desk rows ranked, the one-agent rows and B0 under them, which models'
+    95% intervals overlap the leader's, the models still running, and the lead board's two modes paired by date."""
+    modes = [r for r in rows if r["kind"] == "mode"]
+    first = next(iter(OCC3_MODES))
+    ranked = [r for r in modes if r["mode"] == first]
+    lines = ["| | Model | Mode | Dates | Mean reward (95% CI) | reward_L (95% CI) | Over the best plan, median "
+             "| Avoidable cost saved, median | Below best | Spend | Cap a desk | Desks stopped by the cap |",
+             "|---:|---|---|---:|---|---|---:|---:|---:|---:|---:|---:|"]
+    for r in modes:
+        rank = next((str(k) for k, x in enumerate(ranked, 1) if x is r), "")
+        mean = f"**{r['mean_reward']:.3f}**" if ranked and r is ranked[0] else f"{r['mean_reward']:.3f}"
+        bound = "–" if r["mean_reward_L"] is None else (f"{r['mean_reward_L']:.3f} ({r['ci_L_low']:.3f}–"
+                                                       f"{r['ci_L_high']:.3f})")
+        share = "–" if r["median_avoidable_share"] is None else f"{100 * r['median_avoidable_share']:.0f}%"
+        lines.append(cells(rank, r["model_name"], r["label"], r["dates"],
+                           f"{mean} ({r['ci_low']:.3f}–{r['ci_high']:.3f})", bound,
+                           f"{r['median_over_best_pct']:.1f}%", share, r["below_best"], f"${r['spend_usd']:,.2f}",
+                           dollars(r["cap_usd_per_desk"]), f"{r['desks_at_cap']} of {r['desks']}"))
+    for r in rows:
+        if r["kind"] == "baseline":
+            lines.append(cells("", "Standard crew desk (B0)", "", r["dates"], f"{r['mean_reward']:.3f}", "", "", "0%",
+                               "", "", "", ""))
+    notes = [separation(ranked)]
+    shown = {r["model"] for r in modes}
+    waiting = [export.NAMES.get(m, m) for m in running if m not in shown]
+    if waiting:
+        notes.append(f"Still running: {spoken(waiting)}. The board adds each model as its runs land.")
+    for r in rows:
+        if r["kind"] == "paired":
+            notes.append(f"{r['model_name']}, three desks minus one agent, {paired_text(r, 'three desks')}")
+    return "\n".join(lines + [x for note in notes if note for x in ("", note)])
+
+
+def separation(ranked: list[dict]) -> str:
+    """Which models' 95% intervals overlap the leader's, so that the board doesn't separate them from it, and which lie
+    wholly under it."""
+    if len(ranked) < 2:
+        return ""
+    lead, others = ranked[0], ranked[1:]
+    near = [r["model_name"] for r in others if r["ci_high"] >= lead["ci_low"]]
+    far = [r["model_name"] for r in others if r["ci_high"] < lead["ci_low"]]
+    text = f"{lead['model_name']} leads with three desks."
+    if near:
+        text += (f" {spoken(near)} {'is' if len(near) == 1 else 'are'} not separated from the leader: "
+                 f"{'its 95% interval overlaps' if len(near) == 1 else 'their 95% intervals overlap'} "
+                 f"{lead['model_name']}'s.")
+    if far:
+        text += (f" {spoken(far)} {'is' if len(far) == 1 else 'are'} below the leader: "
+                 f"{'its 95% interval lies' if len(far) == 1 else 'their 95% intervals lie'} wholly under "
+                 f"{lead['model_name']}'s.")
+    return text
+
+
+def cells(*xs) -> str:
+    return "|" + "".join(f" {x} |" if x != "" else " |" for x in xs)
+
+
+def spoken(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def dollars(x: float | None) -> str:
+    return "–" if x is None else f"${x:g}" if x == int(x) else f"${x:.2f}"
 
 
 def occ3_rows(pack: Pack, prompts: dict[str, str]) -> tuple[list[dict], list[dict]]:
@@ -894,8 +1032,9 @@ def harness(bundle: dict[str, bytes], pack: Pack) -> dict:
     return {"agent": ", ".join(agents) or None, "tools": list(tools), "max_turns": max(turns, default=None)}
 
 
-def occ3_eval_card(rows: list[dict], days: list[dict], model: str, harness_: dict, date: str) -> dict:
-    """v3's eval card in the shape FineEnvs' simulation catalog renders, one model entry per mode."""
+def occ3_eval_card(rows: list[dict], days: list[dict], harness_: dict, date: str) -> dict:
+    """v3's eval card in the shape FineEnvs' simulation catalog renders, one model entry per model and mode of the
+    board."""
     evals = [d for d in days if d["split"] == "eval"]
     return {
         "env": OCC3_ENV, "version": OCC3, "authors": AUTHORS, "framework": "agentenv",
@@ -904,7 +1043,9 @@ def occ3_eval_card(rows: list[dict], days: list[dict], model: str, harness_: dic
         "grading": {"reference": OCC3_REFERENCE, "reward": OCC3_REWARD, "excused": OCC_EXCUSED, "judge": False},
         "baselines": [{"name": name, "mean": round(statistics.mean(d[f"{k}_reward"] for d in evals), 4)}
                       for k, name in OCC3_BASELINES.items() if all(d[f"{k}_reward"] is not None for d in evals)],
-        "models": occ_models(rows, model),
+        "models": [{"model": f"{r['model_name']}, {r['label']}", "provider": r["provider"], "runs": r["runs"],
+                    "mean": r["mean_reward"], "ci95": [r["ci_low"], r["ci_high"]], "finished": r["dates"],
+                    "usd_per_episode": round(r["spend_usd"] / r["dates"], 4)} for r in rows if r["kind"] == "mode"],
         "links": {"runs": f"{DATASET_URL}/viewer/{OCC3}_episodes", "replay": SPACE_URL, "code": CODE_URL,
                   "fidelity": f"{CODE_URL}/blob/v{VERSION}/FIDELITY.md"},
         "date": date,
@@ -978,6 +1119,9 @@ def main():
                     help=f"A three-desk pilot folder under --runs for v3's tables (repeat); default: every folder "
                          f"named {OCC3_PREFIX}* with a pilot.json.")
     ap.add_argument("--occ3-pack", type=Path, default=Path(str(OCC3_PACK)), help="Default: the packaged b6-v3 pack.")
+    ap.add_argument("--occ3-running", action="append", default=[], metavar="MODEL",
+                    help="A model whose v3 board is still running (repeat), named under the card's board until its "
+                         "occ3-board-* folder is given.")
     args = ap.parse_args()
     plugin = f"agentenv-airops @ git+{CODE_URL}@{args.plugin_ref}"
     sweeps = args.sweeps or sorted(p.parent.name for p in args.runs.glob("*/sweep.json"))
@@ -989,7 +1133,8 @@ def main():
     with namespace_routing():
         files = build(sweeps, args.runs, args.out, args.pack, plugin, args.fixture, args.cache, args.date,
                       occ_pilots=pilots, occ_pack=args.occ_pack, occ_viewer=args.occ_viewer, replays=args.occ_replays,
-                      workers=args.workers, occ3_pilots=occ3, occ3_pack=args.occ3_pack)
+                      workers=args.workers, occ3_pilots=occ3, occ3_pack=args.occ3_pack,
+                      occ3_running=args.occ3_running)
     space = space_files(args.tag or "main") if args.space_out else {}
     scan(files | {f"space/{p}": c for p, c in space.items()}, known_values())
     write(files, args.out)
