@@ -1,6 +1,7 @@
 // AirOpsEnv v1 viewer: ?episode=<url> replays one episode on its clock, the 3D airport filling the screen with the US
 // map in a corner, cards over them and a timeline below; ?index=<url> lists episodes. window.airops {ready, time(t),
-// view(name), show(step), shot(spec), state()} lets a recorder drive it frame by frame.
+// view(name), show(step), shot(spec), state()} lets a recorder drive it frame by frame. Sound (audio.js) is off until its
+// speaker button is pressed, on with &sound=1 or &stream, and absent with ?sound=0.
 import { HUB_NAMES, cities, esc, flagged, flightsAt, positionsAt, prepare, programBands, watchAt } from "./model.js";
 import { Board, Desk, Header, Passengers, Score, Timeline } from "./cards.js";
 import { Room } from "./room.js";
@@ -440,6 +441,10 @@ async function episodePage(app, url) {
     room: center,
     map: views.map,
   };
+  if (!RECORD && params.get("sound") !== "0") {
+    load("./audio.js").then(({ mountSound }) => mountSound(window.airops, root.querySelector(".timeline"), { on: params.has("stream") || params.get("sound") === "1", stream: params.has("stream") }))
+      .catch((e) => console.warn("no sound:", e));
+  }
   resolveReady({ steps: P.steps.length, watches: P.watches.map((w) => w.t), start: task.start, t0: P.lo, end: P.hi, horizon: P.hi,
     last_watch: P.lastWatch, views: [...(stage ? stageViews : []), ...(center ? ROOM_VIEWS : []), "network"], radar: views.radar?.count ?? 0, twin: !!ep.twin,
     stage: !!stage, room: !!center, span: [P.lo, P.hi], featured: traffic?.featured ?? [], hub: task.hub });

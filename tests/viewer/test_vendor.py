@@ -36,3 +36,15 @@ def test_no_vendored_file_is_left_out_of_the_repository_by_gitignore():
     ignored = subprocess.run(["git", "check-ignore", "--no-index", *files], cwd=WEB.parent, capture_output=True,
                              text=True).stdout.split()
     assert files and not ignored
+
+
+def test_every_sound_file_is_shipped_listed_with_its_cc0_source_and_small():
+    files = set(re.findall(r'"([\w-]+\.ogg)"', (WEB / "audio.js").read_text()))
+    shipped = {p.name for p in (WEB / "audio").glob("*.ogg")}
+    sources = (WEB / "audio" / "SOURCES.md").read_text()
+    assert files and files == shipped
+    for name in shipped:
+        row = next(r for r in sources.splitlines() if r.startswith(f"| `{name}` |"))
+        assert re.search(r"\(https://freesound\.org/people/[^/]+/sounds/\d+/\)", row), name
+    assert "CC0 1.0" in sources and "creativecommons.org/publicdomain/zero/1.0" in sources
+    assert sum(p.stat().st_size for p in (WEB / "audio").iterdir()) < 15e6
