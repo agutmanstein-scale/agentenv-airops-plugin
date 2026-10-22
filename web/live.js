@@ -234,7 +234,13 @@ class Live {
 
   /** The server's state while it is about this day, else the day's last (once the next day is on). */
   mine() {
-    return (runOf(this.feed.state) === this.instance ? this.feed.state : this.ep.live) ?? {};
+    const st = this.feed.state;
+    return (runOf(st) === this.instance && !this.behind(st) ? st : this.ep.live) ?? {};
+  }
+
+  /** A state of this day behind where the page has played to: a live server restarted mid-day replays it from its start. */
+  behind(st) {
+    return !finished(st) && this.frontier(st) < this.pacer.F;
   }
 
   /** app.js asks for the clock each frame. */
@@ -277,6 +283,7 @@ class Live {
       await this.feed.poll();
       const st = this.feed.state, ep = this.feed.ep;
       if (runOf(st) !== this.instance) return this.nextDay(st);
+      if (this.behind(st)) return;
       if (st.watch_wall_s) this.pacer.wall = st.watch_wall_s;
       if (runOf(ep.live) === this.instance && (keyOf(ep.live) !== this.applied.key || (ep.stage?.traffic ?? null) !== this.applied.traffic)) await this.grow(ep);
       this.panel.render(this.mine(), this);
@@ -434,7 +441,7 @@ class Live {
 
   /** Another day on the server: once this one's card, highlights and next card have shown, the page reloads onto it. */
   nextDay(st) {
-    if (!st || finished(st)) return;
+    if (!st?.status || finished(st)) return;
     this.waiting = true;
     if (this.phase === "day" && !finished(this.ep.live)) return this.reload();
     if (this.phase === "next" && performance.now() - this.nextAt >= NEXT_SECONDS * 1000) this.reload();
