@@ -97,6 +97,17 @@ def test_an_episode_without_a_stage_plays_on_the_map(page):
     assert js("document.querySelectorAll('.expert .calls li').length") > 0
 
 
+def test_the_sound_is_off_until_asked_for_and_absent_with_sound_0(page):
+    goto, js = page
+    goto("episode=/tests/viewer/fixtures/episode_small.json")
+    js("airops.ready.then(() => new Promise(r => { const f = () => airops.sound ? r() : setTimeout(f, 50); f(); }))")
+    assert js("({on: airops.sound.on, ctx: airops.sound.ctx})") == {"on": False, "ctx": None}
+    assert js("document.querySelector('.timeline .sound-toggle').getAttribute('aria-pressed')") == "false"
+    goto("episode=/tests/viewer/fixtures/episode_small.json&sound=0")
+    js("airops.ready.then(() => new Promise(r => setTimeout(r, 300)))")
+    assert js("!airops.sound && !document.querySelector('.sound-toggle')")
+
+
 def test_the_viewer_lists_episodes(page):
     goto, js = page
     goto("index=/tests/viewer/fixtures/index.json")
