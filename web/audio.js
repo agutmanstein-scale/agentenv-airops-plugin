@@ -150,7 +150,7 @@ const db = (x) => (x > 1e-12 ? 10 * Math.log10(x) : -120);
 const lufs = (e) => -0.691 + db(e);
 class Master extends AudioWorkletProcessor {
   static get parameterDescriptors() {
-    return [{ name: "target", defaultValue: -20, automationRate: "k-rate" }, { name: "ceiling", defaultValue: -3.5, automationRate: "k-rate" },
+    return [{ name: "target", defaultValue: -20, automationRate: "k-rate" }, { name: "ceiling", defaultValue: -4.5, automationRate: "k-rate" },
       { name: "hold", defaultValue: 0, automationRate: "k-rate" }];
   }
   constructor() {
