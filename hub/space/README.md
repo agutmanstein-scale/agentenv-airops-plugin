@@ -8,7 +8,7 @@ app_file: index.html
 pinned: true
 license: other
 license_name: us-public-domain-iem-mit-odbl-apache-2.0
-license_link: https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.4.2/NOTICE
+license_link: https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.5.0/NOTICE
 short_description: Run an airline's control center through a storm day
 tags:
 - agentenv

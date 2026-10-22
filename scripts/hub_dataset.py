@@ -33,7 +33,7 @@ Space (hub/space/ and the viewer, web/) and --space-repo pushes it.
     python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --out cache/hub/dataset \\
         --space-out cache/hub/space
     python scripts/hub_dataset.py sol-v1 --occ-viewer cache/occ/viewer-release --out cache/hub/dataset \\
-        --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.4.2
+        --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.5.0
 """
 
 import argparse
@@ -1139,7 +1139,7 @@ def main():
                     help="Where the viewer's stages, traffic, radar frames, hub twins and stills are.")
     ap.add_argument("--plugin-ref", default=f"v{VERSION}", help="The plugin tag the card's bundle pins.")
     ap.add_argument("--repo", help="Push the folder to this dataset repo after writing it.")
-    ap.add_argument("--tag", help="Tag the pushed commit, e.g. v0.4.2; the Space reads the dataset at it.")
+    ap.add_argument("--tag", help="Tag the pushed commit, e.g. v0.5.0; the Space reads the dataset at it.")
     ap.add_argument("--message", default="Publish AirOpsEnv v3")
     ap.add_argument("--date", default=datetime.date.today().isoformat(), help="The eval card's date.")
     ap.add_argument("--space-out", type=Path, help="Write the static Space here.")

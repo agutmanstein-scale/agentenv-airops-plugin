@@ -265,12 +265,12 @@ more under P than the passenger-aware plan, on 12 or more of the 24 eval dates. 
   scored, replayed exactly and passed the audit; $6.20. Both 2024-07-28 runs came in under the best plan found. Before
   any board result was read, the rule for that was registered: such a run scores 1.0 and is flagged `below_best`, the
   best plan isn't updated from played runs, and `reward_L` is published beside it.
-- **The board,** 48 runs on the 24 eval dates, three desks and one agent, at caps of $3 a desk and $6 for one agent,
+- **Sol's board,** 48 runs on the 24 eval dates, three desks and one agent, at caps of $3 a desk and $6 for one agent,
   run at f232962: all scored, every one replays exactly through the env's calls (`scripts/hub_dataset.py`) and passes
   the audit, and every reward and `reward_L` recomputes from the graded cost and the pack's best plan, bound and B0
   (within 1e-6, the stored costs' rounding). $107.04.
-- **12 runs came in under the best plan found:** both modes on 2023-07-13, 2023-07-29, 2024-06-23, 2024-07-15 and
-  2024-07-22, and three desks alone on 2024-07-13 and 2025-12-30 (by 0.8% to 8.9%). On 4 of those 5 dates B0 itself
+- **12 of Sol's runs came in under the best plan found:** both modes on 2023-07-13, 2023-07-29, 2024-06-23, 2024-07-15
+  and 2024-07-22, and three desks alone on 2024-07-13 and 2025-12-30 (by 0.8% to 8.9%). On 4 of those 5 dates B0 itself
   comes within 10% of the best plan: the best plan is weak there, from its fixed candidates and capped repair (limit 4
   below). Their `reward_L` is 0.32 to 0.59.
 - **How the desks ended:** ops and crew stood down on 20 of 24 three-desk days and the customer desk on 15 (it
@@ -279,6 +279,25 @@ more under P than the passenger-aware plan, on 12 or more of the 24 eval dates. 
   the harness stopping a desk, which never happened; but the crew desk takes 56% of a three-desk day's spend, and at
   96% with a context near 250k tokens it was a request or two from being stopped: on a rerun, or with another model,
   $3 a crew desk can bind.
+- **Five more models' boards,** GPT-6 Astra, Claude Opus 5.5, Claude Sonnet 5.5, GPT-5.6 Terra and Kimi K3, each with
+  three desks on the 24 eval dates once, at reasoning effort high, registered before their first run with the caps,
+  the retries and how the models are compared; run at 6e5ec17 on 2026-10-22, from 05:17 to 07:59 UTC, on five
+  r7i.24xlarge machines, one a model. A desk's cap buys what $3 bought a Sol desk: Sol's median desk's tokens at the
+  model's prices, rounded up to the next $0.50, so $23.50 for Astra, $9.50 for Opus, $7.50 for Kimi and $5 for Sonnet
+  and Terra. All 120 scored, Terra's in 31 attempts: 7 first attempts lost a desk to Azure's rate limit
+  (`provider_error`) and scored on their retry, and every attempt is kept in `v3_episodes`. Every scored run replays
+  exactly through the env's calls on Linux and passes the audit, and every reward and `reward_L` recomputes from the
+  graded cost and the pack's best plan, bound and B0 (within 1e-6). $1,125.30 of model spend, Terra's unscored
+  attempts' $12.39 among it, within a budget of $3,000 for model spend and cloud together.
+- **Where the caps bound** (`desks_at_cap` on `v3_board`): they stopped 5 of the five boards' 360 desks, all crew
+  desks, and every one of those runs scored: Astra's on 2023-12-18 (1 of 72), Opus's on 2023-07-08, 2023-07-29 and
+  2023-12-10 (3 of 72) and Kimi's on 2025-12-14 (1 of 72); none of Sonnet's or Terra's. No desk of a scored run ended
+  on an error.
+- **Replays on another machine.** Two board runs, Terra's on 2023-06-16 and Kimi's on 2023-12-18, mismatched in the
+  crew tools when replayed on a heavily loaded Mac. On an idle Linux machine each replayed exactly three times out of
+  three, and all 168 board runs replay exactly on Linux, as the boards ran. The crew tools solve a MIP under a time
+  limit, so a loaded machine can return another answer and the replay diverges from there; replay on a machine with
+  cores to spare.
 
 ## v3: not modelled, labelled
 
@@ -304,7 +323,9 @@ more under P than the passenger-aware plan, on 12 or more of the 24 eval dates. 
 3. **The bound is weak:** a gap of 54% to 79% on the eval dates (median 66%), and negative on the winter control. Most
    of the published gap is the bound, so `reward_L` reads low.
 4. **The reference is a best-found plan,** from a fixed set of candidates and one capped repair whose cap ran over on
-   49 of 70 dates. 12 of the board's 48 runs came in under it, on 7 dates; they score 1.0, flagged `below_best`.
+   49 of 70 dates. 24 of the 168 board runs came in under it, all on the same 7 dates: 12 of Sol's 48, and of the
+   other models' 24 each, Astra's 6, Opus's 3, Sonnet's 2, Terra's 1 and Kimi's none. They score 1.0, flagged
+   `below_best`, so the ceiling compresses the top of the board.
 5. **B0 is near the reference on some dates under P,** so it scores above 0.308 on 4 of the 24 eval dates.
 6. **No public record checks the passengers' outcomes.** JetBlue's replayed day strands 80% of the passengers off its
    cancelled flights overnight under JetBlue-only rebooking; that is reported, not validated.
@@ -312,10 +333,14 @@ more under P than the passenger-aware plan, on 12 or more of the 24 eval dates. 
    cancellation cheaply.
 8. **Step 0's MIP proved no date** and stored no plans; G1 holds at 14 of 24 without the dates it improved.
 9. **The passengers are generated,** from route-month loads and a ticket survey, not JetBlue's bookings.
-10. **The board measures three desks against one agent, one run each, not talking or the customer desk by itself:**
+10. **Sol's board measures three desks against one agent, one run each, not talking or the customer desk by itself:**
     three desks used 2.0× one agent's spend, there is no two-desk arm under P, and the +0.044 margin is within Sol's
     run-to-run variation (up to 0.23 for the same day and mode; a sign test gives p = 0.064; without the 7 dates with
     a below_best run the CI is −0.002 to 0.090).
+11. **Models are compared by whether their 95% intervals over the dates overlap, one run a date each,** as registered,
+    with nothing paired across models. The board ranks Astra first and puts Sonnet, Terra and Kimi wholly below it, but
+    doesn't separate Astra from Sol or Opus: Astra's lead over Sol (0.021) is a tenth of Sol's run-to-run variation, and
+    Astra and Sol have the most runs under the best plan (6 and 7), each scoring 1.0 however far under.
 
 ## v3: rerun the checks
 
@@ -331,7 +356,8 @@ one r7i.48xlarge.
 | 2b | `scripts/pax_stage2b.py --out cache/v3/stage2b --reference cache/v3/stage2/reference` |
 | the pack | `scripts/build_occ_pack.py --v3 cache/v3/stage2/reference --pack data/b6-v3 --bound cache/v3/bound` |
 | 3, zero-spend | `scripts/occ3_checks.py --out cache/v3/checks --split train --only b6-20230627-0400,b6-20230807-0400,b6-20240728-0400,b6-20250218-0400 --workers 4` |
-| 3, the board | `agent-env airops-occ3 pilot` with the board's runs, caps and budget (`results/runs/occ3-board-sol/pilot.json`); `scripts/hub_dataset.py` replays every run |
+| 3, Sol's board | `agent-env airops-occ3 pilot` with the board's runs, caps and budget (`results/runs/occ3-board-sol/pilot.json`); `scripts/hub_dataset.py` replays every run |
+| 3, the five models' boards | `agent-env airops-occ3 pilot occ3-board-<m> --model <model> --cap-joint <cap>`, one machine a model, with the 24 three-desk runs, the budget and the request margin, as recorded in `results/runs/occ3-board-<m>/pilot.json` (`<m>` is `astra`, `opus`, `sonnet`, `terra` or `kimi`); `scripts/hub_dataset.py` with an `--occ3` per folder replays every run |
 
 ---
 

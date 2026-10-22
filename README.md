@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.2/viewer/episodes/occ3-board-sol-joint.openai-gpt-6.1-sol.b6-20250708-0400.json&t=498&view=room&play=1&speed=2"><img src="assets/airops-occ3-banner.jpg" alt="AirOpsEnv v3: inside JetBlue's Terminal 5 at Kennedy at 18:39 on the storm day of 8 July 2025, replayed from GPT-6.1 Sol's three desks: the crowd at gate 2 for B6 2903 to San Juan, its screen and its aircraft at the jet bridge, with the next gates down the hall" width="100%"></a>
+<a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.5.0/viewer/episodes/occ3-board-sol-joint.openai-gpt-6.1-sol.b6-20250708-0400.json&t=498&view=room&play=1&speed=2"><img src="assets/airops-occ3-banner.jpg" alt="AirOpsEnv v3: inside JetBlue's Terminal 5 at Kennedy at 18:39 on the storm day of 8 July 2025, replayed from GPT-6.1 Sol's three desks: the crowd at gate 2 for B6 2903 to San Juan, its screen and its aircraft at the jet bridge, with the next gates down the hall" width="100%"></a>
 
 <h1>AirOpsEnv v3: passengers and the customer desk</h1>
 
@@ -32,7 +32,7 @@ under a cost that follows every passenger to their final destination: against th
 that cost.
 
 <p align="center">
-  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.2/viewer/episodes/occ3-board-sol-joint.openai-gpt-6.1-sol.b6-20250708-0400.json&t=498&view=room&play=1&speed=2"><img src="assets/airops-occ3-hero.webp" width="100%" alt="GPT-6.1 Sol's three desks run JetBlue's control center through the storm of 8 July 2025: at Kennedy the stranded leave on the hotel shuttle and passengers wait at the service counter after B6 675 is cancelled, in the room ops declines the customer desk's request not to cancel it, and connecting passengers reach the gate of B6 308, held for them"></a>
+  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.5.0/viewer/episodes/occ3-board-sol-joint.openai-gpt-6.1-sol.b6-20250708-0400.json&t=498&view=room&play=1&speed=2"><img src="assets/airops-occ3-hero.webp" width="100%" alt="GPT-6.1 Sol's three desks run JetBlue's control center through the storm of 8 July 2025: at Kennedy the stranded leave on the hotel shuttle and passengers wait at the service counter after B6 675 is cancelled, in the room ops declines the customer desk's request not to cancel it, and connecting passengers reach the gate of B6 308, held for them"></a>
 </p>
 <p align="center"><sub>Three GPT-6.1 Sol desks run JetBlue's network through the storm of Tuesday 8 July 2025 at
 JFK and Boston (<code>b6-20250708-0400</code>), shown at Kennedy: 637 flights from 04:00 with 81,279 passenger trips, an
@@ -139,17 +139,51 @@ bound is weak, so most of the published gap is the bound's.
 
 ## The v3 board
 
-GPT-6.1 Sol (`openai/gpt-6.1-sol`, reasoning effort high) on the 24 eval dates, once in each mode, registered before
+GPT-6.1 Sol (`openai/gpt-6.1-sol`, reasoning effort high) played the 24 eval dates once in each mode, registered before
 the first run: the code (f232962, the pack with it), the dates, the caps ($3 a desk, $6 for one agent) and the budget.
-All 48 runs scored, every one replays exactly through the env's calls and passes the audit, and every reward and
-`reward_L` recomputes from the graded costs and the pack's best plan, bound and B0.
+Five more models then played the same 24 dates with three desks, once a date, at reasoning effort high: GPT-6 Astra
+(`openai/gpt-6-astra`), Claude Opus 5.5 (`anthropic/claude-opus-5-5`), Claude Sonnet 5.5
+(`anthropic/claude-sonnet-5-5`), GPT-5.6 Terra (`openai/gpt-5.6-terra`) and Kimi K3 (`fireworks_ai/kimi-k3`). The
+models, the dates, the caps, the retries and how the models are compared were registered before the first of them ran;
+Sol isn't run again, its three desks are its board's 24 runs. A desk's cap buys what $3 bought a Sol desk: Sol's median
+desk's tokens at the model's prices, rounded up to the next $0.50. The five boards ran at 6e5ec17 on 22 October 2026,
+from 05:17 to 07:59 UTC, on five r7i.24xlarge machines, one a model, within a budget of $3,000 for model spend and
+cloud together. All 168 board runs scored, every one replays exactly through the env's calls on Linux, as the boards
+ran, and passes the audit, and every reward and `reward_L` recomputes from the graded costs and the pack's best plan,
+bound and B0.
 
-| Mode | Mean reward (95% CI) | reward_L (95% CI) | Over the best plan, median | Avoidable cost saved, median | Spend |
-|---|---|---|---:|---:|---:|
-| **Three desks**, talking | **0.721** (0.633–0.811) | 0.372 (0.351–0.398) | 7.7% | 71% | $71.38 |
-| **One agent** at all three desks | **0.677** (0.592–0.766) | 0.366 (0.346–0.391) | 7.7% | 72% | $35.66 |
-| Standard crew desk (B0) | 0.386 | | | 0% | |
-| v2's best plan, blind to passengers | 0.602 | | | | |
+| | Model | Mean reward (95% CI) | reward_L (95% CI) | Below best | Spend | Cap a desk | Median day |
+|---:|---|---|---|---:|---:|---:|---:|
+| 1 | GPT-6 Astra | **0.742** (0.673–0.813) | 0.377 (0.356–0.406) | 6 | $544.24 | $23.50 | 58 min, $21.33 |
+| 2 | GPT-6.1 Sol | 0.721 (0.633–0.811) | 0.372 (0.351–0.398) | 7 | $71.38 | $3 | 70 min, $2.79 |
+| 3 | Claude Opus 5.5 | 0.626 (0.544–0.711) | 0.357 (0.340–0.376) | 3 | $261.46 | $9.50 | 43 min, $10.40 |
+| 4 | Claude Sonnet 5.5 | 0.556 (0.476–0.644) | 0.347 (0.330–0.367) | 2 | $72.28 | $5 | 27 min, $3.23 |
+| 5 | GPT-5.6 Terra | 0.515 (0.443–0.594) | 0.337 (0.324–0.353) | 1 | $84.41 | $5 | 52 min, $3.70 |
+| 6 | Kimi K3 | 0.426 (0.366–0.491) | 0.326 (0.310–0.342) | 0 | $150.51 | $7.50 | 57 min, $6.01 |
+| | GPT-6.1 Sol, **one agent** at all three desks | 0.677 (0.592–0.766) | 0.366 (0.346–0.391) | 5 | $35.66 | $6 | 44 min, $1.52 |
+| | Standard crew desk (B0) | 0.386 | | | | | |
+| | v2's best plan, blind to passengers | 0.602 | | | | | |
+
+Rows 1 to 6 are each model's three desks, talking, ranked by their mean. *Below best*: the runs that came in under the
+best plan found. *Median day*: a day's wall time and spend at the median.
+
+- **GPT-6 Astra leads; GPT-6.1 Sol and Claude Opus 5.5 are not separated from it:** their 95% intervals overlap
+  Astra's. Claude Sonnet 5.5, GPT-5.6 Terra and Kimi K3 lie below it, their intervals wholly under Astra's. `reward_L`,
+  which the best plan doesn't cap, ranks the six in the same order.
+- **The best plan's ceiling compresses the top.** A run under the best plan found scores 1.0 whichever model played it
+  and however far under it came: Astra's did on 6 dates and Sol's on 7, Claude Opus 5.5's on 3, Claude Sonnet 5.5's on
+  2, GPT-5.6 Terra's on 1 and Kimi K3's on none, all of them on the 7 dates where Sol's did.
+- **Spend doesn't follow the ranking.** Astra's board cost $544.24, 7.6 times Sol's $71.38, for 0.021 more; Claude Opus
+  5.5's $261.46; Kimi K3's $150.51, twice Sol's, for the lowest mean; Claude Sonnet 5.5's and GPT-5.6 Terra's near
+  Sol's. The caps stopped 5 desks, all crew desks: one of Astra's 72, three of Opus's and one of Kimi's, and none of
+  Sol's, Sonnet's or Terra's ([FIDELITY.md](FIDELITY.md#v3-stage-3-the-model-desks)).
+- **Every run scored.** GPT-5.6 Terra's 24 took 31 attempts: 7 first attempts lost a desk to Azure's rate limit
+  (`provider_error`) and scored on a retry. Every attempt is kept in the dataset.
+- CIs are bootstrap over the 24 dates (10,000 resamples). Spend is the harness's tokens times price, over a model's
+  scored runs: Sol's board cost $107.04 and the pilot before it $6.20; the five boards cost $1,125.30, Terra's 7
+  unscored attempts ($12.39) included.
+
+**Sol's two modes:**
 
 - **Three desks against one agent, paired by date:** +0.044 reward (bootstrap 95% CI 0.007–0.083), three desks higher
   on 14 of 24 dates, lower on 5 and level on the 5 where both came in under the best plan; their days cost 1.8% of the
@@ -157,66 +191,102 @@ All 48 runs scored, every one replays exactly through the env's calls and passes
 - **Both well above standard practice:** at the median a Sol day saves 71% (three desks) or 72% (one agent) of what
   B0 leaves on the table and costs 7.7% more than the best plan found, and both modes' means are above v2's best plan
   played with its passengers (0.602).
-- **12 of the 48 runs came in under the best plan found:** both modes on 5 dates (2023-07-13, 2023-07-29, 2024-06-23,
-  2024-07-15 and 2024-07-22) and three desks alone on 2 (2024-07-13 and 2025-12-30), so 7 three-desk runs and 5
-  one-agent runs. They score 1.0 and are flagged `below_best`, with `reward_L`, against the bound, beside them. On 4 of
-  those 5 dates B0 itself comes within 10% of the best plan, which is weak there. As registered before the board, the
-  best plan isn't updated from played runs, so no run's score depends on another's; a longer search for better plans
-  is left to v3.1.
-- CIs are bootstrap over the 24 dates (10,000 resamples). Spend is the harness's tokens times price; the whole board
-  cost $107.04, the pilot before it $6.20.
+- **12 of Sol's 48 runs came in under the best plan found:** both modes on 5 dates (2023-07-13, 2023-07-29,
+  2024-06-23, 2024-07-15 and 2024-07-22) and three desks alone on 2 (2024-07-13 and 2025-12-30), so 7 three-desk runs
+  and 5 one-agent runs. They score 1.0 and are flagged `below_best`, with `reward_L`, against the bound, beside them.
+  On 4 of those 5 dates B0 itself comes within 10% of the best plan, which is weak there. As registered before the
+  board, the best plan isn't updated from played runs, so no run's score depends on another's; a longer search for
+  better plans is left to v3.1.
 
 <details>
 <summary><b>Per date</b>: each run's reward and reward_L</summary>
 
-| Date | Storm hubs | Flights | Passengers | Connecting | Gap, best to bound | Three desks | One agent | Three desks, reward_L | One agent, reward_L |
-|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| 2022-12-07 | JFK, BOS | 767 | 86,500 | 3.5% | 78.7% | **0.477** | 0.465 | 0.329 | 0.327 |
-| 2023-06-06 | BOS | 774 | 93,810 | 2.9% | 64.5% | **0.848** | 0.587 | 0.348 | 0.335 |
-| 2023-06-16 | JFK, BOS | 753 | 91,328 | 2.9% | 59.6% | **0.548** | 0.515 | 0.351 | 0.347 |
-| 2023-07-08 | JFK, BOS | 693 | 86,237 | 2.8% | 54.2% | **0.528** | 0.440 | 0.366 | 0.347 |
-| 2023-07-09 | JFK, BOS | 733 | 90,919 | 2.8% | 62.8% | **0.468** | 0.411 | 0.359 | 0.344 |
-| 2023-07-13 | JFK, BOS | 750 | 92,275 | 2.9% | 68.4% | 1.000 \* | 1.000 \* | 0.380 | 0.385 |
-| 2023-07-29 | JFK, BOS | 698 | 87,063 | 2.8% | 69.8% | 1.000 \* | 1.000 \* | 0.339 | 0.334 |
-| 2023-12-10 | JFK, BOS | 665 | 75,737 | 2.4% | 71.6% | **0.825** | 0.663 | 0.393 | 0.375 |
-| 2023-12-18 | BOS | 752 | 86,058 | 2.4% | 73.7% | 0.406 | **0.470** | 0.327 | 0.337 |
-| 2024-06-23 | JFK, BOS | 662 | 81,982 | 2.6% | 66.0% | 1.000 \* | 1.000 \* | 0.337 | 0.324 |
-| 2024-07-13 | BOS | 612 | 78,055 | 2.8% | 69.2% | **1.000** \* | 0.937 | 0.586 | 0.563 |
-| 2024-07-15 | JFK, BOS | 664 | 84,523 | 2.9% | 65.9% | 1.000 \* | 1.000 \* | 0.323 | 0.338 |
-| 2024-07-22 | JFK | 668 | 85,342 | 2.9% | 67.3% | 1.000 \* | 1.000 \* | 0.359 | 0.350 |
-| 2025-01-11 | BOS | 494 | 59,412 | 2.6% | 65.3% | 0.853 | **0.865** | 0.493 | 0.496 |
-| 2025-07-08 | JFK, BOS | 637 | 81,279 | 2.3% | 65.6% | **0.795** | 0.655 | 0.431 | 0.405 |
-| 2025-07-12 | JFK | 647 | 83,103 | 2.2% | 60.5% | **0.587** | 0.560 | 0.344 | 0.342 |
-| 2025-12-02 | BOS | 619 | 76,562 | 2.0% | 60.2% | 0.393 | **0.398** | 0.319 | 0.319 |
-| 2025-12-14 | JFK | 667 | 81,685 | 2.2% | 59.7% | **0.452** | 0.386 | 0.344 | 0.330 |
-| 2025-12-19 | JFK, BOS | 708 | 87,356 | 2.0% | 69.7% | **0.650** | 0.508 | 0.355 | 0.341 |
-| 2025-12-30 | JFK | 689 | 85,650 | 2.0% | 76.0% | **1.000** \* | 0.740 | 0.383 | 0.363 |
-| 2026-06-14 | JFK, BOS | 722 | 89,741 | 2.0% | 73.5% | **0.628** | 0.591 | 0.352 | 0.349 |
-| 2026-07-01 | BOS | 705 | 91,080 | 2.4% | 63.9% | **0.708** | 0.664 | 0.413 | 0.405 |
-| 2026-07-09 | JFK, BOS | 764 | 96,759 | 3.0% | 58.3% | 0.595 | **0.719** | 0.360 | 0.374 |
-| 2026-07-15 | JFK | 739 | 93,021 | 3.0% | 76.6% | 0.538 | **0.669** | 0.341 | 0.352 |
+Each model's column is its three-desk run; Sol's one agent is last.
 
-The higher of the two in bold. \* Under the best plan found, so 1.0 and flagged `below_best`; reward_L is the fairer
-reading there. B0 scores 0.308 on 20 of these dates and more on 2023-07-29, 2024-06-23, 2024-07-15 and 2024-07-22.
-"Passengers": the day's passenger trips; "Connecting": the share of them that connect.
+| Date | Storm hubs | Flights | Passengers | Connecting | Gap, best to bound | Astra | Sol | Opus | Sonnet | Terra | Kimi | Sol, one agent |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2022-12-07 | JFK, BOS | 767 | 86,500 | 3.5% | 78.7% | **0.484** | 0.477 | 0.378 | 0.296 | 0.288 | 0.249 | 0.465 |
+| 2023-06-06 | BOS | 774 | 93,810 | 2.9% | 64.5% | 0.775 | **0.848** | 0.696 | 0.594 | 0.821 | 0.668 | 0.587 |
+| 2023-06-16 | JFK, BOS | 753 | 91,328 | 2.9% | 59.6% | **0.686** | 0.548 | 0.481 | 0.434 | 0.620 | 0.432 | 0.515 |
+| 2023-07-08 | JFK, BOS | 693 | 86,237 | 2.8% | 54.2% | **0.555** | 0.528 | 0.471 | 0.385 | 0.462 | 0.321 | 0.440 |
+| 2023-07-09 | JFK, BOS | 733 | 90,919 | 2.8% | 62.8% | **0.488** | 0.468 | 0.441 | 0.378 | 0.270 | 0.330 | 0.411 |
+| 2023-07-13 | JFK, BOS | 750 | 92,275 | 2.9% | 68.4% | 1.000 \* | 1.000 \* | 0.558 | 0.741 | 0.696 | 0.580 | 1.000 \* |
+| 2023-07-29 | JFK, BOS | 698 | 87,063 | 2.8% | 69.8% | 1.000 \* | 1.000 \* | 1.000 \* | 1.000 \* | 0.644 | 0.543 | 1.000 \* |
+| 2023-12-10 | JFK, BOS | 665 | 75,737 | 2.4% | 71.6% | 0.772 | **0.825** | 0.708 | 0.563 | 0.419 | 0.416 | 0.663 |
+| 2023-12-18 | BOS | 752 | 86,058 | 2.4% | 73.7% | **0.655** | 0.406 | 0.260 | 0.355 | 0.304 | 0.302 | 0.470 |
+| 2024-06-23 | JFK, BOS | 662 | 81,982 | 2.6% | 66.0% | 1.000 \* | 1.000 \* | 0.798 | 1.000 \* | 0.853 | 0.203 | 1.000 \* |
+| 2024-07-13 | BOS | 612 | 78,055 | 2.8% | 69.2% | 1.000 \* | 1.000 \* | 0.657 | 0.713 | 0.593 | 0.564 | 0.937 |
+| 2024-07-15 | JFK, BOS | 664 | 84,523 | 2.9% | 65.9% | 1.000 \* | 1.000 \* | 1.000 \* | 0.576 | 1.000 \* | 0.201 | 1.000 \* |
+| 2024-07-22 | JFK | 668 | 85,342 | 2.9% | 67.3% | 1.000 \* | 1.000 \* | 1.000 \* | 0.933 | 0.296 | 0.803 | 1.000 \* |
+| 2025-01-11 | BOS | 494 | 59,412 | 2.6% | 65.3% | 0.816 | 0.853 | **0.868** | 0.725 | 0.612 | 0.579 | 0.865 |
+| 2025-07-08 | JFK, BOS | 637 | 81,279 | 2.3% | 65.6% | **0.815** | 0.795 | 0.751 | 0.780 | 0.358 | 0.413 | 0.655 |
+| 2025-07-12 | JFK | 647 | 83,103 | 2.2% | 60.5% | **0.601** | 0.587 | 0.561 | 0.418 | 0.462 | 0.303 | 0.560 |
+| 2025-12-02 | BOS | 619 | 76,562 | 2.0% | 60.2% | 0.534 | 0.393 | **0.541** | 0.329 | 0.467 | 0.415 | 0.398 |
+| 2025-12-14 | JFK | 667 | 81,685 | 2.2% | 59.7% | **0.518** | 0.452 | 0.424 | 0.357 | 0.316 | 0.381 | 0.386 |
+| 2025-12-19 | JFK, BOS | 708 | 87,356 | 2.0% | 69.7% | 0.598 | **0.650** | 0.462 | 0.510 | 0.474 | 0.407 | 0.508 |
+| 2025-12-30 | JFK | 689 | 85,650 | 2.0% | 76.0% | 0.834 | **1.000** \* | 0.887 | 0.349 | 0.443 | 0.717 | 0.740 |
+| 2026-06-14 | JFK, BOS | 722 | 89,741 | 2.0% | 73.5% | **0.658** | 0.628 | 0.430 | 0.397 | 0.324 | 0.291 | 0.591 |
+| 2026-07-01 | BOS | 705 | 91,080 | 2.4% | 63.9% | 0.673 | **0.708** | 0.653 | 0.544 | 0.529 | 0.401 | 0.664 |
+| 2026-07-09 | JFK, BOS | 764 | 96,759 | 3.0% | 58.3% | 0.641 | 0.595 | 0.496 | 0.462 | 0.535 | 0.328 | **0.719** |
+| 2026-07-15 | JFK | 739 | 93,021 | 3.0% | 76.6% | **0.705** | 0.538 | 0.512 | 0.494 | 0.585 | 0.375 | 0.669 |
+
+The day's highest in bold, none where several runs share 1.0. \* Under the best plan found, so 1.0 and flagged
+`below_best`; reward_L, below, is the fairer reading there. B0 scores 0.308 on 20 of these dates and more on
+2023-07-29, 2024-06-23, 2024-07-15 and 2024-07-22. "Passengers": the day's passenger trips; "Connecting": the share of
+them that connect.
+
+reward_L, against the bound:
+
+| Date | Astra | Sol | Opus | Sonnet | Terra | Kimi | Sol, one agent |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 2022-12-07 | 0.329 | 0.329 | 0.319 | 0.306 | 0.304 | 0.294 | 0.327 |
+| 2023-06-06 | 0.345 | 0.348 | 0.341 | 0.336 | 0.347 | 0.340 | 0.335 |
+| 2023-06-16 | 0.366 | 0.351 | 0.342 | 0.335 | 0.359 | 0.335 | 0.347 |
+| 2023-07-08 | 0.371 | 0.366 | 0.354 | 0.333 | 0.352 | 0.313 | 0.347 |
+| 2023-07-09 | 0.364 | 0.359 | 0.352 | 0.334 | 0.290 | 0.317 | 0.344 |
+| 2023-07-13 | 0.383 | 0.380 | 0.343 | 0.357 | 0.354 | 0.345 | 0.385 |
+| 2023-07-29 | 0.344 | 0.339 | 0.329 | 0.311 | 0.301 | 0.298 | 0.334 |
+| 2023-12-10 | 0.388 | 0.393 | 0.380 | 0.362 | 0.337 | 0.336 | 0.375 |
+| 2023-12-18 | 0.356 | 0.327 | 0.293 | 0.319 | 0.307 | 0.307 | 0.337 |
+| 2024-06-23 | 0.340 | 0.337 | 0.304 | 0.323 | 0.305 | 0.246 | 0.324 |
+| 2024-07-13 | 0.634 | 0.586 | 0.469 | 0.489 | 0.444 | 0.433 | 0.563 |
+| 2024-07-15 | 0.332 | 0.323 | 0.332 | 0.304 | 0.320 | 0.241 | 0.338 |
+| 2024-07-22 | 0.351 | 0.359 | 0.344 | 0.323 | 0.292 | 0.319 | 0.350 |
+| 2025-01-11 | 0.483 | 0.493 | 0.496 | 0.459 | 0.427 | 0.417 | 0.496 |
+| 2025-07-08 | 0.435 | 0.431 | 0.424 | 0.429 | 0.328 | 0.346 | 0.405 |
+| 2025-07-12 | 0.345 | 0.344 | 0.342 | 0.327 | 0.332 | 0.307 | 0.342 |
+| 2025-12-02 | 0.330 | 0.319 | 0.330 | 0.311 | 0.325 | 0.321 | 0.319 |
+| 2025-12-14 | 0.356 | 0.344 | 0.339 | 0.323 | 0.311 | 0.329 | 0.330 |
+| 2025-12-19 | 0.350 | 0.355 | 0.335 | 0.341 | 0.337 | 0.327 | 0.341 |
+| 2025-12-30 | 0.370 | 0.383 | 0.374 | 0.318 | 0.333 | 0.362 | 0.363 |
+| 2026-06-14 | 0.355 | 0.352 | 0.331 | 0.326 | 0.312 | 0.304 | 0.349 |
+| 2026-07-01 | 0.406 | 0.413 | 0.402 | 0.380 | 0.376 | 0.342 | 0.405 |
+| 2026-07-09 | 0.365 | 0.360 | 0.347 | 0.341 | 0.352 | 0.314 | 0.374 |
+| 2026-07-15 | 0.355 | 0.341 | 0.338 | 0.336 | 0.345 | 0.321 | 0.352 |
 
 </details>
 
 ### What the results show, and what they don't
 
-- **They show** that on these 24 storm dates three Sol desks scored above one Sol agent running all three, +0.044
-  (bootstrap CI 0.007–0.083), higher on 14 dates and lower on 5, and that both recover most of what standard crew-desk
-  practice loses.
-- **They don't show that the third desk or talking helps.** The margin is small: a sign test on the 19 dates where the
-  two differ gives p = 0.064, and leaving out the 7 dates with a below_best run gives +0.043 with a CI of −0.002 to
+- **They show** that on these 24 storm dates GPT-6 Astra's three desks scored highest and that Claude Sonnet 5.5,
+  GPT-5.6 Terra and Kimi K3 scored below them, their 95% intervals over the dates wholly under Astra's; and that three
+  Sol desks scored above one Sol agent running all three, +0.044 (bootstrap CI 0.007–0.083), higher on 14 dates and
+  lower on 5, both recovering most of what standard crew-desk practice loses.
+- **They don't separate GPT-6 Astra from GPT-6.1 Sol or Claude Opus 5.5.** Their intervals overlap Astra's, and Astra's
+  lead over Sol, 0.021, is a tenth of Sol's own run-to-run swing on the same day and mode (up to 0.23). The best plan's
+  ceiling lifts the top two: Astra came in under the best plan on 6 dates and Sol on 7, scoring 1.0 there, against 0 to
+  3 for the other models. Nor do they show that spend buys score: Astra's board cost 7.6 times Sol's, and Kimi K3's,
+  twice Sol's, has the lowest mean.
+- **They don't show that Sol's third desk or talking helps.** The margin is small: a sign test on the 19 dates where
+  the two differ gives p = 0.064, and leaving out the 7 dates with a below_best run gives +0.043 with a CI of −0.002 to
   0.090. Sol's score for the same day and mode moves by up to 0.23 from one run to the next, the size of the effect,
   and the board has one run per date and mode. The three desks also used about twice the compute (2.0× the spend, 2.0×
   the input tokens and 2.4× the output tokens, more spend on every date), so the board can't separate three desks from
   more compute, as v2's couldn't separate two. The caps were $3 a desk against $6 for one agent; 2 crew desks reached
   90% or more of their $3 cap (the highest 96%), and none ended by it.
 - **Nor what the customer desk adds by itself.** The board has no two-desk arm under P, so the customer desk's own
-  worth isn't measured. It was busy: 1,303 requests over the 24 three-desk days (a median of 56 a day), 887 HOLDs (463
-  accepted by ops), 184 PROTECTs (177 accepted), 76 SUGGEST_CANCELs (24 accepted) and 156 texts.
+  worth isn't measured. Sol's was busy: 1,303 requests over the 24 three-desk days (a median of 56 a day), 887 HOLDs
+  (463 accepted by ops), 184 PROTECTs (177 accepted), 76 SUGGEST_CANCELs (24 accepted) and 156 texts.
 - **The scripted gate for the customer desk didn't pass.** Before any model ran, a scripted customer desk built from
   published practice (hold an outbound up to 15 minutes when 10 or more connecting passengers would misconnect; ask
   ops not to cancel a flight when half its passengers have no later JetBlue seat that day) was measured against two
@@ -224,9 +294,11 @@ reading there. B0 scores 0.308 on 20 of these dates and more on 2023-07-29, 2024
   requests not to cancel mostly protected flights that couldn't fly, which then cancelled at their deadline, late.
   The premise holds (v2's best plan costs at least 5% more than the best plan under P on 17 of 24 dates), but the
   script didn't capture it. The customer desk ships anyway, labelled.
-- **One model, one run per date and mode.** Sol varies from run to run on the same day (the pilot's one-agent run on
-  2024-07-28 scored 1.0 on a laptop and 0.613 on a test box); more runs per date and more models would settle the
-  comparison.
+- **Six models, one run per date each.** Each model played each date once with three desks, and Sol once more with one
+  agent, so a model's interval is over the dates, not over repeated runs, and the models are compared, as registered,
+  by whether their intervals overlap the leader's; nothing is paired across models. Sol varies from run to run on the
+  same day (the pilot's one-agent run on 2024-07-28 scored 1.0 on a laptop and 0.613 on a test box); more runs per date
+  would settle what the board leaves open.
 
 ## Run v3
 
@@ -235,7 +307,7 @@ framework, build the env and the desk agent and register them, and check the wir
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.4.2"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.5.0"
 agent-env airops-occ3 setup                   # builds airops-occ3 and airops-desk for this machine's Docker
 agent-env airops-occ3 tasks --noplay          # writes results/bundles/airops-occ3: each eval date, joint and one
 agent-env run results/bundles/airops-occ3 --task wiring-noplay
@@ -251,12 +323,12 @@ agent-env run results/bundles/airops-occ3 --task b6-20240713-0400-one --model op
 ```
 
 Or play a day straight from the dataset, which pins this release and holds the bundle `airops-occ3`: every date in
-both modes, the very task files the board ran (each desk's cost cap $3 in a three-desk run, $6 for one agent), and
+both modes, the very task files Sol's board ran (each desk's cost cap $3 in a three-desk run, $6 for one agent), and
 `wiring-noplay`:
 
 ```bash
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.2 --bundle airops-occ3 --task wiring-noplay
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.2 --bundle airops-occ3 --task b6-20240713-0400-joint \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.5.0 --bundle airops-occ3 --task wiring-noplay
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.5.0 --bundle airops-occ3 --task b6-20240713-0400-joint \
     --model openai/gpt-6.1-sol
 ```
 
@@ -270,9 +342,13 @@ agent-env airops-occ3 report occ3-my-board    # results/runs/occ3-my-board/repor
 ```
 
 `tasks --split train` writes the 44 training dates, `--split control` the calm days, `--cap-joint` and `--cap-one`
-set each desk's cost cap (by default $5 and $12; the board ran at $3 and $6), and `--policy script` plays scripted
-desks with no model. On the board a three-desk day took a median 70 minutes and $2.79, one agent 44 minutes and
-$1.52. Name a three-desk pilot `occ3-*` so that `scripts/hub_dataset.py` publishes it with v3.
+set each desk's cost cap (by default $5 and $12), and `--policy script` plays scripted desks with no model. Sol's board
+ran at $3 a desk and $6 for one agent; the other models' boards ran three desks at their own caps a desk, scaled from
+Sol's $3 by their prices: GPT-6 Astra $23.50, Claude Opus 5.5 $9.50, Kimi K3 $7.50, and Claude Sonnet 5.5 and GPT-5.6
+Terra $5. On Sol's board a three-desk day took a median 70 minutes and $2.79, one agent 44 minutes and $1.52; the other
+models' three-desk days took a median 27 minutes (Claude Sonnet 5.5) to 58 (GPT-6 Astra) and $3.23 (Sonnet) to $21.33
+(Astra), as the board gives. Name a three-desk pilot `occ3-*` so that `scripts/hub_dataset.py` publishes it with v3, and
+a model's board `occ3-board-<model>`.
 
 ## How v3 was validated
 
@@ -298,19 +374,22 @@ recorded with its reason before it was used, and every bar recomputed by an inde
   (`scripts/occ3_checks.py`): every day graded, audited and replaying byte for byte, no page or reply before the end
   showing a reference, the bound or a reward, the day played with every reference moved giving every page, reply and
   record byte for byte, and the day with every delay a desk couldn't yet know changed giving everything up to each
-  watch byte for byte. A Sol pilot on 2 training dates scored all 4 runs for $6.20, and then the board scored all 48.
+  watch byte for byte. A Sol pilot on 2 training dates scored all 4 runs for $6.20; then Sol's board scored all 48, and
+  the five other models' boards all 120, GPT-5.6 Terra's 7 of them on a retry. All 168 replay exactly through the env's
+  calls on Linux and pass the audit.
 
 ## Watch a v3 run
 
-The [Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv) replays the board's 48 runs from the
-dataset, ahead of v2's and v1's. A v3 run opens in the control-center room, as v2's do, and adds the day as its
-passengers see it:
+The [Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv) replays the board's 168 runs from the
+dataset, ahead of v2's and v1's: each model's three desks and Sol's one agent on the 24 eval dates, each card naming its
+model and mode. A v3 run opens in the control-center room, as v2's do, and adds the day as its passengers see it:
 
-- **The terminal** (key 9): JetBlue's gate hall at its busiest gate, the crowd at the glass, the aircraft at the
-  bridge and the gate's screen with its flight on time, delayed, boarding, held for its connecting passengers,
-  cancelled or departed. ‹ › (or , and .) steps from gate to gate and to the line at the service counter, and the view
-  moves on when a gate empties. *Start here* links to the featured run inside the terminal, at a gate held for its
-  connecting passengers.
+- **The Terminal view**, a camera (key 9): JetBlue's gate hall at its busiest gate, the crowd at the glass, the
+  aircraft at the bridge and the gate's screen with its flight on time, delayed, boarding, held for its connecting
+  passengers, cancelled or departed. ‹ › (or , and .) steps from gate to gate and to the line at the service counter,
+  and the view moves on when a gate empties. *Start here* opens the featured run, Sol's three desks at JFK on 8 July
+  2025, in the room, and its second link goes to the same run's Terminal view at a gate held for its connecting
+  passengers.
 - **The control-center room**: on a three-desk day the camera holds the customer desk, ops and crew together. The
   customer desk's requests travel to ops as cards and pile at the desk they wait on until the answer comes back; the
   customer desk's own screens show the connections at risk, the passengers rebooked and waiting to fly and those
@@ -320,8 +399,8 @@ passengers see it:
   the hotel shuttle at the curb.
 - **The US map** draws where the passengers off a cancelled flight or a missed connection are rebooked to, wider for
   more of them, and how many are stranded overnight at each airport, beside v2's crews.
-- **Films** cut between the terminal, the room and the airport: the line at the counter after a cancellation, a gate
-  held for its connecting passengers, a missed connection.
+- **Films**, Sol's three on the v0.4.1 release, cut between the terminal, the room and the airport: the line at the
+  counter after a cancellation, a gate held for its connecting passengers, a missed connection.
 
 The gate halls, the lounges, the counter, the passengers' walks and the shuttle are inferred, for display only: the
 gate area is a generic one, not JetBlue's real Terminal 5 or Terminal C.
@@ -334,7 +413,8 @@ from the packs and the recorded runs under `results/runs`:
 - v3's tables: `v3_tasks` (the 70 dates with their passengers and their references under P, the default),
   `v3_references` (every candidate the best plan was chosen from, the bound and the gap, and the best plan itself),
   `v3_episodes` (every recorded three-desk run, replayed, with its audit), `v3_desks` (each desk's transcript) and
-  `v3_board`; the eval card `results/eval-v3.json`; and the bundle `airops-occ3`, the 70 dates in both modes and
+  `v3_board` (one row per model and mode, the three-desk rows ranked by their mean, then B0 and Sol's two modes paired
+  by date); the eval card `results/eval-v3.json`; and the bundle `airops-occ3`, the 70 dates in both modes and
   `wiring-noplay`, so that `agent-env hf run earakely-scale/AirOpsEnv-AgentEnv --bundle airops-occ3` plays a v3 day;
 - v2's, as at v0.3.x: `v2_tasks`, `v2_runs`, `v2_desks`, `v2_board`, `results/eval-v2.json` and the bundle
   `airops-occ`;
@@ -349,24 +429,37 @@ agentenv-hf scans every file for keys and token shapes first.
 
 ```bash
 python scripts/occ_films.py results/runs/occ3-board-sol --out cache/films --assets cache/occ/viewer-release --final
-python scripts/hub_dataset.py sol-v1 --occ3 occ3-board-sol --occ-viewer cache/films/occ3-board-sol/viewer \
-    --occ-viewer cache/occ/viewer-release --workers 6 --out cache/hub/dataset-v0.4.2 --space-out cache/hub/space-v0.4.2
-python scripts/hub_dataset.py sol-v1 --occ3 occ3-board-sol --occ-viewer cache/films/occ3-board-sol/viewer \
-    --occ-viewer cache/occ/viewer-release --workers 6 --out cache/hub/dataset-v0.4.2 \
-    --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.4.2
+for m in astra opus sonnet terra kimi; do
+  python scripts/occ_viewer.py results/runs/occ3-board-$m --out cache/films --assets cache/occ/viewer-release
+done
+python scripts/hub_dataset.py sol-v1 --occ3 occ3-board-sol --occ3 occ3-board-astra --occ3 occ3-board-opus \
+    --occ3 occ3-board-sonnet --occ3 occ3-board-terra --occ3 occ3-board-kimi \
+    --occ-viewer cache/films/occ3-board-sol/viewer --occ-viewer cache/films/occ3-board-astra/viewer \
+    --occ-viewer cache/films/occ3-board-opus/viewer --occ-viewer cache/films/occ3-board-sonnet/viewer \
+    --occ-viewer cache/films/occ3-board-terra/viewer --occ-viewer cache/films/occ3-board-kimi/viewer \
+    --occ-viewer cache/occ/viewer-release --workers 6 --tag v0.5.0 \
+    --out cache/hub/dataset-v0.5.0 --space-out cache/hub/space-v0.5.0
+python scripts/hub_dataset.py sol-v1 --occ3 occ3-board-sol --occ3 occ3-board-astra --occ3 occ3-board-opus \
+    --occ3 occ3-board-sonnet --occ3 occ3-board-terra --occ3 occ3-board-kimi \
+    --occ-viewer cache/films/occ3-board-sol/viewer --occ-viewer cache/films/occ3-board-astra/viewer \
+    --occ-viewer cache/films/occ3-board-opus/viewer --occ-viewer cache/films/occ3-board-sonnet/viewer \
+    --occ-viewer cache/films/occ3-board-terra/viewer --occ-viewer cache/films/occ3-board-kimi/viewer \
+    --occ-viewer cache/occ/viewer-release --workers 6 --out cache/hub/dataset-v0.5.0 \
+    --repo earakely-scale/AirOpsEnv-AgentEnv --tag v0.5.0
 ```
 
-`occ_films.py` builds each scored run of the board into a viewer episode with its passengers, replayed for each
+`occ_films.py` builds each scored run of Sol's board into a viewer episode with its passengers, replayed for each
 watch's projections, films it and picks its list still, into `cache/films/occ3-board-sol/` (the episodes under
-`viewer/`); `--assets` names a folder with the airport stages, hub twins and radar frames, such as v2's. `--occ-viewer`
-takes v3's folder, then v2's (`scripts/occ_episodes.py --out`), and lists them in that order. `hub_dataset.py` replays
-every recorded control-center day, v2's and v3's, through the env's calls (a few minutes a day, `--workers` at once,
-kept under `cache/occ/replays/` so a rebuild replays only what changed). Without `--occ` it takes every folder under
-`results/runs` with a `pilot.json` for v2, and without `--occ3` every such folder named `occ3-*` for v3; v2's retry
-folder counts as v2's board. Each `occ3-board-<model>` folder is a v3 board of its own, ranked on `v3_board` by its
-three-desk mean, and `occ3-board-sol`'s two modes are the ones paired; the card names each run no attempt scored, and
-why, and `--occ3-running MODEL` names a model whose board is still running. `scripts/occ_viewer.py` builds a board's
-viewer episodes and list stills without filming them, into the folder `--occ-viewer` takes.
+`viewer/`); `occ_viewer.py` does the same for another model's board without filming it, into
+`cache/films/occ3-board-<model>/viewer`. `--assets` names a folder with the airport stages, hub twins and radar frames,
+such as v2's. `--occ-viewer` takes v3's folders, Sol's first and then the others in the board's order, then v2's
+(`scripts/occ_episodes.py --out`), and lists them in that order. `hub_dataset.py` replays every recorded control-center
+day, v2's and v3's, through the env's calls (a few minutes a day, `--workers` at once, kept under `cache/occ/replays/`
+so a rebuild replays only what changed). Without `--occ` it takes every folder under `results/runs` with a `pilot.json`
+for v2, and without `--occ3` every such folder named `occ3-*` for v3; v2's retry folder counts as v2's board. Each
+`occ3-board-<model>` folder is a v3 board of its own, ranked on `v3_board` by its three-desk mean, and
+`occ3-board-sol`'s two modes are the ones paired; the card names each run no attempt scored, and why, and
+`--occ3-running MODEL` names a model whose board is still running.
 
 The [replay Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv) is static: `hub/space/` and the
 viewer (`web/`) under `viewer/`, reading the episodes straight from the dataset's resolve URLs at the tag, which
@@ -379,7 +472,7 @@ passengers on board: a cancelled passenger costs a flat 523 passenger-minutes. I
 `agent-env airops-occ`, the bundle `airops-occ`, the pack `b6-v2` and its tables in the dataset.
 
 <p align="center">
-  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.2/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-banner.jpg" alt="JetBlue's operations control center in 3D on the Boston storm day of 13 July 2024, replayed from GPT-6.1 Sol's two desks: the ops controller and the crew scheduler at their pods under the video wall of the network, as the crew desk's hold of B6 515 is accepted" width="100%"></a>
+  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.5.0/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-banner.jpg" alt="JetBlue's operations control center in 3D on the Boston storm day of 13 July 2024, replayed from GPT-6.1 Sol's two desks: the ops controller and the crew scheduler at their pods under the video wall of the network, as the crew desk's hold of B6 515 is accepted" width="100%"></a>
 </p>
 
 AI agents run JetBlue's operations control center through a real storm day, split between two desks the way airline
@@ -397,7 +490,7 @@ Every recorded run replays exactly through the env and passes its audit, and rep
 control-center room where the desks decide, and the airport where it plays out.
 
 <p align="center">
-  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.4.2/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-hero.webp" width="100%" alt="GPT-6.1 Sol's two desks run JetBlue's control center through the Boston storm of 13 July 2024: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave"></a>
+  <a href="https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv?episode=https://huggingface.co/datasets/earakely-scale/AirOpsEnv-AgentEnv/resolve/v0.5.0/viewer/episodes/occ-board-sol-joint.openai-gpt-6.1-sol.b6-20240713-0400.json&t=362&view=room&play=1&speed=2"><img src="assets/airops-occ-hero.webp" width="100%" alt="GPT-6.1 Sol's two desks run JetBlue's control center through the Boston storm of 13 July 2024: the control-center room, where requests pass between the ops controller and the crew scheduler, and Logan in 3D, where crews walk to their gates and held flights leave"></a>
 </p>
 <p align="center"><sub>Two GPT-6.1 Sol desks run JetBlue's network through the Boston storm of Saturday 13 July 2024
 (<code>b6-20240713-0400</code>): 612 flights on 193 aircraft from 04:00, an FAA ground stop and a ground delay program
@@ -651,7 +744,7 @@ framework, build the env and the desk agent and register them, and check the wir
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.4.2"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.5.0"
 agent-env airops-occ setup                    # builds airops-occ and airops-desk for this machine's Docker
 agent-env airops-occ tasks --noplay           # writes results/bundles/airops-occ: each eval date, joint and one
 agent-env run results/bundles/airops-occ --task wiring-noplay
@@ -672,8 +765,8 @@ both modes, the very task files the board ran (each desk's cost cap $5 in a two-
 `wiring-noplay`. The dataset's default bundle is v1's `airops`, so name this one:
 
 ```bash
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.2 --bundle airops-occ --task wiring-noplay
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.2 --bundle airops-occ --task b6-20240713-0400-joint \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.5.0 --bundle airops-occ --task wiring-noplay
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.5.0 --bundle airops-occ --task b6-20240713-0400-joint \
     --model openai/gpt-6.1-sol
 ```
 
@@ -906,7 +999,7 @@ framework, build the env and agent images and register them, and check the wirin
 
 ```bash
 uv tool install agentenv-framework \
-    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.4.2"
+    --with "agentenv-airops @ git+https://github.com/earakely-scale/agentenv-airops-plugin@v0.5.0"
 agent-env airops setup --agent        # builds airops-day and airops-llm for this machine's Docker
 agent-env run airops --task wiring-noplay
 ```
@@ -923,7 +1016,7 @@ agent-env run airops --task b6-bos-20250216-1500 --model openai/gpt-6.1-sol
 Or play one straight from the dataset, which pins this release:
 
 ```bash
-agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.4.2 --task b6-bos-20250216-1500 \
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.5.0 --task b6-bos-20250216-1500 \
     --model anthropic/claude-sonnet-5-5
 ```
 
