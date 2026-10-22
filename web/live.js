@@ -511,7 +511,7 @@ class Panel {
     const model = st.model_label ?? ep.model_label ?? ep.model, mode = ep.occ?.label ?? "";
     const off = this.down || st.status === "stale";
     const head = `<div class="lp-top"><span class="lp-live${off ? " off" : ""}">${off ? "Reconnecting" : "Live"}</span><span class="lp-now">${utc(now)} UTC</span>${this.label ? `<span class="lp-badge">${esc(this.label)}</span>` : ""}</div>`;
-    const title = `<h2>${esc(model)}<small>${esc(mode)}</small></h2><p class="lp-storm">${esc(HUB_NAMES[task.hub] ?? task.hub)} · ${esc(longDate(task.date))} · a real storm day, replayed</p>`;
+    const title = `<h2>${esc(model)}<small>${esc(mode)}</small></h2><p class="lp-storm">${esc(HUB_NAMES[task.hub] ?? task.hub)} · ${esc(longDate(task.date))} · a real storm day, played live</p>`;
     const holding = !done && live.pacer.holding(), next = st.next_watch_at ? Math.round((new Date(st.next_watch_at) - now) / 1000) : null;
     const watch = st.status === "starting" ? `The desks open at ${hhmm(task.start)}`
       : done ? "The day is done: every watch decided"
