@@ -244,10 +244,14 @@ def test_the_live_runner_tries_a_failed_day_once_more_then_skips_it_holds_each_s
     assert calls[1]["start"] - calls[0]["start"] >= 0.8 and calls[3]["start"] - calls[2]["start"] >= 2.6
     assert (current["final"], current["reason"].split(":")[0], current["next"], current["spent_usd"]) == (
         True, "budget", None, 39.0)
-    assert [(h["date"], h["outcome"], h["attempts"], h["cost_usd"], h["reward"]) for h in current["history"]] == [
-        ("2024-08-03", "skipped", 2, 5.0, None), ("2023-06-27", "scored", 1, 17.0, 0.8),
-        ("2025-01-19", "scored", 1, 17.0, 0.8)]
+    assert [(h["date"], h["hub"], h["outcome"], h["attempts"], h["cost_usd"], h["reward"])
+            for h in current["history"]] == [
+        ("2024-08-03", "JFK", "skipped", 2, 5.0, None), ("2023-06-27", "BOS", "scored", 1, 17.0, 0.8),
+        ("2025-01-19", "JFK", "scored", 1, 17.0, 0.8)]
     assert current["run_id"] == f"{days[2]}-joint-a1" and current["result"] == current["history"][-1]
+    assert current["hub"] == "JFK" and current["result"]["desks"] == rows[-1]["desks"]
+    assert {r: d["cost_usd"] for r, d in current["result"]["desks"].items()} == {
+        "crew": 10.0, "customer": 3.0, "ops": 4.0}
     assert current["day_file"].endswith(f"days/{days[2]}-joint-a1.json") and Path(current["day_file"]).is_file()
     pilot = json.loads((runner.out / "pilot.json").read_text())
     assert pilot["runs"] == [f"{d}-joint" for d in days[:3]] and pilot["policy"] == "script"

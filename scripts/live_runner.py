@@ -181,7 +181,7 @@ request_margin_usd = 4.0          # one worst request a desk may make past its c
 budget_usd = 430.0                # model spend may not pass it
 worst_day_usd = 42.0              # a day starts only if the spend so far plus this fits (the board's worst: $41.46)
 typical_day_usd = 22.68           # the board's mean Astra day: --dry-run's projection only
-slot_minutes = 75.0               # a day that ends early is followed by an intermission until its slot ends
+slot_minutes = 80.0               # a day that ends early is followed by an intermission until its slot ends
 min_intermission_minutes = 5.0    # after a day past its slot, or a failed attempt
 card_seconds = 60.0               # status "done" for this long after a day, then "intermission"
 window_hours = 24.0               # a day starts only if its slot ends within the window
@@ -256,9 +256,9 @@ def history(rows: list[dict]) -> list[dict]:
             continue
         last = next((r for r in attempts if r["outcome"] == state), attempts[-1])
         out.append({"date": last.get("date"), "task_id": run.rsplit("-", 1)[0], "run_id": f"{run}-a{last['attempt']}",
-                    "instance_id": last["instance"], "outcome": state, "reward": last["reward"],
-                    "reward_L": last["reward_L"], "cost_usd": round(spent(attempts), 4),
-                    "wall_seconds": last["wall_seconds"], "attempts": len(attempts)})
+                    "hub": last.get("hub"), "instance_id": last["instance"], "outcome": state,
+                    "reward": last["reward"], "reward_L": last["reward_L"], "cost_usd": round(spent(attempts), 4),
+                    "wall_seconds": last["wall_seconds"], "desks": last.get("desks"), "attempts": len(attempts)})
     return out
 
 
@@ -353,9 +353,9 @@ class Runner:
         self.out = sweep.RUNS / self.s.name
         self.current = (current or self.out / "current.json").absolute()
         self.flag = self.current.with_name("stop.flag")
-        self.signals, self.started = 0, set()
+        self.signals, self.started, self.hubs = 0, set(), {}
         old = json.loads(self.current.read_text()) if self.current.is_file() else {}
-        self.doc = {k: old.get(k) for k in ("instance_id", "run_id", "date", "task_id", "started_utc", "attempt",
+        self.doc = {k: old.get(k) for k in ("instance_id", "run_id", "date", "hub", "task_id", "started_utc", "attempt",
                                             "day", "env", "day_file", "result")}
         self.seq = old.get("seq") or 0
 
@@ -416,6 +416,13 @@ class Runner:
     def dates(self) -> dict[str, str]:
         return {t: v["date"] for t, v in Pack3(self.s.pack).tasks.items()}
 
+    def hub(self, task_id: str) -> str:
+        if task_id not in self.hubs:
+            pack = Pack3(self.s.pack)
+            raw = gzip.decompress((pack.path / "dates" / f"{pack.tasks[task_id]['date']}.json.gz").read_bytes())
+            self.hubs[task_id] = json.loads(raw)["task"]["hub"]
+        return self.hubs[task_id]
+
     # --------------------------------------------------------------------------------------- the loop
 
     def run(self) -> int:
@@ -451,7 +458,8 @@ class Runner:
                 self.end(rows, reason)
                 return 0
             task_id = left[0]
-            upcoming = {"date": self.dates()[task_id], "task_id": task_id, "starts_utc": utc(starts)}
+            upcoming = {"date": self.dates()[task_id], "hub": self.hub(task_id), "task_id": task_id,
+                        "starts_utc": utc(starts)}
             if now < starts:
                 fresh = last is not None and last["outcome"] != "failed" and \
                     now < stamp(last["ended_utc"]) + self.s.card_seconds
@@ -460,7 +468,7 @@ class Runner:
                 continue
             attempts = grouped(rows).get(f"{task_id}-joint", [])
             self.started.add(task_id)
-            self.attempt(task_id, len(attempts) + 1, upcoming["date"])
+            self.attempt(task_id, len(attempts) + 1, upcoming["date"], upcoming["hub"])
 
     def save_window(self) -> str:
         state = self.state()
@@ -482,7 +490,7 @@ class Runner:
         self.flag.unlink(missing_ok=True)
         self.log(f"finished, {reason}; spent ${spent(rows):.2f} on {len(history(rows))} days")
 
-    def attempt(self, task_id: str, number: int, day: str) -> dict:
+    def attempt(self, task_id: str, number: int, day: str, hub: str) -> dict:
         s, run = self.s, f"{task_id}-joint"
         rows = sweep.results(self.out)
         self.out.mkdir(parents=True, exist_ok=True)
@@ -494,8 +502,9 @@ class Runner:
         task = bundle_task(bundle, run)
         log = self.out / "logs" / f"{run}-a{number}.log"
         log.parent.mkdir(parents=True, exist_ok=True)
-        running = {"task_id": task_id, "date": day, "run": run, "attempt": number, "log": str(log), "task": task,
-                   "before": self.instances(task), "started_utc": utc(), "spent_before": spent(rows), "live": {},
+        running = {"task_id": task_id, "date": day, "hub": hub, "run": run, "attempt": number, "log": str(log),
+                   "task": task, "before": self.instances(task), "started_utc": utc(), "spent_before": spent(rows),
+                   "live": {},
                    "day": sum(h["outcome"] != "skipped" for h in history(rows)) + 1}
         args = [*sweep.AGENT_ENV, "run", str(bundle.absolute()), "--task", run, "--model", s.model]
         with log.open("w") as f:
@@ -503,7 +512,8 @@ class Runner:
         running["pid"] = proc.pid
         self.save(running=running)
         self.log(f"start {run} a{number} ({day}), spent ${running['spent_before']:.2f} of ${s.budget_usd:g}")
-        self.publish(rows, status="starting", instance_id=None, run_id=f"{run}-a{number}", date=day, task_id=task_id,
+        self.publish(rows, status="starting", instance_id=None, run_id=f"{run}-a{number}", date=day, hub=hub,
+                     task_id=task_id,
                      started_utc=running["started_utc"], attempt=number, day=running["day"], env=None, day_file=None,
                      result=None, live_usd=0.0, desks={}, next=self.following(rows, running))
         self.watch(running, proc)
@@ -517,7 +527,7 @@ class Runner:
         if not left or not affordable(running["spent_before"] + s.typical_day_usd, s) or \
                 start + 60 * s.slot_minutes > window + 3600 * s.window_hours + 1e-6:
             return None
-        return {"date": self.dates()[left[0]], "task_id": left[0], "starts_utc": utc(start)}
+        return {"date": self.dates()[left[0]], "hub": self.hub(left[0]), "task_id": left[0], "starts_utc": utc(start)}
 
     def watch(self, running: dict, proc: subprocess.Popen | None) -> None:
         """Until the day's run ends: its instance (the store's newest of its task, new since the launch), its env, each
@@ -571,7 +581,8 @@ class Runner:
                    "day": None, "reward": None, "reward_L": None}
         if instance and row["instance"] != instance:
             self.log(f"agent-env reported instance {row['instance']}, the store had {instance}")
-        row.update(date=running["date"], ended_utc=utc(), live_usd=running["live"], stopped=running.get("stopped"))
+        row.update(date=running["date"], hub=running.get("hub"), ended_utc=utc(), live_usd=running["live"],
+                   stopped=running.get("stopped"))
         row["spend_usd"] = spend(row, self.s.request_margin_usd)
         if row["cost_usd"] is None:
             row["cost_usd"] = row["spend_usd"]
