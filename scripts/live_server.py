@@ -255,7 +255,8 @@ class Day:
             "total_usd": None if cur.get("spent_usd") is None and cur.get("live_usd") is None else
             round((cur.get("spent_usd") or 0) + (cur.get("live_usd") or 0), 2), "budget_usd": cur.get("budget_usd"),
             "result": result, "exact": exact, "mismatches": len(f.mismatches), "lag": self.lag,
-            "next": cur.get("next"), "history": cur.get("history") or [], "error": self.error,
+            "next": cur.get("next"), "history": cur.get("history") or [], "final": bool(cur.get("final")),
+            "error": self.error,
         }
 
 
@@ -370,7 +371,8 @@ class Server:
             if day is None:
                 self.seq += 1
                 state = {"seq": self.seq, "live": {"status": self.status, "seq": self.seq, "next": cur.get("next"),
-                                                   "history": cur.get("history") or [], "updated_utc": utc()}}
+                                                   "history": cur.get("history") or [], "final": bool(cur.get("final")),
+                                                   "updated_utc": utc()}}
                 self.state = json.dumps(state).encode()
                 return
             previous = json.loads(self.state).get("live", {}) if self.state else {}

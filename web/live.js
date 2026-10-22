@@ -566,13 +566,16 @@ function nextCard(st, ep, loading = false) {
   const on = !!st?.date && runOf(st) !== runOf(ep?.live) && !finished(st);
   const n = on ? { date: st.date, hub: st.hub } : st?.next ?? null, hist = (st?.history ?? []).filter((h) => h.outcome !== "skipped");
   const when = n?.starts_utc ? new Date(n.starts_utc) : null, mins = when ? Math.round((when - Date.now()) / 60000) : null;
-  const what = n ? `${n.hub ? `${HUB_NAMES[n.hub] ?? n.hub} · ` : ""}${longDate(n.date)}` : loading ? "The next storm day" : "Between storm days";
+  const last = !on && !n && !loading && !!st?.final;
+  const what = n ? `${n.hub ? `${HUB_NAMES[n.hub] ?? n.hub} · ` : ""}${longDate(n.date)}` : loading ? "The next storm day" : last ? "The last storm day is done" : "Between storm days";
   const rows = hist.slice(-6).map((h) => `<tr><td>${esc(longDate(h.date))}</td><td>${h.reward != null ? h.reward.toFixed(3) : esc(h.outcome ?? "–")}</td><td>${h.cost_usd != null ? `$${h.cost_usd.toFixed(2)}` : "–"}</td><td>${h.wall_seconds != null ? `${Math.round(h.wall_seconds / 60)} min` : "–"}</td></tr>`).join("");
   const scored = hist.filter((h) => h.reward != null), spend = hist.reduce((a, h) => a + (h.cost_usd ?? 0), 0);
-  const total = scored.length ? `${scored.length} storm day${scored.length > 1 ? "s" : ""} so far · mean reward ${(scored.reduce((a, h) => a + h.reward, 0) / scored.length).toFixed(3)} · $${spend.toFixed(2)} of model spend` : "";
+  const total = scored.length ? `${scored.length} storm day${scored.length > 1 ? "s" : ""}${last ? "" : " so far"} · mean reward ${(scored.reduce((a, h) => a + h.reward, 0) / scored.length).toFixed(3)} · $${spend.toFixed(2)} of model spend` : "";
   const model = st?.model_label ?? ep?.model_label ?? "The model";
-  return `<div class="live-card next"><small>${BRAND} · live · next storm</small><h1>${esc(what)}</h1>
-    <p>${esc(model)} takes JetBlue's control center ${hist.length ? "again " : ""}from 04:00 local${on ? ", starting now" : when ? `, ${mins > 1 ? `in about ${mins} min` : "any moment now"} (${utc(when).slice(0, 5)} UTC)` : ""}.</p>
+  const lead = last ? `${model} ran JetBlue's control center live through ${scored.length} storm day${scored.length === 1 ? "" : "s"}. Thanks for watching.`
+    : `${model} takes JetBlue's control center ${hist.length ? "again " : ""}from 04:00 local${on ? ", starting now" : when ? `, ${mins > 1 ? `in about ${mins} min` : "any moment now"} (${utc(when).slice(0, 5)} UTC)` : ""}.`;
+  return `<div class="live-card next"><small>${BRAND} · live · ${last ? "that's the stream" : "next storm"}</small><h1>${esc(what)}</h1>
+    <p>${esc(lead)}</p>
     ${rows ? `<table><thead><tr><th>Storm day</th><th>Reward</th><th>Spend</th><th>Wall</th></tr></thead><tbody>${rows}</tbody></table>` : ""}${total ? `<p class="total">${esc(total)}</p>` : ""}</div>`;
 }
 
