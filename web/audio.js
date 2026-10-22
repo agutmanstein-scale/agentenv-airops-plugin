@@ -150,7 +150,7 @@ const db = (x) => (x > 1e-12 ? 10 * Math.log10(x) : -120);
 const lufs = (e) => -0.691 + db(e);
 class Master extends AudioWorkletProcessor {
   static get parameterDescriptors() {
-    return [{ name: "target", defaultValue: -20, automationRate: "k-rate" }, { name: "ceiling", defaultValue: -2, automationRate: "k-rate" },
+    return [{ name: "target", defaultValue: -20, automationRate: "k-rate" }, { name: "ceiling", defaultValue: -2.5, automationRate: "k-rate" },
       { name: "hold", defaultValue: 0, automationRate: "k-rate" }];
   }
   constructor() {
@@ -520,9 +520,14 @@ export class AirportSound {
       this.master.port.onmessage = (e) => (this.meter = e.data);
       eq.connect(this.master).connect(this.out);
     } catch (e) {
-      console.warn("sound: no AudioWorklet (needs https or localhost), using the built-in compressor", e);
+      console.warn("sound: no AudioWorklet (needs https, localhost or a secure-origin flag), using the built-in compressor and a clipper", e);
       this.master = null;
-      const comp = ctx.createDynamicsCompressor(), lim = ctx.createDynamicsCompressor(), trim = ctx.createGain();
+      const comp = ctx.createDynamicsCompressor(), lim = ctx.createDynamicsCompressor(), trim = ctx.createGain(), clip = ctx.createWaveShaper();
+      const c = 10 ** (-2 / 20), knee = 0.6 * c;
+      clip.curve = Float32Array.from({ length: 4097 }, (_, i) => {
+        const x = (i / 2048) - 1, a = Math.abs(x);
+        return Math.sign(x) * (a <= knee ? a : knee + (c - knee) * Math.tanh((a - knee) / (c - knee)));
+      });
       comp.threshold.value = -20;
       comp.knee.value = 8;
       comp.ratio.value = 3;
@@ -534,7 +539,7 @@ export class AirportSound {
       lim.attack.value = 0.002;
       lim.release.value = 0.12;
       trim.gain.value = 0.6;
-      eq.connect(comp).connect(lim).connect(trim).connect(this.out);
+      eq.connect(comp).connect(lim).connect(trim).connect(clip).connect(this.out);
     }
     const bus = (to = this.mix) => {
       const g = ctx.createGain();
