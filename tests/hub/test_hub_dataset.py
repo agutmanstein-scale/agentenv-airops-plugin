@@ -543,19 +543,22 @@ def _occ3_runs(tmp_path: Path) -> tuple[Path, Path]:
     return runs, replays
 
 
-def _occ3_folder(runs: Path, replays: Path, name: str, model: str, played: list[tuple[str, float, float]],
+def _occ3_folder(runs: Path, replays: Path, name: str, model: str, played: list[tuple],
                  caps: dict | None = None, tweak=lambda r: r) -> None:
-    """A three-desk pilot folder as `agent-env airops-occ3 pilot` writes it, its rows passed through ``tweak``, with
-    each recorded day's replay kept as the build keeps it."""
+    """A three-desk pilot folder as `agent-env airops-occ3 pilot` writes it, from (run, reward, cost[, attempt]) in
+    the order recorded, its rows passed through ``tweak``, with each recorded day's replay kept as the build keeps
+    it."""
     folder = runs / name
-    rows = [tweak(_occ_row(run, 1, score, cost, ("crew", "customer", "ops") if run.endswith("joint") else ("both",),
-                           folder)) for run, score, cost in played]
+    rows = [tweak(_occ_row(run, (attempt or [1])[0], score, cost,
+                           ("crew", "customer", "ops") if run.endswith("joint") else ("both",), folder))
+            for run, score, cost, *attempt in played]
     (folder / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-    (folder / "pilot.json").write_text(json.dumps({"name": name, "model": model, "runs": [r["run"] for r in rows],
+    (folder / "pilot.json").write_text(json.dumps({"name": name, "model": model,
+                                                   "runs": list(dict.fromkeys(r["run"] for r in rows)),
                                                    "caps": caps or {"joint": 5.0, "one": 12.0}, "budget": 120.0}))
     replays.mkdir(exist_ok=True)
     for r in rows:
-        run_id = f"{name}/{r['run']}-a1"
+        run_id = f"{name}/{r['run']}-a{r['attempt']}"
         (replays / f"{run_id.replace('/', '.')}.json").write_text(json.dumps(
             {"digest": run_id.split("/")[1], "exact": True, "mismatches": 0, "first": []}))
 
@@ -654,6 +657,64 @@ def test_the_v3_board_ranks_each_models_three_desks_and_pairs_only_sols_two_mode
                                 "-0.200 to 0.200), three desks higher on 1 of 2 dates;") and len(lines) == 14
     assert hub.separation(rows[2:4]) == ("GPT-6.1 Sol leads with three desks. GPT-6 Astra is below the leader: its "
                                          "95% interval lies wholly under GPT-6.1 Sol's.")
+
+
+def test_a_run_no_attempt_scored_counts_on_the_board_and_is_named_under_it_with_what_its_attempts_cost(hub, tmp_path):
+    runs, replays = _occ3_runs(tmp_path)
+    first, second = f"{OCC_EVAL}-joint", f"{OCC_OTHER}-joint"
+
+    def failed(r: dict) -> dict:
+        if r["run"] == first and r["attempt"] == 2:
+            return r
+        r["desks"]["crew"] |= {"end_reason": "provider_error", "error": "APIError: rate limit"}
+        return r | {"outcome": "failed", "failed_step": "grade", "day": None, "reward": None, "reward_L": None,
+                    "cost": None, "below_best": None}
+
+    _occ3_folder(runs, replays, "occ3-board-terra", "openai/gpt-5.6-terra", [
+        (first, 0, 0, 1), (second, 0, 0, 1), (first, 0.6, 1400.0, 2), (second, 0, 0, 2), (second, 0, 0, 3)],
+        tweak=failed)
+    _occ3_folder(runs, replays, "occ3-board-kimi", "fireworks_ai/kimi-k3", [
+        (first, 0, 0, 1), (first, 0.3, 1800.0, 2), (second, 0.2, 1900.0)],
+        tweak=lambda r: failed(r) if r["run"] == first and r["attempt"] == 1 else r)
+    path = _occ3_pack(tmp_path)
+    files, board_md = hub.occ3_files(runs, ["occ3-board-sol", "occ3-board-terra", "occ3-board-kimi"], Pack3(path),
+                                     hub.occ3_bundle(tmp_path / "out", path), replays, 1, "2026-10-22")
+    rows = pq.read_table(io.BytesIO(files["results/v3-board.parquet"])).to_pylist()
+    terra, kimi = rows[0], rows[2]
+    assert [r["model_name"] for r in rows[:3]] == ["GPT-5.6 Terra", "GPT-6.1 Sol", "Kimi K3"]
+    assert (terra["runs"], terra["dates"], terra["mean_reward"], terra["spend_usd"]) == (2, 1, 0.6, 1.5)
+    assert (kimi["runs"], kimi["dates"], rows[4]["dates"]) == (2, 2, 2)
+    episodes = [e for e in pq.read_table(io.BytesIO(files["episodes/v3-eval.parquet"])).to_pylist()
+                if e["pilot"] == "occ3-board-terra"]
+    assert [(e["attempt"], e["outcome"], e["on_board"], e["superseded_by"]) for e in episodes] == [
+        (1, "failed", False, f"occ3-board-terra/{first}-a2"), (1, "failed", False, None),
+        (2, "scored", True, None), (2, "failed", False, None), (3, "failed", False, None)]
+    card = json.loads(files["results/eval-v3.json"])
+    assert [(m["runs"], m["finished"], m["usd_per_episode"]) for m in card["models"][:1]] == [(2, 1, 1.5)]
+    assert "\n| 1 | GPT-5.6 Terra | three desks, talking | 1 of 2 | **0.600** (0.600–0.600) |" in board_md
+    assert "\n| 3 | Kimi K3 | three desks, talking | 2 | 0.250 (0.200–0.300) |" in board_md
+    assert ("\n\nGPT-5.6 Terra, three desks: 1 of its 2 runs unscored after 3 attempts, on 2025-01-11 (a desk ended "
+            "on `provider_error`), so its mean is over the 1 date it scored, and 1 more scored on a retry; its 4 "
+            "failed attempts cost $6.00, outside its spend.\n\nKimi K3, three desks: every run scored, 1 of them on a "
+            "retry; 1 attempt went unscored first (a desk ended on `provider_error`) and cost $1.50, outside its "
+            "spend.\n\nGPT-6.1 Sol, three desks minus one agent,") in board_md
+    assert "GPT-6.1 Sol, one agent" not in board_md
+
+
+def test_a_board_of_three_desk_runs_alone_is_ranked_without_a_leader_or_a_pair(hub, tmp_path):
+    runs, replays = tmp_path / "runs", tmp_path / "replays"
+    _occ3_folder(runs, replays, "occ3-board-opus", OPUS, [(f"{OCC_EVAL}-joint", 0.9, 1100.0),
+                                                          (f"{OCC_OTHER}-joint", 0.7, 1200.0)])
+    path = _occ3_pack(tmp_path)
+    files, board_md = hub.occ3_files(runs, ["occ3-board-opus"], Pack3(path), hub.occ3_bundle(tmp_path / "out", path),
+                                     replays, 1, "2026-10-22", [ASTRA])
+    rows = pq.read_table(io.BytesIO(files["results/v3-board.parquet"])).to_pylist()
+    assert [(r["kind"], r["model"], r["mode"]) for r in rows] == [("mode", OPUS, "joint"), ("baseline", None, "B0")]
+    assert board_md.splitlines()[2:] == [
+        "| 1 | Claude Opus 5.5 | three desks, talking | 2 | **0.800** (0.700–0.900) | 0.700 (0.600–0.800) | 15.0% "
+        "| 85% | 0 | $3.00 | $5 | 0 of 6 |", "| | Standard crew desk (B0) | | 2 | 0.308 | | | 0% | | | | |", "",
+        "Still running: GPT-6 Astra. The board adds each model as its runs land."]
+    assert hub.board_caps(runs, ["occ3-board-opus"]) is None
 
 
 def test_the_three_desk_bundle_is_written_at_the_caps_the_board_ran(hub, tmp_path):

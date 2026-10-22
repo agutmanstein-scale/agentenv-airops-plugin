@@ -123,23 +123,25 @@ GPT-6.1 Sol (reasoning effort high) on the 24 eval dates, once in each mode, reg
 of $3 a desk and $6 for one agent. All 48 runs scored, every one replays exactly through the env and passes the audit;
 Sol's board cost $107.04.
 
-Five more models play the same 24 dates with three desks, once a date, and no one-agent runs: GPT-6 Astra, Claude
-Opus 5.5, Claude Sonnet 5.5, GPT-5.6 Terra and Kimi K3. Each desk's cap is Sol's $3 scaled by the model's price against
-Sol's, so the caps differ in dollars; the board gives each model's cap and how many desks it stopped. The board ranks
-the models by their three-desk mean, with Sol's one agent under them for comparison, and adds a model once all its runs
-are in. <!-- FINAL: once all six are in: "played" for "play"; each model's reasoning effort; that its dates, cap and
-budget were registered before its first run (if so); the five boards' budget and what they spent; every run scored,
-replays exactly and passes the audit (or what didn't). -->
+Five more models play the same 24 dates on the same env, data and grading, with three desks, once a date, and no
+one-agent runs, each at reasoning effort high: GPT-6 Astra, Claude Opus 5.5, Claude Sonnet 5.5, GPT-5.6 Terra and Kimi
+K3. Sol isn't run again: its three desks are its board's 24 runs, as recorded. The models, the dates, the caps and how
+the models are compared were registered before their first run. A desk's cap buys what $3 bought a Sol desk: Sol's
+median desk's tokens priced at the model's rates, rounded up to the next $0.50, so the caps run from $5 to $23.50; the
+board gives each model's cap and how many desks it stopped. An unscored run is retried at most twice, and every attempt
+is kept. The board ranks the models by their three-desk mean, with Sol's one agent under them for comparison, and adds a
+model once all its runs are in. <!-- FINAL: once all six are in: "played" for "play"; the five boards' budget and what
+they spent; every run scored, replays exactly and passes the audit (or what didn't). -->
 
 <!-- board-v3 -->
 
 <!-- /board-v3 -->
 
-**Comparing models.** Each model on the board played each date once in each mode it ran, so its 95% interval is over
-the 24 dates, not over runs, and Sol's own score for the same day and mode moves by up to 0.23 from one run to the
-next: a model whose interval overlaps the leader's is not separated from it. A run under the best plan found scores
-1.0 whichever model played it, flagged `below_best` with `reward_L` beside it. <!-- FINAL: a sentence or two on what
-the six models' board shows, once all six are in: who leads, who isn't separated from the leader, how spend and the
+**Comparing models.** Each model on the board played each date once in each mode it ran, so its 95% interval is over the
+dates it scored, not over repeated runs, and Sol's own score for the same day and mode moves by up to 0.23 from one run
+to the next: a model whose interval overlaps the leader's is not separated from it. A run under the best plan found
+scores 1.0 whichever model played it, flagged `below_best` with `reward_L` beside it. <!-- FINAL: a sentence or two on
+what the six models' board shows, once all six are in: who leads, who isn't separated from the leader, how spend and the
 caps compare. -->
 
 **What Sol's two modes show, and what they don't.** Three Sol desks scored above one Sol agent running all three on
@@ -178,7 +180,7 @@ All parquet, one config per table, a split per split of the pack (`eval`, `contr
 | Config | What |
 |---|---|
 | `v3_tasks` (default) | one row per date: v2's day (hubs, size, crews and reserves, the FAA's advisories as the desks get them), its passengers (trips, connecting, the survey period, a refunded passenger's fare in passenger-minutes), every reference under P and its reward (best, bound, gap, B0, doing nothing, v2's best plan, JetBlue's own decisions replayed), the desks' rules, and the date's world with its passengers as the env loads it (`world`) |
-| `v3_board` | one row per model and mode, the three-desk rows best first: its mean reward and reward_L with their 95% bootstrap CIs over the dates, B0 on the same dates, its runs and how many came in under the best plan, its spend and tokens, its cap a desk and how many desks the cap stopped; then B0 over every date, and Sol's two modes paired by date |
+| `v3_board` | one row per model and mode, the three-desk rows best first: its mean reward and reward_L with their 95% bootstrap CIs over the dates, B0 on the same dates, its runs, the dates it scored and how many came in under the best plan, the spend and tokens of its scored runs (an unscored attempt's are in `v3_episodes`), its cap a desk and how many desks the cap stopped; then B0 over every date, and Sol's two modes paired by date |
 | `v3_references` | one row per date: every candidate the best plan was chosen from with its P and reward, where the best plan came from, the bound, the gap, v2's best plan over the best, and the best plan itself |
 | `v3_episodes` | one row per recorded attempt: reward, reward_L and the costs against the best plan, the bound and B0, the day's cost by kind (lodging and refunded fares among them), cancellations, holds, crew moves and requests by type and outcome, spend, tokens, turns, each desk's end, the audit, its decisions and the request log; `model` names the model, `pilot` the run's folder, and `on_board` and `superseded_by` mark the board's runs |
 | `v3_desks` | one row per desk of each attempt, the customer desk's included, with its usage and its transcript as chat `messages` |

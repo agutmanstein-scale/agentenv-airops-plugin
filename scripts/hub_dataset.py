@@ -67,7 +67,7 @@ from agentenv_airops.episodes import Runs
 from agentenv_airops.occ import pages as occ_pages
 from agentenv_airops.occ import tasks as occ_tasks
 from agentenv_airops.occ import tasks3 as occ3_tasks
-from agentenv_airops.occ.day import OccDay
+from agentenv_airops.occ.day import GRADED, OccDay
 from agentenv_airops.occ.day import reward as occ_reward
 from agentenv_airops.occ.day3 import OccDay3
 from agentenv_airops.occ.pack import PACK as OCC_PACK
@@ -92,8 +92,7 @@ TABLES = "v1"
 SPLIT = "eval"
 SETUP = "agent-env airops setup --agent"
 AUTHORS = [{"name": "Edgar Arakelyan", "github": "earakely-scale", "affiliation": "Scale AI"}]
-PROVIDERS = {"anthropic": "Anthropic", "openai": "Azure OpenAI", "fireworks_ai": "Fireworks", "groq": "Groq",
-             "bedrock": "Amazon Bedrock"}
+PROVIDERS = {"anthropic": "Anthropic", "openai": "Azure OpenAI", "fireworks_ai": "Fireworks", "groq": "Groq"}
 MESSAGES = pa.field("messages", pa.list_(tables.MESSAGE))
 BOARD = re.compile(r"(<!-- board -->\n).*?(\n<!-- /board -->)", re.S)
 BASELINES = {"follower": "the follower: the time-line MIP re-solved at every watch on the day as known",
@@ -851,7 +850,7 @@ def occ3_files(runs_dir: Path, pilots: list[str], pack: Pack3, bundle: dict[str,
     card_json = occ3_eval_card(rows, days, harness(bundle, pack), date)
     files[f"results/{OCC3}-board.parquet"] = table_bytes(rows)
     files[f"results/eval-{OCC3}.json"] = (json.dumps(card_json, indent=2, ensure_ascii=False) + "\n").encode()
-    return files, occ3_board_markdown(rows, running)
+    return files, occ3_board_markdown(rows, running, attempts)
 
 
 def occ3_board(attempts: list[dict], lead: str = OCC3_BOARD) -> list[dict]:
@@ -899,9 +898,10 @@ def occ3_board(attempts: list[dict], lead: str = OCC3_BOARD) -> list[dict]:
     return rows
 
 
-def occ3_board_markdown(rows: list[dict], running: list[str] = ()) -> str:
+def occ3_board_markdown(rows: list[dict], running: list[str] = (), attempts: list[dict] = ()) -> str:
     """v3's board as the card shows it: the three-desk rows ranked, the one-agent rows and B0 under them, which models'
-    95% intervals overlap the leader's, the models still running, and the lead board's two modes paired by date."""
+    95% intervals overlap the leader's, the boards' unscored runs and failed attempts, the models still running, and
+    the lead board's two modes paired by date."""
     modes = [r for r in rows if r["kind"] == "mode"]
     first = next(iter(OCC3_MODES))
     ranked = [r for r in modes if r["mode"] == first]
@@ -914,7 +914,8 @@ def occ3_board_markdown(rows: list[dict], running: list[str] = ()) -> str:
         bound = "–" if r["mean_reward_L"] is None else (f"{r['mean_reward_L']:.3f} ({r['ci_L_low']:.3f}–"
                                                        f"{r['ci_L_high']:.3f})")
         share = "–" if r["median_avoidable_share"] is None else f"{100 * r['median_avoidable_share']:.0f}%"
-        lines.append(cells(rank, r["model_name"], r["label"], r["dates"],
+        dates = r["dates"] if r["dates"] == r["runs"] else f"{r['dates']} of {r['runs']}"
+        lines.append(cells(rank, r["model_name"], r["label"], dates,
                            f"{mean} ({r['ci_low']:.3f}–{r['ci_high']:.3f})", bound,
                            f"{r['median_over_best_pct']:.1f}%", share, r["below_best"], f"${r['spend_usd']:,.2f}",
                            dollars(r["cap_usd_per_desk"]), f"{r['desks_at_cap']} of {r['desks']}"))
@@ -922,7 +923,7 @@ def occ3_board_markdown(rows: list[dict], running: list[str] = ()) -> str:
         if r["kind"] == "baseline":
             lines.append(cells("", "Standard crew desk (B0)", "", r["dates"], f"{r['mean_reward']:.3f}", "", "", "0%",
                                "", "", "", ""))
-    notes = [separation(ranked)]
+    notes = [separation(ranked), *(unscored(r, attempts) for r in modes)]
     shown = {r["model"] for r in modes}
     waiting = [export.NAMES.get(m, m) for m in running if m not in shown]
     if waiting:
@@ -951,6 +952,44 @@ def separation(ranked: list[dict]) -> str:
                  f"{'its 95% interval lies' if len(far) == 1 else 'their 95% intervals lie'} wholly under "
                  f"{lead['model_name']}'s.")
     return text
+
+
+def unscored(row: dict, attempts: list[dict]) -> str:
+    """The attempts of ``row``'s board and mode that went unscored: the runs no attempt scored, on which dates, and the
+    runs a retry scored; why, and what the failed attempts cost, which its spend leaves out. Nothing when every attempt
+    scored."""
+    tried: dict[str, list[dict]] = {}
+    for a in attempts:
+        if a["board"] and a["pilot"]["model"] == row["model"] and a["mode"] == row["mode"]:
+            tried.setdefault(a["row"]["run"], []).append(a)
+    failed = [a for run in tried.values() for a in run if a["row"]["outcome"] != "scored"]
+    if not failed:
+        return ""
+    name = f"{row['model_name']}, {row['label'].split(',')[0]}"
+    cost = f"${sum(a['row'].get('cost_usd') or 0 for a in failed):,.2f}"
+    lost = [run for run in tried.values() if not any(a["on_board"] for a in run)]
+    retried = sum(any(a["on_board"] for a in run) and len(run) > 1 for run in tried.values())
+    if not lost:
+        return (f"{name}: every run scored, {retried} of them on a retry; {len(failed)} attempt"
+                f"{'s' * (len(failed) > 1)} went unscored first ({'; '.join(sorted({failure(a) for a in failed}))}) "
+                f"and cost {cost}, outside its spend.")
+    most, least = max(len(run) for run in lost), min(len(run) for run in lost)
+    after = (f"after up to {most} attempts" if least < most else
+             f"after {most} attempt{'s' * (most > 1)}{' each' * (len(lost) > 1)}")
+    why = sorted({failure(a) for run in lost for a in run})
+    return (f"{name}: {len(lost)} of its {row['runs']} runs unscored {after}, on "
+            f"{spoken(sorted(run[0]['date'] for run in lost))} ({'; '.join(why)}), so its mean is over the "
+            f"{row['dates']} date{'s' * (row['dates'] > 1)} it scored"
+            f"{f', and {retried} more scored on a retry' if retried else ''}; its {len(failed)} failed attempt"
+            f"{'s' * (len(failed) > 1)} cost {cost}, outside its spend.")
+
+
+def failure(a: dict) -> str:
+    """Why an attempt went unscored: the end of each desk that ended on something the audit doesn't grade, else the
+    step that failed."""
+    ends = sorted({d["end_reason"] for d in (a["row"].get("desks") or {}).values()
+                   if d.get("end_reason") and d["end_reason"] not in GRADED})
+    return "; ".join(f"a desk ended on `{e}`" for e in ends) or f"the `{a['row'].get('failed_step')}` step failed"
 
 
 def cells(*xs) -> str:

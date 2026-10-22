@@ -364,9 +364,9 @@ every recorded control-center day, v2's and v3's, through the env's calls (a few
 kept under `cache/occ/replays/` so a rebuild replays only what changed). Without `--occ` it takes every folder under
 `results/runs` with a `pilot.json` for v2, and without `--occ3` every such folder named `occ3-*` for v3; v2's retry
 folder counts as v2's board. Each `occ3-board-<model>` folder is a v3 board of its own, ranked on `v3_board` by its
-three-desk mean, and `occ3-board-sol`'s two modes are the ones paired; `--occ3-running MODEL` names a model whose board
-is still running under the card's. `scripts/occ_viewer.py` builds a board's viewer episodes and list stills without
-filming them, into the folder `--occ-viewer` takes.
+three-desk mean, and `occ3-board-sol`'s two modes are the ones paired; the card names each run no attempt scored, and
+why, and `--occ3-running MODEL` names a model whose board is still running. `scripts/occ_viewer.py` builds a board's
+viewer episodes and list stills without filming them, into the folder `--occ-viewer` takes.
 
 The [replay Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv) is static: `hub/space/` and the
 viewer (`web/`) under `viewer/`, reading the episodes straight from the dataset's resolve URLs at the tag, which
