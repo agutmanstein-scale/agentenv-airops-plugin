@@ -3,10 +3,13 @@ session), fail on an uncaught exception, a console error or a script or styleshe
 viewer's (its third-party code is vendored under web/vendor/), check that the 3D airport, the control-center room and
 the US map each come to the front and draw (window.airops.state() and a still that isn't blank) at a few minutes of
 the day, with a day's passengers at the airport, inside its terminal and its customer desk in the room when it has
-them, and no terminal without them, and write the stills, a contact sheet of them and a JSON report.
+them, and no terminal without them, and write the stills, a contact sheet of them and a JSON report. --live also plays
+the folder's first two passenger days as a live server would serve them (scripts/live_fake.py) in the viewer's live
+mode (?live=…&stream): the clock never past what is decided and the day growing as more is, the director cutting, the
+live panel up, then the day's end through its score card, highlights and next-storm card onto the next day.
 
 usage: .venv/bin/python scripts/occ_qa.py cache/occ/viewer --out cache/qa [--minutes 840,1075] [--no-room] \
-           [--ignore REGEX]
+           [--ignore REGEX] [--live]
 """
 
 import argparse
@@ -17,6 +20,7 @@ import json
 import re
 import sys
 import threading
+import time
 from contextlib import contextmanager
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -25,6 +29,7 @@ from urllib.parse import quote, unquote, urlparse
 from PIL import Image, ImageDraw, ImageFont, ImageStat
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import live_fake  # noqa: E402
 from record import clock, find_chrome, session  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +39,8 @@ BLANK = 6.0
 TILE = (480, 270)
 QUIET = re.compile(r"favicon\.ico")
 BLOCKED = re.compile(r"Access to \w+ at '([^']+)' from origin")
+CHROME = re.compile(r"^Unchecked runtime\.lastError")
+"""What headless Chrome itself logs to a page it reloads (an extension's message channel), not the page's error."""
 LOCAL = (None, "127.0.0.1", "localhost")
 """The hosts the QA serves the viewer and its data from (None: data: and blob: URLs)."""
 
@@ -53,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="Serve the folder from another origin than the viewer, with CORS headers as huggingface.co "
                         "sends them, as the Space reads the dataset: an image loaded without crossOrigin then "
                         "taints its WebGL texture and fails the check.")
+    p.add_argument("--live", action="store_true", help="Also check the viewer's live mode on a fake live server.")
     args = p.parse_args(argv)
     width, height = (int(v) for v in args.size.lower().split("x"))
     args.out.mkdir(parents=True, exist_ok=True)
@@ -67,6 +75,10 @@ def main(argv: list[str] | None = None) -> int:
             minutes = [float(m) for m in args.minutes.split(",")] if args.minutes else default_minutes(ep)
             report["episodes"].append(episode(base, data, chrome, width, height, entry, ep, minutes,
                                               not args.no_room, ignore, args.out, stills))
+    if args.live:
+        days = [e["url"] for e in index["episodes"] if e.get("passengers")][:2]
+        report["episodes"].append(live(args.web, args.folder, days, chrome, ignore, args.out, stills, args.cross_origin)
+                                  if days else {"name": "live", "failures": ["no passenger day to play live"]})
     contact(stills, args.out / "contact.jpg")
     (args.out / "qa.json").write_text(json.dumps(report, indent=1))
     failed = [f"{r['name']}: {e}" for r in [report["index"], *report["episodes"]] for e in r["failures"]]
@@ -165,6 +177,93 @@ def episode(base: str, data: str, chrome: str, width: int, height: int, entry: d
     except SystemExit as e:
         result["failures"].append(f"did not load: {e}")
     print(f"{name}: {len(result['checks'])} checks, {len(result['failures'])} failures", flush=True)
+    return result
+
+
+def live(web: Path, folder: Path, days: list[str], chrome: str, ignore, out: Path, stills, cross: bool) -> dict:
+    """The live mode on a fake live server playing ``days`` (a watch every 8 s): mid-day the clock stays within what is
+    decided while more is and the page grows, the director cuts and the live panel shows; then from the first day's
+    end its score card, highlights and next-storm card, and the page onto the second day."""
+    result = {"name": "live", "failures": [], "notes": [], "checks": []}
+    ignore = [*ignore, CHROME]
+    fake = live_fake.Fake(folder.resolve(), days, 8, 4, 40, 30, 0)
+    servers = [ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(live_fake.Handler, fake=fake, web=web.resolve()))
+               for _ in range(2 if cross else 1)]
+    for server in servers:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+    feed, site = (f"http://127.0.0.1:{s.server_port}" for s in (servers[0], servers[-1]))
+    audio = "" if (web / "audio.js").is_file() else "&audio=0"
+    first = fake.length(0)
+    try:
+        fake.control({"seek": [str(4 + 8 * 7)]})
+        with session(f"{site}/web/index.html?live={quote(feed)}&stream{audio}", chrome, 1920, 1080, "auto",
+                     enable=("Runtime", "Log", "Network")) as (page, ready, gl):
+            result["gl"] = gl
+            state = lambda: page.js("airops.live?.state() ?? null")  # noqa: E731
+            samples, f0 = [], None
+            for _ in range(36):
+                st = state()
+                if st:
+                    samples.append(st)
+                    f0 = f0 if f0 is not None else st["frontier"]
+                time.sleep(1)
+            if not samples:
+                result["failures"].append("no live page")
+                return result
+            over = [s for s in samples if s["t"] > s["frontier"] + 1e-6]
+            back = [b for a, b in zip(samples, samples[1:], strict=False) if b["t"] < a["t"] - 1e-6]
+            cuts = samples[-1]["director"]["shots"]
+            panel = page.js("[document.querySelector('.live-panel .lp-live')?.textContent, "
+                            "document.querySelectorAll('.live-panel .lp-desks li').length]")
+            result["checks"].append({"phase": "day", "t": [samples[0]["t"], samples[-1]["t"]],
+                                     "frontier": [f0, samples[-1]["frontier"]], "cuts": len(cuts),
+                                     "cameras": sorted({c["camera"] for c in cuts}), "panel": panel,
+                                     "errors": samples[-1]["errors"]})
+            path = out / "live-day.jpg"
+            capture(page, path)
+            stills.append(("live · mid-day", path))
+            if over:
+                result["failures"].append(f"the clock past what is decided: {over[0]['t']:.1f} > {over[0]['frontier']}")
+            if back:
+                result["failures"].append("the clock went back mid-day")
+            if samples[-1]["frontier"] <= f0:
+                result["failures"].append(f"the day did not grow: decided through {f0} all along")
+            if len(cuts) < 3:
+                result["failures"].append(f"the director cut {len(cuts)} times in 36 s")
+            if panel[0] != "Live" or panel[1] < 3:
+                result["failures"].append(f"the live panel shows {panel}")
+            if samples[-1]["errors"]:
+                result["failures"].append(f"{samples[-1]['errors']} frames failed")
+            result["failures"] += errors(page, ignore, result["notes"])
+            fake.control({"seek": [str(first[0] + 1)]})
+            page.call("Page.reload")
+            seen, run, t0 = [], None, time.monotonic()
+            while time.monotonic() - t0 < 160:
+                st = page.js("window.airops?.live?.state() ?? null")
+                if st:
+                    run = run or st["instance"]
+                    if not seen or seen[-1] != st["phase"]:
+                        seen.append(st["phase"])
+                        if st["phase"] in ("score", "highlights", "next"):
+                            path = out / f"live-{st['phase']}.jpg"
+                            time.sleep(1.5)
+                            capture(page, path)
+                            stills.append((f"live · {st['phase']}", path))
+                    if st["instance"] != run:
+                        break
+                time.sleep(1)
+            result["checks"].append({"phase": "end", "phases": seen, "next run": st and st["instance"] != run})
+            if seen[:3] != ["score", "highlights", "next"]:
+                result["failures"].append(f"the day's end went {' → '.join(seen)}")
+            if not st or st["instance"] == run:
+                result["failures"].append("the page did not move on to the next day")
+            result["failures"] += errors(page, ignore, result["notes"])
+    except SystemExit as e:
+        result["failures"].append(f"did not load: {e}")
+    finally:
+        for server in servers:
+            server.shutdown()
+    print(f"live: {len(result['checks'])} checks, {len(result['failures'])} failures", flush=True)
     return result
 
 

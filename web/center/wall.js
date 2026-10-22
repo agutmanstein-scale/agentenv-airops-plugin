@@ -78,7 +78,10 @@ function trace(g, proj, lines, close) {
   }
 }
 
-async function geography() {
+let GEOGRAPHY = null;
+const geography = () => (GEOGRAPHY ??= coastlines());
+
+async function coastlines() {
   const [topo, states, land] = await Promise.all([import(TOPO), fetch(STATES).then((r) => r.json()), fetch(LAND).then((r) => r.json())]);
   const near = (ring) => ring.every(([lon, lat]) => lon > -175 && lon < -30 && lat > 0 && lat < 80);
   return {

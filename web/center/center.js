@@ -11,6 +11,7 @@ import { ROOM, buildHall } from "./hall.js";
 import { buildPods } from "./pods.js";
 import { THREE_DESKS, BASE as VIEWS, compose, framed } from "./shots.js";
 import { WALL, buildWall } from "./wall.js";
+import { freed } from "../gc.js";
 
 const CSS = `.cc-caption { position: absolute; z-index: 2; top: 12px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 4px;
   font: 500 11.5px/1.4 Inter, "Helvetica Neue", Arial, sans-serif; color: rgba(225,233,240,0.82); background: rgba(10,14,20,0.55); pointer-events: none; white-space: nowrap; }
@@ -147,6 +148,24 @@ export class ControlCenter {
     if (this.controls) this.controls.enabled = false;
     if (this.manual) this.#frame(0, true);
     return this.rig.name;
+  }
+
+  /** A live day's episode grown since the room was built: the wall, the desks' pods and the cards between them built
+   * again over the same hall, the camera kept. */
+  async reload(P, ep) {
+    await this.ready;
+    this.P = P;
+    this.ep = ep;
+    const old = [this.screen.group, this.pods.group, this.flying.group];
+    this.screen = buildWall(P, ep);
+    this.pods = buildPods(P, ep);
+    this.flying = buildCards(P, ep, this.pods.pods);
+    this.scene.remove(...old);
+    this.scene.add(this.screen.group, this.pods.group, this.flying.group);
+    freed(old, [this.scene]);
+    this.flying.mark(this.rig.kind === "shot" ? this.rig.ref : null);
+    await Promise.race([this.screen.ready, new Promise((r) => setTimeout(r, 3000))]);
+    this.seen = performance.now();
   }
 
   state() {
