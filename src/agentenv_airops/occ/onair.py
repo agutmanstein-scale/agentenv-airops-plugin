@@ -10,8 +10,11 @@ the recorded episode itself, built from the replay and its watches' projections.
 """
 
 import copy
+import dataclasses
 import gzip
+import io
 import json
+import pickle
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,6 +32,7 @@ from .pack import World
 from .replay import ROLE
 
 FEED = 60
+ATOMS = (str, int, float, bool, type(None), bytes)
 LOOKUPS = {"wait_turn": "reads its page", "ops_flights": "looks up flights", "crew_flights": "looks up flights",
            "cust_flights": "looks up flights", "cust_flight": "looks up the passengers of",
            "ops_program": "reads the FAA programs", "crew_program": "reads the FAA programs",
@@ -104,6 +108,55 @@ class Follower:
         if data.get("digest") and day.done and day.digest() != data["digest"]:
             self.mismatches.append({"digest": day.digest(), "recorded": data["digest"]})
         return out
+
+
+def pickled(obj, world: World) -> bytes:
+    """A replay's state on ``world`` pickled with the world's objects named by their place in it, not copied (the
+    world holds closures, and is the pack's): `unpickled` puts it on the same pack's world in another process."""
+    out = io.BytesIO()
+    _Pickler(out, world).dump(obj)
+    return out.getvalue()
+
+
+def unpickled(body: bytes, world: World):
+    return _Unpickler(io.BytesIO(body), world).load()
+
+
+class _Pickler(pickle.Pickler):
+    def __init__(self, file, world: World):
+        super().__init__(file, pickle.HIGHEST_PROTOCOL)
+        self.ids = {id(x): i for i, x in enumerate(anchors(world))}
+
+    def persistent_id(self, obj):
+        return self.ids.get(id(obj))
+
+
+class _Unpickler(pickle.Unpickler):
+    def __init__(self, file, world: World):
+        super().__init__(file)
+        self.objs = anchors(world)
+
+    def persistent_load(self, pid):
+        return self.objs[pid]
+
+
+def anchors(world: World) -> list:
+    """The world's objects in a fixed order, depth first through its dataclasses' fields, tuples, lists and dicts: the
+    same objects in the same places in any process that loads the same pack."""
+    out, seen, stack = [], set(), [world]
+    while stack:
+        x = stack.pop()
+        if isinstance(x, ATOMS) or id(x) in seen:
+            continue
+        seen.add(id(x))
+        out.append(x)
+        if dataclasses.is_dataclass(x) and not isinstance(x, type):
+            stack.extend(getattr(x, f.name) for f in reversed(dataclasses.fields(x)))
+        elif isinstance(x, list | tuple):
+            stack.extend(reversed(x))
+        elif isinstance(x, dict):
+            stack.extend(v for kv in reversed(x.items()) for v in reversed(kv))
+    return out
 
 
 def traffic_at(doc: Mapping, task, hub: str, news: Sequence[Mapping]) -> dict:
