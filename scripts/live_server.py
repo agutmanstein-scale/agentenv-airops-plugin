@@ -12,16 +12,23 @@ It only reads data/get, every --poll seconds; the env never sees it.
 
 The viewer: http://HOST:PORT/web/index.html?live=http://HOST:PORT (CONTRACT.md, "Live server → viewer").
 
+serve checkpoints the day's replay in LIVE/ckpt/<run_id>.pkl at each watch and at most every CKPT seconds between (a
+few MB, a tenth of a second); started again on the same run (attempt, instance) and code, it goes on from there in
+seconds instead of playing the day again from 04:00.
+
     .venv/bin/python scripts/live_server.py prebuild b6-20260715-0400 --live /tmp/live --inputs cache/inputs
     .venv/bin/python scripts/live_server.py serve --current /tmp/current.json --live /tmp/live --assets VIEWER_ASSETS
 """
 
 import argparse
 import collections
+import functools
 import gzip
+import hashlib
 import json
 import mimetypes
 import os
+import pickle
 import random
 import sys
 import threading
@@ -45,6 +52,7 @@ REBUILD = 15.0
 CATCH_UP = 2
 KEEP = 8
 GET_TIMEOUT = 60.0
+CKPT = 30.0
 RADAR = (240, 1900, 20, 1600)
 
 
@@ -120,12 +128,23 @@ def bake_radar(world, out: Path) -> str:
 # ---------------------------------------------------------------------------------------------------------- serve
 
 
+@functools.cache
+def code() -> str:
+    """The replay's code and packs (the package's files): a checkpoint is good only on what wrote it."""
+    root = Path(onair.__file__).resolve().parents[1]
+    h = hashlib.sha256()
+    for p in sorted(root.rglob("*")):
+        if p.is_file() and "__pycache__" not in p.parts and not p.name.startswith("."):
+            h.update(f"{p.relative_to(root)}\0{p.stat().st_size}\0".encode() + p.read_bytes())
+    return h.hexdigest()
+
+
 class Day:
     """One run of one day: its world, its replay and what the stream shows of it."""
 
     def __init__(self, cur: dict, live: Path, assets: Path, pack: Pack3, inputs: Path | None):
         self.run_id, self.instance_id = cur.get("run_id"), cur.get("instance_id")
-        self.task_id, self.mode = cur["task_id"], cur.get("mode") or "joint"
+        self.task_id, self.mode, self.attempt = cur["task_id"], cur.get("mode") or "joint", cur.get("attempt")
         self.model, self.pilot = cur.get("model") or "", cur.get("pilot") or "live"
         self.run_label = f"{self.pilot}-{self.mode}"
         self.world = pack.world(self.task_id)
@@ -146,11 +165,60 @@ class Day:
         self.started = time.time()
         self.ep: dict | None = None
         self.sidecar: str | None = None
-        self.final = False
+        self.final = self.sealed = False
         self.failing: float | None = None
         self.error: str | None = None
         self.data_grade: dict | None = None
         self.lag = 0
+        self.ckpt = live / "ckpt" / f"{self.run_id}.pkl"
+        self.saved: tuple[float, int] = (0.0, -1)
+        self.resumed = self.resume()
+
+    def resume(self) -> bool:
+        """The replay from this run's checkpoint, when it is this run's (its instance's) on this code."""
+        if not self.ckpt.is_file():
+            return False
+        started = time.monotonic()
+        try:
+            with self.ckpt.open("rb") as fh:
+                head = pickle.load(fh)
+                mine = {k: head.get(k) for k in self.key()} == self.key() and (
+                    None in (self.instance_id, head.get("instance_id")) or self.instance_id == head["instance_id"])
+                if not mine:
+                    print(f"{self.run_id}: the checkpoint is another run's ({head}); playing the day from its start",
+                          flush=True)
+                    return False
+                state = onair.unpickled(fh.read(), self.world)
+        except Exception as e:
+            print(f"{self.run_id}: the checkpoint doesn't load ({type(e).__name__}: {e}); playing the day from its "
+                  "start", flush=True)
+            return False
+        self.follower, self.feed, self.last = state["follower"], state["feed"], state["last"]
+        self.opened, self.started, self.data_grade = state["opened"], state["started"], state["data_grade"]
+        day = self.follower.day
+        self.saved = (time.monotonic(), day.k)
+        print(f"{utc()} {self.run_id}: resumed at watch {day.k}, {self.follower.played} calls"
+              f"{', done' if day.done else ''} in {time.monotonic() - started:.2f}s", flush=True)
+        return True
+
+    def save(self) -> None:
+        """The replay so far into its checkpoint (tmp + rename), at a new watch, once done, and at most every CKPT
+        seconds between."""
+        day = self.follower.day
+        if self.saved[1] == day.k and not day.done and time.monotonic() - self.saved[0] < CKPT:
+            return
+        started = time.monotonic()
+        state = {"follower": self.follower, "feed": self.feed, "last": self.last, "opened": self.opened,
+                 "started": self.started, "data_grade": self.data_grade}
+        body = pickle.dumps(self.key() | {"instance_id": self.instance_id}) + onair.pickled(state, self.world)
+        write_atomic(self.ckpt, body)
+        self.saved = (time.monotonic(), day.k)
+        print(f"{utc()} {self.run_id}: checkpoint at watch {day.k}, {self.follower.played} calls: "
+              f"{len(body) / 1e6:.1f} MB in {self.saved[0] - started:.2f}s", flush=True)
+
+    def key(self) -> dict:
+        return {"run_id": self.run_id, "task_id": self.task_id, "mode": self.mode, "attempt": self.attempt,
+                "code": code()}
 
     def restart(self) -> None:
         self.follower = onair.Follower(self.world, self.mode)
@@ -158,7 +226,8 @@ class Day:
 
     def follow(self, data: dict) -> bool:
         """The record's news played, at most CATCH_UP watches past the replay's at a time so that a server behind the
-        day shows it watch by watch; whether anything changed."""
+        day shows it watch by watch, and after the day's end the desks' calls the env logs after it (the done day's
+        episode built again); whether anything changed."""
         if data.get("task_id") is None:
             return False
         self.lag = max(0, data.get("watch", 0) - self.follower.day.k)
@@ -172,6 +241,8 @@ class Day:
             print(f"{self.run_id}: {e}; playing the record again from its start", flush=True)
             self.restart()
             new = self.follower.follow(data)
+        if new:
+            self.final = False
         now = time.time()
         day = self.follower.day
         self.opened.setdefault(day.k, now)
@@ -181,9 +252,10 @@ class Day:
                                                  "text": onair.summary(x, self.world.task)}, "at": utc(now)}
         by_id = {n["id"]: n for n in self.statics.news}
         self.feed.extend(row | {"at": utc(now)} for row in onair.feed(self.follower, new, by_id))
-        if data.get("done") and data.get("grade") is not None:
+        graded = self.data_grade is None and data.get("done") and data.get("grade") is not None
+        if graded:
             self.data_grade = data["grade"]
-        return bool(new) or (day.done and not self.final)
+        return bool(new) or (day.done and not self.final) or bool(graded)
 
     def build(self, live_dir: Path, cur: dict, force: bool = False) -> None:
         """The episode now: the final one once done, else the day so far, its projection and sidecar renewed at a new
@@ -308,10 +380,15 @@ class Server:
         if cur.get("task_id") and cur.get("run_id") and known and (
                 self.day is None or self.day.run_id != cur["run_id"] or moved):
             print(f"{utc()} day {cur['run_id']} ({cur['task_id']}, {status})", flush=True)
+            for p in (self.args.live / "ckpt").glob("*"):
+                if p.name != f"{cur['run_id']}.pkl":
+                    p.unlink(missing_ok=True)
             self.day = Day(cur, self.args.live, self.args.assets, self.pack, self.args.inputs)
             self.day.instance_id = cur.get("instance_id")
             self.day.build(self.live_dir, cur, force=True)
-            self.status = "starting"
+            if self.day.final:
+                self.archive(self.day, cur)
+            self.status = self.standing(self.day, cur, status) if self.day.resumed else "starting"
             self.publish(cur)
         day = self.day
         if day is None:
@@ -320,7 +397,7 @@ class Server:
             return
         day.instance_id = cur.get("instance_id") or day.instance_id
         changed = False
-        if not day.final and status in ("playing", "done", "intermission"):
+        if not day.sealed and status in ("playing", "done", "intermission"):
             data, base = None, (cur.get("env") or {}).get("base") if status == "playing" else None
             if base:
                 try:
@@ -329,30 +406,40 @@ class Server:
                 except Exception as e:
                     day.failing = day.failing or time.time()
                     day.error = f"data/get: {type(e).__name__}: {e}"[:300]
-            if (data is None or not data.get("done")) and status != "playing" and cur.get("day_file"):
+            filed = (data is None or not data.get("done")) and status != "playing" and bool(cur.get("day_file"))
+            if filed:
                 data = read_json(Path(cur["day_file"]))
             if data is not None:
                 changed = day.follow(data)
+                day.sealed = filed and day.final
         if changed:
             day.build(self.live_dir, cur)
             if day.final:
                 self.archive(day, cur)
+            try:
+                day.save()
+            except Exception as e:
+                print(f"{utc()} {day.run_id}: no checkpoint ({type(e).__name__}: {e})", flush=True)
         elif day.final:
             day.build(self.live_dir, cur)
         if day.final:
             day.error, day.lag = None, 0
-            self.status = "intermission" if status == "intermission" else "done"
-        elif status == "starting":
-            self.status = "starting"
-        elif day.failing and time.time() - day.failing > STALE:
-            self.status = "stale"
-        elif status == "playing":
-            self.status = "playing"
-        elif status == "done" or cur.get("day_file"):
-            self.status = "ending"
-        else:
-            self.status = status
+        self.status = self.standing(day, cur, status)
         self.publish(cur, changed)
+
+    @staticmethod
+    def standing(day: Day, cur: dict, status: str) -> str:
+        if day.final:
+            return "intermission" if status == "intermission" else "done"
+        if status == "starting":
+            return "starting"
+        if day.failing and time.time() - day.failing > STALE:
+            return "stale"
+        if status == "playing":
+            return "playing"
+        if status == "done" or cur.get("day_file"):
+            return "ending"
+        return status
 
     def archive(self, day: Day, cur: dict) -> None:
         """The done day's episode kept beside the live one (its sidecar is there already), in /live/index.json."""

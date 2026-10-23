@@ -1,7 +1,8 @@
 """A day of airops-occ3 followed live from the env's record as it grows (agentenv_airops.occ.onair): played again to the
-env's state at every point, the day so far as an episode with the room and the projection, no grade and nothing of the
-truth after the open watch, the done day as the recorded episode; and the live server following a fake runner's days
-through failing data/get calls and an instance that dies and starts again."""
+env's state at every point, also resumed from a checkpoint at each, the day so far as an episode with the room and the
+projection, no grade and nothing of the truth after the open watch, the done day as the recorded episode; and the live
+server following a fake runner's days through failing data/get calls and an instance that dies and starts again, and
+going on from its checkpoint when it is itself restarted."""
 
 import copy
 import importlib.util
@@ -79,12 +80,17 @@ def live_validator() -> Draft202012Validator:
 def test_a_day_followed_as_its_record_grows_is_the_envs_day_at_every_point(world, day):
     d, records = day
     assert any(r["requests"] for r in records) and any(n["via"] == "trigger" for n in records[-1]["notices"])
-    f = onair.Follower(world, "joint")
+    f, g, worlds = onair.Follower(world, "joint"), onair.Follower(world, "joint"), [world, storm3()]
     for i in [*range(0, len(records) - 1, 3), len(records) - 1]:
         new = f.follow(records[i])
         assert onair.jsonable(f.day.data()) == records[i]
         assert all(x["seq"] > 0 for x in new)
+        g = onair.unpickled(onair.pickled(g, g.world), worlds[i % 2])
+        assert g.world is worlds[i % 2] and g.day.task is g.world.task
+        assert [x["seq"] for x in g.follow(records[i])] == [x["seq"] for x in new]
+        assert onair.jsonable(g.day.data()) == records[i]
     assert f.day.done and not f.mismatches and f.day.digest() == d.digest()
+    assert g.day.done and not g.mismatches and g.day.digest() == d.digest() and g.day.left == f.day.left
     assert f.follow(records[-1]) == []
     assert len(f.day.left) == len(d.estimates)
     with pytest.raises(onair.Diverged, match="calls up to seq"):
@@ -227,3 +233,45 @@ def test_a_server_started_after_the_day_reads_it_from_the_day_file_watch_by_watc
     assert [{k: x[k] for k in ("id", "status", "dep", "arr", "tail")} for x in ep["executed"]] == [
         {k: x[k] for k in ("id", "status", "dep", "arr", "tail")} for x in d.grade["executed"]]
     assert ep["record"]["cost_usd"] == 2.0
+
+
+def test_a_restarted_server_goes_on_from_its_checkpoint_to_the_same_episode(world, day, tmp_path, monkeypatch):
+    d, records = day
+    file = tmp_path / "day.json"
+    file.write_text(json.dumps(records[-1]))
+    monkeypatch.setattr(live_server, "Pack3", lambda path=None: Namespace(world=lambda task_id: storm3()))
+    current, ckpt = tmp_path / "current.json", tmp_path / "live" / "ckpt"
+    cur = {"status": "intermission", "task_id": records[-1]["task_id"], "run_id": "x-joint-a1", "attempt": 1,
+           "mode": "joint", "model": MODEL, "pilot": "late", "day_file": str(file), "instance_id": "i1"}
+    current.write_text(json.dumps(cur))
+    ckpt.mkdir(parents=True)
+    (ckpt / "x-joint-a0.pkl").write_bytes(b"another day's")
+    args = Namespace(current=current, env=None, task=None, live=tmp_path / "live", assets=tmp_path, inputs=None,
+                     web=ROOT / "web", pack=None, host="127.0.0.1", port=0, poll=0.0)
+
+    def played(until: int = 99) -> tuple[live_server.Server, dict]:
+        server = live_server.Server(args)
+        server.step()
+        while not server.day.final and server.day.follower.day.k < until:
+            server.step()
+        ep = json.loads((tmp_path / "live" / "live" / "x-joint-a1.json").read_text()) if server.day.final else None
+        return server, ep
+
+    first, _ = played(until=3)
+    k, n = first.day.follower.day.k, first.day.follower.played
+    assert [p.name for p in ckpt.iterdir()] == ["x-joint-a1.pkl"] and not first.day.resumed
+    assert k >= 3 and 0 < n < len(records[-1]["calls"])
+    resumed, ep = played()
+    assert resumed.day.resumed and resumed.day.started == first.day.started
+    assert {w: at for w, at in resumed.day.opened.items() if w <= k} == first.day.opened
+    after, again = played(until=0)
+    assert after.day.resumed and after.day.final
+    (ckpt / "x-joint-a1.pkl").write_bytes(b"torn")
+    whole, want = played()
+    assert not whole.day.resumed and whole.day.follower.played == resumed.day.follower.played > n
+    assert all((x["live"]["exact"], x["live"]["mismatches"]) == (True, 0) for x in (ep, again, want))
+    assert {k: v for k, v in ep.items() if k != "live"} == {k: v for k, v in again.items() if k != "live"} == {
+        k: v for k, v in want.items() if k != "live"}
+    assert not live_server.Day(cur | {"attempt": 2}, args.live, tmp_path, live_server.Pack3(), None).resumed
+    monkeypatch.setattr(live_server, "code", lambda: "another build")
+    assert not live_server.Day(cur, args.live, tmp_path, live_server.Pack3(), None).resumed
