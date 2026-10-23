@@ -5,10 +5,10 @@ from day_helpers import closed, closed_day, day, flight, outcapped, tail
 
 from agentenv_airops.programs import references, sim
 from agentenv_airops.programs.model import LAGS, Task
-from agentenv_airops.v3day import clock
-from agentenv_airops.v3day import tasks as v3_tasks
-from agentenv_airops.v3day.day import Day
-from agentenv_airops.v3day.situation import KEYS
+from agentenv_airops.v4day import clock
+from agentenv_airops.v4day import tasks as v4_tasks
+from agentenv_airops.v4day.day import Day
+from agentenv_airops.v4day.situation import KEYS
 
 WEATHER = ((-100, "taf", "JFK", "TAF\nKJFK 260420Z 2605/2706 18010KT P6SM"),
            (-9, "metar", "JFK", "KJFK 260451Z 18010KT 10SM"),
@@ -129,7 +129,7 @@ def test_a_closure_is_reported_over_only_once_its_end_has_come_even_when_the_gue
 
 
 def test_the_prompt_on_a_layered_day_tells_of_event_watches_lags_outstation_caps_closures_and_weather():
-    rules, plain = v3_tasks.rules(stormy()), v3_tasks.rules(replace(stormy(), layers=None))
+    rules, plain = v4_tasks.rules(stormy()), v4_tasks.rules(replace(stormy(), layers=None))
     assert "in watches, one an hour, starting at watch 0" in plain and "one an hour" in rules
     assert "Outstation arrival caps" not in plain and "SPECI" not in plain and "Ramp closures" not in plain
     for words in ["15 to 60 minutes apart", "a METAR 5 and a SPECI 5 minutes after its observation",
@@ -137,4 +137,4 @@ def test_the_prompt_on_a_layered_day_tells_of_event_watches_lags_outstation_caps
                   f"expected to last {sim.GUESS} minutes more", "the latest METAR or SPECI and TAF per hub"]:
         assert words in rules
     slow = replace(stormy(), layers=replace(stormy().layers, lags=LAGS | {"taf": 25}))
-    assert "a TAF 25 minutes after its issue" in v3_tasks.rules(slow)
+    assert "a TAF 25 minutes after its issue" in v4_tasks.rules(slow)

@@ -1,4 +1,4 @@
-"""One playable day on the programs world (docs/v3/DESIGN.md §5), pure and deterministic: v1's day.py ported onto
+"""One playable day on the programs world (docs/v4/DESIGN.md §5), pure and deterministic: v1's day.py ported onto
 programs.sim, the follower's day as known and its freeze.
 
 The desk plays the follower's watches (clock.watch_times). At a watch t the day so far is history and the rest is the
@@ -15,7 +15,7 @@ prices (a flight gone on the truth by the clock), and a decision never reaches b
 
 Actions are v1's: cancel, hold (not_before) and restore, read by v1's `day.read_changes` and confirmed as plan entries
 `{"cancel": True, "decided": minute}` and `{"not_before": minute}`, and, with a finite reserve pool at a crew base
-(docs/v3/DESIGN.md §3.4), call_reserve: the plan entry gains `"reserve": True`, so the flight may leave its base past
+(docs/v4/DESIGN.md §3.4), call_reserve: the plan entry gains `"reserve": True`, so the flight may leave its base past
 its crew deadline on a reserve crew, and release_reserve drops the call, refused once the flight's crew deadline is past
 (it would auto-cancel back then, a decision reaching back past the clock). A call is refused for a flight that doesn't
 leave a base with a pool, a cancelled one, or one the pool has no crew left for (it would take one from a flight already

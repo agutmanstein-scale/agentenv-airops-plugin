@@ -33,8 +33,8 @@ morning against the schedule's is a finding (`shortfall`).
 
 With crew `bases` the build turns the crew model on, as candidates.build_candidate does (every leg's crew, Task.bases),
 its pairings cut by the build's crew Rule: Edgar's proxy (repairs.crews) by default, or v4's, legal on schedule
-(layers.crew). With a v3 layer config (layers.config.Config, the constants fitted on train dates) the task carries
-v3's layers (docs/v3/DESIGN.md §2): the departure caps at the hubs and the arrival caps at the outstations from every
+(layers.crew). With a v4 layer config (layers.config.Config, the constants fitted on train dates) the task carries
+v4's layers (docs/v4/DESIGN.md §2): the departure caps at the hubs and the arrival caps at the outstations from every
 carrier's BTS flights of the date (candidates.frame), the hubs' ramp closures from their METARs and SPECIs at the
 config's fitted rates, and the config's reserve pool at each of the task's crew bases, with the desk's view of them:
 the closure rates, the storm hubs' METARs, SPECIs and TAFs as news (layers.weather) and the default lags (`layered`).
@@ -92,7 +92,7 @@ def build(d: str, hubs: Sequence[str], inputs: Path, derived: Path, e_fit: Mappi
           layers: config.Config | None = None, crew: Rule = EDGAR) -> Built:
     """The whole-network task of date d with storm `hubs`, from their rule windows or the given `windows` (a
     control's), or None and the reason; crew `bases` turn the crew model on, its pairings cut by `crew` (Edgar's or
-    v4's, layers.crew), a `layers` config v3's layers."""
+    v4's, layers.crew), a `layers` config v4's layers."""
     row = {"date": d, "hubs": list(hubs), "windows": {}, "slides": {}, "first_hours": {}, "fallback": False,
            "task_id": None, "reason": ""}
     if windows:
@@ -122,7 +122,7 @@ def build(d: str, hubs: Sequence[str], inputs: Path, derived: Path, e_fit: Mappi
 
 
 def layered(task: Task, cfg: config.Config, inputs: Path, derived: Path) -> Task:
-    """The task with v3's layers at `cfg`, from the date's BTS flights of every carrier, the hubs' closures over the
+    """The task with v4's layers at `cfg`, from the date's BTS flights of every carrier, the hubs' closures over the
     months they span and the storm hubs' METARs, SPECIs and TAFs over the task's span as news."""
     spans = config.spans(inputs, tuple(candidates.months_of(task.date)))
     return replace(task, layers=config.build(task, cfg, candidates.frame(inputs, derived, task.date), spans,

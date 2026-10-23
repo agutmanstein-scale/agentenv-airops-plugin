@@ -1,4 +1,4 @@
-"""JetBlue's arrival cap per hour at its outstations, from what actually arrived there (docs/v3/DESIGN.md §3.3).
+"""JetBlue's arrival cap per hour at its outstations, from what actually arrived there (docs/v4/DESIGN.md §3.3).
 
 v2 models the FAA's programs at JFK and BOS only, so a leg into an outstation under its own GDP, ground stop or weather
 flies free. This is §3.1's rule on arrivals at every non-hub destination of the task's flights: an hour is constrained

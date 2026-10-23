@@ -1,4 +1,4 @@
-"""JetBlue's departure cap per hour at JFK and BOS, from what the airport actually pushed back (docs/v3/DESIGN.md
+"""JetBlue's departure cap per hour at JFK and BOS, from what the airport actually pushed back (docs/v4/DESIGN.md
 §3.1).
 
 v2 caps nothing leaving a hub. An hour is constrained when every carrier together pushed back (BTS gate departure)

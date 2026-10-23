@@ -1,4 +1,4 @@
-"""v4's crew layer (docs/v4/DESIGN.md §1): pairings legal on schedule, cut in place of Edgar's proxy (repairs.pairings).
+"""v4's crew layer (docs/v4/CREW.md §1): pairings legal on schedule, cut in place of Edgar's proxy (repairs.pairings).
 
 Edgar's pairings chain each tail's legs from a base departure to the next base arrival with no duty limit, so a long
 chain through outstations exceeds 14 CFR 117 on schedule and its later legs can never fly. Here each tail's scheduled
@@ -14,7 +14,7 @@ into duties:
 A duty is a pairing, and its legs get Edgar's records (model.Crew): its report, station, segments and limit; an
 outstation departure must block in by the report + the limit + EXTENSION (117.19(a)(1)), so its crew deadline is that
 less its scheduled block, its rest REST after it; a departure from a base has none in the record (reserves crew it),
-and under a finite reserve pool there (Layers.reserves, v3's) Task.crew gives it the same deadline and rest. So every
+and under a finite reserve pool there (Layers.reserves) Task.crew gives it the same deadline and rest. So every
 duty is legal on schedule with `buffer` and the extension to spare, and the crew binds only when delays push a duty
 past its limit, as real crews time out; the sim and the hindsight MIP enforce it as they do Edgar's.
 

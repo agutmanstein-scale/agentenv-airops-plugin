@@ -1,7 +1,7 @@
-"""airops-v3-day served on a free port: its card, routes and tools beside v1's, a layered task loaded from a
+"""airops-v4-day served on a free port: its card, routes and tools beside v1's, a layered task loaded from a
 tasks.jsonl line, a scripted desk playing whole days through the tools to the sim's cost on the truth, bad changes,
 the clock (each call's minute, the re-arm at every new watch, before the Day moves), the news in each reply, the
-news audit v1's verifier reads, the anchor solved at load, the end-day grade and the v3 prompts."""
+news audit v1's verifier reads, the anchor solved at load, the end-day grade and the v4 prompts."""
 
 import asyncio
 import json
@@ -15,8 +15,8 @@ from agent_env.task_step.task_steps.apply_server_config import ApplyServerConfig
 from agentenv_protocol import client
 from day_helpers import adv, capped, day, flight, reserve_day, tail
 from fastmcp import Client
-from served_v3 import Tools, served_v3
-from test_v3_play import airline, airline_expected
+from served_v4 import Tools, served_v4
+from test_v4_play import airline, airline_expected
 
 from agentenv_airops import live as v1_live
 from agentenv_airops import tasks as v1_tasks
@@ -24,11 +24,11 @@ from agentenv_airops.core.model import hhmm
 from agentenv_airops.programs import references, sim
 from agentenv_airops.programs.model import LAYERED, Layers, load_tasks
 from agentenv_airops.schedule import CLOCK_URI
-from agentenv_airops.v3day import tasks as v3_tasks
-from agentenv_airops.v3day.clock import CALL_MIN, virtual_time
-from agentenv_airops.v3day.day import Day, changes_to
-from agentenv_airops.v3day.grade import grade
-from agentenv_airops.v3day.live import END_DAY_URI, ENV, LIVE_LOAD_URI, TOOLS, AirOpsV3LiveEnv, audit
+from agentenv_airops.v4day import tasks as v4_tasks
+from agentenv_airops.v4day.clock import CALL_MIN, virtual_time
+from agentenv_airops.v4day.day import Day, changes_to
+from agentenv_airops.v4day.grade import grade
+from agentenv_airops.v4day.live import END_DAY_URI, ENV, LIVE_LOAD_URI, TOOLS, AirOpsV4LiveEnv, audit
 
 pytestmark = pytest.mark.anyio
 
@@ -66,7 +66,7 @@ async def data(http) -> dict:
 
 
 async def test_the_card_routes_and_tools_sit_beside_v1s(monkeypatch, tmp_path):
-    with served_v3(monkeypatch, tmp_path, [two_flights()]) as (url, env, _):
+    with served_v4(monkeypatch, tmp_path, [two_flights()]) as (url, env, _):
         async with httpx.AsyncClient(base_url=url) as http:
             card = (await http.get("/.well-known/agent-env.json")).json()
         async with Client(f"{url}/mcp") as mcp:
@@ -83,7 +83,7 @@ async def test_the_card_routes_and_tools_sit_beside_v1s(monkeypatch, tmp_path):
 
 async def test_a_layered_task_loads_from_a_tasks_jsonl_line_and_its_caps_show(monkeypatch, tmp_path, task):
     layered = replace(capped(task, {"JFK": {18: 1, 19: 2}}), task_id=f"{task.task_id}-capped")
-    with served_v3(monkeypatch, tmp_path, [task, layered], layered.task_id) as (url, env, _):
+    with served_v4(monkeypatch, tmp_path, [task, layered], layered.task_id) as (url, env, _):
         async with Client(f"{url}/mcp") as mcp:
             out = await Tools(mcp)("get_situation")
     line = (tmp_path / "tasks.jsonl").read_text().splitlines()[1]
@@ -99,7 +99,7 @@ async def test_a_layered_task_loads_from_a_tasks_jsonl_line_and_its_caps_show(mo
 async def test_a_scripted_desk_plays_the_day_through_the_tools_to_the_sims_cost_on_the_truth(
         name, request, monkeypatch, tmp_path):
     task = request.getfixturevalue(name)
-    with served_v3(monkeypatch, tmp_path, [task]) as (url, env, puts):
+    with served_v4(monkeypatch, tmp_path, [task]) as (url, env, puts):
         async with Client(f"{url}/mcp") as mcp, httpx.AsyncClient(base_url=url) as http:
             tools, d = Tools(mcp), env.day
             while True:
@@ -123,7 +123,7 @@ async def test_a_scripted_desk_plays_the_day_through_the_tools_to_the_sims_cost_
 
 
 async def test_bad_changes_come_back_as_errors_problems_and_refusals(monkeypatch, tmp_path):
-    with served_v3(monkeypatch, tmp_path, [two_flights()]) as (url, env, _):
+    with served_v4(monkeypatch, tmp_path, [two_flights()]) as (url, env, _):
         async with Client(f"{url}/mcp") as mcp:
             tools = Tools(mcp)
             bad = await tools("confirm_changes", changes="[{flight")
@@ -143,7 +143,7 @@ async def test_bad_changes_come_back_as_errors_problems_and_refusals(monkeypatch
 
 async def test_each_call_costs_a_minute_and_the_watch_running_out_rearms_the_clock(monkeypatch, tmp_path):
     task = two_flights()
-    with served_v3(monkeypatch, tmp_path, [task]) as (url, env, puts):
+    with served_v4(monkeypatch, tmp_path, [task]) as (url, env, puts):
         async with Client(f"{url}/mcp") as mcp:
             tools, step = Tools(mcp), env.day.watches[1].t - env.day.watches[0].t
             for k in range(1, step // CALL_MIN):
@@ -158,7 +158,7 @@ async def test_each_call_costs_a_minute_and_the_watch_running_out_rearms_the_clo
 
 
 async def test_a_watch_change_needs_the_synced_clock_except_after_the_last_watch(monkeypatch, tmp_path):
-    with served_v3(monkeypatch, tmp_path, [two_flights()], synced=False) as (url, env, puts):
+    with served_v4(monkeypatch, tmp_path, [two_flights()], synced=False) as (url, env, puts):
         async with Client(f"{url}/mcp") as mcp:
             tools = Tools(mcp)
             assert (await tools("get_situation"))["watch"] == 0
@@ -178,7 +178,7 @@ async def test_a_watch_change_needs_the_synced_clock_except_after_the_last_watch
 
 async def test_a_failed_rearm_leaves_the_day_at_its_watch_and_the_retry_opens_the_next(monkeypatch, tmp_path):
     task = two_flights()
-    with served_v3(monkeypatch, tmp_path, [task], refuse=2) as (url, env, puts):
+    with served_v4(monkeypatch, tmp_path, [task], refuse=2) as (url, env, puts):
         async with Client(f"{url}/mcp") as mcp:
             tools = Tools(mcp)
             assert "503 Service Unavailable" in await tools.error("advance")
@@ -195,7 +195,7 @@ async def test_a_failed_rearm_leaves_the_day_at_its_watch_and_the_retry_opens_th
 
 async def test_a_call_that_fails_after_the_rearm_puts_the_gateway_clock_back_at_its_watch(monkeypatch, tmp_path):
     task = two_flights()
-    with served_v3(monkeypatch, tmp_path, [task]) as (url, env, puts):
+    with served_v4(monkeypatch, tmp_path, [task]) as (url, env, puts):
         async with Client(f"{url}/mcp") as mcp:
             tools = Tools(mcp)
             while env.day.clock + CALL_MIN < env.day.ends:
@@ -212,7 +212,7 @@ async def test_a_call_that_fails_after_the_rearm_puts_the_gateway_clock_back_at_
 
 async def test_planner_calls_made_at_once_run_one_at_a_time_on_the_clock(monkeypatch, tmp_path):
     task = two_flights()
-    with served_v3(monkeypatch, tmp_path, [task]) as (url, env, puts):
+    with served_v4(monkeypatch, tmp_path, [task]) as (url, env, puts):
         async with Client(f"{url}/mcp") as mcp:
             await asyncio.gather(mcp.call_tool_mcp("advance", {}), mcp.call_tool_mcp("advance", {}))
     assert env.day.watch == 2
@@ -222,7 +222,7 @@ async def test_planner_calls_made_at_once_run_one_at_a_time_on_the_clock(monkeyp
 async def test_each_watchs_news_comes_once_in_the_reply_that_opens_it_and_v1s_verifier_scores_the_day(
         monkeypatch, tmp_path):
     verifier = v1_verifier()
-    with served_v3(monkeypatch, tmp_path, [with_news()]) as (url, env, _):
+    with served_v4(monkeypatch, tmp_path, [with_news()]) as (url, env, _):
         assert [w.news for w in env.day.watches[:2]] == [("a0",), ("a1",)]
         async with Client(f"{url}/mcp") as mcp:
             tools = Tools(mcp)
@@ -254,7 +254,7 @@ async def test_the_anchor_is_solved_at_load_so_the_days_last_call_runs_no_mip(mo
     task, solves = two_flights(), []
     solve = references.anchor
     monkeypatch.setattr(references, "anchor", lambda t, *a, **k: solves.append(t.task_id) or solve(t, *a, **k))
-    with served_v3(monkeypatch, tmp_path, [task]) as (url, env, _):
+    with served_v4(monkeypatch, tmp_path, [task]) as (url, env, _):
         assert solves == [task.task_id]
         async with Client(f"{url}/mcp") as mcp:
             while not (out := await Tools(mcp)("advance")).get("done"):
@@ -266,7 +266,7 @@ async def test_the_anchor_is_solved_at_load_so_the_days_last_call_runs_no_mip(mo
 async def test_the_anchor_and_follower_given_at_load_are_graded_against_without_a_solve(monkeypatch, tmp_path):
     task, solves = two_flights(), []
     monkeypatch.setattr(references, "anchor", lambda t, *a, **k: solves.append(t.task_id))
-    with served_v3(monkeypatch, tmp_path, [task], anchor=0, follower=0) as (url, env, _):
+    with served_v4(monkeypatch, tmp_path, [task], anchor=0, follower=0) as (url, env, _):
         async with httpx.AsyncClient(base_url=url) as http:
             out = (await invoke(http, END_DAY_URI)).json()
             got = await data(http)
@@ -283,18 +283,18 @@ async def test_the_load_takes_the_packs_stored_costs_for_the_task_they_ran_on_an
     (tmp_path / "refs.json").write_text(json.dumps({
         task.task_id: {"anchor": 3, "follower": 4, "task": references.digest(task)},
         other.task_id: {"anchor": 3, "follower": 4, "task": references.digest(stale)}}))
-    with served_v3(monkeypatch, tmp_path, [task, other]) as (url, env, _):
+    with served_v4(monkeypatch, tmp_path, [task, other]) as (url, env, _):
         async with httpx.AsyncClient(base_url=url) as http:
             await invoke(http, END_DAY_URI)
             got = await data(http)
     assert solves == [] and got["grade"]["anchor"] == 3 and got["grade"]["references"]["follower"]["cost"] == 4
-    with served_v3(monkeypatch, tmp_path, [task, other], task_id=other.task_id) as (url, env, _):
+    with served_v4(monkeypatch, tmp_path, [task, other], task_id=other.task_id) as (url, env, _):
         assert solves == [other.task_id] and (env.day.anchor, env.day.follower) == (solve(other)[1].cost.total, None)
 
 
 async def test_sync_time_reads_the_gateway_clock(monkeypatch, tmp_path):
     task = two_flights()
-    with served_v3(monkeypatch, tmp_path, [task], synced=False) as (url, env, _):
+    with served_v4(monkeypatch, tmp_path, [task], synced=False) as (url, env, _):
         async with httpx.AsyncClient(base_url=url) as http:
             got = (await invoke(http, CLOCK_URI, env_get_time_url=f"{url}/clock/time")).json()
     assert got == {"env_get_time_url": f"{url}/clock/time", "virtual_time": virtual_time(task, task.start)}
@@ -304,7 +304,7 @@ async def test_sync_time_reads_the_gateway_clock(monkeypatch, tmp_path):
 async def test_end_day_grades_the_plan_on_the_truth_and_data_get_reports_it(monkeypatch, tmp_path):
     task = two_flights()
     cancel = [{"flight": "f1", "action": "cancel", "not_before": None}]
-    with served_v3(monkeypatch, tmp_path, [task]) as (url, env, _):
+    with served_v4(monkeypatch, tmp_path, [task]) as (url, env, _):
         async with Client(f"{url}/mcp") as mcp, httpx.AsyncClient(base_url=url) as http:
             assert (await Tools(mcp)("confirm_changes", changes=cancel))["confirmed"] == ["f1"]
             out = (await invoke(http, END_DAY_URI)).json()
@@ -316,9 +316,9 @@ async def test_end_day_grades_the_plan_on_the_truth_and_data_get_reports_it(monk
 
 
 async def test_no_day_loaded_and_one_day_per_env(monkeypatch, tmp_path):
-    monkeypatch.setenv("AIROPS_V3_TASKS", str(tmp_path / "none.jsonl"))
+    monkeypatch.setenv("AIROPS_V4_TASKS", str(tmp_path / "none.jsonl"))
     (tmp_path / "none.jsonl").write_text("")
-    env = AirOpsV3LiveEnv()
+    env = AirOpsV4LiveEnv()
     env.create_app()
     async with Client(env.mcp) as mcp:
         no_day = f"no day loaded: load one with {LIVE_LOAD_URI}"
@@ -332,18 +332,18 @@ async def test_no_day_loaded_and_one_day_per_env(monkeypatch, tmp_path):
 
 
 def test_the_v3_prompts_describe_the_programs_world(task, crewed):
-    rules, crew_rules = v3_tasks.rules(task), v3_tasks.rules(crewed)
+    rules, crew_rules = v4_tasks.rules(task), v4_tasks.rules(crewed)
     for words in ["ground delay programs", "EDCT", "Ground stops", "Departure caps", "check_plan(changes)",
                   "decided later than 2 hours"]:
         assert words in rules
     assert "Crews:" in crew_rules and "Crews:" not in rules and rules != v1_tasks.AIROPS_RULES
     d = Day(task)
-    assert v3_tasks.briefing(d).startswith(d.text()) and d.calls == 0
-    steps = v3_tasks.steps(task)
+    assert v4_tasks.briefing(d).startswith(d.text()) and d.calls == 0
+    steps = v4_tasks.steps(task)
     assert [s["id"] for s in steps] == ["deploy", "load-task", "deploy-agent", "clock", "play", "end-day", "grade"]
     assert steps[1]["directives"] == [{"service": ENV, "uri": LIVE_LOAD_URI, "args": {"task_id": task.task_id}}]
     assert ApplyServerConfigStep.from_dict(steps[1]).timeout_seconds > references.TIME_LIMIT
-    given = v3_tasks.steps(task, anchor=5, follower=7)[1]
+    given = v4_tasks.steps(task, anchor=5, follower=7)[1]
     assert given["directives"][0]["args"] == {"task_id": task.task_id, "anchor": 5, "follower": 7}
     assert ApplyServerConfigStep.from_dict(given).timeout_seconds < references.TIME_LIMIT
     assert steps[3]["virtual_time"] == virtual_time(task, task.start)
@@ -351,9 +351,9 @@ def test_the_v3_prompts_describe_the_programs_world(task, crewed):
 
 
 async def test_a_reserve_call_in_list_form_flies_a_late_base_departure_through_the_tools(monkeypatch, tmp_path):
-    """The live tools take v3's reserve actions as list items (the strict schema's enum), as the Day does."""
+    """The live tools take v4's reserve actions as list items (the strict schema's enum), as the Day does."""
     task = reserve_day()
-    with served_v3(monkeypatch, tmp_path, [task]) as (url, env, _):
+    with served_v4(monkeypatch, tmp_path, [task]) as (url, env, _):
         async with Client(f"{url}/mcp") as mcp:
             tools = Tools(mcp)
             before = await tools("get_situation")

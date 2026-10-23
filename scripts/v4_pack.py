@@ -1,13 +1,13 @@
-"""Build v3's pack: every whole-network storm date with crew and every v3 layer, its constants fitted on the train
-dates alone, and the control dates beside them (docs/v3/DESIGN.md §2, §6.1); with `--refs`, the references
-scripts/v3_check.py reads, and each task's anchor and follower costs for the playable day's load.
+"""Build v4's pack: every whole-network storm date with crew and every v4 layer, its constants fitted on the train
+dates alone, and the control dates beside them (docs/v4/DESIGN.md §2, §6.1); with `--refs`, the references
+scripts/v4_check.py reads, and each task's anchor and follower costs for the playable day's load.
 
-    python scripts/v3_pack.py --out DIR [--only DATE,...] [--workers 14] [--seed 0] [--resume]
+    python scripts/v4_pack.py --out DIR [--only DATE,...] [--workers 14] [--seed 0] [--resume]
                               [--refs] [--prove-s 1800] [--watch-s 900] [--bases none|JFK,BOS,...]
                               [--crew edgar|v4] [--buffer MIN] [--max-segments N]
 
 1. every storm date over the 19 cached months (network.storms) built as a whole-network task, without crews by default
-   (v3: docs/v3/DESIGN.md §0 status; `--bases JFK,BOS,FLL,MCO` turns the crew model on at those bases, its pairings
+   (v3: docs/v4/DESIGN.md §0 status; `--bases JFK,BOS,FLL,MCO` turns the crew model on at those bases, its pairings
    cut by `--crew`: Edgar's proxy, the default, or v4's legal on schedule, layers.crew, at `--buffer` and
    `--max-segments`), at scale 1 and the 03:00 cutoff, as world_check builds them, and so are the control
    dates (network.control_dates, each with its hubs' control windows, split 'control'); each date's build is written
@@ -33,7 +33,7 @@ scripts/v3_check.py reads, and each task's anchor and follower costs for the pla
 5. with `--refs`, the references on every task written (`refs`, below): one JSON per task under DIR/refs/ as it
    finishes, in a pool of `--workers` processes, heaviest first, a result kept when its task's signature (the task, the
    references and the time limits) matches; then DIR/refs.json, each task's anchor and follower costs on the truth
-   with the task's digest (references.digest), which the playable day's load reads (v3day.live) so it never solves a
+   with the task's digest (references.digest), which the playable day's load reads (v4day.live) so it never solves a
    MIP.
 
 The references per task (world_check's, so its gates read them as they are): naive; the airline replay (cost,
@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--refs", action="store_true", help="run the references on every task written")
     ap.add_argument("--bases", default="none",
                     help="crew bases for Edgar's crew model, comma-separated (JetBlue's: JFK,BOS,FLL,MCO); 'none', the "
-                         "v3 default, builds without crews (docs/v3/DESIGN.md §0 status)")
+                         "v3 default, builds without crews (docs/v4/DESIGN.md §0 status)")
     ap.add_argument("--crew", choices=crew.MODES, default="edgar",
                     help="how the crew model cuts pairings with --bases: Edgar's proxy or v4's legal on schedule")
     ap.add_argument("--buffer", type=int, help="v4's duty buffer in minutes (default: fitted on the train dates)")
@@ -412,7 +412,7 @@ def fidelity(task: Task) -> dict:
 
 def stored(tasks: Iterable[Task], results: Mapping[str, dict]) -> dict[str, dict]:
     """Per task, the costs on the truth of its anchor's plan and its follower's, where they ran without error, with the
-    task's digest: what the playable day's load takes (v3day.live), so it solves no MIP."""
+    task's digest: what the playable day's load takes (v4day.live), so it solves no MIP."""
     out = {}
     for t in tasks:
         r = results.get(t.task_id, {})

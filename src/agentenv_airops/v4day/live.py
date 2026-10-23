@@ -1,18 +1,18 @@
-"""AirOps v3 live: one storm date on the programs world (docs/v3/DESIGN.md §5), played on the gateway's virtual clock
+"""AirOps v4 live: one storm date on the programs world (docs/v4/DESIGN.md §5), played on the gateway's virtual clock
 as live.py plays v1's day, beside it.
 
-urn:airops:v3-live-load/v1 starts a day on a task of AIROPS_V3_TASKS (programs.model tasks, layered or not); the
-planner's tools are v1's (get_situation, check_plan, confirm_changes, advance, with v1's change lists) on v3day.Day.
+urn:airops:v4-live-load/v1 starts a day on a task of AIROPS_V4_TASKS (programs.model tasks, layered or not); the
+planner's tools are v1's (get_situation, check_plan, confirm_changes, advance, with v1's change lists) on v4day.Day.
 Every call costs the Day CALL_MIN minutes of its watch; before a call moves the Day to a new watch (advance, or a
 call that runs the watch's time out) the env re-arms the gateway clock frozen at that watch, as v1's advance does, so a
 call that could end any watch but the last needs the clock synced, and a failed re-arm leaves the Day where it was
 (a call that fails after the re-arm arms the clock back at its watch). Planner calls run one at a time.
 The Day delivers each watch's advisories itself, in every tool result's messages, so there are no news triggers. A
 reply in which the day ends carries done, cost and reward. The grade needs the anchor's cost: the load takes it (and
-the follower's) from its arguments, else from the pack's refs.json (scripts/v3_pack.py --refs: the costs per task
+the follower's) from its arguments, else from the pack's refs.json (scripts/v4_pack.py --refs: the costs per task
 with the digest of the task they ran on, used only while it matches), and otherwise solves the hindsight MIP then,
-before the clock starts, so the day's last call never waits on a solve. urn:airops:v3-end-day/v1 grades the plan on
-the truth (v3day.grade) when the planner stopped early. data/get reports the Day with its reward and an audit of its
+before the clock starts, so the day's last call never waits on a solve. urn:airops:v4-end-day/v1 grades the plan on
+the truth (v4day.grade) when the planner stopped early. data/get reports the Day with its reward and an audit of its
 news log, as v1's verifier reads a day, and never the truth the desk doesn't know yet."""
 
 import asyncio
@@ -37,7 +37,7 @@ from .day import Day
 
 
 class Change(BaseModel):
-    """v1's change (live.Change) with v3's reserve calls: a flight leaving a crew base past its pairing's crew deadline
+    """v1's change (live.Change) with v4's reserve calls: a flight leaving a crew base past its pairing's crew deadline
     flies only on a reserve crew, while the base's pool lasts."""
 
     model_config = ConfigDict(extra="forbid", json_schema_extra=_strict)
@@ -59,10 +59,10 @@ ChangesArg = Annotated[list[Change] | str, Field(
                 "flights left out keep their plan")]
 
 
-ENV = "airops-v3-day"
-LIVE_LOAD_URI = "urn:airops:v3-live-load/v1"
-END_DAY_URI = "urn:airops:v3-end-day/v1"
-TASKS_VAR = "AIROPS_V3_TASKS"
+ENV = "airops-v4-day"
+LIVE_LOAD_URI = "urn:airops:v4-live-load/v1"
+END_DAY_URI = "urn:airops:v4-end-day/v1"
+TASKS_VAR = "AIROPS_V4_TASKS"
 REFS_FILE = "refs.json"
 TOOLS = ("get_situation", "check_plan", "confirm_changes", "advance")
 EMPTY = {"task_id": None, "watches": None, "watch": None, "t": None, "clock": None, "calls": 0, "done": False,
@@ -71,13 +71,13 @@ EMPTY = {"task_id": None, "watches": None, "watch": None, "t": None, "clock": No
 
 
 def tasks_by_id() -> dict[str, Task]:
-    """The programs tasks of AIROPS_V3_TASKS (pack folders or .jsonl files, separated by ':'); none when unset."""
+    """The programs tasks of AIROPS_V4_TASKS (pack folders or .jsonl files, separated by ':'); none when unset."""
     paths = os.environ.get(TASKS_VAR)
     return {t.task_id: t for p in paths.split(":") for t in load_tasks(Path(p))} if paths else {}
 
 
 def refs_by_id() -> dict[str, dict]:
-    """The stored reference costs beside AIROPS_V3_TASKS's tasks: the refs.json in each pack folder (or beside each
+    """The stored reference costs beside AIROPS_V4_TASKS's tasks: the refs.json in each pack folder (or beside each
     .jsonl), by task id; none where there is none."""
     paths = os.environ.get(TASKS_VAR)
     out = {}
@@ -109,7 +109,7 @@ def _json(obj: Any) -> str:
 
 
 @environment_card(name=ENV)
-class AirOpsV3LiveEnv(AgentEnvEnvironment):
+class AirOpsV4LiveEnv(AgentEnvEnvironment):
     def __init__(self):
         self.tasks = tasks_by_id()
         self.refs = refs_by_id()
@@ -148,7 +148,7 @@ class AirOpsV3LiveEnv(AgentEnvEnvironment):
     async def advance(self) -> str:
         return await self._play(lambda day: day.advance(), ends=True)
 
-    @extension(LIVE_LOAD_URI, description="Start a live v3 day on the task with this id; an env plays one day.")
+    @extension(LIVE_LOAD_URI, description="Start a live v4 day on the task with this id; an env plays one day.")
     def live_load(self, task_id: str, anchor: int | None = None, follower: int | None = None) -> dict:
         """`anchor` and `follower` are those references' costs on the truth, each taken from the pack's refs.json when
         not given (`stored`); without the anchor's the load solves it (references.anchor, up to its time limit).

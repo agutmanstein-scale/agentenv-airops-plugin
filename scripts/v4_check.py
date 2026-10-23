@@ -1,10 +1,10 @@
-"""Is v3 done? docs/v3/DESIGN.md §0's criteria measured on the v3 pack against v2 on the same dates, and world_check's
+"""Is v3 done? docs/v4/DESIGN.md §0's criteria measured on the v3 pack against v2 on the same dates, and world_check's
 gates on the v3 pack (§6.2). No LLM is called; only the reference solvers run (HiGHS), and the suite's agreement and
 live-play tests as evidence.
 
-    python scripts/v3_check.py PACK --v2 DIR [--v3 DIR] [--workers 14] [--prove-s 1800] [--watch-s 900] [--no-tests]
+    python scripts/v4_check.py PACK --v2 DIR [--v3 DIR] [--workers 14] [--prove-s 1800] [--watch-s 900] [--no-tests]
 
-1. the v3 pack's tasks (scripts/v3_pack.py) and their references under PACK/refs/ (v3_pack.refs: those there whose
+1. the v3 pack's tasks (scripts/v4_pack.py) and their references under PACK/refs/ (v4_pack.refs: those there whose
    signature matches are kept, the others run, so a pack built with `--refs` runs nothing here);
 2. v2's tasks of the same dates in DIR: read from DIR/tasks.jsonl where it has them, the others built (network.build
    without crew bases or layers, at scale 1 and the 03:00 cutoff as the pack builds them, the controls at the pack's
@@ -25,8 +25,8 @@ The criteria, on the storm dates both packs have the numbers for (the controls o
   replays exactly (its plan's cost on the sim is its objective, every departure as the MIP has it); the suite's
   sim/MIP agreement tests (tests/programs/test_hindsight_mip.py, layered days included) pass;
 - playable: the live-server test in which an LLM (a fake LiteLLM) plays a v3 day end to end, graded on the truth
-  (tests/v3day/test_v3_agent.py), passes.
-On a pack with crews (v4's, or Edgar's: its manifest names crew bases), docs/v4/DESIGN.md §0's guards are criteria
+  (tests/v4day/test_v4_agent.py), passes.
+On a pack with crews (v4's, or Edgar's: its manifest names crew bases), docs/v4/CREW.md §0's guards are criteria
 too, on the same storm dates: the recorded day costs no less than the anchor on at least RECORDED_SHARE of them; the
 anchors cancel (auto-cancels included) no more than JetBlue did, pooled; on every date the calm day forces no more
 cancellations and no more ferries than the no-crew pack's (`--v3`, its references read under DIR/refs/, never run)
@@ -47,7 +47,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-import v3_pack
+import v4_pack
 import world_check
 
 from agentenv_airops.programs import candidates, network, rbs, unseen
@@ -61,7 +61,7 @@ DO_NOTHING, FOLLOWER = 1.4, 1.5
 OPTIMUM_SHARE, FREE_DROP, FLOWN_SHARE = 0.35, 0.10, 0.97
 RECORDED_SHARE, WITHIN_SLACK = 0.95, 0.01
 AGREEMENT = ("tests/programs/test_hindsight_mip.py",)
-PLAYABLE = ("tests/v3day/test_v3_agent.py",)
+PLAYABLE = ("tests/v4day/test_v4_agent.py",)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -70,18 +70,18 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--v2", type=Path, required=True, help="v2's folder: its tasks.jsonl and refs/, built if missing")
     ap.add_argument("--v3", type=Path, help="the no-crew pack whose calm days a crew pack's are read against")
     ap.add_argument("--workers", type=int, default=14)
-    ap.add_argument("--prove-s", type=float, default=v3_pack.PROVE_S, help="time limit of each anchor, flat or calm")
-    ap.add_argument("--watch-s", type=float, default=v3_pack.WATCH_S, help="time limit of each follower watch solve")
+    ap.add_argument("--prove-s", type=float, default=v4_pack.PROVE_S, help="time limit of each anchor, flat or calm")
+    ap.add_argument("--watch-s", type=float, default=v4_pack.WATCH_S, help="time limit of each follower watch solve")
     ap.add_argument("--no-tests", action="store_true", help="skip the agreement and live-play tests")
     args = ap.parse_args(argv)
     limits = (args.prove_s, args.watch_s)
-    clock = v3_pack.Clock()
+    clock = v4_pack.Clock()
     manifest = json.loads((args.pack / "manifest.json").read_text())
     v3 = load_tasks(args.pack)
-    v3_refs = v3_pack.refs(args.pack, v3, args.workers, limits, clock)
+    v3_refs = v4_pack.refs(args.pack, v3, args.workers, limits, clock)
     v2 = v2_tasks(args.v2, v3, manifest, args.workers)
     clock.lap("v2 tasks", f"{len(v2)} in {args.v2}")
-    v2_refs = v3_pack.refs(args.v2, v2, args.workers, limits, clock)
+    v2_refs = v4_pack.refs(args.v2, v2, args.workers, limits, clock)
     tests = {} if args.no_tests else {"agreement": pytest(AGREEMENT), "playable": pytest(PLAYABLE)}
     clock.lap("tests", json.dumps({k: v["pass"] for k, v in tests.items()}))
     crewed = bool(manifest.get("bases"))
@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> None:
     out = {"criteria": criteria(v3_refs, v2_refs, tests, crewed, plain), "gates": gates(v3, v3_refs, manifest),
            "parameters": {"pack": str(args.pack), "v2": str(args.v2), "v3": str(args.v3) if args.v3 else None,
                           "crewed": crewed, "time_limits_s": limits,
-                          "scale": manifest["scale"], "code": v3_pack.revision(), "pack_code": manifest.get("code")},
+                          "scale": manifest["scale"], "code": v4_pack.revision(), "pack_code": manifest.get("code")},
            "tasks": [row(t, v3_refs.get(t.task_id, {}), v2_refs.get(t.task_id, {})) for t in v3],
            "wall_s": clock.laps}
     out["done"] = all(c["pass"] for c in out["criteria"].values())
@@ -190,7 +190,7 @@ def criteria(v3: Mapping[str, dict], v2: Mapping[str, dict], tests: Mapping[str,
 
 
 def guards(storm: Mapping[str, tuple[dict, dict]], plain: Mapping[str, dict] | None) -> dict:
-    """docs/v4/DESIGN.md §0's guards on a crew pack's storm dates (each its references and v2's)."""
+    """docs/v4/CREW.md §0's guards on a crew pack's storm dates (each its references and v2's)."""
     rec = [x >= 0 for r, _ in storm.values() if (x := safe(lambda r: excess(r, "recorded"), r)) is not None]
     rec_share = round(sum(rec) / len(rec), 4) if rec else None
     calm = {}

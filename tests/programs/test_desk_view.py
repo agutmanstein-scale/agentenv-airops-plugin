@@ -27,8 +27,8 @@ from agentenv_airops.core.known import CAP_LOOK, FREEZE, STEP
 from agentenv_airops.programs import references, sim
 from agentenv_airops.programs.layers import closures, weather
 from agentenv_airops.programs.model import LAGS, Layers, Task
-from agentenv_airops.v3day import clock
-from agentenv_airops.v3day.day import Day
+from agentenv_airops.v4day import clock
+from agentenv_airops.v4day.day import Day
 
 
 def two_days_of_caps() -> Task:

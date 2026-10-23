@@ -35,7 +35,7 @@ sim to decide it. Overnight nodes feed v1's ferries onto tomorrow's needs (Task.
 sim.execute reproduces from its departure minutes as holds, at the same cost, and every day sim.execute runs is a
 solution (`Network.vector`), which also starts the search.
 
-With a finite reserve pool at a crew base (Layers.reserves, docs/v3/DESIGN.md §3.4) each departure from it that is
+With a finite reserve pool at a crew base (Layers.reserves, docs/v4/DESIGN.md §3.4) each departure from it that is
 not pinned and has a copy past its crew deadline (Task.crew) before its crew's rest ends, or that may auto-cancel on
 a line, gets a 0/1 reserve column, which bounds those copies (and, on a line, a column auto-cancelling it on the
 reserve crew, at its deadline) and joins its base's pool row: room = the pool less the pinned flights the caller says

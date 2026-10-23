@@ -1,5 +1,5 @@
-"""v3's layer config: the constants fitted on a pack's train dates (layers.calibrate), and the builder that turns them
-into a task's Layers (docs/v3/DESIGN.md §2, §6.1).
+"""v4's layer config: the constants fitted on a pack's train dates (layers.calibrate), and the builder that turns them
+into a task's Layers (docs/v4/DESIGN.md §2, §6.1).
 
 The constants are the ramp closures' departure-rate cut per hub (`rate`, closures.fit_rate), the reserve crews per
 crew base (`reserves`), and the departure and outstation caps' clauses (`short`, `min_sched`: depcaps' and arrcaps'
@@ -7,7 +7,7 @@ crew base (`reserves`), and the departure and outstation caps' clauses (`short`,
 them: JetBlue's departure caps at the hubs (depcaps) and arrival caps at the outstations (arrcaps) from every
 carrier's BTS flights of its dates, the hubs' ramp closures over its span (closures, from `spans`: the IEM routine
 METARs and SPECIs), and the pool at each of the task's crew bases (none without the crew model). A base the config
-leaves out keeps unlimited reserves. The desk's view goes with them (docs/v3/DESIGN.md §4): the closure rates
+leaves out keeps unlimited reserves. The desk's view goes with them (docs/v4/DESIGN.md §4): the closure rates
 (Layers.rates), at which the day as known prices a closure under way over its expected end (sim.known), the hubs'
 weather news (layers.weather) and the default delivery lags (model.LAGS).
 """

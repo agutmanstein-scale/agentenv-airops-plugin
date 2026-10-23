@@ -22,10 +22,10 @@ from test_reference_plays import committed_then_stopped, delay_revealed_late, st
 from agentenv_airops.core.model import hhmm
 from agentenv_airops.core.sim import FLOWN
 from agentenv_airops.programs import mip, references, sim
-from agentenv_airops.v3day import clock
-from agentenv_airops.v3day.day import Day, changes_to, play
-from agentenv_airops.v3day.grade import grade, reward
-from agentenv_airops.v3day.situation import KEYS
+from agentenv_airops.v4day import clock
+from agentenv_airops.v4day.day import Day, changes_to, play
+from agentenv_airops.v4day.grade import grade, reward
+from agentenv_airops.v4day.situation import KEYS
 
 
 def held_then_released():

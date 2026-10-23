@@ -1,4 +1,4 @@
-"""The hubs' weather as the desk reads it (docs/v3/DESIGN.md §4): every routine METAR, SPECI and TAF of the task's
+"""The hubs' weather as the desk reads it (docs/v4/DESIGN.md §4): every routine METAR, SPECI and TAF of the task's
 hubs over its span, as news items (minute, kind, station, text) for Layers.weather.
 
 A METAR or SPECI is dated by its observation (IEM ASOS `valid`), a TAF by its AFOS issue time; minutes are from the

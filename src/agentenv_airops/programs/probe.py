@@ -1,5 +1,5 @@
 """Which of JetBlue's cancellations could have flown on the day as it happened (the v2 probe, ~/handoff/out/v2_probe.py,
-and docs/v3/DESIGN.md §0's could-fly-for-free share).
+and docs/v4/DESIGN.md §0's could-fly-for-free share).
 
 Each JetBlue cancellation is put back on the airline replay (references.airline_plan, played on the truth by
 sim.execute): its plan entry becomes {}, so it flies as early as it can and takes whatever slot the sim gives it, and

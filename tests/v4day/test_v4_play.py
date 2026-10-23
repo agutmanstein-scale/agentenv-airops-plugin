@@ -9,8 +9,8 @@ from agentenv_airops.core.known import FREEZE
 from agentenv_airops.core.sim import AUTO_CANCELLED
 from agentenv_airops.programs import references, sim
 from agentenv_airops.programs.cost import NOTICE
-from agentenv_airops.v3day.day import Day, play
-from agentenv_airops.v3day.grade import reward
+from agentenv_airops.v4day.day import Day, play
+from agentenv_airops.v4day.grade import reward
 
 
 def nothing(day: Day) -> dict:

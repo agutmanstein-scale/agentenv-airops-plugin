@@ -1,4 +1,4 @@
-"""What the desk sees at a watch (docs/v3/DESIGN.md §5), as a JSON-able dict and as text in v1's style: the time and the
+"""What the desk sees at a watch (docs/v4/DESIGN.md §5), as a JSON-able dict and as text in v1's style: the time and the
 freeze line, the programs as issued (sim.known's GDP segments, a proposed one included, and ground-stop pieces), the
 departure caps and outstation arrival caps known so far (the truth's `layers.dep_caps` and `layers.arr_caps` for the
 hours within CAP_LOOK, as sim.known has them), the ramp closures under way or over (sim.known's: begun by the watch,

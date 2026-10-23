@@ -1,4 +1,4 @@
-"""A real airops-v3-day env serving programs tasks from a tasks.jsonl on a free port, with a stand-in for the
+"""A real airops-v4-day env serving programs tasks from a tasks.jsonl on a free port, with a stand-in for the
 gateway's clock routes on the same server that records each re-arm, and a client calling its tools over MCP."""
 
 import json
@@ -10,17 +10,17 @@ from served import serve
 from starlette.responses import JSONResponse
 
 from agentenv_airops.programs.model import Task, write_tasks
-from agentenv_airops.v3day.clock import virtual_time
-from agentenv_airops.v3day.live import TASKS_VAR, AirOpsV3LiveEnv
+from agentenv_airops.v4day.clock import virtual_time
+from agentenv_airops.v4day.live import TASKS_VAR, AirOpsV4LiveEnv
 
 
 @contextmanager
-def served_v3(monkeypatch, tmp_path: Path, tasks: list[Task], task_id: str | None = None, synced: bool = True,
+def served_v4(monkeypatch, tmp_path: Path, tasks: list[Task], task_id: str | None = None, synced: bool = True,
               refuse: int = 0, **refs):
     """A fresh env on `tasks`, the day `task_id` (default the first) loaded with `refs` (anchor, follower): (base
     url, env, the clock's PUTs). The clock answers the first `refuse` PUTs with a 503, as a gateway hiccup."""
     monkeypatch.setenv(TASKS_VAR, str(write_tasks(tasks, tmp_path / "tasks.jsonl")))
-    env = AirOpsV3LiveEnv()
+    env = AirOpsV4LiveEnv()
     mcp = env.create_app()
     puts: list[dict] = []
     refused: list[dict] = []

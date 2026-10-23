@@ -16,7 +16,7 @@ first: that aircraft may take it after JetBlue's ground time where that was shor
 (Task.quick), through any Moves it passes on the way, and any other flight only after the turn. What else holds a
 flight ready at minute t, in this order:
 - a ground stop at its destination hub covering its origin holds it to the stop's end; airborne flights fly on;
-- a departure in an hour its origin caps (Layers.dep_caps, docs/v3/DESIGN.md §3.1) needs room under the cap, else
+- a departure in an hour its origin caps (Layers.dep_caps, docs/v4/DESIGN.md §3.1) needs room under the cap, else
   it tries again at the next hour's start; every flight that left in the hour counts, a pinned one ("left") from the
   start of the day, so the others share the cap less the pinned ones; a pinned flight whose aircraft is not ready by
   its minute leaves when it is, and its count moves to the hour it leaves in, where the MIP pins it;
@@ -79,7 +79,7 @@ and the scheduled block, the programs as issued by then, proposed GDPs included,
 every GDP too unless a base rate ends it earlier), or the calm day (no delay, scheduled blocks, no programs). Nominal
 caps, deadlines, the hub cutoff and the crew deadlines, which the schedule fixes and the desk knows from the start, are
 the same in all of them. The calm day carries no layer. The day as known carries the layers as the desk sees them
-(docs/v3/DESIGN.md §4): the departure caps and outstation arrival caps of the hours starting within CAP_LOOK of the
+(docs/v4/DESIGN.md §4): the departure caps and outstation arrival caps of the hours starting within CAP_LOOK of the
 watch, as v1's slot caps were known, the later hours uncapped; the ramp closures begun by the watch, with their end
 once it has come, else expected GUESS minutes after the watch (a placeholder for the train days' median remaining
 duration, to be fitted with the pack's calibration), an ended one at its caps as given and one under way at the caps

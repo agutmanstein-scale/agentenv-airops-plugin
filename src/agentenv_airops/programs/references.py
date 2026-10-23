@@ -25,7 +25,7 @@ airline's aircraft-minutes at the FAA's rates).
   are counted over the flights it flew by their deadline, which covers dmax and the hub cutoff, less those whose
   aircraft a leg it flew past its deadline brought (`counted`); a flight it flew past its crew deadline still counts,
   which is what tells a crew model too strict for JetBlue's day. With a finite reserve pool at a base (§3.4 of
-  docs/v3/DESIGN.md) it calls a reserve for each departure from that base its replay with unlimited reserves (the v2
+  docs/v4/DESIGN.md) it calls a reserve for each departure from that base its replay with unlimited reserves (the v2
   replay) flies past its crew deadline (Task.crew), JetBlue's own departure or a later one its aircraft or the
   programs make, granted while the pool lasts (sim.granted), and one the pool can't crew auto-cancels;
 - recorded day: JetBlue's real outcome priced directly, its aircraft's minutes on its recorded departures and blocks,
@@ -35,7 +35,7 @@ airline's aircraft-minutes at the FAA's rates).
   them (network.scheduled), no delay, scheduled blocks, no programs: the hindsight optimum's forced cancellations and
   ferries; with `record`, from the record's positions and the task's needs, as the storm day starts.
 The watches are hourly (`watch_times`), and on a layered task they also wake on its events: an advisory or SPECI
-reaching the desk, a ramp closure starting (docs/v3/DESIGN.md §4); the follower, the rule and the playable day share
+reaching the desk, a ramp closure starting (docs/v4/DESIGN.md §4); the follower, the rule and the playable day share
 them.
 Like for like, nothing is decided before the first watch: a JetBlue cancellation due earlier than the start counts as
 decided there, as the anchor's and every desk's do. At a watch the day so far is history, as the env shows it: a
@@ -217,7 +217,7 @@ def calm(task: Task, time_limit: float = TIME_LIMIT, record: bool = False) -> Ca
 def watch_times(task: Task) -> list[int]:
     """Every STEP minutes from the start, through the first watch that knows every delay (on a layered task every
     departure and outstation arrival cap too, known CAP_LOOK ahead as v1's slot caps were), while some flight could
-    still leave unfrozen (t + FREEZE <= its deadline). A layered task's watches also wake on events (docs/v3/DESIGN.md
+    still leave unfrozen (t + FREEZE <= its deadline). A layered task's watches also wake on events (docs/v4/DESIGN.md
     §4, `events`) up to that last minute: walking the hourly watches and the events in order, one closer than
     WATCH_MIN to the watch before moves to WATCH_MIN after it (to the last minute if that is sooner), taking in any
     others up to there, and a gap longer than STEP gets a watch every STEP, so consecutive watches are WATCH_MIN to
@@ -298,7 +298,7 @@ def past_midnight(task: Task, run: sim.Execution | None = None) -> int:
 
 
 def digest(task: Task) -> str:
-    """The task's sha256 (16 hex digits): what a pack's stored reference costs were run on (scripts/v3_pack.py
+    """The task's sha256 (16 hex digits): what a pack's stored reference costs were run on (scripts/v4_pack.py
     --refs), so a load can tell them from a stale file's."""
     return hashlib.sha256(task.to_json().encode()).hexdigest()[:16]
 

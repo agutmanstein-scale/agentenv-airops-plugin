@@ -1,4 +1,4 @@
-"""Ramp closures at JFK and BOS from the METARs, as a cut in JetBlue's departure and gate-in rates (docs/v3/DESIGN.md
+"""Ramp closures at JFK and BOS from the METARs, as a cut in JetBlue's departure and gate-in rates (docs/v4/DESIGN.md
 §3.2).
 
 An ASOS reports TS in present weather when it detects lightning within 5 nm of the field (VCTS is 5 to 10 nm, LTG DSNT

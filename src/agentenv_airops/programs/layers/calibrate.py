@@ -1,4 +1,4 @@
-"""v3's layer constants, fitted on a pack's train dates only (docs/v3/DESIGN.md §1, §6.1) and written to its manifest.
+"""v4's layer constants, fitted on a pack's train dates only (docs/v4/DESIGN.md §1, §6.1) and written to its manifest.
 
 - The ramp closures' rate per hub is closures.fit_rate over the train dates: every carrier's pushbacks inside the
   closures that start on them over those in the same minutes just before (DECISIONS 2026-10-17, U3 Q2: refitted on
@@ -17,12 +17,12 @@
 - The departure and outstation caps' clauses stay at depcaps' and arrcaps' SHORT and MIN_SCHED (0.9 and 5), not
   fitted: the caps are floored at JetBlue's recorded pushbacks and arrivals, so any value fits the recorded day
   (DECISIONS 2026-10-17, U6 Q1).
-- v4's crew cut (layers.crew, docs/v4/DESIGN.md §1), when a pack fits it (`crew_fit`), comes before the pools: on a
+- v4's crew cut (layers.crew, docs/v4/CREW.md §1), when a pack fits it (`crew_fit`), comes before the pools: on a
   seeded `sample` of at most SAMPLE train dates (SAMPLE_SEED), each date built at every Rule of the grid (BUFFERS x
   SEGMENTS) with the other layers on at the fitted rates and unlimited reserves, and scored (`score`) by its naive day,
   its recorded day, its anchor and its calm day at CREW_S, and so is each date built without crews, once (a score is
   kept under the pack's `cache` by its task's signature, so a rerun solves only what changed). The cut is the one that
-  maximises do-nothing's median excess over the anchor on the sample while docs/v4/DESIGN.md §0's guards hold there
+  maximises do-nothing's median excess over the anchor on the sample while docs/v4/CREW.md §0's guards hold there
   (`summary`): the calm day forces no more cancellations and no more ferries than the same date's without crews, on
   every date (relative, as v2's and v3's own calm days pass the absolute <= 1 and <= 2 on only 80.6% of the 129-date
   pack: the guard is that v4's crews add no calm-day failure; DECISIONS 2026-10-17), the recorded day costs no less

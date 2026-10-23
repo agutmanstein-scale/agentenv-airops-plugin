@@ -16,11 +16,11 @@ everything the truth, the forecast and the references read, and nothing they wou
   forecast RBS can run at any watch and the other carriers' controlled arrivals carry their BTS NAS delay for the
   fidelity clause.
 
-A task may carry v3's realism `layers` (Layers, programs.layers builds them from pinned public inputs); a task that
+A task may carry v4's realism `layers` (Layers, programs.layers builds them from pinned public inputs); a task that
 sets any is written as model version LAYERED, one without (None, or Layers() with nothing set) is v2's task byte
 for byte. `version` is the v2 model's: LAYERED is read back as VERSION and written from the layers alone.
 
-With a finite reserve pool at a crew base (`Layers.reserves`, docs/v3/DESIGN.md §3.4) a departure from that base gets
+With a finite reserve pool at a crew base (`Layers.reserves`, docs/v4/DESIGN.md §3.4) a departure from that base gets
 its pairing's crew deadline as an outstation departure has it (the report + the FAR 117 limit + EXTENSION, less its
 scheduled block, its rest REST after it: `Task.crew`), and may fly past it only on a reserve crew the plan calls
 (`reserve`, granted while the base's pool lasts: sim.granted). A base the pool leaves out keeps Edgar's unlimited
@@ -346,7 +346,7 @@ class Layers:
     [start, end) total at most dep_cap, and its arrivals there inside it at most arr_cap; and the reserve crews per
     crew base. A hub's arrivals answer to its programs and nominal cap, so an arrival cap at a hub is a ValueError.
 
-    The desk's news beyond the advisories (docs/v3/DESIGN.md §4): the hubs' weather as (minute, kind, station, text),
+    The desk's news beyond the advisories (docs/v4/DESIGN.md §4): the hubs' weather as (minute, kind, station, text),
     kind "metar", "speci" or "taf", the minute its observation or issue (layers.weather), and the delivery lag per
     product kind in minutes (`lags` over LAGS: advisory 0, metar 5, speci 5, taf 10, a kind it leaves out keeping
     LAGS's; one LAGS doesn't have, a negative lag or an advisory lag other than 0 is a ValueError), each item
@@ -552,7 +552,7 @@ class Task:
 
     @property
     def layered(self) -> bool:
-        """Whether the task sets any of v3's layers (written as LAYERED)."""
+        """Whether the task sets any of v4's layers (written as LAYERED)."""
         return self.layers is not None and self.layers != Layers()
 
     def lag(self, kind: str) -> int:

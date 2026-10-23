@@ -1,6 +1,6 @@
-"""v3's task prompts and bundle steps, in tasks.py's style (v1's prompts stay as they are): the rules of a storm date
+"""v4's task prompts and bundle steps, in tasks.py's style (v1's prompts stay as they are): the rules of a storm date
 on the programs world as the system prompt, the first watch as the opening prompt, and the steps that play one task
-live on airops-v3-day with airops-llm and grade it with airops-verifier."""
+live on airops-v4-day with airops-llm and grade it with airops-verifier."""
 
 from ..core.known import CAP_LOOK, FREEZE, LOOK, STEP
 from ..core.model import hhmm
@@ -16,7 +16,7 @@ LOAD_SLACK = 120  # s past the anchor's time limit for a load that solves it: re
 
 def rules(task: Task) -> str:
     """The system prompt: v1's desk on the programs world, with the crew paragraph when the task has crews, and on a
-    layered task (docs/v3/DESIGN.md §4) its event-driven watches, the weather news and its delivery lags, the
+    layered task (docs/v4/DESIGN.md §4) its event-driven watches, the weather news and its delivery lags, the
     outstation arrival caps and the ramp closures."""
     layered = task.layered
     watches = (f"in watches starting at watch 0: one an hour, and one more when an advisory or a SPECI reaches "
@@ -112,7 +112,7 @@ def max_turns(day: Day) -> int:
 
 
 def steps(task: Task, anchor: int | None = None, follower: int | None = None) -> list[dict]:
-    """One task's bundle steps: deploy airops-v3-day, load the day (with the anchor's and the follower's costs when
+    """One task's bundle steps: deploy airops-v4-day, load the day (with the anchor's and the follower's costs when
     given, so the load needn't solve the anchor; without the anchor's the load step waits out the solve), play it
     with airops-llm on the gateway's clock frozen at the first watch, end the day and grade it."""
     day = Day(task)

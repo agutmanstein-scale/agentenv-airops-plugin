@@ -14,11 +14,11 @@ from agentenv_airops.programs.candidates import Built
 from agentenv_airops.programs.layers import calibrate, config, crew
 from agentenv_airops.programs.model import LAYERED, Task
 
-sys.path.insert(0, str(ROOT / "scripts"))  # v3_pack imports world_check beside it, as a script run does
-SPEC = importlib.util.spec_from_file_location("v3_pack", ROOT / "scripts" / "v3_pack.py")
-v3_pack = importlib.util.module_from_spec(SPEC)
-sys.modules["v3_pack"] = v3_pack  # its build workers' function is pickled by module name
-SPEC.loader.exec_module(v3_pack)
+sys.path.insert(0, str(ROOT / "scripts"))  # v4_pack imports world_check beside it, as a script run does
+SPEC = importlib.util.spec_from_file_location("v4_pack", ROOT / "scripts" / "v4_pack.py")
+v4_pack = importlib.util.module_from_spec(SPEC)
+sys.modules["v4_pack"] = v4_pack  # its build workers' function is pickled by module name
+SPEC.loader.exec_module(v4_pack)
 MONTHS = ("2023-12", "2024-01", "2025-01", "2026-01")
 CONTROL = ("2025-02-04", {"BOS": (420, 660)})
 
@@ -34,7 +34,7 @@ def test_the_pack_splits_and_fits_on_its_train_dates_and_a_quick_run_writes_the_
     storms, counts = network.storms(CACHE, MONTHS)
     monkeypatch.setattr(network, "storms", lambda inputs: (storms, counts))
     monkeypatch.setattr(network, "control_dates", lambda inputs, derived: dict([CONTROL]))
-    v3_pack.main(["--out", str(tmp_path), "--workers", "4"])
+    v4_pack.main(["--out", str(tmp_path), "--workers", "4"])
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     lines = (tmp_path / "tasks.jsonl").read_text().splitlines()
     control = Task.from_dict(json.loads(lines.pop()))
@@ -74,7 +74,7 @@ def test_the_pack_splits_and_fits_on_its_train_dates_and_a_quick_run_writes_the_
 
     chosen = [min(train), min(d for d, v in split.items() if v == "eval")]
     stamps = {d: (tmp_path / "built" / f"{d}.json").stat().st_mtime_ns for d in [*storms, f"control-{CONTROL[0]}"]}
-    v3_pack.main(["--out", str(tmp_path), "--workers", "4", "--resume", "--only", ",".join(chosen)])
+    v4_pack.main(["--out", str(tmp_path), "--workers", "4", "--resume", "--only", ",".join(chosen)])
     assert stamps == {d: (tmp_path / "built" / f"{d}.json").stat().st_mtime_ns for d in stamps}
     quick = (tmp_path / "tasks.jsonl").read_text().splitlines()
     assert quick == [lines[sorted(split).index(d)] for d in sorted(chosen)]
@@ -99,8 +99,8 @@ def test_a_v4_crewed_pack_fits_its_cut_on_a_train_sample_and_builds_every_date_a
 
     monkeypatch.setattr(calibrate, "crew_fit", fit)
     with pytest.raises(SystemExit):
-        v3_pack.main(["--out", str(tmp_path), "--crew", "v4"])
-    v3_pack.main(["--out", str(tmp_path), "--workers", "4", "--bases", "JFK,BOS,FLL,MCO", "--crew", "v4",
+        v4_pack.main(["--out", str(tmp_path), "--crew", "v4"])
+    v4_pack.main(["--out", str(tmp_path), "--workers", "4", "--bases", "JFK,BOS,FLL,MCO", "--crew", "v4",
                   "--max-segments", "4"])
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     train = manifest["constants"]["dates"]
@@ -113,7 +113,7 @@ def test_a_v4_crewed_pack_fits_its_cut_on_a_train_sample_and_builds_every_date_a
     assert list(seen) == calibrate.grid(calibrate.BUFFERS, (4,))
     for rule, tasks in seen.items():
         assert [t.date for t in tasks] == sample and all(t.layers and not t.layers.reserves for t in tasks)
-        x = Task.from_dict(json.loads((tmp_path / v3_pack.folder_of(tmp_path, rule).name / f"{sample[0]}.json")
+        x = Task.from_dict(json.loads((tmp_path / v4_pack.folder_of(tmp_path, rule).name / f"{sample[0]}.json")
                                       .read_text())["task"])
         assert [f.crew for f in tasks[0].flights] == [f.crew for f in x.flights]
         assert all(f.sched_dep + f.sched_block + rule.buffer <= f.crew.report + f.crew.fdp for f in x.flights)
@@ -132,12 +132,12 @@ def test_a_resumed_pack_keeps_each_dates_build_and_rebuilds_a_date_left_unbuilt_
     """A date an earlier run couldn't build (its input since fetched) or whose file a killed run cut short is built
     again; a built date is read back as it was written, and one the build's rules left out is kept left out."""
     task = replace(day([flight(0, "JFK", "BUF", 100, 60)], [tail("N1", "JFK")]), date="2023-12-03")
-    v3_pack.save(tmp_path / "2023-12-03.json", Built(task, {"date": "2023-12-03"}))
-    v3_pack.save(tmp_path / "2023-12-04.json", Built(None, {"date": "2023-12-04", "reason": "error: registry"}))
+    v4_pack.save(tmp_path / "2023-12-03.json", Built(task, {"date": "2023-12-03"}))
+    v4_pack.save(tmp_path / "2023-12-04.json", Built(None, {"date": "2023-12-04", "reason": "error: registry"}))
     (tmp_path / "2023-12-05.json").write_text('{"row": {"date": "2023-12-05", "hu')
     left = {"date": "2023-12-07", "reason": "fewer than 5 JetBlue flights controlled or held"}
-    v3_pack.save(tmp_path / "2023-12-07.json", Built(None, left))
-    kept = v3_pack.kept(tmp_path, ["2023-12-03", "2023-12-04", "2023-12-05", "2023-12-06", "2023-12-07"])
+    v4_pack.save(tmp_path / "2023-12-07.json", Built(None, left))
+    kept = v4_pack.kept(tmp_path, ["2023-12-03", "2023-12-04", "2023-12-05", "2023-12-06", "2023-12-07"])
     assert list(kept) == ["2023-12-03", "2023-12-07"] and kept["2023-12-03"].task.to_json() == task.to_json()
     assert kept["2023-12-07"] == Built(None, left)
     assert sorted(p.name for p in tmp_path.iterdir()) == ["2023-12-03.json", "2023-12-04.json", "2023-12-05.json",
@@ -149,24 +149,24 @@ def test_a_date_missing_an_input_is_unbuilt_with_its_reason_and_any_other_error_
         raise FileNotFoundError("cache/inputs/faa/ReleasableAircraft.zip")
 
     monkeypatch.setattr(network, "build_one", missing)
-    b = v3_pack.build_one(("2026-07-02", ("JFK",)))
+    b = v4_pack.build_one(("2026-07-02", ("JFK",)))
     assert b.task is None and b.row == {"date": "2026-07-02", "hubs": ["JFK"], "task_id": None,
                                         "reason": "error: FileNotFoundError: cache/inputs/faa/ReleasableAircraft.zip"}
     monkeypatch.setattr(network, "build_one", lambda job: {}["N3291J"])
     with pytest.raises(KeyError):
-        v3_pack.build_one(("2026-07-02", ("JFK",)))
+        v4_pack.build_one(("2026-07-02", ("JFK",)))
 
     def too_many(job):
         raise OSError(errno.EMFILE, "Too many open files")
 
     monkeypatch.setattr(network, "build_one", too_many)
     with pytest.raises(OSError):
-        v3_pack.build_one(("2026-07-02", ("JFK",)))
+        v4_pack.build_one(("2026-07-02", ("JFK",)))
 
 
 def test_only_names_each_date_once():
-    assert v3_pack.dates_of(" 2024-08-06,2024-07-15,,2024-08-06 ") == ["2024-07-15", "2024-08-06"]
-    assert v3_pack.dates_of("") == []
+    assert v4_pack.dates_of(" 2024-08-06,2024-07-15,,2024-08-06 ") == ["2024-07-15", "2024-08-06"]
+    assert v4_pack.dates_of("") == []
 
 
 def test_the_refs_stage_stores_world_checks_references_the_probe_and_the_costs_a_load_reads(tmp_path, crewed):
@@ -174,11 +174,11 @@ def test_the_refs_stage_stores_world_checks_references_the_probe_and_the_costs_a
     with world_check's references (the flat anchor on the control alone), the replay's fidelity and the probe; refs.json
     the anchor's and the follower's costs with the task's digest; a rerun keeps every result and runs nothing."""
     control = replace(crewed, task_id=crewed.task_id + "-c", split="control")
-    got = v3_pack.refs(tmp_path, [crewed, control], 2, (60.0, 30.0))
+    got = v4_pack.refs(tmp_path, [crewed, control], 2, (60.0, 30.0))
     r, c = got[crewed.task_id], got[control.task_id]
-    for k in (*v3_pack.REFS, "fidelity", "probe", "jetblue"):
+    for k in (*v4_pack.REFS, "fidelity", "probe", "jetblue"):
         assert "error" not in r[k], (k, r[k])
-    assert "flat" in c and "flat" not in r and not v3_pack.failed(got)
+    assert "flat" in c and "flat" not in r and not v4_pack.failed(got)
     assert r["anchor"]["proven"] and r["anchor"]["exact"] and r["follower"]["total"] >= r["anchor"]["objective"]
     assert r["jetblue"]["cancelled"] == r["probe"]["cancelled"] == sum(f.actual.dep is None for f in crewed.flights)
     assert r["fidelity"]["flown"] <= r["fidelity"]["jetblue_flown"] == r["jetblue"]["flown"]
@@ -190,9 +190,9 @@ def test_the_refs_stage_stores_world_checks_references_the_probe_and_the_costs_a
         raise AssertionError(f"ran {job[0]} again")
 
     monkey = pytest.MonkeyPatch()
-    monkey.setattr(v3_pack, "refs_job", rerun)
+    monkey.setattr(v4_pack, "refs_job", rerun)
     try:
-        assert v3_pack.refs(tmp_path, [crewed, control], 2, (60.0, 30.0)) == got
+        assert v4_pack.refs(tmp_path, [crewed, control], 2, (60.0, 30.0)) == got
     finally:
         monkey.undo()
 
@@ -203,9 +203,9 @@ def test_a_follower_stopped_by_an_unproven_watch_is_captured_and_flagged(monkeyp
 
     monkeypatch.setattr(references, "follow", unproven)
     names = ("naive", "anchor", "follower")
-    r = v3_pack.refs_job((crewed.task_id, crewed.to_json(), "sig", names, (60.0, 30.0)))
+    r = v4_pack.refs_job((crewed.task_id, crewed.to_json(), "sig", names, (60.0, 30.0)))
     assert r["follower"]["unproven_watch"] and "at gap 3.1%" in r["follower"]["error"]
     assert "total" in r["naive"] and r["anchor"]["proven"]
-    assert v3_pack.failed({crewed.task_id: r}) == {crewed.task_id: ["follower"]}
-    assert v3_pack.stored([crewed], {crewed.task_id: r}) == {
+    assert v4_pack.failed({crewed.task_id: r}) == {crewed.task_id: ["follower"]}
+    assert v4_pack.stored([crewed], {crewed.task_id: r}) == {
         crewed.task_id: {"anchor": r["anchor"]["total"], "task": references.digest(crewed)}}

@@ -1,4 +1,4 @@
-"""The playable day's clock (docs/v3/DESIGN.md §4, §5): the watches, the news each one delivers, and virtual time.
+"""The playable day's clock (docs/v4/DESIGN.md §4, §5): the watches, the news each one delivers, and virtual time.
 
 The watches are the follower's (`references.watch_times`), so a desk playing the day and the follower decide at the
 same minutes, a layered task's waking on its events (an advisory or SPECI reaching the desk, a ramp closure starting).
