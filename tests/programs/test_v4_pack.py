@@ -28,14 +28,15 @@ def test_the_pack_splits_and_fits_on_its_train_dates_and_a_quick_run_writes_the_
                                                                                                  monkeypatch):
     """Over the storm dates of four winter months (so the test builds 23, not 207; with two every event has an eval
     date, network.split, and none trains) and one control date: every split
-    date is written with layers and no crews (v3's default) at constants fitted on the train dates, rescaled to the
+    date is written with layers and no crews (`--bases none`) at constants fitted on the train dates, rescaled to the
     unseen scale fitted on them, the control after them alike; `--only` two of them, resumed, writes those same
     lines."""
     storms, counts = network.storms(CACHE, MONTHS)
     monkeypatch.setattr(network, "storms", lambda inputs: (storms, counts))
     monkeypatch.setattr(network, "control_dates", lambda inputs, derived: dict([CONTROL]))
-    v4_pack.main(["--out", str(tmp_path), "--workers", "4"])
+    v4_pack.main(["--out", str(tmp_path), "--workers", "4", "--bases", "none"])
     manifest = json.loads((tmp_path / "manifest.json").read_text())
+    assert manifest["calm"]["quantile"] == 0.9 and 0 < manifest["calm"]["rate"] < 0.05 and manifest["calm"]["fair_days"]
     lines = (tmp_path / "tasks.jsonl").read_text().splitlines()
     control = Task.from_dict(json.loads(lines.pop()))
     assert control.split == "control" and control.date == CONTROL[0] and not control.bases and control.layered
@@ -74,7 +75,7 @@ def test_the_pack_splits_and_fits_on_its_train_dates_and_a_quick_run_writes_the_
 
     chosen = [min(train), min(d for d, v in split.items() if v == "eval")]
     stamps = {d: (tmp_path / "built" / f"{d}.json").stat().st_mtime_ns for d in [*storms, f"control-{CONTROL[0]}"]}
-    v4_pack.main(["--out", str(tmp_path), "--workers", "4", "--resume", "--only", ",".join(chosen)])
+    v4_pack.main(["--out", str(tmp_path), "--workers", "4", "--bases", "none", "--resume", "--only", ",".join(chosen)])
     assert stamps == {d: (tmp_path / "built" / f"{d}.json").stat().st_mtime_ns for d in stamps}
     quick = (tmp_path / "tasks.jsonl").read_text().splitlines()
     assert quick == [lines[sorted(split).index(d)] for d in sorted(chosen)]
@@ -83,26 +84,26 @@ def test_the_pack_splits_and_fits_on_its_train_dates_and_a_quick_run_writes_the_
 
 @needs_cache
 def test_a_v4_crewed_pack_fits_its_cut_on_a_train_sample_and_builds_every_date_at_it(tmp_path, monkeypatch):
-    """With `--crew v4 --max-segments 4` the buffer is fitted (the fit stubbed to pick 30): each buffer of the grid
-    builds the train sample at its cut, layered at the fitted rates with unlimited reserves; every date is then built
-    at the pick, its pools fitted there, and the manifest records the crew, its fit and its sample."""
+    """By default (crews at JetBlue's bases, v4's cut) with `--max-segments 4` the buffer is fitted (the fit stubbed
+    to pick 30) at the pack's fair-weather bar: each buffer of the grid builds the train sample at its cut, layered at
+    the fitted rates with unlimited reserves; every date is then built at the pick, its pools fitted there, and the
+    manifest records the crew, its fit, its sample and the bar."""
     storms, counts = network.storms(CACHE, MONTHS)
     monkeypatch.setattr(network, "storms", lambda inputs: (storms, counts))
     monkeypatch.setattr(network, "control_dates", lambda inputs, derived: dict([CONTROL]))
     seen = {}
 
-    def fit(grid, plain, workers, cache):
+    def fit(grid, plain, rate, workers, cache):
         seen.update(grid)
-        seen[None] = plain
+        seen[None], bar[0] = plain, rate
         assert cache == tmp_path / "crew-fit"
         return crew.Rule("v4", 30, 4), [{"stub": True}]
 
+    bar = [None]
     monkeypatch.setattr(calibrate, "crew_fit", fit)
-    with pytest.raises(SystemExit):
-        v4_pack.main(["--out", str(tmp_path), "--crew", "v4"])
-    v4_pack.main(["--out", str(tmp_path), "--workers", "4", "--bases", "JFK,BOS,FLL,MCO", "--crew", "v4",
-                  "--max-segments", "4"])
+    v4_pack.main(["--out", str(tmp_path), "--workers", "4", "--max-segments", "4"])
     manifest = json.loads((tmp_path / "manifest.json").read_text())
+    assert bar[0] == manifest["calm"]["rate"] and 0 < bar[0] < 0.05
     train = manifest["constants"]["dates"]
     sample = list(calibrate.sample(train))
     assert manifest["crew"] == {"crew": "v4", "buffer": 30, "max_segments": 4, "fitted": True,

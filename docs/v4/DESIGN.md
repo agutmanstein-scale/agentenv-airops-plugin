@@ -1,11 +1,14 @@
-# AirOpsEnv v3: harder, more realistic, playable storm days
+# AirOpsEnv v4: realistic, playable storm days on the programs world
 
-Status: design, 2026-10-16. Base: `earakely-scale/agentenv-airops-plugin` main at `a8f1a77` (the programs model,
-`model.VERSION = 3`). Home: the fork `agutmanstein-scale/agentenv-airops-plugin`. Evidence behind every choice:
-the v2 probe (`~/handoff/out/report.md` on the devbox) and the layer spike (`~/handoff/spike/README.md`).
+Status: design, 2026-10-16; one version with the crew, 2026-10-22. Base: `earakely-scale/agentenv-airops-plugin`
+v0.5.0 (`b6b71d8`). Home: the fork `agutmanstein-scale/agentenv-airops-plugin`. Evidence behind every choice: the v2
+probe (`~/handoff/out/report.md` on the devbox) and the layer spike (`~/handoff/spike/README.md`); results:
+docs/v4/REPORT.md.
 
-"v3" here names the environment: the programs world with realism layers, the desk's view of them, and a playable
-day. To keep it apart from the data model's own version, a task that carries any layer is written as model version
+"v4" here names the environment: v2's programs world with realism layers and a crew legal on schedule
+(docs/v4/CREW.md), the desk's view of them, and a playable day. It sits beside Edgar's v3 (`airops-occ3`: passengers
+and the customer desk on the b6-v3 pack) and is built on v2's world, not v3's: it has none of v3's passengers or
+desks. To keep it apart from the data model's own version, a task that carries any layer is written as model version
 4; a task without one is v2/main's task, byte for byte, and every reference on it is unchanged.
 
 ## §0 Why, and what done means
@@ -19,17 +22,17 @@ The probe found the programs world too easy and too loose for the task to test a
 The spike showed MIP-expressible layers fix much of that: on all 149 days, do-nothing +13.9% median, the optimum
 cancels 37% of JetBlue's, the forecast desk's gap +4.4% -> +8.3% on 6 days, every anchor reproduced exactly.
 
-**Status (2026-10-17): v3 is the more realistic successor of v2; "harder" moves to v4.** The check on 129 storm
-dates (docs/v4/REPORT.md) found the layers sound and more realistic on every measure that moved, but barely harder on
-whole-network dates, and Edgar's crew model harder only by being stricter than reality (JetBlue's recorded day below
-the anchor, the calm day cancelling on every date). So v3 ships the layers without crews (`scripts/v4_pack.py`
-builds without bases by default), its done-when is criteria 2-4 below, and criterion 1 is v4's (docs/v4/CREW.md).
-Measured: the optimum's cancellations 26% -> 31% of JetBlue's, the could-fly-for-free share 58% -> 54%, the recorded
-day's excess 71% -> 67%, the replay unchanged (flown 99.5%, within 15 min 95.3%), all anchors proven and exact.
+**Status (2026-10-22): one v4, the layers and the crew together.** The layers (§2-§4) and the crew
+(docs/v4/CREW.md) were built and checked as two steps (on 129 hub-window dates on 2026-10-17, then on v2 0.3.2's whole
+days on 2026-10-20) and ship as one. The calm day is now held to JetBlue's own fair weather (§6.2). The check's former
+bar, <= 1 forced cancellation and <= 2 ferries on >= 90% of dates, was set for hub windows of 60 to 190 flights; on
+whole days of about 690 neither v2, the layers nor the crew met it (0.81, 0.81, 0.79), while JetBlue itself has <= 1
+carrier cancellation on only 69% of its fair days. Its failures were the base world's aircraft shortages: the layers
+alone fly a short aircraft's round trip up to 200 minutes late on the calm day, and the crew, which can't legally wait
+that long, cancels it, as a fair-weather desk would. The pack's results are in docs/v4/REPORT.md.
 
-The criteria as first set (v3 was meant to meet all four; 1 is now v4's and 2's thresholds were not reached):
-
-v3 is done when, on the v3 pack's days (§6), measured by `scripts/v4_check.py` (§6.2):
+v4 is done when, on the v4 pack's days (§6), measured by `scripts/v4_check.py` (§6.2), with docs/v4/CREW.md §0's
+guards:
 1. **Harder:** do-nothing's median excess over the hindsight optimum is at least 1.4x v2's on the same days, and the
    follower's median gap at least 1.5x v2's.
 2. **More realistic:** the optimum's cancellations reach at least 35% of JetBlue's (v2: 26%), the share of JetBlue's
@@ -38,10 +41,10 @@ v3 is done when, on the v3 pack's days (§6), measured by `scripts/v4_check.py` 
    fall below v2's.
 3. **Sound:** every anchor is proven to GAP or flagged; every MIP solution replays exactly in the sim and every sim day
    is a MIP solution, layers on, in the test suite and on the pack.
-4. **Playable:** an LLM plays a v3 day end to end through the AgentEnv server (§5), graded on the truth.
+4. **Playable:** an LLM plays a v4 day end to end through the AgentEnv server (§5), graded on the truth.
 
-Non-goals: new FAA program logic (the programs model and `flow/` are Edgar's and stay as they are), crew pairings
-beyond Edgar's proxy, next-day schedules.
+Non-goals: new FAA program logic (the programs model and `flow/` are Edgar's and stay as they are), v3's passengers
+and desks, next-day schedules.
 
 ## §1 Principles
 
@@ -54,7 +57,7 @@ beyond Edgar's proxy, next-day schedules.
   pack's manifest.
 - **Reuse upstream.** Edgar's crew model (`model.Crew`, `repairs.crews`, `Task.bases`), whole-network storm dates
   (`programs/network.py`), the world check (`scripts/world_check.py`), SPECIs (`flow/sources.py`) and the weather
-  timeline (`flow/weather.py`) are used as they are; v3 adds to them and never changes their semantics silently.
+  timeline (`flow/weather.py`) are used as they are; v4 adds to them and never changes their semantics silently.
 
 ## §2 Task and data
 
@@ -119,7 +122,7 @@ Each section: what it is, how the sim applies it, how the MIP carries it, how it
   read for any station: no new mechanism.
 
 ### §3.4 A finite reserve pool at crew bases
-- **What:** Edgar's crew model gives base departures unlimited reserves (no crew deadline). v3 gives each base a
+- **What:** Edgar's crew model gives base departures unlimited reserves (no crew deadline). v4 gives each base a
   pool of `reserves[base]` crews per day: a base departure past its pairing's crew deadline flies only by calling one.
 - **Sim:** plan key `reserve: True`; `granted(task, plan)` grants in flight-id order while the base's pool lasts.
 - **MIP:** a 0/1 reserve column per eligible flight bounding its copies past the crew deadline, and a pool row per
@@ -150,7 +153,7 @@ Each section: what it is, how the sim applies it, how the MIP carries it, how it
   cancels nothing, so release only constrains the optimum); the optimum's cancellations 89 -> 87 (cancelling a
   holder no longer frees its slot for a fuller flight); the replay's auto-cancels 2 -> 2, flown flights unchanged.
   JetBlue's replay releases 136 of the 485 pool slots, but a restored cancellation takes back its own slot, so the
-  probe's idle slots are not what release removes. Release is not part of v3: `Layers.release`, which no enforcer read,
+  probe's idle slots are not what release removes. Release is not part of v4: `Layers.release`, which no enforcer read,
   was removed from the schema in U11. Patch and numbers: `~/handoff/v3-loop/units/U8/`.
 
 ## §4 What the desk knows, and when (the day as known)
@@ -180,7 +183,7 @@ Each section: what it is, how the sim applies it, how the MIP carries it, how it
 
 ## §5 The playable day
 
-A v3 port of v1's day (`day.py`, `live.py`, `tasks.py`, `schedule.py`) onto the programs world, in
+A v4 port of v1's day (`day.py`, `live.py`, `tasks.py`, `schedule.py`) onto the programs world, in
 `src/agentenv_airops/v4day/` (v1's stay untouched).
 - **Clock and watches:** event-driven watches (§4). Each tool call costs `CALL_MIN` minutes of virtual time
   (default 1), so thinking costs time without tying the score to provider speed.
@@ -194,18 +197,30 @@ A v3 port of v1's day (`day.py`, `live.py`, `tasks.py`, `schedule.py`) onto the 
   `reward = (naive - cost) / (naive - anchor)`, clipped as v1's `core.reward`, with the follower and the rule as
   reference scores.
 - **Server:** an AgentEnv live env as `live.py` serves v1 (`urn:airops:live-load` pattern, virtual clock extension),
-  with v3 prompts in `tasks.py`'s style.
+  with v4 prompts in `tasks.py`'s style.
 
-## §6 The v3 pack and its check
+## §6 The v4 pack and its check
 
-### §6.1 Pack
-Whole-network storm dates over the 19 months, crew on (JetBlue's bases), every layer fitted on train dates, the
-draw as `network.split`. Manifest: inputs and their pins, layer constants and the dates they were fitted on.
+### §6.1 Pack (`scripts/v4_pack.py`)
+Whole-network storm dates over the 19 months, the crew on at JetBlue's bases (JFK, BOS, FLL, MCO) with v4's cut
+fitted on train dates (docs/v4/CREW.md §1), every layer fitted on train dates, the draw as `network.split`. Manifest:
+inputs and their pins, layer constants and the dates they were fitted on, the crew cut and its fit, and `calm`, the
+fair-weather bar of §6.2. `--bases none` builds the same dates with the layers alone: the no-crew pack the check reads
+the crew's guards against.
 
 ### §6.2 Check (`scripts/v4_check.py`)
 `world_check.py`'s gates with layers on, plus §0's metrics against the same dates without layers: do-nothing gap,
 follower gap, optimum's cancellations against JetBlue's, the could-fly-for-free share (the probe, per restore so
-pairs count once), replay flown share and departures within 15 min, proofs and exact replays. A v1/v2/v3 report.
+pairs count once), replay flown share and departures within 15 min, proofs and exact replays. A v1/v2/v4 report.
+
+The calm day (world_check's `calm_day`, and the crew's guard) is held to JetBlue's fair weather (`layers.fairday`). A
+fair day is a date on which JetBlue cancelled none of a whole-network task's flights (every leg of a tail that touched
+a hub, every hub flight) for weather (BTS code B) or the NAS (C); the cancellations it still has are the carrier's own
+(A: mechanical, crew), the kind a calm day forces where an aircraft is short. The bar is their share of the day's
+flights at the 90th percentile of the pack's months (0.92% over the 19 months, 315 fair days of 578), and a calm day
+is within it when it forces at most max(1, floor(rate x flights)) cancellations and at most 2 ferries; JetBlue's own
+fair days are within it on 90% of them. `calm_day` passes when >= 90% of the kept storm dates are within it, and the
+crew's guard when every date whose calm day without crews is within it stays within it with the crew.
 
 ## §7 Milestones (the loop's units; one linear stack, since they share sim.py and mip.py)
 

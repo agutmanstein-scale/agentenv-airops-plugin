@@ -23,13 +23,12 @@
   its recorded day, its anchor and its calm day at CREW_S, and so is each date built without crews, once (a score is
   kept under the pack's `cache` by its task's signature, so a rerun solves only what changed). The cut is the one that
   maximises do-nothing's median excess over the anchor on the sample while docs/v4/CREW.md §0's guards hold there
-  (`summary`): the calm day forces no more cancellations and no more ferries than the same date's without crews, on
-  every date (relative, as v2's and v3's own calm days pass the absolute <= 1 and <= 2 on only 80.6% of the 129-date
-  pack: the guard is that v4's crews add no calm-day failure; DECISIONS 2026-10-17), the recorded day costs no less
-  than the anchor on at least RECORDED_SHARE of the dates, and the anchors cancel (auto-cancels included) no more than
-  JetBlue did, pooled; ties go to the larger buffer, then the fewer segments (the laxer crew). A date counts where its
-  MIPs proved (for the calm guard, its no-crew build's too). None holds: no cut, and the pack stops. The pools are then
-  fitted at that cut.
+  (`summary`): on every date whose calm day without crews is within JetBlue's fair-weather bar (layers.fairday, at the
+  pack's `rate`), the crew's calm day is within it too, so crews push no fair day past the cancellations JetBlue's own
+  fair days have (DECISIONS 2026-10-22); the recorded day costs no less than the anchor on at least RECORDED_SHARE of
+  the dates, and the anchors cancel (auto-cancels included) no more than JetBlue did, pooled; ties go to the larger
+  buffer, then the fewer segments (the laxer crew). A date counts where its MIPs proved (for the calm guard, its no-crew
+  build's too). None holds: no cut, and the pack stops. The pools are then fitted at that cut.
 """
 
 import hashlib
@@ -48,7 +47,7 @@ import pandas as pd
 
 from .. import references
 from ..model import Layers, Task
-from . import closures
+from . import closures, fairday
 from .config import Config, build
 from .crew import Rule
 
@@ -89,11 +88,12 @@ def grid(buffers: Sequence[int] = BUFFERS, segments: Sequence[int] = SEGMENTS) -
     return [Rule("v4", b, s) for b, s in product(buffers, segments)]
 
 
-def crew_fit(tasks: Mapping[Rule, Sequence[Task]], plain: Sequence[Task], workers: int = 1,
+def crew_fit(tasks: Mapping[Rule, Sequence[Task]], plain: Sequence[Task], rate: float, workers: int = 1,
              time_limit: float = CREW_S, cache: Path | None = None) -> tuple[Rule | None, list[dict]]:
     """The cut of `tasks` (the sample's tasks built at each Rule, layered at the rates, unlimited reserves) that
     maximises do-nothing's median excess over the anchor while the guards hold against `plain` (the sample built
-    without crews, alike), or None; and each Rule's row, then the no-crew row."""
+    without crews, alike), the calm days at the fair-weather bar `rate`, or None; and each Rule's row, then the
+    no-crew row."""
     jobs = [(rule, t) for rule, ts in tasks.items() for t in ts] + [(None, t) for t in plain]
     args = [(t, time_limit, cache) for _, t in jobs]
     with ProcessPoolExecutor(workers) if workers > 1 and len(jobs) > 1 else nullcontext() as pool:
@@ -102,9 +102,9 @@ def crew_fit(tasks: Mapping[Rule, Sequence[Task]], plain: Sequence[Task], worker
     for (rule, _), s in zip(jobs, scores, strict=True):
         by[rule].append(s)
     base = {s["date"]: s for s in by.pop(None)}
-    rows = [summary(rule, s, base) for rule, s in by.items()]
+    rows = [summary(rule, s, base, rate) for rule, s in by.items()]
     held = [(r, rule) for r, rule in zip(rows, by, strict=True) if r["guards"]]
-    rows.append(summary(None, list(base.values()), base))
+    rows.append(summary(None, list(base.values()), base, rate))
     if not held:
         return None, rows
     return max(held, key=lambda x: (x[0]["do_nothing"], x[1].buffer, -x[1].max_segments))[1], rows
@@ -130,7 +130,8 @@ def kept_score(job: tuple[Task, float, Path | None]) -> dict:
 
 def score(task: Task, time_limit: float = CREW_S) -> dict:
     """What the guards and the objective read of one task: the naive, recorded and anchor costs, the anchor's and
-    JetBlue's cancellations, the calm day's forced cancellations and ferries, and whether both MIPs proved."""
+    JetBlue's cancellations, the calm day's forced cancellations and ferries, the day's flights, and whether both
+    MIPs proved."""
     sol, run = references.anchor(task, time_limit)
     calm = references.calm(task, time_limit)
     return {"date": task.date, "naive": references.naive(task).cost.total,
@@ -138,15 +139,16 @@ def score(task: Task, time_limit: float = CREW_S) -> dict:
             "proven": sol.proven and calm.solution.proven,
             "anchor_cancels": run.counts["cancelled"] + run.counts["auto_cancelled"],
             "jetblue_cancels": sum(f.actual.dep is None for f in task.flights), "calm_cancels": calm.cancelled,
-            "calm_ferries": calm.ferries}
+            "calm_ferries": calm.ferries, "flights": len(task.flights)}
 
 
-def summary(rule: Rule | None, scores: Sequence[dict], base: Mapping[str, dict]) -> dict:
+def summary(rule: Rule | None, scores: Sequence[dict], base: Mapping[str, dict], rate: float) -> dict:
     """A Rule's row (None: the no-crew build's): do-nothing's median excess over the anchor and each guard on the
-    dates whose MIPs proved, the calm day against `base`, the no-crew scores by date."""
+    dates whose MIPs proved, the calm day against `base` (the no-crew scores by date) at the fair-weather bar
+    `rate`."""
     ok = [s for s in scores if s["proven"]]
     paired = [(s, base[s["date"]]) for s in ok if s["date"] in base and base[s["date"]]["proven"]]
-    calm = share(s["calm_cancels"] <= b["calm_cancels"] and s["calm_ferries"] <= b["calm_ferries"] for s, b in paired)
+    calm = share(calm_within(s, rate) or not calm_within(b, rate) for s, b in paired)
     recorded = share(s["recorded"] >= s["anchor"] for s in ok)
     cancels = sum(s["anchor_cancels"] for s in ok), sum(s["jetblue_cancels"] for s in ok)
     checks = {"calm": calm == 1, "recorded": recorded is not None and recorded >= RECORDED_SHARE,
@@ -156,6 +158,10 @@ def summary(rule: Rule | None, scores: Sequence[dict], base: Mapping[str, dict])
             "do_nothing": round(statistics.median(s["naive"] / s["anchor"] - 1 for s in ok), 4) if ok else None,
             "calm_share": calm, "recorded_share": recorded, "anchor_cancels": cancels[0], "jetblue_cancels": cancels[1],
             "checks": checks, "guards": bool(ok) and all(checks.values()), "scores": list(scores)}
+
+
+def calm_within(s: dict, rate: float) -> bool:
+    return fairday.within(s["calm_cancels"], s["calm_ferries"], s["flights"], rate)
 
 
 def share(flags: Iterable[bool]) -> float | None:

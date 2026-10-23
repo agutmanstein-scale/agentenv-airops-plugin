@@ -143,16 +143,20 @@ def test_the_fit_rates_closures_on_the_train_dates_alone_and_pools_reserves_on_t
 
 
 def scored(naive: int, date: str = "d0", anchor: int = 100, recorded: int = 120, cancels: int = 1, jetblue: int = 2,
-           calm: int = 0, ferries: int = 0, proven: bool = True) -> dict:
+           calm: int = 0, ferries: int = 0, proven: bool = True, flights: int = 200) -> dict:
     return {"date": date, "naive": naive, "recorded": recorded, "anchor": anchor, "proven": proven,
-            "anchor_cancels": cancels, "jetblue_cancels": jetblue, "calm_cancels": calm, "calm_ferries": ferries}
+            "anchor_cancels": cancels, "jetblue_cancels": jetblue, "calm_cancels": calm, "calm_ferries": ferries,
+            "flights": flights}
+
+
+RATE = 0.01
 
 
 def test_the_crew_fit_takes_the_hardest_cut_whose_guards_all_hold_ties_to_the_laxer(monkeypatch):
-    """Over two dates each, d1's calm day forcing 2 cancellations and 1 ferry without crews: the hardest cut forces
-    one more there, the next costs the recorded day under the anchor on one date, the next cancels more than JetBlue;
-    of the three left at 20% (one matching the no-crew calm day, past the absolute <= 1, one with d1 unproven, left
-    out) the larger buffer wins."""
+    """Over two dates each, d1's calm day forcing 2 cancellations and 1 ferry without crews, within the fair-weather
+    bar (1% of its 200 flights): the hardest cut forces one more there, past it; the next costs the recorded day under
+    the anchor on one date, the next cancels more than JetBlue; of the three left at 20% (one matching the no-crew calm
+    day, one with d1 unproven, left out) the larger buffer wins."""
     rules = calibrate.grid((0, 30, 60), (4, 6))
     table = {(rules[0], 0): scored(150), (rules[0], 1): scored(150, "d1", calm=3, ferries=1),
              (rules[1], 0): scored(140), (rules[1], 1): scored(140, "d1", recorded=90),
@@ -162,7 +166,7 @@ def test_the_crew_fit_takes_the_hardest_cut_whose_guards_all_hold_ties_to_the_la
              (rules[5], 0): scored(110), (rules[5], 1): scored(110, "d1"),
              ("plain", 0): scored(105), ("plain", 1): scored(105, "d1", calm=2, ferries=1)}
     monkeypatch.setattr(calibrate, "score", lambda job, time_limit: table[job])
-    chosen, rows = calibrate.crew_fit({r: [(r, 0), (r, 1)] for r in rules}, [("plain", 0), ("plain", 1)])
+    chosen, rows = calibrate.crew_fit({r: [(r, 0), (r, 1)] for r in rules}, [("plain", 0), ("plain", 1)], RATE)
     assert chosen == crew.Rule("v4", 60, 4) and [r["guards"] for r in rows[:6]] == [False] * 3 + [True] * 3
     assert [r["checks"] for r in rows[:3]] == [{"calm": False, "recorded": True, "cancels": True},
                                                {"calm": True, "recorded": False, "cancels": True},
@@ -171,7 +175,22 @@ def test_the_crew_fit_takes_the_hardest_cut_whose_guards_all_hold_ties_to_the_la
     assert (rows[4]["calm_share"], rows[0]["calm_share"]) == (1.0, 0.5)
     assert rows[6]["crew"] is None and rows[6]["do_nothing"] == 0.05 and rows[6]["checks"]["calm"]
     monkeypatch.setattr(calibrate, "score", lambda job, time_limit: scored(150, calm=3 if job[0] != "plain" else 0))
-    assert calibrate.crew_fit({r: [(r, 0)] for r in rules}, [("plain", 0)])[0] is None
+    assert calibrate.crew_fit({r: [(r, 0)] for r in rules}, [("plain", 0)], RATE)[0] is None
+
+
+def test_the_calm_guard_holds_a_crew_to_the_fair_weather_bar_not_to_the_no_crew_count(monkeypatch):
+    """A crew may cancel more than the no-crew calm day as long as it stays within JetBlue's fair-weather bar (2 of
+    200 flights at 1%), and a date whose calm day is past the bar even without crews is the base's, not the crew's:
+    only a crew that pushes a date within the bar past it fails."""
+    within, past = crew.Rule("v4", 0, 4), crew.Rule("v4", 30, 4)
+    table = {(within, 0): scored(150, calm=2), (within, 1): scored(150, "d1", calm=9),
+             (past, 0): scored(150, calm=3), (past, 1): scored(150, "d1", calm=9),
+             ("plain", 0): scored(105), ("plain", 1): scored(105, "d1", calm=5)}
+    monkeypatch.setattr(calibrate, "score", lambda job, time_limit: table[job])
+    chosen, rows = calibrate.crew_fit({r: [(r, 0), (r, 1)] for r in (within, past)}, [("plain", 0), ("plain", 1)],
+                                      RATE)
+    assert chosen == within and [r["calm_share"] for r in rows[:2]] == [1.0, 0.5]
+    assert [r["checks"]["calm"] for r in rows[:2]] == [True, False]
 
 
 def test_a_score_is_kept_under_the_cache_by_its_tasks_signature(tmp_path, monkeypatch):
@@ -186,6 +205,7 @@ def test_a_score_is_kept_under_the_cache_by_its_tasks_signature(tmp_path, monkey
 def test_the_crew_fit_scores_a_day_by_its_references_and_samples_train_dates_by_seed():
     s = calibrate.score(chain_day(crew.Rule("v4")), 60)
     assert (s["calm_cancels"], s["calm_ferries"], s["jetblue_cancels"], s["proven"]) == (0, 0, 0, True)
+    assert s["flights"] == len(chain_day(crew.Rule("v4")).flights)
     assert s["naive"] >= s["anchor"] and s["date"] == "2024-07-01"
     dates = [f"2024-07-{d:02d}" for d in range(1, 31)]
     picked = calibrate.sample(dates)

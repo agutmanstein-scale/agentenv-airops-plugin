@@ -6,10 +6,11 @@ scripts/v4_check.py reads, and each task's anchor and follower costs for the pla
                               [--refs] [--prove-s 1800] [--watch-s 900] [--bases none|JFK,BOS,...]
                               [--crew edgar|v4] [--buffer MIN] [--max-segments N]
 
-1. every storm date over the 19 cached months (network.storms) built as a whole-network task, without crews by default
-   (v3: docs/v4/DESIGN.md §0 status; `--bases JFK,BOS,FLL,MCO` turns the crew model on at those bases, its pairings
-   cut by `--crew`: Edgar's proxy, the default, or v4's legal on schedule, layers.crew, at `--buffer` and
-   `--max-segments`), at scale 1 and the 03:00 cutoff, as world_check builds them, and so are the control
+1. every storm date over the 19 cached months (network.storms) built as a whole-network task with the crew model at
+   JetBlue's crew bases by default (`--bases JFK,BOS,FLL,MCO`; `none` builds the layers alone, the no-crew pack
+   scripts/v4_check.py --nocrew reads), its pairings cut by `--crew`: v4's legal on schedule (layers.crew), the
+   default, at `--buffer` and `--max-segments`, or Edgar's proxy; at scale 1 and the 03:00 cutoff, as world_check
+   builds them, and so are the control
    dates (network.control_dates, each with its hubs' control windows, split 'control'); each date's build is written
    to DIR/built/ (v4's to DIR/built-v4-BUFFER-SEGMENTS/) as it finishes (a control's as control-DATE.json), and
    `--resume` keeps those already built there (a date left unbuilt, or a file cut short, is built again). A date an
@@ -18,11 +19,13 @@ scripts/v4_check.py reads, and each task's anchor and follower costs for the pla
 2. the seeded whole-event split over the built storm dates, as world_check draws it (network.split, `--seed`, default
    0), and the unseen-traffic scale fitted on the train dates (unseen.fit_scale), every task (the controls too)
    rescaled to it;
-3. the layer constants fitted on the train dates only (layers.calibrate.fit): the ramp closures' rate per hub, then,
-   with `--crew v4` and `--buffer` or `--max-segments` left out, v4's crew cut over the grid of what is left out
-   (layers.calibrate.crew_fit, on its seeded sample of the train dates, each built at every cut of the grid and once
-   without crews, to DIR/built-nocrew/, its scores kept under DIR/crew-fit/; no cut holding the guards stops the pack,
-   the fit written to the manifest), every date then built again at the cut, then
+3. the calm day's bar, JetBlue's fair-weather cancellations over the pack's months (layers.fairday.rate, written to
+   the manifest as `calm`); the layer constants fitted on the train dates only (layers.calibrate.fit): the ramp
+   closures' rate per hub, then, with `--crew v4` and `--buffer` or `--max-segments` left out, v4's crew cut over the
+   grid of what is left out (layers.calibrate.crew_fit at that bar, on its seeded sample of the train dates, each
+   built at every cut of the grid and once without crews, to DIR/built-nocrew/, its scores kept under DIR/crew-fit/;
+   no cut holding the guards stops the pack, the fit written to the manifest), every date then built again at the
+   cut, then
    the reserve pool per base, the cap clauses kept at 0.9 and 5;
 4. every date of the split (eval and train) and every control date (`--only` a few of them, storm or control) given
    every layer at those constants (network.layered, as network.build(layers=) does), written to DIR/tasks.jsonl, the
@@ -71,7 +74,7 @@ from agentenv_airops.flow import sources
 from agentenv_airops.programs import candidates, network, probe, rbs, references, repairs, sim, unseen
 from agentenv_airops.programs.advisories import HUBS
 from agentenv_airops.programs.candidates import Built
-from agentenv_airops.programs.layers import calibrate, config, crew
+from agentenv_airops.programs.layers import calibrate, config, crew, fairday
 from agentenv_airops.programs.model import Task, write_tasks
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -81,6 +84,7 @@ REFS = ("naive", "airline", "recorded", "anchor", "follower", "calm")
 CONTROL_REFS = ("flat",)
 PROVE_S, WATCH_S = 1800.0, 900.0
 FIDELITY_MIN = 15
+BASES = "JFK,BOS,FLL,MCO"
 REFS_VERSION = 1
 """Bumped when a reference's definition here changes, so a resumed --refs runs it again."""
 
@@ -93,11 +97,11 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--resume", action="store_true", help="keep the builds already under DIR/built/")
     ap.add_argument("--refs", action="store_true", help="run the references on every task written")
-    ap.add_argument("--bases", default="none",
-                    help="crew bases for Edgar's crew model, comma-separated (JetBlue's: JFK,BOS,FLL,MCO); 'none', the "
-                         "v3 default, builds without crews (docs/v4/DESIGN.md §0 status)")
-    ap.add_argument("--crew", choices=crew.MODES, default="edgar",
-                    help="how the crew model cuts pairings with --bases: Edgar's proxy or v4's legal on schedule")
+    ap.add_argument("--bases", default=BASES,
+                    help="the crew model's bases, comma-separated (default JetBlue's); 'none' builds the layers alone, "
+                         "the no-crew pack scripts/v4_check.py --nocrew reads")
+    ap.add_argument("--crew", choices=crew.MODES, default="v4",
+                    help="how the crew model cuts pairings at --bases: v4's legal on schedule or Edgar's proxy")
     ap.add_argument("--buffer", type=int, help="v4's duty buffer in minutes (default: fitted on the train dates)")
     ap.add_argument("--max-segments", type=int, help="v4's legs per duty at most (default: fitted on the train dates)")
     ap.add_argument("--prove-s", type=float, default=PROVE_S, help="time limit of each anchor, flat or calm solve")
@@ -105,11 +109,9 @@ def main(argv: list[str] | None = None) -> None:
     args = ap.parse_args(argv)
     out = args.out
     bases = () if args.bases.lower() == "none" else tuple(b for b in args.bases.split(",") if b)
-    if args.crew == "v4" and not bases:
-        sys.exit("ERROR: --crew v4 cuts the crew model's pairings: give it --bases")
-    fitting = args.crew == "v4" and (args.buffer is None or args.max_segments is None)
+    fitting = bool(bases) and args.crew == "v4" and (args.buffer is None or args.max_segments is None)
     rule = crew.Rule(args.crew, crew.BUFFER if args.buffer is None else args.buffer,
-                     crew.MAX_SEGMENTS if args.max_segments is None else args.max_segments)
+                     crew.MAX_SEGMENTS if args.max_segments is None else args.max_segments) if bases else crew.EDGAR
     out.mkdir(parents=True, exist_ok=True)
     clock = Clock()
 
@@ -137,6 +139,8 @@ def main(argv: list[str] | None = None) -> None:
     pushed = pd.concat([candidates.month_frame(INPUTS, DERIVED, m)[["Origin", "act_dep"]] for m in candidates.MONTHS],
                        ignore_index=True)
     rated = calibrate.rates(train, pushed, spans)
+    bar = fairday.rate((bts.read_ontime(bts.ontime_path(INPUTS, m), DERIVED) for m in candidates.MONTHS), HUBS)
+    clock.lap("calm bar", json.dumps(bar))
     crewing = {**rule.to_dict(), "fitted": fitting}
     if fitting:
         sample = calibrate.sample(train)
@@ -149,12 +153,13 @@ def main(argv: list[str] | None = None) -> None:
             grid[r] = [network.layered(rbs.rescale(replace(t, split="train"), scale, *shipped_e), rated, INPUTS,
                                        DERIVED) for t in storm_and_control(at)[0].values()]
         plain = grid.pop(None)
-        chosen, rows = calibrate.crew_fit(grid, plain, args.workers, cache=out / "crew-fit")
+        chosen, rows = calibrate.crew_fit(grid, plain, bar["rate"], args.workers, cache=out / "crew-fit")
         crewing["fit"] = {"sample": list(sample), "seed": calibrate.SAMPLE_SEED, "time_limit_s": calibrate.CREW_S,
                           "rules": rows, "chosen": chosen.to_dict() if chosen else None}
         clock.lap("crew fit", json.dumps(chosen.to_dict() if chosen else None))
         if chosen is None:
-            (out / "manifest.json").write_text(json.dumps({"code": revision(), "crew": crewing}, indent=1) + "\n")
+            (out / "manifest.json").write_text(json.dumps({"code": revision(), "crew": crewing, "calm": bar},
+                                                          indent=1) + "\n")
             sys.exit("ERROR: no crew cut of the grid holds the guards on the train sample (manifest.json: crew.fit)")
         if chosen != rule:
             rule = chosen
@@ -187,7 +192,8 @@ def main(argv: list[str] | None = None) -> None:
                 "split": dict(sorted(drawn.items())), "unsplit": sorted(set(tasks) - set(drawn)),
                 "controls": {d: {"hubs": list(jobs[CONTROL + d][1]), "windows": {h: list(x) for h, x in w.items()},
                                  "task_id": calm[d].task_id if d in calm else None} for d, w in controls.items()},
-                "scale": scale, "constants": constants.to_dict(), "inputs": inputs_of(INPUTS, candidates.MONTHS),
+                "scale": scale, "constants": constants.to_dict(), "calm": bar,
+                "inputs": inputs_of(INPUTS, candidates.MONTHS),
                 "counts": {"total": total(layered), "tasks": {t.task_id: tally(t) for t in layered}},
                 "wall_s": clock.laps}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
