@@ -1,6 +1,8 @@
 // AirOpsEnv v1 viewer: ?episode=<url> replays one episode on its clock, the 3D airport filling the screen with the US
-// map in a corner, cards over them and a timeline below; ?index=<url> lists episodes. window.airops {ready, time(t),
-// view(name), show(step), shot(spec), state()} lets a recorder drive it frame by frame.
+// map in a corner, cards over them and a timeline below; ?index=<url> lists episodes; ?live=<base> plays the day a live
+// server is serving as it is decided (live.js). window.airops {ready, time(t), view(name), show(step), shot(spec),
+// state()} lets a recorder drive it frame by frame. Sound (audio.js) is off until its speaker button is pressed, on with
+// &sound=1 or &stream, and absent with ?sound=0.
 import { HUB_NAMES, cities, esc, flagged, flightsAt, positionsAt, prepare, programBands, watchAt } from "./model.js";
 import { Board, Desk, Header, Passengers, Score, Timeline } from "./cards.js";
 import { Room } from "./room.js";
@@ -41,7 +43,8 @@ boot();
 async function boot() {
   const app = document.getElementById("app");
   try {
-    if (params.get("episode")) await episodePage(app, new URL(params.get("episode"), location.href));
+    if (params.has("live")) await (await load("./live.js")).livePage(app, new URL(params.get("live") || ".", location.href), { episodePage, params, ready: (x) => resolveReady(x) });
+    else if (params.get("episode")) await episodePage(app, new URL(params.get("episode"), location.href));
     else await indexPage(app, new URL(params.get("index") ?? "../cache/episodes/index.json", location.href));
   } catch (e) {
     console.error(e);
@@ -149,8 +152,10 @@ function note(list) {
   return `<p class="note">The board: ${esc(model)} on ${days} storm days scores a mean reward of ${esc(parts.join(" and "))}. 1 is the best plan found; the standard crew desk scores about 0.31. The two desks used about twice the compute, so this doesn't show that talking helps.</p>`;
 }
 
-async function episodePage(app, url) {
-  const ep = await getJSON(url);
+/** One episode's page; a `live` day's (live.js) takes its episode, clock and cameras from it and returns the page's
+ * handle, which grows the day in place as more of it is decided (update()). */
+async function episodePage(app, url, live = null) {
+  const ep = live ? live.ep : await getJSON(url);
   const P = prepare(ep, url), task = ep.task;
   let doc = null, traffic = null, stageUrl = null;
   if (ep.stage) {
@@ -158,16 +163,10 @@ async function episodePage(app, url) {
     [doc, traffic] = await Promise.all([getJSON(stageUrl), getJSON(new URL(ep.stage.traffic, url))]).catch((e) => (console.warn("no 3D airport:", e), [null, null]));
   }
   P.lo = traffic?.span?.[0] ?? task.start;
-  P.hi = traffic?.span?.[1] ?? P.end;
-  const city = cities(task, traffic), cityOf = (c) => city.get(c) ?? c, model = ep.model_label ?? ep.model, brand = ep.passengers ? "AirOpsEnv v3" : ep.occ ? "AirOpsEnv v2" : "AirOpsEnv v1";
-  const stands = new Map(), terminals = new Map();
-  for (const ac of traffic?.aircraft ?? []) {
-    if (!ac.task) continue;
-    for (const v of ac.visits) for (const [k, l] of [["arr", v.arr], ["dep", v.dep]]) if (l?.tag) stands.set(`${k}|${l.flight}`, v.stand);
-  }
-  for (const ref of stands.values()) if (ref.includes("-")) terminals.set(ref.split("-")[0], (terminals.get(ref.split("-")[0]) ?? 0) + 1);
-  const home = [...terminals].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-  for (const [k, ref] of stands) stands.set(k, home && ref.startsWith(`${home}-`) ? ref.slice(home.length + 1) : ref.replace("-", " "));
+  P.hi = traffic?.span?.[1] ?? (live ? Math.max(P.end, ...ep.schedule.map((s) => s.sched_arr)) + 60 : P.end);
+  let city = cities(task, traffic);
+  const cityOf = (c) => city.get(c) ?? c, model = ep.model_label ?? ep.model, brand = ep.passengers ? "AirOpsEnv v3" : ep.occ ? "AirOpsEnv v2" : "AirOpsEnv v1";
+  let { stands, home } = gates(traffic);
   document.title = `${HUB_NAMES[task.hub] ?? task.hub} ${task.date} · ${model} · ${brand}`;
   app.innerHTML = `<div class="ep">
     <div class="view view-stage"><div class="stage-host"></div><div class="inset-caption">The airport · click to swap</div></div>
@@ -186,7 +185,7 @@ async function episodePage(app, url) {
     try {
       const { AirportStage, tagAt: tag } = await load("./stage/stage.js");
       tagAt = tag;
-      stage = new AirportStage(root.querySelector(".stage-host"), { stage: doc, traffic, base: new URL(".", stageUrl).href, manual: RECORD, controls: !RECORD, avoid: () => covered(root) });
+      stage = new AirportStage(root.querySelector(".stage-host"), { stage: doc, traffic, base: new URL(".", stageUrl).href, manual: RECORD, controls: !RECORD && !live, avoid: () => covered(root) });
       await stage.ready;
     } catch (e) {
       console.error("the 3D airport failed, showing the map:", e);
@@ -198,7 +197,7 @@ async function episodePage(app, url) {
   if (ep.occ) {
     try {
       const { ControlCenter } = await load("./center/center.js");
-      center = new ControlCenter(root.querySelector(".room-host"), { P, ep, base: url.href, manual: RECORD, controls: !RECORD });
+      center = new ControlCenter(root.querySelector(".room-host"), { P, ep, base: url.href, manual: RECORD, controls: !RECORD && !live });
       await center.ready;
     } catch (e) {
       console.error("the control-center room failed:", e);
@@ -206,15 +205,19 @@ async function episodePage(app, url) {
       center = null;
     }
   }
-  const views = new Views(root, P, { stage, room: center, interactive: !RECORD,
+  const views = new Views(root, P, { stage, room: center, interactive: !RECORD && !live,
     onSwap: (main) => setView(main === "map" ? "network" : main === "room" ? roomView : stageView) });
   const ctx = { task, earlier: P.news, city: cityOf, hub: task.hub, sched: P.sched, flightOf: (ref) => P.sched.get(Number(String(ref).replace(/^f/, "")))?.flight };
-  const header = new Header(root.querySelector(".head"), P, { model: ep.occ ? `${model} · ${ep.occ.label}` : model, weather: stage ? traffic.weather : null, brand });
-  const desk = ep.occ ? new Room(root.querySelector(".desk"), P, { model }) : new Desk(root.querySelector(".desk"), P, { model, city: cityOf });
-  const score = new Score(root.querySelector(".score"), P, { model });
-  const pax = ep.passengers ? new Passengers(root.querySelector(".pax"), P) : null;
-  const board = new Board(root.querySelector(".board"), P, { city: cityOf, stands, terminal: home?.replace(/^T/, ""), rows: 8, scene: !!stage,
-    scope: ep.occ ? "all of its flights here" : "the task's flights" });
+  let header, desk, score, pax, board;
+  const cards = () => {
+    header = new Header(root.querySelector(".card.head"), P, { model: ep.occ ? `${model} · ${ep.occ.label}` : model, weather: stage ? traffic.weather : null, brand });
+    desk = ep.occ ? new Room(root.querySelector(".card.desk"), P, { model }) : new Desk(root.querySelector(".card.desk"), P, { model, city: cityOf });
+    score = new Score(root.querySelector(".card.score"), P, { model });
+    pax = ep.passengers ? new Passengers(root.querySelector(".card.pax"), P) : null;
+    board = new Board(root.querySelector(".card.board"), P, { city: cityOf, stands, terminal: home?.replace(/^T/, ""), rows: 8, scene: !!stage,
+      scope: ep.occ ? "all of its flights here" : "the task's flights" });
+  };
+  cards();
   const expertEl = root.querySelector(".expert");
   let expert = null;
   const crews = !!traffic?.crews?.length;
@@ -363,15 +366,32 @@ async function episodePage(app, url) {
     else if (k === "x") setExpert(expertEl.hidden);
   });
 
+  /** A frame; a live page's carries on past an error in one, since it runs for a day. */
   function tick(now) {
+    if (!live) return frame(now);
+    requestAnimationFrame(tick);
+    try {
+      frame(now, false);
+    } catch (e) {
+      live.error(e);
+    }
+  }
+
+  function frame(now, next = true) {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
-    boost = playing && quiet(t) ? 6 : 1;
-    if (playing) {
-      t = clamp(t + dt * speed * boost);
-      if (t >= P.hi) play(false);
+    if (live) {
+      const c = live.clock(now, dt);
+      t = clamp(c.t);
+      rate = c.rate;
+    } else {
+      boost = playing && quiet(t) ? 6 : 1;
+      if (playing) {
+        t = clamp(t + dt * speed * boost);
+        if (t >= P.hi) play(false);
+      }
+      rate = playing ? speed * 60 * boost : null;
     }
-    rate = playing ? speed * 60 * boost : null;
     draw(t);
     if (stage && !busy && views.visible("stage")) {
       busy = true;
@@ -381,24 +401,26 @@ async function episodePage(app, url) {
       busyRoom = true;
       Promise.resolve(center.time(t, { dt, speed: rate ?? 0 })).finally(() => (busyRoom = false));
     }
-    requestAnimationFrame(tick);
+    live?.frame(t, now, dt);
+    if (next) requestAnimationFrame(tick);
   }
 
   await views.map.loaded;
+  if (live) t = clamp(live.clock(performance.now(), 0).t);
   let open = moment ? stage.moment(moment) : null;
   if (open) {
     draw(clamp(open.t), { force: true });
     open = stage.moment(moment);
     t = clamp(open.t);
   }
-  await setView(asked ?? viewName, open ? { lounge: open.lounge, focus: open.focus, auto: true } : {});
+  await setView(live ? live.view ?? viewName : asked ?? viewName, open ? { lounge: open.lounge, focus: open.focus, auto: true } : {});
   if (params.get("expert") === "1") setExpert(true);
   draw(t, { force: true });
   if (stage) await stage.time(t, { dt: 0, speed: 0 });
   if (center) await center.time(t, { dt: 0, speed: 0 });
   await settle();
   if (!RECORD) {
-    if (params.get("play") === "1") play(true);
+    if (params.get("play") === "1" && !live) play(true);
     requestAnimationFrame(tick);
   }
 
@@ -440,7 +462,44 @@ async function episodePage(app, url) {
     room: center,
     map: views.map,
   };
+  if (!RECORD && params.get("sound") !== "0") {
+    load("./audio.js").then(({ mountSound }) => mountSound(window.airops, root.querySelector(".timeline"), { on: params.has("stream") || params.get("sound") === "1", stream: params.has("stream") }))
+      .catch((e) => console.warn("no sound:", e));
+  }
   resolveReady({ steps: P.steps.length, watches: P.watches.map((w) => w.t), start: task.start, t0: P.lo, end: P.hi, horizon: P.hi,
     last_watch: P.lastWatch, views: [...(stage ? stageViews : []), ...(center ? ROOM_VIEWS : []), "network"], radar: views.radar?.count ?? 0, twin: !!ep.twin,
     stage: !!stage, room: !!center, span: [P.lo, P.hi], featured: traffic?.featured ?? [], hub: task.hub });
+  if (!live) return null;
+
+  /** The live day grown: the episode and its prepared index in place, the cards and the room built again over them, a
+   * new traffic sidecar into the 3D airport. */
+  async function update(next, nextTraffic = null) {
+    for (const k of Object.keys(ep)) if (!(k in next)) delete ep[k];
+    Object.assign(ep, next);
+    Object.assign(P, prepare(ep, url), { lo: P.lo, hi: P.hi });
+    if (nextTraffic) {
+      traffic = nextTraffic;
+      city = cities(task, traffic);
+      ({ stands, home } = gates(traffic));
+    }
+    cards();
+    await Promise.all([nextTraffic && stage ? stage.retraffic(nextTraffic) : null, center?.reload(P, ep)]);
+    draw(t, { force: true });
+  }
+
+  return { P, ep, root, stage, room: center, views, setView, update, draw, traffic: () => traffic,
+    view: () => viewName, time: () => t, rate: () => rate, stageViews, terminal, crews };
+}
+
+/** Where each of the day's flights parks in 3D (`dep|B6 123` to a gate's name) and the terminal most of them use. */
+function gates(traffic) {
+  const stands = new Map(), terminals = new Map();
+  for (const ac of traffic?.aircraft ?? []) {
+    if (!ac.task) continue;
+    for (const v of ac.visits) for (const [k, l] of [["arr", v.arr], ["dep", v.dep]]) if (l?.tag) stands.set(`${k}|${l.flight}`, v.stand);
+  }
+  for (const ref of stands.values()) if (ref.includes("-")) terminals.set(ref.split("-")[0], (terminals.get(ref.split("-")[0]) ?? 0) + 1);
+  const home = [...terminals].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  for (const [k, ref] of stands) stands.set(k, home && ref.startsWith(`${home}-`) ? ref.slice(home.length + 1) : ref.replace("-", " "));
+  return { stands, home };
 }

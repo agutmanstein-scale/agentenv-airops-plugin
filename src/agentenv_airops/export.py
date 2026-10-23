@@ -183,13 +183,15 @@ def stage(task: Task, cache: Path, stem: str) -> dict | None:
     return {"hub": task.hub, "url": f"../stage/{task.hub}/stage.json.gz", "traffic": f"{stem}.stage.json.gz"}
 
 
-def sidecar(ep: Mapping, cache: Path, stages: dict[str, dict] | None = None) -> bytes:
-    """The episode's traffic sidecar, gzipped: its run laid over the task's baked traffic at the hub's stage."""
+def sidecar(ep: Mapping, cache: Path, stages: dict[str, dict] | None = None, traffic: Mapping | None = None) -> bytes:
+    """The episode's traffic sidecar, gzipped: its run laid over the task's baked traffic (``traffic``, else read from
+    the cache) at the hub's stage."""
     hub, task_id = ep["task"]["hub"], ep["task"]["task_id"]
     stages = {} if stages is None else stages
     if hub not in stages:
         stages[hub] = json.loads(gzip.decompress((cache / "stage" / hub / "stage.json.gz").read_bytes()))
-    traffic = json.loads(gzip.decompress((cache / "traffic" / f"{task_id}.json.gz").read_bytes()))
+    if traffic is None:
+        traffic = json.loads(gzip.decompress((cache / "traffic" / f"{task_id}.json.gz").read_bytes()))
     crew = {int(i): rows for i, rows in (ep.get("occ") or {}).get("crew", {}).items()}
     doc = hub_stage.sidecar(ep["task"], ep["executed"], traffic, stages[hub], crew)
     if ep.get("occ"):

@@ -190,6 +190,10 @@ button, select { font: inherit; color: inherit; }
 .cams button.on { background: #fff; color: #10202c; font-weight: 650; }
 .expert-toggle { flex: none; border: 1px solid var(--line); }
 .expert-toggle.on { background: var(--hold); border-color: var(--hold); color: #04121f; font-weight: 650; }
+.sound-toggle { flex: none; display: grid; place-items: center; width: 32px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: transparent;
+  color: #c9d6dc; cursor: pointer; }
+.sound-toggle:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+.sound-toggle.on { background: #fff; border-color: #fff; color: #10202c; }
 
 .follow-chip { position: absolute; z-index: 6; top: var(--gap); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px;
   padding: 6px 8px 6px 14px; border-radius: 20px; background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 13px;
@@ -262,7 +266,7 @@ svg.tails .wtick.past { fill: var(--now); }
 
 html.recording, html.recording * { cursor: none !important; }
 html.recording .timeline .play, html.recording .timeline .speed, html.recording .cams, html.recording .expert-toggle, html.recording .more,
-html.recording .follow-chip button { display: none; }
+html.recording .follow-chip button, html.recording .sound-toggle { display: none; }
 html.recording .desk { overflow: hidden; }
 html.bare .cards, html.bare .timeline, html.bare .credit, html.bare .follow-chip, html.bare .view.corner, html.bare .expert { display: none !important; }
 
