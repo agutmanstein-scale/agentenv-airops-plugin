@@ -28,7 +28,6 @@ days = [
   "b6-20240106-0400",  #  7 2024-01-06 score 24.2: winter; JFK GDP 5.2 h; BOS GDP 10.8 h, 4 ground stops 3.1 h; 20 cancelled
   "b6-20260729-0400",  #  8 2026-07-29 score 51.7: summer; JFK 8 ground stops 7.6 h; BOS GDP 27.7 h, 2 ground stops 1.6 h; 56 cancelled
   "b6-20250813-0400",  #  9 2025-08-13 score 51.3: summer; JFK GDP 15.4 h, 9 ground stops 9.5 h; BOS GDP 8.8 h, 2 ground stops 1.6 h; 49 cancelled
-  "b6-20230702-0400",  # 10 2023-07-02 score 35.9: summer; JFK GDP 14.7 h; BOS GDP 9.8 h, 4 ground stops 3.5 h; 44 cancelled
   "b6-20240809-0400",  # 11 2024-08-09 score 34.5: summer; JFK GDP 12.2 h; BOS GDP 14.3 h, 1 ground stop 1.3 h; 54 cancelled
   "b6-20250206-0400",  # 12 2025-02-06 score 18.9: winter; JFK GDP 6.7 h; BOS GDP 10.7 h; 15 cancelled
   "b6-20240614-0400",  # 13 2024-06-14 score 32.9: summer; JFK GDP 11.3 h, 3 ground stops 3.2 h; BOS GDP 11.4 h, 2 ground stops 0.7 h; 24 cancelled
@@ -36,8 +35,6 @@ days = [
   "b6-20230624-0400",  # 15 2023-06-24 score 29.5: summer; JFK GDP 4.1 h, 7 ground stops 6.7 h; BOS GDP 4.5 h, 1 ground stop 1.2 h; 51 cancelled
   "b6-20240116-0400",  # 16 2024-01-16 score 13.7: winter; JFK no program; BOS GDP 2.5 h, 3 ground stops 3.8 h; 36 cancelled
   "b6-20230807-0400",  # 17 2023-08-07 score 29.3: summer; JFK 6 ground stops 5.6 h; BOS GDP 3.7 h, 5 ground stops 3.9 h; 66 cancelled
-  "b6-20240816-0400",  # 18 2024-08-16 score 27.7: summer; JFK GDP 8.6 h; BOS GDP 12.2 h, 4 ground stops 3.3 h; 3 cancelled
-  "b6-20240626-0400",  # 19 2024-06-26 score 24.7: summer; JFK GDP 9.4 h, 4 ground stops 4.7 h; BOS 3 ground stops 2.2 h; 15 cancelled
   "b6-20250218-0400",  # 20 2025-02-18 score 13.2: winter; JFK GDP 9.2 h; BOS GDP 3.8 h; 2 cancelled
   "b6-20240731-0400",  # 21 2024-07-31 score 22.6: summer; JFK GDP 7 h, 3 ground stops 1.9 h; BOS GDP 9 h, 1 ground stop 1.3 h; 2 cancelled
   "b6-20240729-0400",  # 22 2024-07-29 score 22.2: summer; JFK GDP 7 h; BOS GDP 15.2 h; 0 cancelled
@@ -63,6 +60,10 @@ days = [
   "b6-20260119-0400",  # 42 2026-01-19 score 6.5: winter; JFK 1 ground stop 1 h; BOS GDP 3.5 h; 10 cancelled
   "b6-20260730-0400",  # 43 2026-07-30 score 11.5: summer; JFK no program; BOS GDP 8.6 h; 29 cancelled
   "b6-20230815-0400",  # 44 2023-08-15 score 8: summer; JFK no program; BOS GDP 7 h; 10 cancelled
+  # later: the best plan found is the standard desks' (B0), or the rehearsal played it
+  "b6-20230702-0400",  # 10 2023-07-02 score 35.9: summer; JFK GDP 14.7 h; BOS GDP 9.8 h, 4 ground stops 3.5 h; 44 cancelled
+  "b6-20240816-0400",  # 18 2024-08-16 score 27.7: summer; JFK GDP 8.6 h; BOS GDP 12.2 h, 4 ground stops 3.3 h; 3 cancelled
+  "b6-20240626-0400",  # 19 2024-06-26 score 24.7: summer; JFK GDP 9.4 h, 4 ground stops 4.7 h; BOS 3 ground stops 2.2 h; 15 cancelled
   # eval days: Astra played these on the board
   "b6-20230709-0400",  # 45 2023-07-09 score 79.9: summer; JFK GDP 16.7 h, 8 ground stops 7.8 h; BOS GDP 15.5 h, 7 ground stops 5.5 h; 211 cancelled
   "b6-20231218-0400",  # 46 2023-12-18 score 34.3: winter; JFK GDP 9.1 h; BOS GDP 10.3 h, 6 ground stops 5.4 h; 41 cancelled
