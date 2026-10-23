@@ -75,6 +75,7 @@ class Follower:
         self.world, self.day = world, make(world, mode)
         self.seq = self.played = 0
         self.mismatches: list[dict] = []
+        self.checked: str | None = None
 
     def follow(self, data: Mapping) -> list[dict]:
         """The record's new calls played (each with its `out`) and advisories delivered, in seq order; the day ended
@@ -105,8 +106,10 @@ class Follower:
             self.seq = seq
         if data.get("done") and not day.done:
             day.end()
-        if data.get("digest") and day.done and day.digest() != data["digest"]:
-            self.mismatches.append({"digest": day.digest(), "recorded": data["digest"]})
+        if data.get("digest") and day.done and data["digest"] != self.checked:
+            self.checked = data["digest"]
+            if day.digest() != data["digest"]:
+                self.mismatches.append({"digest": day.digest(), "recorded": data["digest"]})
         return out
 
 

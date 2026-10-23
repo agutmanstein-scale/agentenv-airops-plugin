@@ -165,7 +165,7 @@ class Day:
         self.started = time.time()
         self.ep: dict | None = None
         self.sidecar: str | None = None
-        self.final = False
+        self.final = self.sealed = False
         self.failing: float | None = None
         self.error: str | None = None
         self.data_grade: dict | None = None
@@ -226,7 +226,8 @@ class Day:
 
     def follow(self, data: dict) -> bool:
         """The record's news played, at most CATCH_UP watches past the replay's at a time so that a server behind the
-        day shows it watch by watch; whether anything changed."""
+        day shows it watch by watch, and after the day's end the desks' calls the env logs after it (the done day's
+        episode built again); whether anything changed."""
         if data.get("task_id") is None:
             return False
         self.lag = max(0, data.get("watch", 0) - self.follower.day.k)
@@ -240,6 +241,8 @@ class Day:
             print(f"{self.run_id}: {e}; playing the record again from its start", flush=True)
             self.restart()
             new = self.follower.follow(data)
+        if new:
+            self.final = False
         now = time.time()
         day = self.follower.day
         self.opened.setdefault(day.k, now)
@@ -249,9 +252,10 @@ class Day:
                                                  "text": onair.summary(x, self.world.task)}, "at": utc(now)}
         by_id = {n["id"]: n for n in self.statics.news}
         self.feed.extend(row | {"at": utc(now)} for row in onair.feed(self.follower, new, by_id))
-        if data.get("done") and data.get("grade") is not None:
+        graded = self.data_grade is None and data.get("done") and data.get("grade") is not None
+        if graded:
             self.data_grade = data["grade"]
-        return bool(new) or (day.done and not self.final)
+        return bool(new) or (day.done and not self.final) or bool(graded)
 
     def build(self, live_dir: Path, cur: dict, force: bool = False) -> None:
         """The episode now: the final one once done, else the day so far, its projection and sidecar renewed at a new
@@ -393,7 +397,7 @@ class Server:
             return
         day.instance_id = cur.get("instance_id") or day.instance_id
         changed = False
-        if not day.final and status in ("playing", "done", "intermission"):
+        if not day.sealed and status in ("playing", "done", "intermission"):
             data, base = None, (cur.get("env") or {}).get("base") if status == "playing" else None
             if base:
                 try:
@@ -402,10 +406,12 @@ class Server:
                 except Exception as e:
                     day.failing = day.failing or time.time()
                     day.error = f"data/get: {type(e).__name__}: {e}"[:300]
-            if (data is None or not data.get("done")) and status != "playing" and cur.get("day_file"):
+            filed = (data is None or not data.get("done")) and status != "playing" and bool(cur.get("day_file"))
+            if filed:
                 data = read_json(Path(cur["day_file"]))
             if data is not None:
                 changed = day.follow(data)
+                day.sealed = filed and day.final
         if changed:
             day.build(self.live_dir, cur)
             if day.final:
