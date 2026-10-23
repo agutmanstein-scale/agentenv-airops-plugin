@@ -110,10 +110,10 @@ def hours(spans) -> float:
     return round(total / 60, 1)
 
 
-def storm(task_id: str, meta: dict, task: dict) -> dict:
+def storm(task_id: str, meta: dict, task: dict, best_from: str | None = None) -> dict:
     """A day's storm from its task: per hub the hours its GDPs governed departures (their segments) and its ground
     stops (count and hours), the flights JetBlue cancelled in reality, and the score: GDP hours plus twice the
-    ground-stop hours at both hubs, plus one per ten flights cancelled."""
+    ground-stop hours at both hubs, plus one per ten flights cancelled; and where its best plan found came from."""
     hubs = {}
     for hub in HUBS:
         p = task["programs"].get(hub) or {"segments": [], "stops": []}
@@ -123,24 +123,26 @@ def storm(task_id: str, meta: dict, task: dict) -> dict:
     score = sum(h["gdp_h"] + 2 * h["gs_h"] for h in hubs.values()) + cancelled / 10
     return {"task_id": task_id, "date": meta["date"], "split": meta["split"],
             "season": "winter" if int(meta["date"][5:7]) in WINTER else "summer", "hubs": hubs,
-            "cancelled": cancelled, "score": round(score, 1)}
+            "cancelled": cancelled, "score": round(score, 1), "best_from": best_from}
 
 
 def storms(pack: Pack3) -> list[dict]:
     out = []
     for task_id, meta in pack.tasks.items():
         if meta["split"] in ("train", "eval"):
-            raw = gzip.decompress((pack.path / "dates" / f"{meta['date']}.json.gz").read_bytes())
-            out.append(storm(task_id, meta, json.loads(raw)["task"]))
+            doc = json.loads(gzip.decompress((pack.path / "dates" / f"{meta['date']}.json.gz").read_bytes()))
+            out.append(storm(task_id, meta, doc["task"], (doc.get("refs_p") or {}).get("best_from")))
     return out
 
 
 def order(days: list[dict]) -> list[dict]:
     """The play order: the training days, which no model played on the board, then the eval days as the fallback. In
     each, a season's days by score, a day a calendar day from a higher one of the season (the same storm) after the
-    others, and the seasons interleaved in proportion, the top day first."""
-    return [d for split in ("train", "eval")
-            for d in interleave([ranked([x for x in days if x["split"] == split and x["season"] == season])
+    others, and the seasons interleaved in proportion, the top day first; the days whose best plan found is the
+    standard desks' own (B0, so any plan as good scores 1) after the rest."""
+    return [d for split in ("train", "eval") for tail in (False, True)
+            for d in interleave([ranked([x for x in days if x["split"] == split and x["season"] == season
+                                         and (x.get("best_from") == "B0") == tail])
                                  for season in ("summer", "winter")])]
 
 
