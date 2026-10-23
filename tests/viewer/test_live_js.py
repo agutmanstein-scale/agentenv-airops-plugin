@@ -1,4 +1,5 @@
-"""The live viewer's clock (live.test.mjs) under Node's test runner: never past what is decided, paced to the watches."""
+"""The live viewer's clock (live.test.mjs) under Node's test runner: never past what is decided, paced to the
+watches."""
 
 import shutil
 import subprocess
