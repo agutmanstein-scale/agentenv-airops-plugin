@@ -1104,6 +1104,7 @@ AirOpsEnv v1 is a model of a day, not an airline's operations system. What it le
 | `scripts/build_stage.py`, `scripts/prebake_traffic.py`, `scripts/build_twin.py`, `scripts/prebake_radar.py` | the viewer's airport stages, traffic, hub twins and radar frames, into `cache/` |
 | `scripts/record.py` | films an episode in headless Chrome |
 | `scripts/hub_dataset.py`, `hub/` | the Hugging Face dataset and the static Space |
+| `live/` | optional, not needed to use the plugin: streaming a model's days live to X or any RTMP target ([live/README.md](live/README.md)) |
 
 ```bash
 uv sync --extra dev --extra viewer --extra build

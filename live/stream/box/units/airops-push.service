@@ -1,0 +1,17 @@
+[Unit]
+Description=AirOps stream: forwards the relay to the RTMP target (X)
+Wants=airops-relay.service
+After=airops-relay.service
+StartLimitIntervalSec=0
+
+[Service]
+User=streamer
+EnvironmentFile=/etc/airops-stream.env
+ExecStart=/usr/bin/python3 -u /opt/airops-stream/streamer.py push
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target

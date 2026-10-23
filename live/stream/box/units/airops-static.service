@@ -1,0 +1,13 @@
+[Unit]
+Description=AirOps stream: a static server for the recorded test bundle in /opt/airops-view (tests only)
+After=network.target
+
+[Service]
+User=streamer
+WorkingDirectory=/opt/airops-view
+ExecStart=/usr/bin/python3 -m http.server 8080 --bind 127.0.0.1
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+[Unit]
+Description=AirOps stream: Chrome on the viewer, PulseAudio and the ffmpeg encoder, supervised
+Wants=airops-x.service airops-relay.service
+After=airops-x.service airops-relay.service
+StartLimitIntervalSec=0
+
+[Service]
+User=streamer
+EnvironmentFile=/etc/airops-stream.env
+ExecStart=/usr/bin/python3 -u /opt/airops-stream/streamer.py capture
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target

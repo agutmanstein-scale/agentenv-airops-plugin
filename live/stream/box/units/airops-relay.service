@@ -1,0 +1,14 @@
+[Unit]
+Description=AirOps stream: the local RTMP relay and recorder (mediamtx)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+User=streamer
+WorkingDirectory=/var/lib/airops-stream
+ExecStart=/opt/airops-stream/mediamtx /opt/airops-stream/mediamtx.yml
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

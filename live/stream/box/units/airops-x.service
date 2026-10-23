@@ -1,0 +1,14 @@
+[Unit]
+Description=AirOps stream: the X display on the NVIDIA GPU
+After=network.target nvidia-persistenced.service
+StartLimitIntervalSec=0
+
+[Service]
+EnvironmentFile=/etc/airops-stream.env
+ExecStart=/opt/airops-stream/display.sh
+ExecStartPost=/opt/airops-stream/display-ready.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

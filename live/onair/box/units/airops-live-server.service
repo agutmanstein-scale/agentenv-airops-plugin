@@ -1,0 +1,17 @@
+[Unit]
+Description=AirOps live: the episode server (follows current.json, serves /live, the assets and the viewer) on 127.0.0.1:8765
+After=network.target docker.service
+StartLimitIntervalSec=0
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/agentenv-airops-plugin
+Environment=PYTHONUNBUFFERED=1 PYTHONPATH=src
+ExecStart=/home/ubuntu/agentenv-airops-plugin/.venv/bin/python scripts/live_server.py serve --current /home/ubuntu/live/current.json --live /home/ubuntu/live/prebuilt --assets /home/ubuntu/live/assets --web /home/ubuntu/agentenv-airops-plugin/web --host 127.0.0.1 --port 8765 --inputs /home/ubuntu/agentenv-airops-plugin/cache/inputs
+Restart=always
+RestartSec=2
+StandardOutput=append:/home/ubuntu/live/server.log
+StandardError=append:/home/ubuntu/live/server.log
+
+[Install]
+WantedBy=multi-user.target
