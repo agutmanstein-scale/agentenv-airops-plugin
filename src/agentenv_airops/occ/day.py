@@ -109,7 +109,7 @@ class OccDay:
         if mode not in self.MODES:
             raise ValueError(f"mode must be one of {', '.join(self.MODES)}")
         self.w, self.task, self.mode = world, world.task, mode
-        self.world = sim.truth(self.task)
+        self.world = self.truth_world()
         self.known: dict[int, sim.World] = {}
         self.units = {u.id: u for u in world.units}
         self.times = occ.watches(self.task)
@@ -161,10 +161,20 @@ class OccDay:
     def max_turns(self) -> int:
         return self.TURNS[self.mode] * len(self.times) + EXTRA_TURNS
 
+    def truth_world(self) -> sim.World:
+        return sim.truth(self.task)
+
+    def known_world(self, t: int) -> sim.World:
+        return sim.known(self.task, t)
+
     def known_at(self, t: int) -> sim.World:
         if t not in self.known:
-            self.known[t] = sim.known(self.task, t)
+            self.known[t] = self.known_world(t)
         return self.known[t]
+
+    def costs(self, day: crewsim.CrewDay) -> dict[str, float]:
+        """The day's cost by part, as the desks read it (estimates, reviews) and the grade reports it."""
+        return costs(day)
 
     def open_flights(self, t: int) -> list[int]:
         return [i for i in self.task.by_id if run.opened(self.truth, i, t) and not self.plan.get(i, {}).get("cancel")]
@@ -197,7 +207,7 @@ class OccDay:
 
     def _close(self) -> None:
         if self.desks:
-            self.estimates.append({"watch": self.k, "t": self.t, **costs(self.project(self.plan).day)})
+            self.estimates.append({"watch": self.k, "t": self.t, **self.costs(self.project(self.plan).day)})
         self.committed |= run.commits(self.task, self.truth, self.plan, self.t, self.known_at(self.t))
 
     def _open(self, by: str) -> None:
@@ -597,7 +607,7 @@ class OccDay:
         cancellations, every flight it moves by more than WARN minutes or cancels (warnings), the flights it moves or
         crews otherwise (by impact) and the crew flags it changes."""
         now, then = self.project(self.plan), self.project(plan)
-        a, b = costs(now.day), costs(then.day)
+        a, b = self.costs(now.day), self.costs(then.day)
         moved, warnings = [], []
         for i in sorted(then.day.run.flights):
             x, y = now.day.run.flights[i], then.day.run.flights[i]
@@ -849,7 +859,7 @@ class OccDay:
                       "avoidable_share": None if b0 <= best else round((b0 - c) / (b0 - best), 4),
                       "above_script": None if script is None or script <= best else round((script - c) /
                                                                                            (script - best), 4),
-                      "script": script, "below_best": c < best - 0.5, "costs": costs(day), "counts": self.counts(),
+                      "script": script, "below_best": c < best - 0.5, "costs": self.costs(day), "counts": self.counts(),
                       "executed": day.run.rows()}
 
     def counts(self) -> dict:

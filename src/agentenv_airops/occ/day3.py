@@ -39,14 +39,7 @@ class OccDay3(OccDay):
         super().__init__(world, mode)
 
     def compose(self, desk: str, proj, flags) -> str:
-        parts = [pages.header(self, desk)]
-        if desk in (OPS, ONE):
-            parts.append(pages.cost_line(proj, "ops"))
-        if desk in (CREW, ONE):
-            parts.append(pages.cost_line(proj, "crew"))
-        if desk in (CUSTOMER, ONE):
-            parts.append(customer.cost_line(proj))
-        parts.append(pages.messages(self, desk))
+        parts = [pages.header(self, desk), *self.cost_lines(desk, proj), pages.messages(self, desk)]
         if desk in (OPS, ONE):
             parts += [pages.attention(self, proj, flags), pages.programs(self, proj), pages.spares(self, proj)]
         if desk in (CREW, ONE):
@@ -54,6 +47,16 @@ class OccDay3(OccDay):
         if desk in (CUSTOMER, ONE):
             parts += customer.page(self, proj, flags)
         return "\n\n".join(p for p in parts if p)
+
+    def cost_lines(self, desk: str, proj) -> list[str]:
+        out = []
+        if desk in (OPS, ONE):
+            out.append(pages.cost_line(proj, "ops"))
+        if desk in (CREW, ONE):
+            out.append(pages.cost_line(proj, "crew"))
+        if desk in (CUSTOMER, ONE):
+            out.append(customer.cost_line(proj))
+        return out
 
     # ------------------------------------------------------------------ requests
 

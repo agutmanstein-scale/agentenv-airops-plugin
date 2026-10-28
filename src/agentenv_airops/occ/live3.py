@@ -1,7 +1,8 @@
 """The ops control center with passengers live (airops-occ3): v2's env (live.py) on a b6-v3 day, every day costing P,
 with a third desk in the role customer. The customer desk reads its page with wait_turn, looks passengers up with
 cust_flights and cust_flight, and asks ops with cust_request; ops answers with ops_reply and texts the customer desk
-with ops_request. Rebooking stays automatic: no tool rebooks."""
+with ops_request. Rebooking stays automatic: no tool rebooks. Loaded `realistic`, the day is b6-v3r's in the realistic
+world, graded on JetBlue's own cost (day3r.py)."""
 
 from typing import Annotated, Literal
 
@@ -10,8 +11,9 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from .day3 import OccDay3
+from .day3r import OccDay3R
 from .live import LOAD_URI, Flight, OccEnv, Status, Text, Time
-from .pack import Pack3
+from .pack import Pack3, Pack3R
 
 ENV3 = "airops-occ3"
 Note = Annotated[str | None, Field(description="at most 400 characters, or null")]
@@ -67,6 +69,9 @@ class OccEnv3(OccEnv):
     # ------------------------------------------------------------------ the env's own
 
     @extension(LOAD_URI, description="Start a day on the task with this id, played by three desks (joint) or one agent "
-                                     "at all three (one).")
-    def occ_load(self, task_id: str, mode: str = "joint", turn_timeout_s: float = 1800.0) -> dict:
-        return super().occ_load(task_id, mode, turn_timeout_s)
+                                     "at all three (one); realistic, in the realistic world under JetBlue's own cost.")
+    def occ_load(self, task_id: str, mode: str = "joint", turn_timeout_s: float = 1800.0,
+                 realistic: bool = False) -> dict:
+        if realistic and not self.loaded:
+            self.pack, self.DAY = Pack3R(), OccDay3R
+        return super().occ_load(task_id, mode, turn_timeout_s) | {"realistic": realistic}

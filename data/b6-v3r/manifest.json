@@ -1,0 +1,261 @@
+{
+ "pack": "b6-v3r",
+ "base": "b6-v3",
+ "base_manifest_sha256": "06cceb32582de8ee41759a862529eb85e27a25af92a32258b380e0ffd6516f44",
+ "assembled_at_commit": "97242e393db8ccfff339f17b437bfd5d432eb9cb",
+ "realistic": {
+  "gates": {
+   "ABQ": 1,
+   "ACK": 5,
+   "ALB": 3,
+   "ATL": 7,
+   "AUS": 3,
+   "AVL": 1,
+   "BDL": 7,
+   "BNA": 4,
+   "BOS": 55,
+   "BQN": 5,
+   "BTV": 1,
+   "BUF": 6,
+   "BUR": 1,
+   "BWI": 2,
+   "BZN": 2,
+   "CHS": 4,
+   "CLE": 2,
+   "CLT": 2,
+   "DAB": 2,
+   "DCA": 11,
+   "DEN": 5,
+   "DFW": 2,
+   "DTW": 3,
+   "EWR": 13,
+   "EYW": 1,
+   "FLL": 51,
+   "HDN": 1,
+   "HPN": 9,
+   "HYA": 2,
+   "IAD": 2,
+   "IAH": 5,
+   "ILM": 1,
+   "ISP": 3,
+   "JAX": 4,
+   "JFK": 62,
+   "LAS": 7,
+   "LAX": 20,
+   "LGA": 17,
+   "MCI": 1,
+   "MCO": 27,
+   "MHT": 1,
+   "MIA": 4,
+   "MKE": 2,
+   "MSP": 2,
+   "MSY": 3,
+   "MVY": 4,
+   "ONT": 1,
+   "ORD": 5,
+   "ORF": 2,
+   "ORH": 3,
+   "PBI": 14,
+   "PDX": 2,
+   "PHL": 3,
+   "PHX": 4,
+   "PIT": 4,
+   "PQI": 1,
+   "PSE": 3,
+   "PSP": 1,
+   "PVD": 6,
+   "PWM": 2,
+   "RDU": 6,
+   "RIC": 4,
+   "RNO": 2,
+   "ROC": 2,
+   "RSW": 8,
+   "SAN": 4,
+   "SAT": 2,
+   "SAV": 2,
+   "SEA": 5,
+   "SFO": 10,
+   "SJC": 2,
+   "SJU": 20,
+   "SLC": 5,
+   "SMF": 2,
+   "SRQ": 3,
+   "STT": 2,
+   "STX": 1,
+   "SYR": 3,
+   "TLH": 1,
+   "TPA": 10,
+   "TVC": 1,
+   "VPS": 1,
+   "VRB": 2
+  },
+  "rate": 0.0042652724270776,
+  "swaps": [
+   "BOS",
+   "JFK"
+  ],
+  "take": 0.7280185956652646,
+  "save": 0.44450452247052874,
+  "lost": 0.6758898166047423,
+  "kept": 0.7,
+  "usd_per_pax_min": 1.07
+ },
+ "tasks": {
+  "b6-20230627-0400": {
+   "date": "2023-06-27",
+   "split": "train",
+   "best_from": "rerun",
+   "best_from_p": "repair"
+  },
+  "b6-20230701-0400": {
+   "date": "2023-07-01",
+   "split": "train",
+   "best_from": "rerun",
+   "best_from_p": "v2_best"
+  },
+  "b6-20230708-0400": {
+   "date": "2023-07-08",
+   "split": "eval",
+   "best_from": "run",
+   "best_from_p": "repair"
+  },
+  "b6-20230709-0400": {
+   "date": "2023-07-09",
+   "split": "eval",
+   "best_from": "run",
+   "best_from_p": "repair"
+  },
+  "b6-20230713-0400": {
+   "date": "2023-07-13",
+   "split": "eval",
+   "best_from": "run",
+   "best_from_p": "v2_best"
+  },
+  "b6-20230729-0400": {
+   "date": "2023-07-29",
+   "split": "eval",
+   "best_from": "run",
+   "best_from_p": "repair"
+  },
+  "b6-20230817-0400": {
+   "date": "2023-08-17",
+   "split": "train",
+   "best_from": "run",
+   "best_from_p": "repair"
+  },
+  "b6-20240106-0400": {
+   "date": "2024-01-06",
+   "split": "train",
+   "best_from": "run",
+   "best_from_p": "repair"
+  },
+  "b6-20240614-0400": {
+   "date": "2024-06-14",
+   "split": "train",
+   "best_from": "run",
+   "best_from_p": "repair"
+  },
+  "b6-20240623-0400": {
+   "date": "2024-06-23",
+   "split": "eval",
+   "best_from": "run",
+   "best_from_p": "B0"
+  },
+  "b6-20240630-0400": {
+   "date": "2024-06-30",
+   "split": "train",
+   "best_from": "run",
+   "best_from_p": "v2_best"
+  },
+  "b6-20240803-0400": {
+   "date": "2024-08-03",
+   "split": "train",
+   "best_from": "run",
+   "best_from_p": "repair"
+  },
+  "b6-20240818-0400": {
+   "date": "2024-08-18",
+   "split": "train",
+   "best_from": "run",
+   "best_from_p": "repair"
+  },
+  "b6-20250111-0400": {
+   "date": "2025-01-11",
+   "split": "eval",
+   "best_from": "run",
+   "best_from_p": "v2_best"
+  },
+  "b6-20250119-0400": {
+   "date": "2025-01-19",
+   "split": "train",
+   "best_from": "run",
+   "best_from_p": "v2_best"
+  },
+  "b6-20250206-0400": {
+   "date": "2025-02-06",
+   "split": "train",
+   "best_from": "run",
+   "best_from_p": "v2_best"
+  },
+  "b6-20250813-0400": {
+   "date": "2025-08-13",
+   "split": "train",
+   "best_from": "run",
+   "best_from_p": "v2_best"
+  },
+  "b6-20260701-0400": {
+   "date": "2026-07-01",
+   "split": "eval",
+   "best_from": "run",
+   "best_from_p": "v2_best"
+  },
+  "b6-20260709-0400": {
+   "date": "2026-07-09",
+   "split": "eval",
+   "best_from": "run",
+   "best_from_p": "repair"
+  },
+  "b6-20260715-0400": {
+   "date": "2026-07-15",
+   "split": "eval",
+   "best_from": "run",
+   "best_from_p": "v2_best"
+  },
+  "b6-20260727-0400": {
+   "date": "2026-07-27",
+   "split": "train",
+   "best_from": "run",
+   "best_from_p": "repair"
+  },
+  "b6-20260729-0400": {
+   "date": "2026-07-29",
+   "split": "train",
+   "best_from": "run",
+   "best_from_p": "repair"
+  }
+ },
+ "files": {
+  "dates/2023-06-27.json.gz": "5f67e1cd7fa9ac3b7ea015aa8a7c92c999ee17de1a3ca78c028fcf5f2caedaf2",
+  "dates/2023-07-01.json.gz": "54998411c1b4499f6515c961a5f00327f15aa3b02f2386bb4737917b734d9e80",
+  "dates/2023-07-08.json.gz": "71ee04a924857a345066f6d44e6efdfab725447f4237ff91f798f22a080347a7",
+  "dates/2023-07-09.json.gz": "b8e1d37223a4feaf38e27923abb773bce35dda0a67380757eb3d46c41cf2d8cf",
+  "dates/2023-07-13.json.gz": "47dd429a5ddd20c8a5adefba297b5edf95dc972fc9059fce8fdfc5ee504dc2bc",
+  "dates/2023-07-29.json.gz": "d239854678fed73a2afe13eab022481134c3a41b9f67db6bac16eae62ab1a225",
+  "dates/2023-08-17.json.gz": "17de250ca09353db2cb9f48b82ef5a67b8bb0d7f4ef59d91c16cccb351b5c5aa",
+  "dates/2024-01-06.json.gz": "86f2b53aade6fd24d20692520d0b455261514a2e6e39fe630b58b55ac9b9cd9c",
+  "dates/2024-06-14.json.gz": "ff14a487e96004c7a0755671ad6a063806c612ef5d3001f0bd5b35597e1d07cb",
+  "dates/2024-06-23.json.gz": "f61defcb396afd2d66280294aa47cd8e21aa22b348caac97f15f2105c281aaed",
+  "dates/2024-06-30.json.gz": "0b5795c81d695237dbd93c4e7900bb13e5356a9f88427e764216e3d9be572673",
+  "dates/2024-08-03.json.gz": "93f8ea7ade6d872429a7f90499016a03219f2357433f59c636cc48af172c745e",
+  "dates/2024-08-18.json.gz": "75d10e47e34686990ceff68fb31678cb496f715f94b7f4900e8b7f7c8c1129d8",
+  "dates/2025-01-11.json.gz": "e9dd6d4a2c1395f3d6ef79f5af376b048fec5d2e13ff7429a40ff91dd636632e",
+  "dates/2025-01-19.json.gz": "c38196d6f571eb3f6aa4b7062453076902e10318f8b83e39010a5e68b23af35a",
+  "dates/2025-02-06.json.gz": "86c47acccf138cf5c003dfe4665db22873e32e3542020cb24bc91e3775fa14e6",
+  "dates/2025-08-13.json.gz": "ac5c94352e6618876d01ae4f6322aa78b8e1e0f90b22fea536c534a7edeb904d",
+  "dates/2026-07-01.json.gz": "17ea253dd9ed143f3561bf594e452aaa6506a358d369d718b647f618d0cc0366",
+  "dates/2026-07-09.json.gz": "20663b6869216dacc9201b2ea8c8e46effa67e37ec7567246a959f32c685439c",
+  "dates/2026-07-15.json.gz": "10802f5b06b5271989517170534a88079ad075b3c1570ba6eb7dbe83ea1a5865",
+  "dates/2026-07-27.json.gz": "6dce39b330b1f6a04f5ea7c1ae21c5b9c2cf918b7afbc9710eec211d9ba73016",
+  "dates/2026-07-29.json.gz": "3b87a87339ee659ee225380e9d3b7c6dc6819d97851a21b592670a69ac81c998"
+ }
+}

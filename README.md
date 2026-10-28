@@ -332,6 +332,15 @@ agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.5.0 --bundle airops-occ3 -
     --model openai/gpt-6.1-sol
 ```
 
+Realistic mode plays the same days in a world closer to the real one (v4's caps and closures, gates, aircraft that
+break, swaps only at the hubs, tomorrow's first departures), graded on JetBlue's own cost with JetBlue's own decisions
+replayed as 0.5; [REALISTIC.md](REALISTIC.md) has the world, the cost and the references:
+
+```bash
+agent-env airops-occ3 tasks --realistic --split all   # results/bundles/airops-occ3-real: b6-v3r's 22 days
+agent-env run results/bundles/airops-occ3-real --task b6-20230627-0400-joint-real --model openai/gpt-6.1-sol
+```
+
 A pilot plays runs in a fixed order under a budget, retries a run that failed for an infrastructure reason at most
 twice, and reports every scored run replayed and audited:
 
