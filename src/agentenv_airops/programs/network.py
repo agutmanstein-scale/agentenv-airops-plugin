@@ -30,6 +30,15 @@ aircraft of the family give up the difference, one at a time.
 
 The calm day starts from the positions the schedule assumes (`scheduled`), the storm day from the record's; the record's
 morning against the schedule's is a finding (`shortfall`).
+
+With crew `bases` the build turns the crew model on, as candidates.build_candidate does (every leg's crew, Task.bases),
+its pairings cut by the build's crew Rule: Edgar's proxy (repairs.crews) by default, or v4's, legal on schedule
+(layers.crew). With a v4 layer config (layers.config.Config, the constants fitted on train dates) the task carries
+v4's layers (docs/v4/DESIGN.md §2): the departure caps at the hubs and the arrival caps at the outstations from every
+carrier's BTS flights of the date (candidates.frame), the hubs' ramp closures from their METARs and SPECIs at the
+config's fitted rates, and the config's reserve pool at each of the task's crew bases, with the desk's view of them:
+the closure rates, the storm hubs' METARs, SPECIs and TAFs as news (layers.weather) and the default lags (`layered`).
+Without either the task is v2's, byte for byte.
 """
 
 import functools
@@ -50,6 +59,8 @@ from ..build import bts, pack
 from . import candidates, rbs, repairs
 from .advisories import HUBS
 from .candidates import CARRIER, EVAL_PER_HUB, EVAL_WINTER, EVAL_WINTER_SHORT, MIN_CONTROLLED, MONTHS, Built, season
+from .layers import config, weather
+from .layers.crew import EDGAR, Rule
 from .model import Busy, Flight, Move, Tail, Task
 
 Windows = dict[str, tuple[int, int]]
@@ -77,9 +88,11 @@ def control_dates(inputs: Path, derived: Path, months: Sequence[str] = MONTHS) -
 
 def build(d: str, hubs: Sequence[str], inputs: Path, derived: Path, e_fit: Mapping[str, float],
           e_median: Mapping[str, float], scale: Mapping[str, float], cutoff: int = repairs.CUTOFF,
-          windows: Windows | None = None, split: str = "") -> Built:
+          windows: Windows | None = None, split: str = "", bases: Sequence[str] = (),
+          layers: config.Config | None = None, crew: Rule = EDGAR) -> Built:
     """The whole-network task of date d with storm `hubs`, from their rule windows or the given `windows` (a
-    control's), or None and the reason."""
+    control's), or None and the reason; crew `bases` turn the crew model on, its pairings cut by `crew` (Edgar's or
+    v4's, layers.crew), a `layers` config v4's layers."""
     row = {"date": d, "hubs": list(hubs), "windows": {}, "slides": {}, "first_hours": {}, "fallback": False,
            "task_id": None, "reason": ""}
     if windows:
@@ -98,19 +111,31 @@ def build(d: str, hubs: Sequence[str], inputs: Path, derived: Path, e_fit: Mappi
         row["windows"] = {h: [60 * p0, 60 * (p0 + candidates.LENGTHS[-1])] for h, p0 in first.items()}
     hub = min(row["windows"], key=lambda h: (row["windows"][h][0], HUBS.index(h)))
     task = assemble(candidates.context(inputs, derived, d, hub), d, hub, tuple(hubs), row, e_fit, e_median, scale,
-                    cutoff, split)
+                    cutoff, split, bases, crew)
     held = task.clauses["controlled_or_held"]
     if not windows and held < MIN_CONTROLLED:
         return Built(None, {**row, "controlled_or_held": held,
                             "reason": f"fewer than {MIN_CONTROLLED} JetBlue flights controlled or held"})
+    if layers is not None:
+        task = layered(task, layers, inputs, derived)
     return Built(task, {**row, "task_id": task.task_id})
 
 
+def layered(task: Task, cfg: config.Config, inputs: Path, derived: Path) -> Task:
+    """The task with v4's layers at `cfg`, from the date's BTS flights of every carrier, the hubs' closures over the
+    months they span and the storm hubs' METARs, SPECIs and TAFs over the task's span as news."""
+    spans = config.spans(inputs, tuple(candidates.months_of(task.date)))
+    return replace(task, layers=config.build(task, cfg, candidates.frame(inputs, derived, task.date), spans,
+                                             weather.build(task, inputs)))
+
+
 def assemble(ctx: candidates.Context, d: str, hub: str, hubs: tuple[str, ...], row: Mapping, e_fit: Mapping[str, float],
-             e_median: Mapping[str, float], scale: Mapping[str, float], cutoff: int, split: str) -> Task:
+             e_median: Mapping[str, float], scale: Mapping[str, float], cutoff: int, split: str,
+             bases: Sequence[str] = (), crew: Rule = EDGAR) -> Task:
     day = ctx.day
     sc = scope(day, (min(w[0] for w in row["windows"].values()), max(w[1] for w in row["windows"].values())), START)
-    flights = repairs.flights(day, sc, ctx.x, ctx.families, candidates.tests(ctx), cutoff=cutoff)
+    flights = repairs.flights(day, sc, ctx.x, ctx.families, candidates.tests(ctx), cutoff=cutoff, bases=bases,
+                              cut=crew.crews)
     tails, counts = network_tails(day, sc, flights, ctx.families, day.turn)
     need, short = needs(tails, flights)
     programs = candidates.hub_programs(ctx, flights, sc.start, e_fit, e_median, scale)
@@ -129,7 +154,7 @@ def assemble(ctx: candidates.Context, d: str, hub: str, hubs: tuple[str, ...], r
                 airports=candidates.airports_of(codes),
                 artcc={c: ctx.artcc[c] for c in sorted(codes) if c in ctx.artcc}, tails=tuple(tails),
                 flights=tuple(flights), programs=programs, clauses=clauses, sources=candidates.pins(ctx, sc),
-                hubs=hubs, needs=need)
+                bases=tuple(bases), hubs=hubs, needs=need)
     return rbs.rescale(task, scale, e_fit, e_median)
 
 
@@ -356,9 +381,11 @@ def shortfall(task: Task) -> dict:
 
 def build_all(jobs: Sequence[tuple[str, tuple[str, ...], Windows | None, str]], inputs: Path, derived: Path,
               e_fit: Mapping[str, float], e_median: Mapping[str, float], scale: Mapping[str, float],
-              cutoff: int = repairs.CUTOFF, workers: int = 1) -> list[Built]:
+              cutoff: int = repairs.CUTOFF, workers: int = 1, bases: Sequence[str] = (),
+              layers: config.Config | None = None, crew: Rule = EDGAR) -> list[Built]:
     """`build` for every (date, storm hubs, windows, split), in a pool of `workers` processes, in date order."""
-    args = [(d, hubs, inputs, derived, dict(e_fit), dict(e_median), dict(scale), cutoff, windows, split)
+    args = [(d, hubs, inputs, derived, dict(e_fit), dict(e_median), dict(scale), cutoff, windows, split, tuple(bases),
+             layers, crew)
             for d, hubs, windows, split in sorted(jobs, key=lambda j: j[0])]
     with ProcessPoolExecutor(workers) if workers > 1 else nullcontext() as pool:
         if not pool:
@@ -367,8 +394,8 @@ def build_all(jobs: Sequence[tuple[str, tuple[str, ...], Windows | None, str]], 
 
 
 def build_one(args: tuple) -> Built:
-    d, hubs, inputs, derived, e_fit, e_median, scale, cutoff, windows, split = args
-    return build(d, hubs, inputs, derived, e_fit, e_median, scale, cutoff, windows, split)
+    d, hubs, inputs, derived, e_fit, e_median, scale, cutoff, windows, split, bases, layers, crew = args
+    return build(d, hubs, inputs, derived, e_fit, e_median, scale, cutoff, windows, split, bases, layers, crew)
 
 
 def split(hubs: Mapping[str, Sequence[str]], event: Mapping[str, int], seed: int) -> dict[str, str]:

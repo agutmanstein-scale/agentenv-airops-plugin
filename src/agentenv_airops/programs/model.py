@@ -15,20 +15,34 @@ everything the truth, the forecast and the references read, and nothing they wou
   pieces, the VMC called arrival rate, and the demand: every BTS-scheduled arrival at the hub over the task, so the
   forecast RBS can run at any watch and the other carriers' controlled arrivals carry their BTS NAS delay for the
   fidelity clause.
+
+A task may carry v4's realism `layers` (Layers, programs.layers builds them from pinned public inputs); a task that
+sets any is written as model version LAYERED, one without (None, or Layers() with nothing set) is v2's task byte
+for byte. `version` is the v2 model's: LAYERED is read back as VERSION and written from the layers alone.
+
+With a finite reserve pool at a crew base (`Layers.reserves`, docs/v4/DESIGN.md §3.4) a departure from that base gets
+its pairing's crew deadline as an outstation departure has it (the report + the FAR 117 limit + EXTENSION, less its
+scheduled block, its rest REST after it: `Task.crew`), and may fly past it only on a reserve crew the plan calls
+(`reserve`, granted while the base's pool lasts: sim.granted). A base the pool leaves out keeps Edgar's unlimited
+reserves.
 """
 
 import json
 import math
 from collections import Counter
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 from pathlib import Path
 
 from ..core.model import Airport
-from .advisories import Advisory, Scope, Stop, nm
+from .advisories import HUBS, Advisory, Scope, Stop, nm
 
 VERSION = 3
+LAYERED = 4
+EXTENSION = 120
+REST = 600
+LAGS = {"advisory": 0, "metar": 5, "speci": 5, "taf": 10}
 
 
 @dataclass(frozen=True)
@@ -325,9 +339,74 @@ class Programs:
 
 
 @dataclass(frozen=True)
+class Layers:
+    """The world's realism layers beyond the FAA's programs, hours and minutes from the task's midnight:
+    JetBlue's departure cap per hour at a hub (`dep_caps`) and arrival cap per hour at an outstation (`arr_caps`),
+    ramp closures per station as (start, end, dep_cap, arr_cap): JetBlue's departures from the station leaving in
+    [start, end) total at most dep_cap, and its arrivals there inside it at most arr_cap; and the reserve crews per
+    crew base. A hub's arrivals answer to its programs and nominal cap, so an arrival cap at a hub is a ValueError.
+
+    The desk's news beyond the advisories (docs/v4/DESIGN.md §4): the hubs' weather as (minute, kind, station, text),
+    kind "metar", "speci" or "taf", the minute its observation or issue (layers.weather), and the delivery lag per
+    product kind in minutes (`lags` over LAGS: advisory 0, metar 5, speci 5, taf 10, a kind it leaves out keeping
+    LAGS's; one LAGS doesn't have, a negative lag or an advisory lag other than 0 is a ValueError), each item
+    reaching the desk at its minute plus its kind's lag; and the closure rate per hub that priced its closures
+    (`rates`, closures.fit_rate's), with which the day as known prices a closure under way over its expected end, not
+    its true one (sim.known). All three are written only when set, so a task without them reads and writes as
+    before."""
+
+    dep_caps: dict[str, dict[int, int]] = field(default_factory=dict)
+    arr_caps: dict[str, dict[int, int]] = field(default_factory=dict)
+    closures: dict[str, tuple[tuple[int, int, int, int], ...]] = field(default_factory=dict)
+    reserves: dict[str, int] = field(default_factory=dict)
+    weather: tuple[tuple[int, str, str, str], ...] = ()
+    lags: dict[str, int] = field(default_factory=lambda: dict(LAGS))
+    rates: dict[str, float] = field(default_factory=dict)
+
+    def __post_init__(self):
+        unknown = sorted(set(self.lags) - set(LAGS))
+        if unknown:
+            raise ValueError(f"lags for unknown kind(s) {', '.join(unknown)}: the kinds are {', '.join(LAGS)}")
+        bad = sorted(k for k, v in self.lags.items() if not isinstance(v, int) or isinstance(v, bool) or v < 0)
+        if bad:
+            raise ValueError(f"lags for {', '.join(bad)} not a whole number of minutes >= 0: news can't reach the desk "
+                             "before its minute")
+        if self.lags.get("advisory", 0):
+            raise ValueError("an advisory lag must be 0: the day as known reads the programs as signed by the watch "
+                             "(advisories.issued_by), so a later delivery would act on news the desk hasn't had")
+        object.__setattr__(self, "lags", LAGS | dict(self.lags))
+        hubs = sorted(set(self.arr_caps) & set(HUBS))
+        if hubs:
+            raise ValueError(f"arrival caps at hub(s) {', '.join(hubs)}: a hub's arrivals answer to its programs "
+                             "and nominal cap")
+
+    @classmethod
+    def from_dict(cls, d: Mapping) -> "Layers":
+        return cls({s: {int(h): c for h, c in by.items()} for s, by in d["dep_caps"].items()},
+                   {s: {int(h): c for h, c in by.items()} for s, by in d["arr_caps"].items()},
+                   {s: tuple((a, b, c, e) for a, b, c, e in spans) for s, spans in d["closures"].items()},
+                   dict(d["reserves"]), tuple((m, k, s, x) for m, k, s, x in d.get("weather", ())),
+                   dict(d.get("lags", {})), dict(d.get("rates", {})))
+
+    def to_dict(self) -> dict:
+        out = {"dep_caps": {s: {str(h): c for h, c in sorted(by.items())} for s, by in self.dep_caps.items()},
+               "arr_caps": {s: {str(h): c for h, c in sorted(by.items())} for s, by in self.arr_caps.items()},
+               "closures": {s: [list(x) for x in spans] for s, spans in self.closures.items()},
+               "reserves": dict(self.reserves)}
+        if self.weather:
+            out["weather"] = [list(x) for x in self.weather]
+        if self.lags != LAGS:
+            out["lags"] = dict(self.lags)
+        if self.rates:
+            out["rates"] = dict(self.rates)
+        return out
+
+
+@dataclass(frozen=True)
 class Task:
     """`hubs` are a whole-network task's storm hubs (`hub` the one whose window starts it), `needs` tomorrow's
-    aircraft per family and station; a hub window has neither, its needs being its tails' `end_req`."""
+    aircraft per family and station; a hub window has neither, its needs being its tails' `end_req`. `layers` None
+    (or Layers() with nothing set) is v2's world."""
 
     task_id: str
     split: str
@@ -353,6 +432,7 @@ class Task:
     bases: tuple[str, ...] = ()
     hubs: tuple[str, ...] = ()
     needs: dict[str, dict[str, int]] = field(default_factory=dict)
+    layers: Layers | None = None
 
     @classmethod
     def from_dict(cls, d: Mapping) -> "Task":
@@ -361,19 +441,24 @@ class Task:
                    {c: Airport.from_dict(c, a) for c, a in d["airports"].items()}, dict(d["artcc"]),
                    tuple(Tail.from_dict(t) for t in d["tails"]), tuple(Flight.from_dict(f) for f in d["flights"]),
                    {h: Programs.from_dict(p) for h, p in d["programs"].items()}, dict(d["clauses"]),
-                   dict(d["sources"]), d["version"], tuple(d.get("bases", ())), tuple(d.get("hubs", ())),
-                   {fam: dict(by) for fam, by in d.get("needs", {}).items()})
+                   dict(d["sources"]), VERSION if d["version"] == LAYERED else d["version"],
+                   tuple(d.get("bases", ())), tuple(d.get("hubs", ())),
+                   {fam: dict(by) for fam, by in d.get("needs", {}).items()},
+                   Layers.from_dict(d["layers"]) if "layers" in d else None)
 
     def to_dict(self) -> dict:
-        return {"version": self.version, "task_id": self.task_id, "split": self.split, "carrier": self.carrier,
-                "hub": self.hub, "date": self.date, "tz": self.tz, "base": self.base, "window": list(self.window),
-                "start": self.start, "slide": self.slide, "dmax": self.dmax, "cutoff": self.cutoff,
-                "turn": dict(self.turn), "airports": {c: a.to_dict() for c, a in self.airports.items()},
-                "artcc": dict(self.artcc), "tails": [t.to_dict() for t in self.tails],
-                "flights": [f.to_dict() for f in self.flights],
-                "programs": {h: p.to_dict() for h, p in self.programs.items()}, "clauses": self.clauses,
-                "sources": self.sources, "bases": list(self.bases), "hubs": list(self.hubs),
-                "needs": {fam: dict(by) for fam, by in self.needs.items()}}
+        layered = self.layered
+        out = {"version": LAYERED if layered else self.version, "task_id": self.task_id,
+               "split": self.split, "carrier": self.carrier,
+               "hub": self.hub, "date": self.date, "tz": self.tz, "base": self.base, "window": list(self.window),
+               "start": self.start, "slide": self.slide, "dmax": self.dmax, "cutoff": self.cutoff,
+               "turn": dict(self.turn), "airports": {c: a.to_dict() for c, a in self.airports.items()},
+               "artcc": dict(self.artcc), "tails": [t.to_dict() for t in self.tails],
+               "flights": [f.to_dict() for f in self.flights],
+               "programs": {h: p.to_dict() for h, p in self.programs.items()}, "clauses": self.clauses,
+               "sources": self.sources, "bases": list(self.bases), "hubs": list(self.hubs),
+               "needs": {fam: dict(by) for fam, by in self.needs.items()}}
+        return out | {"layers": self.layers.to_dict()} if layered else out
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), separators=(",", ":"))
@@ -416,13 +501,43 @@ class Task:
         """Nothing in scope leaves before the first watch; an early departure (lb < 0) leaves before its schedule."""
         return max(f.sched_dep + lb, self.start)
 
-    def auto_at(self, f: Flight) -> int:
+    def auto_at(self, f: Flight, reserve: bool = False) -> int:
         """When f auto-cancels if it can't leave: at its crew deadline, never before the first watch, if its crew's
-        rest would end past its deadline, else at its deadline."""
-        c = f.crew
+        rest would end past its deadline, else at its deadline; on a `reserve` crew (one granted) at its deadline."""
+        c = f.crew if reserve else self.crew(f)
         if c and c.deadline is not None and c.deadline < f.deadline < c.rest:
             return max(c.deadline, self.start)
         return f.deadline
+
+    def reservable(self, f: Flight) -> bool:
+        """Whether f is a departure from a crew base with a finite reserve pool, past whose crew deadline it flies only
+        on a reserve crew."""
+        return (self.layers is not None and f.crew is not None and f.crew.deadline is None
+                and f.orig in self.layers.reserves)
+
+    def crew(self, f: Flight) -> Crew | None:
+        """f's crew as the world holds it without a reserve: a departure from a base with a finite pool gets its
+        pairing's crew deadline and rest as an outstation departure has them (repairs.crews)."""
+        return self._crews.get(f.id, f.crew)
+
+    @cached_property
+    def _crews(self) -> dict[int, Crew]:
+        out = {}
+        for f in self.flights:
+            if self.reservable(f):
+                d = f.crew.report + f.crew.fdp + EXTENSION - f.sched_block
+                out[f.id] = replace(f.crew, deadline=d, rest=d + REST)
+        return out
+
+    def legal(self, f: Flight, t: int, reserve: bool = False) -> int:
+        """Flight.legal with the crew the world holds without a reserve (Task.crew); on a `reserve` crew, f's own."""
+        c = f.crew if reserve else self.crew(f)
+        return c.rest if c and c.deadline is not None and c.deadline < t < c.rest else t
+
+    def late(self, f: Flight, t: int) -> bool:
+        """Whether f, leaving at t, flies on a reserve crew: a reservable flight past its crew deadline before its rest
+        ends."""
+        return self.reservable(f) and self.legal(f, t) != t
 
     @property
     def lb(self) -> dict[int, int]:
@@ -434,6 +549,15 @@ class Task:
         if self.needs:
             return Counter({(fam, s): n for fam, by in self.needs.items() for s, n in by.items()})
         return Counter((t.family, t.end_req) for t in self.tails)
+
+    @property
+    def layered(self) -> bool:
+        """Whether the task sets any of v4's layers (written as LAYERED)."""
+        return self.layers is not None and self.layers != Layers()
+
+    def lag(self, kind: str) -> int:
+        """The minutes a news item of `kind` takes to reach the desk (Layers.lags; LAGS without layers)."""
+        return (self.layers.lags if self.layers else LAGS)[kind]
 
     @property
     def storms(self) -> tuple[str, ...]:
