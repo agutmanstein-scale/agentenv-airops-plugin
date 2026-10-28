@@ -505,8 +505,8 @@ class Runner:
         pilot = s.pilot(list(dict.fromkeys([r["run"] for r in rows] + [run])))
         (self.out / "pilot.json").write_text(json.dumps(asdict(pilot), indent=2) + "\n")
         bundle = self.out / "bundle"
-        sweep.KIT3.generate(bundle, task_ids=[task_id], modes=("joint",),
-                            pack=Path(s.pack).expanduser() if s.pack else None, cap=s.cap_joint_usd, policy=s.policy)
+        pilot.kit.generate(bundle, task_ids=[task_id], modes=("joint",),
+                           pack=Path(s.pack).expanduser() if s.pack else None, cap=s.cap_joint_usd, policy=s.policy)
         task = bundle_task(bundle, run)
         log = self.out / "logs" / f"{run}-a{number}.log"
         log.parent.mkdir(parents=True, exist_ok=True)
