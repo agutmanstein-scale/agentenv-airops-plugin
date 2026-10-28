@@ -5,8 +5,21 @@ the real one. It is graded on JetBlue's own cost, with JetBlue's own decisions t
 
 ## The world (`realistic.py`, `sim.World`)
 
-- **v4's layers, in the task.** Hub departure caps and outstation arrival caps come from every carrier's BTS pushbacks
-  and arrivals. Ramp closures at the hubs come from their METARs and SPECIs.
+- **Every station's hourly room** (`realistic.capacity`), from every carrier's BTS pushbacks and landings:
+  - **Short hours.** In an hour when all carriers together managed under 90% of their schedule (v4's rule), JetBlue
+    gets its share of what they managed. This applies to departures everywhere and to arrivals at outstations.
+  - **Congested airports.** At JFK, LGA, DCA (slot-controlled), EWR (schedule-facilitated) and BOS (JetBlue's hub),
+    every other hour has a capacity too: the most the airport handled in that hour on its fair days. JetBlue may use
+    whatever the other carriers left of it. So a flight pushed out of a short hour finds the next hour as full as it
+    was, not empty.
+  - **Elsewhere,** fair days measure demand rather than capacity, so only short hours are capped.
+  - **Floors.** A cap is never below what JetBlue's flights did in the hour, nor, outside short hours, below its own
+    schedule.
+  - **Hub arrivals** answer to the FAA programs and the hub's nominal rate, as in v3.
+- **Program slots JetBlue actually used** (`realistic.recorded_slots`). Each ground delay program's JetBlue slots also
+  hold the arrival time of each controlled flight JetBlue pushed back during the program (its pushback plus scheduled
+  block), so a replay of JetBlue's day can take the slots JetBlue got. Truth only; the desks see the programs as issued.
+- **Ramp closures** at the hubs come from their METARs and SPECIs (v4).
 - **Gates.** A station holds at most as many JetBlue aircraft at once as the pack's 70 recorded days ever had there. A
   flight into a full station waits at its origin.
 - **Breakdowns.** Each leg's aircraft breaks with JetBlue's fair-weather code-A cancellation rate (BTS), seeded by the
@@ -45,15 +58,14 @@ Cost P's figures stay in the grade under `P`.
 
 ## What the desks know at watch t (`realistic.known`)
 
-- **sim.known's model, unchanged** (DESIGN §4):
+- **From sim.known** (DESIGN §4):
   - a flight's own delay and block 2 h ahead;
   - FAA programs as issued;
   - closures once begun.
+- **Each station's hourly room as it stands in t's hour,** carried over the next 4 hours: a persistence forecast,
+  `realworld.persisted`. The desks never see the room those hours turn out to have.
 - **The tails broken by t.** A breakdown is unknown until it happens.
 - **Gates and the swaps rule**, which are rules.
-
-The hourly caps are known for the 4 h ahead **as they were** (sim.known's `CAP_LOOK`). This is a perfect 4-hour
-capacity forecast, kept from v4's design and stated in the desks' rules.
 
 An audit found no page or tool that runs the simulation on the truth after t. Left as they are, all small and shared
 with the current mode:
@@ -65,6 +77,26 @@ with the current mode:
 - the customer desk's free seats use each flight's recorded tail;
 - GDP exemptions use the ground stops as they ran.
 
+## Validation
+
+Run with `scripts/realistic_report.py` (fidelity, J) and `scripts/realistic_peers.py` (other carriers).
+
+1. **Same actions, same outcomes.** JetBlue's own actions are replayed: its cancellations decided 6 h ahead, its
+   tails and its GDP slot claims. The replay is compared with JetBlue's recorded day, flight by flight, on the flights
+   JetBlue flew, and by hour and by day.
+2. **Is J JetBlue's money?** On the days of JetBlue's replay, the operating income it loses per cancellation (revenue
+   lost less the saving) is set against JetBlue's disclosed storms:
+   - Hurricane Irene, Q3 2011: about 1,400 cancellations, about $8M of operating income;
+   - the early January 2014 storms: about 1,800 cancellations, about $30M;
+   - Q1 2014: 4,100 cancellations, about $35M.
+
+   The Q1 2014 figure is the one TAKE and SAVE are calibrated to. 21 of the 22 days fall within the three storms'
+   range ($6.0k to $16.7k per cancellation, 2014 dollars); 2025-02-06 is below it.
+3. **Where JetBlue cancelled, did the airport have trouble?** For each JetBlue cancellation the standard desks fly
+   within an hour, we take the other carriers' cancellation share at that airport in that hour, from BTS. Where they
+   kept running, flying it is plausible: JetBlue's own hedge, crew or aircraft. Where they cancelled 20% or more, the
+   world is likely missing something, though they may have hedged too.
+
 ## Files
 
 | What | Where |
@@ -73,22 +105,28 @@ with the current mode:
 | The day | `occ/day3r.py` (`OccDay3R`), loaded with `realistic: true` (`occ/live3.py`) |
 | The bundle | `tasks3.generate(..., realistic=True)`: tasks `<task id>-<mode>-real`, rules `tasks3.RULES_R` |
 | The replays and the best plans under J | `scripts/realistic_compare.py`, `scripts/realistic_best_j.py` |
+| Validation | `scripts/realistic_report.py`, `scripts/realistic_peers.py` |
 | Tests | `tests/occ/test_occ3r.py` |
 
 ## Results on the 22 days (stream plans replayed, no new model play)
 
-| Plan | Cancelled, stream / held-out | Reward, stream / held-out |
+| Plan | Not flown, stream / held-out | Reward, stream / held-out |
 |---|---|---|
 | JetBlue recorded | 888 / 528 | |
-| JetBlue replay | 946 / 556 | 0.5 / 0.5 |
-| Standard desks | 94 / 48 | 0.744 / 0.776 |
-| Model (2026-10-23 stream plans) | 94 / - | 0.827 / - |
-| Best plan under P | 289 / 140 | 0.866 / 0.911 |
-| Best plan under J | 504 / 255 | 1.0 / 1.0 |
+| JetBlue replay | 952 / 565 | 0.5 / 0.5 |
+| Standard desks | 214 / 128 | 0.714 / 0.771 |
+| Model (2026-10-23 stream plans) | 210 / - | 0.772 / - |
+| Best plan under P | 382 / 198 | 0.794 / 0.850 |
+| Best plan under J | 533 / 283 | 1.0 / 1.0 |
 
-The best plan under J cancels about half of what JetBlue did, and a mostly different set: 213 flights in common out of
-760. Read it as a hindsight bound, not a verdict on JetBlue. Its count depends heavily on SAVE: at SAVE = 1 it
-cancelled 1,426 on the stream days.
+JetBlue's replay flies what JetBlue flew in a world built from the record: on the flights both flew, per-flight delay
+correlates 0.75 with the record on the stream days (0.67 held out), each hour's total 0.85 (0.80) and each day's total
+0.97 (0.98), with the days' total delay within 1% (4%). Its count is JetBlue's cancellations plus the flights the world
+could not fly by day's end.
+
+The best plan under J cancels a bit over half of what JetBlue did, and a mostly different set. Read it as a hindsight
+bound, not a verdict on JetBlue. Its count depends heavily on SAVE: at SAVE = 1 it cancelled 1,426 on the stream days
+of an earlier world.
 
 ## First model days (GPT-6 Astra, 2026-10-28)
 

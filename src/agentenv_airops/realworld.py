@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 from dataclasses import replace
 
 from .core.cost import FERRY_BASE_MIN, FERRY_MILES_PER_MIN, K_CANCEL, miles
+from .core.known import CAP_LOOK
 from .core.sim import FLOWN, _assign
 from .programs import pax, sim
 from .programs.cost import RATES, ferry_cost
@@ -20,10 +21,26 @@ def truth(task: Task, gate_caps: dict[str, int], down: dict[str, int]) -> sim.Wo
 
 
 def known(task: Task, t: int, gate_caps: dict[str, int], down: dict[str, int]) -> sim.World:
-    """The realistic day as known at t: sim.known's (the programs as issued, the layers' caps a few hours ahead, the
-    closures begun), the gates and the hub-only swaps, which are rules, and the tails broken by t."""
-    return replace(sim.known(task, t), gates=gate_caps, broken={p: m for p, m in down.items() if m <= t},
-                   swaps=SWAPS)
+    """The realistic day as known at t: sim.known's programs as issued and closures begun, the gates and the hub-only
+    swaps, which are rules, the tails broken by t, and each station's caps as they stand in t's hour carried over the
+    next CAP_LOOK minutes (a persistence forecast), not the caps those hours turn out to have."""
+    w, layers = sim.known(task, t), task.layers
+    return replace(w, gates=gate_caps, broken={p: m for p, m in down.items() if m <= t}, swaps=SWAPS,
+                   dep_caps=persisted(layers.dep_caps, t),
+                   nominal=sim.nominal_caps(task) | persisted(layers.arr_caps, t))
+
+
+def persisted(caps: dict[str, dict[int, int]], t: int) -> dict[str, dict[int, int]]:
+    """Per station, the caps of the hours begun by t as they ran, and the cap of t's hour, if any, for every hour
+    starting within CAP_LOOK of t."""
+    now, out = t // 60, {}
+    for s, by in caps.items():
+        row = {h: c for h, c in by.items() if h < now}
+        if now in by:
+            row |= {h: by[now] for h in range(now, (t + CAP_LOOK) // 60 + 1)}
+        if row:
+            out[s] = row
+    return out
 
 
 def tomorrow(task: Task, run: sim.Execution, firsts: dict[tuple[str, str], list[int]], airline: bool = False) -> int:

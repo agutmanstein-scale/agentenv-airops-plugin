@@ -38,7 +38,7 @@ def test_a_day_with_no_desks_is_graded_on_jetblues_cost_as_the_report_priced_the
     assert abs(g["cost"] - refs["priced"]["desks"]) < 0.5
     assert g["best"] == refs["top"] and g["anchor"] == refs["jetblue"]
     assert g["reward"] == round(realworld.reward(g["cost"], refs["top"], refs["jetblue"]), 6)
-    assert 0.5 < g["reward"] < 1.0 and g["reward_L"] is None and g["criterion"] == CRITERION
+    assert 0.2 < g["reward"] < 1.0 and g["reward_L"] is None and g["criterion"] == CRITERION
     assert set(g["P"]) == {"cost", "reward", "reward_L", "best"} and g["P"]["cost"] > g["cost"]
     assert g["costs"]["total"] == g["realistic"]["usd"] and d.audit()["ok"]
 
@@ -110,3 +110,14 @@ def test_a_named_replay_hands_out_the_aircraft_as_the_day_did_where_only_the_hub
     loose = crewsim.execute(w.task, unordered, w.units, world, w.local, fill=False, airports=w.airports,
                             pax=w.passengers)
     assert loose.run.rows() != day.run.rows()
+
+
+def test_the_day_as_known_carries_each_stations_caps_as_they_stand_not_as_they_turn_out(pack):
+    w = pack.world(task_on(pack, "2024-08-03"))
+    d = OccDay3R(w, "idle")
+    caps = w.task.layers.dep_caps["JFK"]
+    t = next(60 * h for h in sorted(caps) if h + 2 in caps and caps[h + 2] != caps[h] and 60 * h >= w.task.start)
+    seen = d.known_world(t).dep_caps["JFK"]
+    assert all(seen[h] == caps[t // 60] for h in range(t // 60, (t + 240) // 60 + 1))
+    assert seen[t // 60 + 2] != caps[t // 60 + 2] and (t + 300) // 60 not in seen
+    assert d.world.dep_caps["JFK"] == caps
