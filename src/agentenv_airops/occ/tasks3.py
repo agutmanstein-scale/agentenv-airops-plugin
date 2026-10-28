@@ -276,12 +276,12 @@ audit passes (news, turns, causality, roles, crew and passenger legality, the bo
 def generate(out: Path, *, task_ids: list[str] | None = None, split: str = "eval", modes: tuple[str, ...] = (
         "joint", "one"), pack: Path | None = None, caps: dict | None = None, noplay: bool = False,
              env_vars: dict | None = None, turn_timeout: float | None = None, policy: str | None = None,
-             suffix: str = "", realistic: bool = False) -> list[str]:
+             suffix: str | None = None, realistic: bool = False) -> list[str]:
     """Writes the bundle into `out`: README.md, the verifier and tasks/<task id>-<mode>.json for `task_ids`, else every
     task of `split`, in date order; with `noplay`, the first one with no desk too; `realistic`, b6-v3r's days in the
-    realistic world under JetBlue's own cost, each <task id>-<mode>-real.json."""
+    realistic world under JetBlue's own cost, each <task id>-<mode>-real.json unless `suffix` names the ending."""
     p = Pack3R(pack) if realistic else Pack3(pack)
-    suffix = ("-real" if realistic else "") + suffix
+    suffix = ("-real" if realistic else "") if suffix is None else suffix
     chosen = [t for t, v in sorted(p.tasks.items(), key=lambda kv: kv[1]["date"])
               if (t in task_ids if task_ids is not None else split in ("all", v["split"]))]
     _write(out / "README.md", readme().encode())
