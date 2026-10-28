@@ -162,13 +162,16 @@ turns).
 }
 DAY_R = """The day: JetBlue's whole network on a real storm day, every flight and aircraft, in a world as close to the \
 real one as public records allow: the FAA's ground stops and ground delay programs at JFK and Boston as issued; each \
-hub's hourly departure room and each outstation's hourly arrival room, cut by weather and congestion as they were; \
+airport's hourly departure room and each outstation's hourly arrival room, cut by weather and congestion as they \
+were, and at JFK, LaGuardia, Newark, Washington National and Boston no more room in an hour than the other airlines \
+left; \
 ramp closures at the hubs in lightning, snow or freezing rain; at most so many JetBlue aircraft on the ground at a \
 station at once (a flight into a full station waits at its origin); and aircraft that break during the day, out for \
 the rest of it. Watches every hour from 04:00; your turn opens with your page, the day as projected now on what is \
 known; act through your tools, then end_turn, whose result is your next page. A flight's own delay becomes known 2 \
-hours before its scheduled departure ("?" until then); FAA advisories arrive as issued; an hour's room is known up to \
-4 hours ahead, a closure once it begins, a breakdown when it happens. The env flies the plan: a flight leaves at the \
+hours before its scheduled departure ("?" until then); FAA advisories arrive as issued; an airport's hourly room as \
+it stands now, which the projection assumes holds for the next 4 hours; a closure once it begins, a breakdown when it \
+happens. The env flies the plan: a flight leaves at the \
 earliest its delay, its hold, an aircraft at its origin (at JFK and Boston any aircraft of its type; elsewhere the \
 aircraft that flew in on JetBlue's own day, while it is there), its FAA slot, the hourly room, a gate at its \
 destination and its crews allow; one that can't leave by its deadline is cancelled automatically, late. Pilots fly \
