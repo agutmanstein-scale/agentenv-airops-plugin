@@ -1,5 +1,5 @@
 """Replay sample b6-v3 days in the current mode and in realistic mode (agentenv_airops.realistic), per flight, for the
-realism report (spike, throwaway).
+realism report.
 
 Scenarios, each played by occ.run.truth (the standard crew desk crews what the plan leaves alone, passengers on board):
   desks        the empty plan (the pack's B0)
@@ -79,7 +79,8 @@ def one(task_id: str, out_dir: str, model_path: str | None, gate_caps: dict, rat
                             "flights": played(w.task, day)}
         day = occrun.truth(w_r, plan, world_r)
         row["real"][name] = {"cost": realistic.rated(task_r, day.run, crewplan.worth(day, False), firsts),
-                             "flights": played(task_r, day), "airline": realistic.airline(task_r, day, firsts, w.passengers)}
+                             "flights": played(task_r, day),
+                             "airline": realistic.airline(task_r, day, firsts, w.passengers)}
     jb = plans(w, None)["jbsim@360"]
     full = jb | {f.id: {"claim": f.actual.dep + f.sched_block} for f in w.task.flights
                  if f.id not in jb and f.actual.dep is not None and (f.controlled or f.gs_held)}

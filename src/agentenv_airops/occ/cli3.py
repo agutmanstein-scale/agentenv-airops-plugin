@@ -61,11 +61,13 @@ def setup(build_platform: str | None, source: Path | None):
 @click.option("--cap-one", type=float, default=CAPS["one"], show_default=True, help="USD for one agent.")
 @click.option("--noplay", is_flag=True, help=f"Also write {NOPLAY}: the first day with no desk.")
 @click.option("--policy", type=click.Choice(("llm", "script")), help="The desks' policy (default: llm).")
-def tasks(split, task_ids, modes, pack, out, cap_joint, cap_one, noplay, policy):
+@click.option("--realistic", is_flag=True, help="The days of b6-v3r in the realistic world under JetBlue's own cost "
+                                                "(REALISTIC.md), each task <task id>-<mode>-real.")
+def tasks(split, task_ids, modes, pack, out, cap_joint, cap_one, noplay, policy, realistic):
     """Write a bundle: per day, its three-desk and its one-agent task."""
-    out = out or Path("results/bundles") / "airops-occ3"
+    out = out or Path("results/bundles") / ("airops-occ3-real" if realistic else "airops-occ3")
     names = generate(out, task_ids=list(task_ids) or None, split=split, modes=modes or ("joint", "one"), pack=pack,
-                     caps={"joint": cap_joint, "one": cap_one}, noplay=noplay, policy=policy)
+                     caps={"joint": cap_joint, "one": cap_one}, noplay=noplay, policy=policy, realistic=realistic)
     if not names:
         raise click.UsageError(f"no {split} days in the pack")
     click.echo(f"Wrote {len(names)} tasks into {out}; play one with: agent-env run {out} --task {names[0]} "

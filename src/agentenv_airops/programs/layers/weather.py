@@ -17,7 +17,6 @@ from pathlib import Path
 
 from ...build import bts
 from ...build import weather as v1
-from ...flow import sources
 from ..model import Task
 
 LEAD_OBS = 90
@@ -27,7 +26,9 @@ Item = tuple[int, str, str, str]
 
 def build(task: Task, inputs: Path) -> tuple[Item, ...]:
     """The task's hubs' METARs, SPECIs and TAFs over its span, oldest first (minute, kind, hub, station order); a
-    month file the cache doesn't hold is skipped."""
+    month file the cache doesn't hold is skipped; flow.sources (which needs Pillow, a build extra) loads only here."""
+    from ...flow import sources
+
     hi = max(f.deadline for f in task.flights)
     months = _months(task.base + task.start - LEAD_TAF, task.base + hi)
     out: dict[tuple[int, str, str], Item] = {}

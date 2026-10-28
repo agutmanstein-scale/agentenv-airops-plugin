@@ -1,5 +1,5 @@
-"""Realistic mode (spike, throwaway): a b6-v3 day in a world closer to the real one, beside the current mode, which it
-leaves untouched (design: 2026-10-27-airops-realistic-mode-design.md).
+"""Realistic mode (REALISTIC.md): a b6-v3 day in a world closer to the real one, beside the current mode, which it
+leaves untouched.
 
 The realistic world is the day's truth with:
 - v4's layers (docs/v4/DESIGN.md §3.1-§3.3 on Alec's fork): JetBlue's departure caps at the hubs and arrival caps at
@@ -26,7 +26,7 @@ import hashlib
 import json
 import math
 import random
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import replace
 from functools import cache
 from pathlib import Path
@@ -34,19 +34,18 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from . import realworld
 from .build import bts
-from .core.cost import FERRY_BASE_MIN, FERRY_MILES_PER_MIN, K_CANCEL, miles
-from .core.sim import FLOWN, _assign
+from .core.cost import miles
 from .programs import candidates, crews, pax, sim
-from .programs.cost import RATES, ferry_cost
 from .programs.layers import config, fairday
 from .programs.model import Task
+from .realworld import tomorrow, truth
 
 CACHE = Path.home() / "Code" / "airops-realistic-cache"
 INPUTS, DERIVED = CACHE / "inputs", CACHE / "derived"
 RATE = {"JFK": round(411 / 563, 3), "BOS": round(449 / 584, 3)}
 BREAK_LEAD = 60
-SWAPS = frozenset({"JFK", "BOS"})
 
 
 def gates(dates_dir: Path) -> dict[str, int]:
@@ -104,7 +103,7 @@ def broken(task: Task, rate: float) -> dict[str, int]:
 
 def world(task: Task, gate_caps: dict[str, int], rate: float) -> sim.World:
     """The realistic truth of a layered task."""
-    return replace(sim.truth(task), gates=gate_caps, broken=broken(task, rate), swaps=SWAPS)
+    return truth(task, gate_caps, broken(task, rate))
 
 
 def first_departures(task: Task) -> dict[tuple[str, str], list[int]]:
@@ -120,39 +119,6 @@ def first_departures(task: Task) -> dict[tuple[str, str], list[int]]:
         y = x[(x.Origin == s) & x.Tail_Number.map(family).eq(fam)]
         out[(fam, s)] = sorted(int(v - task.base) for v in y.sched_dep)[:n]
     return out
-
-
-def tomorrow(task: Task, run: sim.Execution, firsts: dict[tuple[str, str], list[int]], airline: bool = False) -> int:
-    """The cost of covering tomorrow's first departures with the day's end-of-day aircraft: per family a min-cost
-    matching of aircraft (where and when each is ready) to needs (station, departure), each pair the ferry when the
-    aircraft is elsewhere plus the first flight's passengers' delay when it is ready late, at most cancelling it;
-    `airline`: the first flight's lateness at the aircraft's own crew and fixed cost (RATES gate) in place of its
-    passengers' delay."""
-    pax = defaultdict(list)
-    for f in task.flights:
-        pax[f.family].append(f.pax)
-    seats = {fam: round(sum(v) / len(v)) for fam, v in pax.items()}
-    family = {t.tail: t.family for t in task.tails}
-    ready = {}
-    for t in task.tails:
-        legs = [i for i in run.legs.get(t.tail, ()) if run.flights[i].status == FLOWN]
-        ready[t.tail] = (run.flights[legs[-1]].arr + task.turn_for(t.family)) if legs else t.ready
-    total = 0
-    for fam in sorted(set(family.values())):
-        planes = sorted(p for p in run.ends if family.get(p) == fam)
-        needs = [(s, d) for (g, s), n in sorted(task.needed.items()) if g == fam
-                 for d in (firsts.get((g, s), []) + [None] * n)[:n]]
-        size = max(len(planes), len(needs))
-        matrix = [[0] * size for _ in range(size)]
-        for a, p in enumerate(planes):
-            for b, (s, d) in enumerate(needs):
-                e = run.ends[p]
-                move = 0 if e == s else FERRY_BASE_MIN + miles(task.airports[e], task.airports[s]) / FERRY_MILES_PER_MIN
-                late = 0 if d is None else max(0, ready[p] + move - d)
-                wait = RATES[fam].gate * late if airline else min(seats[fam] * late, seats[fam] * K_CANCEL)
-                matrix[a][b] = ferry_cost(task, fam, e, s) + wait
-        total += sum(matrix[a][b] for a, b in enumerate(_assign(matrix)))
-    return total
 
 
 def rated(task: Task, run: sim.Execution, total: float, firsts: dict) -> dict:
@@ -184,29 +150,7 @@ def od_fare(task: Task, legs: tuple[int, ...]) -> float:
     return crews.value(a + b * miles(task.airports[o], task.airports[d]), task.date)
 
 
-def airline(task: Task, day, firsts: dict, passengers: pax.Passengers) -> dict:
-    """JetBlue's own cost of a played day before its lost revenue is priced, in passenger-minutes: its aircraft's
-    minutes (gate, overrun, less what its cancellations saved, with that saving apart), its crews' deadheads, hotels
-    and end of day, tomorrow
-    at the aircraft's own cost; with the passenger counts and the fares that lost revenue is priced on (the report's
-    JetBlue cost): the fares of the refunded, of the stranded to a later day, and of every passenger booked on a
-    flight cancelled (each itinerary's fare by od_fare)."""
-    run = day.run
-    c = run.cost
-    group = {g.id: g for g in passengers.groups}
-    fares = {g.id: od_fare(task, g.legs) for g in passengers.groups}
-    rev = Counter()
-    for part in run.pax.parts:
-        rev[part.kind] += part.pax * fares[part.group]
-    gone = {i for i, r in run.flights.items() if r.status != FLOWN}
-    return {"aircraft": c.gate + c.overrun - c.saved, "saved": c.saved, "crew": day.crew_cost,
-            "tomorrow": tomorrow(task, run, firsts, airline=True),
-            "cancelled_pax": sum(f.pax for f in task.flights if f.id in gone),
-            "cancelled_rev": sum(g.pax * fares[g.id] for g in group.values() if gone.intersection(g.legs)),
-            "refunded_rev": rev[pax.REFUNDED], "stranded_rev": rev[pax.STRANDED], **run.pax.outcomes()}
-
-
-def score(cost: float, anchor: float, k: float = 2.0) -> float:
-    """The realistic reward: 0.5 at JetBlue's replayed cost (`anchor`), toward 1 as cost falls to 0 and toward the
-    0.2 floor as it grows, as a function of cost / anchor alone so days compare."""
-    return 0.2 + 0.8 / (1 + 5 / 3 * (max(cost, 0) / anchor) ** k)
+def airline(task: Task, day, firsts: dict, passengers: pax.Passengers, fares: dict | None = None) -> dict:
+    """realworld.airline, each group's fare by od_fare unless `fares` gives it."""
+    return realworld.airline(task, day, firsts, passengers,
+                             fares or {g.id: od_fare(task, g.legs) for g in passengers.groups})

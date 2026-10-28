@@ -20,7 +20,6 @@ from pathlib import Path
 import pandas as pd
 
 from ...build import weather
-from ...flow import sources
 from ..advisories import HUBS
 from ..model import Layers, Task
 from . import arrcaps, closures, depcaps
@@ -57,6 +56,9 @@ def build(task: Task, cfg: Config, frame: pd.DataFrame, spans: Mapping[str, Sequ
 
 @functools.lru_cache(maxsize=8)
 def spans(inputs: Path, months: tuple[str, ...]) -> dict[str, list[closures.Interval]]:
-    """Each hub's closures over `months`, from the cached routine METARs and SPECIs (IEM ASOS)."""
+    """Each hub's closures over `months`, from the cached routine METARs and SPECIs (IEM ASOS); flow.sources (which
+    needs Pillow, a build extra) loads only here, so the env's runtime imports stay the base install's."""
+    from ...flow import sources
+
     return {h: closures.intervals(h, [weather.metar_path(inputs, h, m) for m in months],
                                   [sources.speci_path(inputs, h, m) for m in months]) for h in HUBS}

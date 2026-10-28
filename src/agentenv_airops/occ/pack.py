@@ -3,7 +3,11 @@ at the start (the units, every airport a unit may reach, the round trips of the 
 the grade reads. The env never rebuilds units, so a day starts alike on any machine.
 
 b6-v3 (`Pack3`) adds each date's passengers and its references under cost P; its world carries the passengers and reads
-those references and the best plan under P in v2's places."""
+those references and the best plan under P in v2's places.
+
+b6-v3r (`Pack3R`, scripts/build_realistic_pack.py) is b6-v3's days the realism report priced, in the realistic world:
+each task layered, its world's `real` the day's breakdowns, tomorrow's first departures, its groups' fares and the
+references of JetBlue's cost J, with the manifest's gates, breakdown rate and J's shares."""
 
 import functools
 import gzip
@@ -23,6 +27,7 @@ from ..programs.pax import Passengers
 
 PACK = files("agentenv_airops") / "data" / "b6-v2"
 PACK3 = files("agentenv_airops") / "data" / "b6-v3"
+PACK3R = files("agentenv_airops") / "data" / "b6-v3r"
 
 
 @dataclass(frozen=True)
@@ -35,6 +40,7 @@ class World:
     best_plan: dict
     local: Callable[[str, int], int] = field(compare=False, repr=False)
     passengers: Passengers | None = field(default=None, compare=False, repr=False)
+    real: dict | None = field(default=None, compare=False, repr=False)
 
     @classmethod
     def from_dict(cls, d: dict) -> "World":
@@ -104,3 +110,21 @@ class Pack3(Pack):
             raise ValueError(f"unknown task id {task_id!r}")
         raw = gzip.decompress((self.path / "dates" / f"{self.tasks[task_id]['date']}.json.gz").read_bytes())
         return World.from_v3(json.loads(raw))
+
+
+class Pack3R(Pack3):
+    """A b6-v3r pack folder: b6-v3's priced days in the realistic world."""
+
+    def __init__(self, path: Path | str | None = None):
+        Pack.__init__(self, path or os.environ.get("AIROPS_OCC3R_PACK") or PACK3R)
+
+    def world(self, task_id: str) -> World:
+        if task_id not in self.tasks:
+            raise ValueError(f"unknown task id {task_id!r}")
+        d = json.loads(gzip.decompress((self.path / "dates" / f"{self.tasks[task_id]['date']}.json.gz").read_bytes()))
+        r = d["realistic"]
+        real = {**self.manifest["realistic"], "broken": r["broken"], "refs": r["refs"],
+                "firsts": {(fam, s): list(m) for fam, s, m in r["firsts"]},
+                "fares": {int(k): v for k, v in r["fares"].items()},
+                "best_plan": {int(k) if k.isdigit() else k: v for k, v in r["best_plan"].items()}}
+        return replace(World.from_v3(d), real=real)

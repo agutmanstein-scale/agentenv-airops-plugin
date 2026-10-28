@@ -1,4 +1,4 @@
-"""The best plan found under JetBlue's cost J in realistic mode, per day (spike, throwaway).
+"""The best plan found under JetBlue's cost J in realistic mode, per day.
 
 The pack's search (crewplan.search: the aircraft MIP's optimum, crewed, then its local search over departures and
 cancellations, every plan replayed in the crew sim with passengers) with J in place of cost P:

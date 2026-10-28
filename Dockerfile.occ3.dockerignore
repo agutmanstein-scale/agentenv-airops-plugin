@@ -2,6 +2,7 @@
 !LICENSE
 !NOTICE
 !data/b6-v3
+!data/b6-v3r
 !src/agentenv_airops
 src/agentenv_airops/data
 src/agentenv_airops/web
