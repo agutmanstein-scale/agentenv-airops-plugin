@@ -1,13 +1,14 @@
 """The storm day: v1's dispatch inside the FAA's programs at JFK and BOS, with JetBlue's slots and EDCTs in place of
 hourly caps.
 
-A plan maps flight ids to {"cancel", "not_before", "claim", "decided", "left", "holds", "claims", "reserve"}, every
-key optional;
+A plan maps flight ids to {"cancel", "not_before", "claim", "decided", "left", "holds", "claims", "reserve", "order"},
+every key optional;
 a flight left out flies as early as it can. A cancelled flight is cancelled for good, decided at "decided" (the first
 watch when absent). "holds" and "claims" are decisions taken during the day, each [decided, minute or None] in time
 order: a hold acts from its minute (the flight tries again then, and from then on waits for it), a claim binds from its
 minute the first slot at or after it that no flight took and no claim holds, and a later one replaces it (None lets
-go); "not_before" and "claim" act from the start.
+go); "not_before" and "claim" act from the start. "order" ranks a flight among those ready at one minute in place of
+its first try (crewday.named keeps the day's own, so a named replay hands out the aircraft as the day did).
 A flight with "left" (the day so far, at a watch) leaves at that minute whatever would hold it, counting where the MIP
 counts a pinned departure: on its slot if the minute plus its scheduled block is a free one of the segment governing
 it, on nothing if that is off the pool, else under the nominal cap. The others are dispatched as in v1: in order of
@@ -293,6 +294,7 @@ class Execution:
     cost: Cost
     pax: passengers.Day | None = None
     reserved: frozenset[int] = frozenset()
+    order: dict[int, int] = field(default_factory=dict, compare=False, repr=False)
 
     @property
     def counts(self) -> dict[str, int]:
@@ -338,8 +340,8 @@ class Dispatch:
                     continue
                 heap.append((self.cancelled[f.id], CANCEL, self.cancelled[f.id], f.id))
             c = d["left"] if d.get("left") is not None else max(task.earliest(f, world.lb[f.id]), hold(d, start))
-            self.when[f.id] = self.first[f.id] = c
-            heap.append((c, FLY, c, f.id))
+            self.when[f.id], self.first[f.id] = c, d.get("order", c)
+            heap.append((c, FLY, self.first[f.id], f.id))
             heap += [(m, WAKE, m, f.id) for m in changes(d, start)]
         if crew is not None:
             heap += [(m, WAKE, m, -1) for m in crew.changes()]
@@ -544,7 +546,7 @@ class Dispatch:
         for f in task.flights:
             if f.id not in self.runs:
                 entry = self.want.get(f.id, {})
-                self.first[f.id] = max(task.earliest(f, world.lb[f.id]), hold(entry, task.start))
+                self.first[f.id] = entry.get("order", max(task.earliest(f, world.lb[f.id]), hold(entry, task.start)))
                 self.when[f.id] = c = max(t, task.earliest(f, world.lb[f.id]), hold(entry, t))
                 heapq.heappush(self.heap, (c, FLY, self.first[f.id], f.id))
 
@@ -564,7 +566,8 @@ class Dispatch:
                       {i: r.decided for i, r in runs.items() if r.status != FLOWN},
                       [(x.family, x.orig, x.dest) for x in out], day)
         return Execution({i: runs[i] for i in sorted(runs)}, {p: tuple(v) for p, v in self.legs.items()},
-                         dict(sorted(ends.items())), out, wasted, self.moves, cost, day, self.reserved)
+                         dict(sorted(ends.items())), out, wasted, self.moves, cost, day, self.reserved,
+                         dict(self.first))
 
 
 def granted(task: Task, plan: Plan) -> frozenset[int]:

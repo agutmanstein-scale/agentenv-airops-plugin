@@ -1,19 +1,24 @@
 """airops-occ3 in the realistic world (b6-v3r): a day with no desks graded on JetBlue's own cost as the realism report
 priced the standard desks; the day as known holding a breakdown back until it happens, and no page before it changing
-with it; the desks' cost lines in dollars; the bundle's realistic days and the env loading one."""
+with it; the desks' cost lines in dollars; the bundle's realistic days and the env loading one; a named replay of a
+model's day (the audit's A5) handing out the aircraft as the day did, which only the day's order makes so."""
 
+import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from occ_helpers import ROLE
 
 from agentenv_airops import realworld
-from agentenv_airops.occ import tasks3
+from agentenv_airops.occ import run, tasks3
 from agentenv_airops.occ.day3r import CRITERION, OccDay3R
 from agentenv_airops.occ.live3 import OccEnv3
 from agentenv_airops.occ.pack import PACK3R, Pack3R
+from agentenv_airops.programs import crewday, crewplan, crewsim
 
 END = {"note": None, "stand_down": False}
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
 
 @pytest.fixture(scope="module")
@@ -90,3 +95,18 @@ def test_the_env_loads_a_realistic_day(pack):
     env = OccEnv3()
     out = env.occ_load(task_on(pack, "2023-07-01"), "one", realistic=True)
     assert out["realistic"] and isinstance(env.day, OccDay3R) and env.day.w.real is not None
+
+
+def test_a_named_replay_hands_out_the_aircraft_as_the_day_did_where_only_the_hubs_swap(pack):
+    raw = json.loads(FIXTURES.joinpath("occ3r-2025-01-19-astra-plan.json").read_text())
+    w = pack.world(raw["task_id"])
+    plan = {int(k) if k.isdigit() else k: v for k, v in raw["plan"].items()}
+    world = realworld.truth(w.task, w.real["gates"], w.real["broken"])
+    day = run.truth(w, plan, world)
+    named = crewday.named(day)
+    again = crewsim.execute(w.task, named, w.units, world, w.local, fill=False, airports=w.airports, pax=w.passengers)
+    assert again.run.rows() == day.run.rows() and crewplan.worth(again, False) == crewplan.worth(day, False)
+    unordered = {i: {k: v for k, v in e.items() if k != "order"} if isinstance(i, int) else e for i, e in named.items()}
+    loose = crewsim.execute(w.task, unordered, w.units, world, w.local, fill=False, airports=w.airports,
+                            pax=w.passengers)
+    assert loose.run.rows() != day.run.rows()

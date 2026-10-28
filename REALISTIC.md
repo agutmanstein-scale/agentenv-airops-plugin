@@ -89,3 +89,22 @@ with the current mode:
 The best plan under J cancels about half of what JetBlue did, and a mostly different set: 213 flights in common out of
 760. Read it as a hindsight bound, not a verdict on JetBlue. Its count depends heavily on SAVE: at SAVE = 1 it
 cancelled 1,426 on the stream days.
+
+## First model days (GPT-6 Astra, 2026-10-28)
+
+Three desks, each capped at $23.50 as on the stream, through the real `agent-env run` on a gr6.4xlarge
+(`live_runner.py --config scripts/live_runner_real.toml`).
+
+| Day | Astra reward | J | Cancelled | Model cost | JetBlue replay (0.5) | Desks | Stream plan | Best under P | Best under J |
+|---|---|---|---|---|---|---|---|---|---|
+| 2024-08-03 | 0.904 | $2.25M | 26 | $22.32 | $3.22M, 104 | 0.690 | 0.711 | 0.681 | $1.86M, 50 |
+| 2023-06-27 | 0.689 | $4.60M | 18 | $31.13 | $5.63M, 187 | 0.600 | 0.644 | 0.743 | $2.93M, 93 |
+| 2025-01-19 | 0.994 | $1.35M | 10 | $14.09 | $3.29M, 157 | 0.972 | 0.988 | 0.985 | $1.21M, 22 |
+
+2025-01-19 played to the end but its audit failed (A5: the named replay cost otherwise). The named replay pinned each
+flight to its departure, which reordered flights ready at one minute. Two JFK departures at 22:00 then took each
+other's aircraft, and an Orlando flight lost the one aircraft it may fly at an outstation. `crewday.named` now keeps the
+day's order (a plan entry's `order`). The day is graded above from its transcripts replayed with that fix, and its
+audit passes.
+
+On 2025-01-19 JetBlue's replay costs $2.1M more than the best plan found, so every plan that flies scores near 1.
