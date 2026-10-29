@@ -128,21 +128,19 @@ The best plan under J cancels a bit over half of what JetBlue did, and a mostly 
 bound, not a verdict on JetBlue. Its count depends heavily on SAVE: at SAVE = 1 it cancelled 1,426 on the stream days
 of an earlier world.
 
-## First model days (GPT-6 Astra, 2026-10-28)
+## Model days (GPT-6 Astra, 2026-10-29)
 
 Three desks, each capped at $23.50 as on the stream, through the real `agent-env run` on a gr6.4xlarge
-(`live_runner.py --config scripts/live_runner_real.toml`).
+(`live_runner.py --config scripts/live_runner_real.toml`, pilot `occ3-real-astra-final`). All three audits pass.
 
-| Day | Astra reward | J | Cancelled | Model cost | JetBlue replay (0.5) | Desks | Stream plan | Best under P | Best under J |
+| Day | Reward | Astra J | Cancelled | 60+ late | JetBlue replay J | JetBlue recorded: cancelled, 60+ late | Desks J | Best J | Model cost |
 |---|---|---|---|---|---|---|---|---|---|
-| 2024-08-03 | 0.904 | $2.25M | 26 | $22.32 | $3.22M, 104 | 0.690 | 0.711 | 0.681 | $1.86M, 50 |
-| 2023-06-27 | 0.689 | $4.60M | 18 | $31.13 | $5.63M, 187 | 0.600 | 0.644 | 0.743 | $2.93M, 93 |
-| 2025-01-19 | 0.994 | $1.35M | 10 | $14.09 | $3.29M, 157 | 0.972 | 0.988 | 0.985 | $1.21M, 22 |
+| 2024-08-03 | 0.810 | $2.48M | 40 | 175 | $3.25M | 99, 150 | $2.81M | $1.89M, 61 cancelled | $27.24 |
+| 2023-06-27 | 0.599 | $5.04M | 72 | 319 | $5.62M | 179, 242 | $5.36M | $2.99M, 104 cancelled | $40.10 |
+| 2025-01-19 | 0.940 | $1.71M | 21 | 102 | $3.28M | 157, 59 | $1.88M | $1.27M, 35 cancelled | $20.78 |
 
-2025-01-19 played to the end but its audit failed (A5: the named replay cost otherwise). The named replay pinned each
-flight to its departure, which reordered flights ready at one minute. Two JFK departures at 22:00 then took each
-other's aircraft, and an Orlando flight lost the one aircraft it may fly at an outstation. `crewday.named` now keeps the
-day's order (a plan entry's `order`). The day is graded above from its transcripts replayed with that fix, and its
-audit passes.
-
-On 2025-01-19 JetBlue's replay costs $2.1M more than the best plan found, so every plan that flies scores near 1.
+Late flights are counted over the flights each plan flew. Astra cancels well under half of what JetBlue did and fewer
+than the best plans found, so it lands more flights late. On JetBlue's cost it still beats JetBlue's decisions on every
+day (by 10%, 24% and 48%, 24% over the three) and the standard desks. On 2025-01-19 JetBlue's decisions cost at least
+two-thirds more than any other plan priced, so every plan that flies scores high. 2025-01-19 was replayed on an
+m7i.4xlarge after the first box shut down before its run was copied off.
