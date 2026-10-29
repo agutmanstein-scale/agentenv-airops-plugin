@@ -1,5 +1,5 @@
 """Build the Hugging Face dataset earakely-scale/AirOpsEnv-AgentEnv from this checkout and the recorded sweeps, and the
-static replay Space that reads it; push either. Three kinds of tables share the dataset:
+static replay Space that reads it; push either. These kinds of tables share the dataset:
 
 - v3's, passengers and the customer desk (the default): v3_tasks, the b6-v3 pack's dates per split with their
   passengers and their references under cost P; v3_references, every candidate the reference was chosen from, the
@@ -8,6 +8,9 @@ static replay Space that reads it; push either. Three kinds of tables share the 
   played, ranked by the three-desk mean, and results/eval-v3.json; and the bundle airops-occ3, every date in both
   modes, whose task files also give the card the desks' rules, tools and turns. A folder occ3-board-<model> is a
   board, occ3-board-sol the one whose two modes are paired.
+- realistic mode's (--occ3r): v3r_tasks, the b6-v3r pack's dates with JetBlue's recorded day and J of every plan
+  priced; v3r_episodes and v3r_desks, every attempt of the realistic pilots (folders occ3-real-*), replayed on the
+  realistic world; and the bundle airops-occ3-real.
 - v2's, the ops control center: v2_tasks, the b6-v2 pack's dates per split with their references, the
   FAA's advisories as the desks get them, the desks' rules and each date's world as the env loads it; v2_runs, every
   attempt the control-center pilots recorded under --runs (the board, its labelled retry and the pilot), each replayed
@@ -59,7 +62,7 @@ from agentenv_hf.messages import to_messages
 from agentenv_hf.scan import known_values, scan
 from huggingface_hub import CommitOperationAdd, CommitOperationDelete, DatasetCard, HfApi
 
-from agentenv_airops import export, tasks
+from agentenv_airops import export, realworld, tasks
 from agentenv_airops.core.model import Task
 from agentenv_airops.core.reward import reward
 from agentenv_airops.day import Day
@@ -70,9 +73,11 @@ from agentenv_airops.occ import tasks3 as occ3_tasks
 from agentenv_airops.occ.day import GRADED, OccDay
 from agentenv_airops.occ.day import reward as occ_reward
 from agentenv_airops.occ.day3 import OccDay3
+from agentenv_airops.occ.day3r import OccDay3R
 from agentenv_airops.occ.pack import PACK as OCC_PACK
 from agentenv_airops.occ.pack import PACK3 as OCC3_PACK
-from agentenv_airops.occ.pack import Pack, Pack3, World
+from agentenv_airops.occ.pack import PACK3R as OCC3R_PACK
+from agentenv_airops.occ.pack import Pack, Pack3, Pack3R, World
 from agentenv_airops.occ.replay import replay as occ_replay
 from agentenv_airops.programs import occ
 from agentenv_airops.schedule import ENV, TOOLS, max_turns, timetable
@@ -169,6 +174,12 @@ OCC3_BASELINES = {"B0": "B0: standard crew-desk practice, the aircraft doing not
                   "naive": "doing nothing: the planned crews by the trip rule, no desk",
                   "v2_best": "v2's best plan, blind to passengers, played with them",
                   "airline": "the airline: JetBlue's own decisions, replayed with the generated crews and passengers"}
+OCC3R = "v3r"
+OCC3R_BUNDLE = "airops-occ3-real"
+OCC3R_PREFIX = "occ3-real-"
+OCC3R_COSTS = ("aircraft", "crew", "tomorrow", "refunds", "stranded")
+OCC3R_PLANS = {"jetblue": "jbfull@360", "desks": "desks", "best_p": "best", "best_j": "best J"}
+OCC3R_BOARD_MD = re.compile(r"(<!-- board-v3r -->\n).*?(\n<!-- /board-v3r -->)", re.S)
 
 
 def task_row(task: Task, raw: str) -> dict:
@@ -352,6 +363,7 @@ def configs(files: dict[str, bytes]) -> list[dict]:
     out = []
     for version, names in ((OCC3, (("tasks", "tasks"), ("references", "references"), ("episodes", "episodes"),
                                    ("desks", "desks"))),
+                           (OCC3R, (("tasks", "tasks"), ("episodes", "episodes"), ("desks", "desks"))),
                            (OCC, (("tasks", "tasks"), ("episodes", "runs"), ("desks", "desks")))):
         first = len(out)
         for table, name in names:
@@ -379,12 +391,14 @@ def split_order(path: str) -> int:
     return ("eval", "control", "train").index(split)
 
 
-def card_text(plugin: str, files: dict[str, bytes], board_md: str = "", occ_md: str = "", occ3_md: str = "") -> str:
+def card_text(plugin: str, files: dict[str, bytes], board_md: str = "", occ_md: str = "", occ3_md: str = "",
+              occ3r_md: str = "") -> str:
     """hub/dataset/README.md with the dataset's configs, each version's board between its markers, the bundle airops's
-    two configs and needs as agentenv-hf's publish writes them, and airops-occ's and airops-occ3's needs when the build
-    has them."""
+    two configs and needs as agentenv-hf's publish writes them, and airops-occ's, airops-occ3's and airops-occ3-real's
+    needs when the build has them."""
     text = CARD.read_text()
-    for marker, md in ((BOARD, board_md), (OCC_BOARD_MD, occ_md), (OCC3_BOARD_MD, occ3_md)):
+    for marker, md in ((BOARD, board_md), (OCC_BOARD_MD, occ_md), (OCC3_BOARD_MD, occ3_md),
+                       (OCC3R_BOARD_MD, occ3r_md)):
         text = marker.sub(lambda m, md=md: m[1] + (f"\n{md}\n" if md else "") + m[2], text)
     ours = DatasetCard(text)
     ours.data.configs = configs(files)
@@ -392,7 +406,8 @@ def card_text(plugin: str, files: dict[str, bytes], board_md: str = "", occ_md: 
         ours.data.configs[0]["default"] = True
     text = card(str(ours), name=BUNDLE, split=SPLIT, repo=None, description=None, license=None,
                 needs={"plugins": [plugin], "setup": SETUP})
-    more = {name: setup for name, setup in ((OCC3_BUNDLE, OCC3_SETUP), (OCC_BUNDLE, OCC_SETUP))
+    more = {name: setup for name, setup in ((OCC3_BUNDLE, OCC3_SETUP), (OCC3R_BUNDLE, OCC3_SETUP),
+                                            (OCC_BUNDLE, OCC_SETUP))
             if any(p.startswith(f"bundles/{name}/") for p in files)}
     if not more:
         return text
@@ -405,7 +420,8 @@ def card_text(plugin: str, files: dict[str, bytes], board_md: str = "", occ_md: 
 def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str, fixtures: list[Path], cache: Path,
           date: str, occ_pilots: list[str] = (), occ_pack: Path | None = None, occ_viewer: list[Path] = (),
           replays: Path | None = None, workers: int = 1, occ3_pilots: list[str] = (),
-          occ3_pack: Path | None = None, occ3_running: list[str] = ()) -> dict[str, bytes]:
+          occ3_pack: Path | None = None, occ3_running: list[str] = (), occ3r_pilots: list[str] = (),
+          occ3r_pack: Path | None = None) -> dict[str, bytes]:
     days = tasks.pack_tasks(pack)
     raw = {json.loads(line)["task_id"]: line for line in tasks_file(pack).read_text().splitlines() if line.strip()}
     bundle = out / "bundles" / BUNDLE
@@ -441,12 +457,14 @@ def build(sweeps: list[str], runs_dir: Path, out: Path, pack: Path, plugin: str,
     occ3_tables, occ3_md = occ3_files(runs_dir, list(occ3_pilots), Pack3(occ3_pack), bundle3, replays, workers, date,
                                       list(occ3_running))
     files |= occ3_tables | bundle3
-    for d in [d for d, _ in played] + [runs_dir / name for name in [*occ_pilots, *occ3_pilots]]:
+    occ3r_tables, occ3r_md = occ3r_files(runs_dir, list(occ3r_pilots), Pack3R(occ3r_pack), replays, workers)
+    files |= occ3r_tables | occ3r_bundle(out, occ3r_pack)
+    for d in [d for d, _ in played] + [runs_dir / name for name in [*occ_pilots, *occ3_pilots, *occ3r_pilots]]:
         for path in sorted(d.rglob("*")):
             rel = path.relative_to(d)
             if path.is_file() and rel.parts[0] not in ("logs", "bundle"):
                 files[f"runs/{d.name}/{rel.as_posix()}"] = path.read_bytes()
-    return files | {"README.md": card_text(plugin, files, board_md, occ_md, occ3_md).encode()}
+    return files | {"README.md": card_text(plugin, files, board_md, occ_md, occ3_md, occ3r_md).encode()}
 
 
 def occ_bundle(out: Path, pack: Path | None) -> dict[str, bytes]:
@@ -469,6 +487,16 @@ def occ3_bundle(out: Path, pack: Path | None, caps: dict | None = None) -> dict[
     shutil.rmtree(folder, ignore_errors=True)
     occ3_tasks.generate(folder, split="all", pack=pack, caps=caps or OCC3_CAPS, noplay=True)
     return {f"bundles/{OCC3_BUNDLE}/{p.relative_to(folder).as_posix()}": p.read_bytes()
+            for p in sorted(folder.rglob("*")) if p.is_file()}
+
+
+def occ3r_bundle(out: Path, pack: Path | None) -> dict[str, bytes]:
+    """The bundle airops-occ3-real as `agent-env airops-occ3 tasks --realistic` writes it, every date of the b6-v3r pack
+    in both modes at the env's caps, with wiring-noplay."""
+    folder = out / "bundles" / OCC3R_BUNDLE
+    shutil.rmtree(folder, ignore_errors=True)
+    occ3_tasks.generate(folder, split="all", pack=pack, noplay=True, realistic=True)
+    return {f"bundles/{OCC3R_BUNDLE}/{p.relative_to(folder).as_posix()}": p.read_bytes()
             for p in sorted(folder.rglob("*")) if p.is_file()}
 
 
@@ -1091,6 +1119,87 @@ def occ3_eval_card(rows: list[dict], days: list[dict], harness_: dict, date: str
     }
 
 
+def occ3r_files(runs_dir: Path, pilots: list[str], pack: Pack3R, replays: Path, workers: int
+                ) -> tuple[dict[str, bytes], str]:
+    """Realistic mode's tables and its runs as the card shows them: the b6-v3r pack's dates with JetBlue's recorded
+    day and J of every plan priced, and every attempt of ``pilots`` replayed on the realistic world, with each desk's
+    transcript."""
+    days = sorted((occ3r_date(pack, t) for t in pack.tasks), key=lambda d: (OCC_SPLITS.index(d["split"]), d["date"]))
+    files = by_split(f"tasks/{OCC3R}", days)
+    attempts = occ_attempts(runs_dir, pilots, pack, (), {})
+    if not attempts:
+        return files, ""
+    checked = occ_replays(attempts, runs_dir, pack, replays, workers, OccDay3R)
+    rows = [occ3r_run_row(a, checked[a["run_id"]], runs_dir, pack) for a in attempts]
+    files |= by_split(f"episodes/{OCC3R}", rows)
+    files |= by_split(f"desks/{OCC3R}", [row for a in attempts for row in occ_desk_rows(a, runs_dir)])
+    return files, occ3r_markdown(rows, {d["task_id"]: d for d in days})
+
+
+def occ3r_date(pack: Pack3R, task_id: str) -> dict:
+    """A b6-v3r date: its flights and what JetBlue's recorded day did with them, J (passenger-minutes, the desks see
+    dollars) of JetBlue's decisions replayed (the anchor, 0.5), the cheapest plan priced (the top, 1.0) and the plans
+    between with their rewards and how many flights each left unflown, the breakdowns, the best plan under J and the
+    date's world as the env loads it."""
+    entry = pack.tasks[task_id]
+    raw = gzip.decompress((pack.path / "dates" / f"{entry['date']}.json.gz").read_bytes()).decode()
+    data = json.loads(raw)
+    real, flights, usd = data["realistic"], data["task"]["flights"], pack.manifest["realistic"]["usd_per_pax_min"]
+    refs, flew = real["refs"], [f for f in data["task"]["flights"] if not (f["actual"]["cancelled"]
+                                                                           or f["actual"]["diverted"])]
+    plans = {k: refs["priced"].get(plan) for k, plan in OCC3R_PLANS.items()}
+    return {"task_id": task_id, "date": entry["date"], "split": entry["split"], "flights": len(flights),
+            "recorded_not_flown": len(flights) - len(flew),
+            "recorded_late_60": sum(f["actual"]["arr"] - f["sched_arr"] >= 60 for f in flew
+                                   if f["actual"]["arr"] is not None),
+            "anchor": refs["jetblue"], "top": refs["top"], "top_from": refs["top_from"], "usd_per_pax_min": usd,
+            **{f"{k}_J": v for k, v in plans.items()},
+            **{f"{k}_usd": None if v is None else round(v * usd) for k, v in plans.items()},
+            **{f"{k}_reward": None if v is None else round(realworld.reward(v, refs["top"], refs["jetblue"]), 6)
+               for k, v in plans.items()},
+            **{f"{k}_not_flown": refs["cancelled"].get(plan) for k, plan in OCC3R_PLANS.items()},
+            "priced": json.dumps(refs["priced"]), "not_flown_by_plan": json.dumps(refs["cancelled"]),
+            "broken": json.dumps(real["broken"]), "best_plan_j": json.dumps(real["best_plan"]), "world": raw}
+
+
+def occ3r_run_row(a: dict, checked: dict, runs_dir: Path, pack: Pack3R) -> dict:
+    """An attempt as in v3_episodes, with realistic mode's grade: J and its parts in dollars, the anchor and the top,
+    the flights it left unflown and those it landed 60 minutes or more late, and P's figures beside them."""
+    r = a["row"]
+    day = json.loads((runs_dir / a["folder"] / r["day"]).read_text()) if r.get("day") else {}
+    grade = day.get("grade") or {}
+    real, p = grade.get("realistic") or {}, grade.get("P") or {}
+    task = pack.world(a["task_id"]).task
+    executed = {x["id"]: x for x in grade.get("executed") or []}
+    flown = [(f, executed[f.id]) for f in task.flights if executed.get(f.id, {}).get("status") == "flown"]
+    return occ_run_row(a, checked, runs_dir, OCC3_MODES, ()) | {
+        "anchor": grade.get("anchor"), "top": grade.get("best"), "cost_usd": real.get("usd"),
+        **{f"usd_{k}": (grade.get("costs") or {}).get(k) for k in OCC3R_COSTS},
+        "not_flown": len(executed) - len(flown) if executed else None,
+        "late_60": sum(x["arr"] - f.sched_arr >= 60 for f, x in flown) if executed else None,
+        "P": p.get("cost"), "P_reward": p.get("reward"), "criterion": grade.get("criterion")}
+
+
+def occ3r_markdown(rows: list[dict], days: dict[str, dict]) -> str:
+    """Each scored realistic run beside JetBlue's day: what JetBlue recorded, J of its decisions replayed, of the run
+    and of the best plan found, in dollars."""
+    def millions(x: float | None) -> str:
+        return "–" if x is None else f"${x / 1e6:.2f}M"
+
+    scored = sorted((r for r in rows if r["outcome"] == "scored"), key=lambda r: (r["model"], r["date"]))
+    if not scored:
+        return ""
+    lines = ["| Day | Model | Reward | J, JetBlue's decisions | J, the model | J, best found | Not flown: JetBlue / "
+             "the model | 60+ min late: JetBlue / the model | Spend |", "|---|---|---|---|---|---|---|---|---|"]
+    for r in scored:
+        d = days[r["task_id"]]
+        lines.append(cells(r["date"], r["model_name"], f"{r['reward']:.3f}", millions(d["jetblue_usd"]),
+                           millions(r["cost_usd"]), millions(d["best_j_usd"]),
+                           f"{d['recorded_not_flown']} / {r['not_flown']}", f"{d['recorded_late_60']} / {r['late_60']}",
+                           dollars(r["spend_usd"])))
+    return "\n".join(lines)
+
+
 def tasks_file(pack: Path) -> Path:
     return pack / "tasks.jsonl" if pack.is_dir() else pack
 
@@ -1158,6 +1267,10 @@ def main():
                     help=f"A three-desk pilot folder under --runs for v3's tables (repeat); default: every folder "
                          f"named {OCC3_PREFIX}* with a pilot.json.")
     ap.add_argument("--occ3-pack", type=Path, default=Path(str(OCC3_PACK)), help="Default: the packaged b6-v3 pack.")
+    ap.add_argument("--occ3r", action="append", metavar="PILOT",
+                    help=f"A realistic-mode pilot folder under --runs for v3r's tables (repeat); default: every folder "
+                         f"named {OCC3R_PREFIX}* with a pilot.json.")
+    ap.add_argument("--occ3r-pack", type=Path, default=Path(str(OCC3R_PACK)), help="Default: the packaged b6-v3r pack.")
     ap.add_argument("--occ3-running", action="append", default=[], metavar="MODEL",
                     help="A model whose v3 board is still running (repeat), named under the card's board until its "
                          "occ3-board-* folder is given.")
@@ -1165,15 +1278,17 @@ def main():
     plugin = f"agentenv-airops @ git+{CODE_URL}@{args.plugin_ref}"
     sweeps = args.sweeps or sorted(p.parent.name for p in args.runs.glob("*/sweep.json"))
     found = sorted(p.parent.name for p in args.runs.glob("*/pilot.json"))
-    occ3 = args.occ3 if args.occ3 is not None else [f for f in found if f.startswith(OCC3_PREFIX)]
+    occ3 = args.occ3 if args.occ3 is not None else [f for f in found if f.startswith(OCC3_PREFIX)
+                                                     and not f.startswith(OCC3R_PREFIX)]
+    occ3r = args.occ3r if args.occ3r is not None else [f for f in found if f.startswith(OCC3R_PREFIX)]
     pilots = args.occ if args.occ is not None else [f for f in found if not f.startswith(OCC3_PREFIX)]
     print("sweeps:", " ".join(sweeps) or "none", "\ncontrol-center pilots:", " ".join(pilots) or "none",
-          "\nthree-desk pilots:", " ".join(occ3) or "none")
+          "\nthree-desk pilots:", " ".join(occ3) or "none", "\nrealistic pilots:", " ".join(occ3r) or "none")
     with namespace_routing():
         files = build(sweeps, args.runs, args.out, args.pack, plugin, args.fixture, args.cache, args.date,
                       occ_pilots=pilots, occ_pack=args.occ_pack, occ_viewer=args.occ_viewer, replays=args.occ_replays,
                       workers=args.workers, occ3_pilots=occ3, occ3_pack=args.occ3_pack,
-                      occ3_running=args.occ3_running)
+                      occ3_running=args.occ3_running, occ3r_pilots=occ3r, occ3r_pack=args.occ3r_pack)
     space = space_files(args.tag or "main") if args.space_out else {}
     scan(files | {f"space/{p}": c for p, c in space.items()}, known_values())
     write(files, args.out)

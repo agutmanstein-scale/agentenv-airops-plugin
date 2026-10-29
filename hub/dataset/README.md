@@ -162,6 +162,50 @@ passengers have no later seat that day) did not beat two scripted desks: better 
 12 needed. Its requests not to cancel mostly protected flights that couldn't fly, which then cancelled at their
 deadline at late notice. The customer desk ships anyway, labelled.
 
+## Realistic mode
+
+A second way to play a v3 day, on 22 of the pack's dates (`b6-v3r`): the 13 the model first streamed, as `train`, and
+9 held out, as `eval`. The day runs in a world rebuilt from JetBlue's public record and is graded on JetBlue's own
+money, with JetBlue's actual decisions that day as the 0.5 mark.
+
+- **The world.** Every station's hourly room from what all airlines actually pushed back and landed (BTS); at JFK,
+  LaGuardia, Newark, Washington National and Boston every hour is as full as the other airlines left it. Under each
+  ground delay program, the slots JetBlue actually used. Aircraft swap only at JFK and Boston, a station holds only as
+  many JetBlue aircraft as it ever has, aircraft break at JetBlue's fair-weather mechanical rate, and the day's last
+  aircraft must cover tomorrow's first departures.
+- **What the desks know.** As in v3, plus each station's room as it stands now, assumed to hold for four hours, and a
+  breakdown when it happens.
+- **The cost J** (the desks see dollars, $1.07 a passenger-minute): aircraft and crew time at FAA rates less the fuel
+  and maintenance a cancellation saves, crews away from base, tomorrow's late or ferried first departures, and the
+  fares lost to refunds and stranded passengers. Two shares are fitted to JetBlue's Q1 2014 8-K (4,100 storm
+  cancellations, $50M of revenue, $35M of operating income).
+- **The reward** is 0.2 + 0.8 / (1 + 5/3 x²), x = (J − top) / (anchor − top): JetBlue's own decisions replayed (its
+  cancellations decided 6 hours ahead, its aircraft and its program slots) score 0.5, and the cheapest plan found with
+  hindsight scores 1.0. P's figures stay in the grade.
+
+**Is the world JetBlue's?** JetBlue's decisions replayed against its recorded day, on the flights it flew (the two cost
+shares were fitted on the `train` dates):
+
+| | `train` (13 dates) | `eval` (9) |
+|---|---|---|
+| Each day's total delay, correlation | 0.97 | 0.98 |
+| Total delay vs the record | +1% | +4% |
+| Hour-by-hour average delay, correlation | 0.85 | 0.80 |
+| Each flight's arrival delay, correlation (R²) | 0.75 (0.56) | 0.67 (0.45) |
+| Flights 60+ min late vs the record | −6% | −7% |
+| Not flown, the replay vs JetBlue's cancellations | 952 vs 888 | 565 vs 528 |
+
+The operating income JetBlue's replay loses per cancellation (median $8.5k in 2014 dollars) falls inside the range of
+the storms JetBlue has disclosed ($6.0k to $16.7k) on 21 of the 22 dates. The world, the cost and the checks are in
+[REALISTIC.md](https://github.com/earakely-scale/agentenv-airops-plugin/blob/v0.5.0/REALISTIC.md).
+
+<!-- board-v3r -->
+
+<!-- /board-v3r -->
+
+Late flights are counted over the flights each plan flew. Every run above passes the audit and replays exactly on the
+realistic world.
+
 ## Watch a run
 
 Every run on the v3 board replays in the [replay Space](https://huggingface.co/spaces/earakely-scale/AirOpsEnv-AgentEnv),
@@ -187,12 +231,15 @@ All parquet, one config per table, a split per split of the pack (`eval`, `contr
 | `v3_references` | one row per date: every candidate the best plan was chosen from with its P and reward, where the best plan came from, the bound, the gap, v2's best plan over the best, and the best plan itself |
 | `v3_episodes` | one row per recorded attempt: reward, reward_L and the costs against the best plan, the bound and B0, the day's cost by kind (lodging and refunded fares among them), cancellations, holds, crew moves and requests by type and outcome, spend, tokens, turns, each desk's end, the audit, its decisions and the request log; `model` names the model, `pilot` the run's folder, and `on_board` and `superseded_by` mark the board's runs |
 | `v3_desks` | one row per desk of each attempt, the customer desk's included, with its usage and its transcript as chat `messages` |
+| `v3r_tasks` | realistic mode, one row per date: its flights, the flights JetBlue's recorded day didn't fly and those it landed 60+ min late (`recorded_*`), J of JetBlue's decisions replayed (the anchor), of the standard desks and of the best plans under P and J with their rewards and how many flights each left unflown, every plan priced, the breakdowns, the best plan under J, and the date's world (`world`) |
+| `v3r_episodes`, `v3r_desks` | realistic mode's recorded attempts, as `v3_episodes` and `v3_desks`, with J and its parts in dollars, the anchor and the top, the flights left unflown and those 60+ min late, and P beside them |
 | `v2_tasks`, `v2_board`, `v2_runs`, `v2_desks` | AirOpsEnv v2, as published in v0.3.0 (below) |
 | `v1_tasks`, `results`, `v1_references`, `v1_episodes` | AirOpsEnv v1, as published in v0.2.0 (below) |
 
 And agentenv-hf's for v1's bundle `airops`, exactly as `agent-env hf publish` writes them: `airops_tasks` and
 `airops_episodes`; `raw/airops.jsonl` holds each v1 run's record and native trajectory. `bundles/airops/`,
-`bundles/airops-occ/` and `bundles/airops-occ3/` are the three bundles `agent-env hf run` plays, v1's the default.
+`bundles/airops-occ/`, `bundles/airops-occ3/` and `bundles/airops-occ3-real/` are the four bundles `agent-env hf run`
+plays, v1's the default.
 
 `results/eval-v3.json`, `results/eval-v2.json` and `results/eval-v1.json` are the eval cards, and `runs/` holds the run
 folders as recorded: each control-center attempt's day record (`days/`) and each desk's transcript (`transcripts/`),
@@ -228,6 +275,13 @@ agent-env airops-occ3 setup
 agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.5.0 --bundle airops-occ3 --task wiring-noplay
 agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.5.0 --bundle airops-occ3 --task b6-20240713-0400-joint \
     --model openai/gpt-6.1-sol
+```
+
+Realistic mode is the bundle `airops-occ3-real`, every b6-v3r date in both modes as `<task id>-<mode>-real`:
+
+```bash
+agent-env hf run earakely-scale/AirOpsEnv-AgentEnv@v0.5.0 --bundle airops-occ3-real --task b6-20230627-0400-joint-real \
+    --model openai/gpt-6-astra
 ```
 
 The bundle `airops-occ3` (`bundles/airops-occ3/`) holds every date of the pack in both modes, `<task id>-joint` and
