@@ -10,7 +10,7 @@ from .day import EXTRA_TURNS, timetable
 from .day3 import TURNS
 from .live import END_DAY_URI, LOAD_URI, NOTICE_TOOL
 from .live3 import ENV3
-from .pack import Pack3
+from .pack import Pack3, Pack3R
 from .tasks import (
     AGENT,
     BARRIER_SECONDS,
@@ -160,6 +160,42 @@ turns).
 
 {COST}""",
 }
+DAY_R = """The day: JetBlue's whole network on a real storm day, every flight and aircraft, in a world as close to the \
+real one as public records allow: the FAA's ground stops and ground delay programs at JFK and Boston as issued; each \
+airport's hourly departure room and each outstation's hourly arrival room, cut by weather and congestion as they \
+were, and at JFK, LaGuardia, Newark, Washington National and Boston no more room in an hour than the other airlines \
+left; \
+ramp closures at the hubs in lightning, snow or freezing rain; at most so many JetBlue aircraft on the ground at a \
+station at once (a flight into a full station waits at its origin); and aircraft that break during the day, out for \
+the rest of it. Watches every hour from 04:00; your turn opens with your page, the day as projected now on what is \
+known; act through your tools, then end_turn, whose result is your next page. A flight's own delay becomes known 2 \
+hours before its scheduled departure ("?" until then); FAA advisories arrive as issued; an airport's hourly room as \
+it stands now, which the projection assumes holds for the next 4 hours; a closure once it begins, a breakdown when it \
+happens. The env flies the plan: a flight leaves at the \
+earliest its delay, its hold, an aircraft at its origin (at JFK and Boston any aircraft of its type; elsewhere the \
+aircraft that flew in on JetBlue's own day, while it is there), its FAA slot, the hourly room, a gate at its \
+destination and its crews allow; one that can't leave by its deadline is cancelled automatically, late. Pilots fly \
+under FAR 117 (duty limits by report time and legs, a 2 h extension with the captain's agreement, 10 h rest), flight \
+attendants under 14 CFR 121.467 (14 h scheduled duty, 10 h rest). The crew system crews every flight the crew desk \
+leaves alone by standard practice (its own crew, else a reserve, a swap, a deadhead, the extension) and can't cancel: \
+where it is stuck the flight waits for a crew or its deadline. Crew flags, pilot/cabin: legal; "times out HH:MM" (its \
+crew's last legal departure is near); "crew HH:MM" (it waits for its crew until then); "no crew" (no crew can reach \
+it: it will cancel automatically unless something changes). Times are local, "+1" after midnight; flights are \
+f<id>."""
+
+COST_R = """Cost: JetBlue's own, in dollars, from its own and the FAA's figures: the aircraft's time (crew and fixed \
+costs for each minute a flight leaves late, its whole cost for each minute over its scheduled block, less part of the \
+fuel and maintenance a cancelled flight saves); crew deadheads, hotels away from base and crews out of place for \
+tomorrow; tomorrow's first departures (the ferries to cover them and the aircraft's cost for each minute one leaves \
+late); and the revenue lost: each refunded passenger's fare and most of the fare of each passenger stranded to a later \
+day (a passenger rebooked today costs only the seat). Passengers' own lost time is not JetBlue's cost. The day is \
+graded once, on everything as it really happened: 0.5 is JetBlue's own decisions that day replayed, 1.0 the cheapest \
+plan found in hindsight. Decisions are taken now: none reaches back before this watch."""
+
+RULES_R = {role: text.replace(DAY, DAY_R).replace(COST, COST_R).replace(
+    "Keep the day's cost as low as you can.", "Keep JetBlue's cost of the day as low as you can.")
+    for role, text in RULES.items()}
+
 OPENING = {"ops": "You are the ops desk on {date}. Your first page follows.",
            "crew": "You are the crew desk on {date}. Your first page follows.",
            "customer": "You are the customer desk on {date}. Your first page follows.",
@@ -174,12 +210,14 @@ def triggers(task) -> list[dict]:
 
 
 def steps(task, mode: str, caps: dict | None = None, env_vars: dict | None = None, turn_timeout: float | None = None,
-          policy: str | None = None) -> list[dict]:
+          policy: str | None = None, realistic: bool = False) -> list[dict]:
     """A day's steps: three desks (joint), one agent at all three (one), or none (idle: the crew and passenger systems
-    alone)."""
+    alone); `realistic`, the day in the realistic world under JetBlue's own cost."""
     desks = DESKS.get(mode, [])
     caps = CAPS if caps is None else caps
-    load = {"task_id": task.task_id, "mode": mode} | ({"turn_timeout_s": turn_timeout} if turn_timeout else {})
+    rules, real = (RULES_R, "-real") if realistic else (RULES, "")
+    load = {"task_id": task.task_id, "mode": mode} | ({"turn_timeout_s": turn_timeout} if turn_timeout else {}) | \
+        ({"realistic": True} if realistic else {})
     out = [{"id": "deploy", "type": "deploy_env", "env_id": ENV3},
            {"id": "load-task", "type": "apply_server_config", "env_id": ENV3,
             "directives": [{"service": ENV3, "uri": LOAD_URI, "args": load}]}]
@@ -203,7 +241,7 @@ def steps(task, mode: str, caps: dict | None = None, env_vars: dict | None = Non
     for role, name, _ in desks:
         plays.append(f"play-{name}")
         out.append({"id": f"play-{name}", "type": "prompt_agent", "agent_name": name,
-                    "prompt_id": f"{task.task_id}-{mode}-{role}", "system_prompt": RULES[role],
+                    "prompt_id": f"{task.task_id}-{mode}{real}-{role}", "system_prompt": rules[role],
                     "prompt": OPENING[role].format(date=task.date), "max_turns": TURNS[mode] * watches + EXTRA_TURNS,
                     "model_params": MODEL_PARAMS, "effort": EFFORT, "timeout_seconds": PLAY_SECONDS,
                     "depends_on": ["clock"], "fail_task_on_error": False})
@@ -241,10 +279,12 @@ audit passes (news, turns, causality, roles, crew and passenger legality, the bo
 def generate(out: Path, *, task_ids: list[str] | None = None, split: str = "eval", modes: tuple[str, ...] = (
         "joint", "one"), pack: Path | None = None, caps: dict | None = None, noplay: bool = False,
              env_vars: dict | None = None, turn_timeout: float | None = None, policy: str | None = None,
-             suffix: str = "") -> list[str]:
+             suffix: str | None = None, realistic: bool = False) -> list[str]:
     """Writes the bundle into `out`: README.md, the verifier and tasks/<task id>-<mode>.json for `task_ids`, else every
-    task of `split`, in date order; with `noplay`, the first one with no desk too."""
-    p = Pack3(pack)
+    task of `split`, in date order; with `noplay`, the first one with no desk too; `realistic`, b6-v3r's days in the
+    realistic world under JetBlue's own cost, each <task id>-<mode>-real.json unless `suffix` names the ending."""
+    p = Pack3R(pack) if realistic else Pack3(pack)
+    suffix = ("-real" if realistic else "") if suffix is None else suffix
     chosen = [t for t, v in sorted(p.tasks.items(), key=lambda kv: kv[1]["date"])
               if (t in task_ids if task_ids is not None else split in ("all", v["split"]))]
     _write(out / "README.md", readme().encode())
@@ -254,9 +294,10 @@ def generate(out: Path, *, task_ids: list[str] | None = None, split: str = "eval
         task = p.world(task_id).task
         for mode in modes:
             name = f"{task_id}-{mode}{suffix}"
-            _write(out / "tasks" / f"{name}.json", _dump(steps(task, mode, caps, env_vars, turn_timeout, policy)))
+            _write(out / "tasks" / f"{name}.json", _dump(steps(task, mode, caps, env_vars, turn_timeout, policy,
+                                                                realistic)))
             names.append(name)
         if noplay and task_id == chosen[0]:
-            _write(out / "tasks" / f"{NOPLAY}.json", _dump(steps(task, "idle")))
+            _write(out / "tasks" / f"{NOPLAY}.json", _dump(steps(task, "idle", realistic=realistic)))
             names.append(NOPLAY)
     return names

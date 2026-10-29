@@ -25,7 +25,8 @@ from agent_env.task.store import get_task_instance_store
 from . import tasks3
 from .day import OccDay
 from .day3 import OccDay3
-from .pack import Pack, Pack3
+from .day3r import OccDay3R
+from .pack import Pack, Pack3, Pack3R
 from .replay import replay
 from .tasks import DESKS, generate
 
@@ -57,7 +58,12 @@ def generate3(out: Path, cap: float | None = None, **kw) -> list[str]:
 
 
 KIT = Kit(DESKS, generate, VERIFIER, Pack, OccDay)
+def generate3r(out: Path, cap: float | None = None, **kw) -> list[str]:
+    return generate3(out, cap, realistic=True, suffix="", **kw)
+
+
 KIT3 = Kit(tasks3.DESKS, generate3, "airops-occ3", Pack3, OccDay3)
+KIT3R = Kit(tasks3.DESKS, generate3r, "airops-occ3", Pack3R, OccDay3R)
 
 
 @dataclass(frozen=True)
@@ -93,6 +99,15 @@ class Pilot3(Pilot):
     @property
     def kit(self) -> Kit:
         return KIT3
+
+
+@dataclass(frozen=True)
+class Pilot3R(Pilot):
+    """A pilot of airops-occ3's realistic days (b6-v3r), each run <task id>-<mode> loading the realistic world."""
+
+    @property
+    def kit(self) -> Kit:
+        return KIT3R
 
 
 def results(out: Path) -> list[dict]:

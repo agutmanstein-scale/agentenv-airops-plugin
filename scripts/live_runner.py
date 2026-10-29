@@ -31,7 +31,7 @@ from agent_env.store.routing import namespace_routing
 from agent_env.task.store import get_task_instance_store
 
 from agentenv_airops.occ import sweep
-from agentenv_airops.occ.pack import Pack3
+from agentenv_airops.occ.pack import Pack3, Pack3R
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = Path(__file__).with_name("live_runner.toml")
@@ -53,6 +53,7 @@ class Settings:
     model: str = "openai/gpt-6-astra"
     policy: str | None = None
     pack: str | None = None
+    realistic: bool = False
     cap_joint_usd: float = 23.5
     request_margin_usd: float = 4.0
     budget_usd: float = 430.0
@@ -75,7 +76,7 @@ class Settings:
         s = replace(cls(**raw), days=tuple(raw.get("days", ())), **given)
         if s.policy == "llm":
             s = replace(s, policy=None)
-        known = Pack3(s.pack).tasks
+        known = s.packed().tasks
         if bad := [t for t in s.days if t not in known or known[t]["split"] == "control"]:
             raise ValueError(f"{path}: not a train or eval day of the pack: {', '.join(bad)}")
         if len(set(s.days)) != len(s.days):
@@ -84,9 +85,13 @@ class Settings:
             stamp(s.start_utc)
         return s
 
+    def packed(self) -> Pack3:
+        return (Pack3R if self.realistic else Pack3)(self.pack)
+
     def pilot(self, runs: list[str]) -> sweep.Pilot3:
-        return sweep.Pilot3(self.name, self.model, runs, {"joint": self.cap_joint_usd, "one": self.cap_joint_usd},
-                            self.budget_usd, self.pack, self.policy, self.request_margin_usd)
+        kind = sweep.Pilot3R if self.realistic else sweep.Pilot3
+        return kind(self.name, self.model, runs, {"joint": self.cap_joint_usd, "one": self.cap_joint_usd},
+                    self.budget_usd, self.pack, self.policy, self.request_margin_usd)
 
 
 def utc(t: float | None = None) -> str:
@@ -178,6 +183,7 @@ HEAD = """\
 name = "occ3-live-astra"          # results/runs/<name>: pilot.json, results.jsonl, days/, transcripts/, logs/
 model = "openai/gpt-6-astra"
 # policy = "script"                 # the env's scripted desks, $0
+# realistic = true                  # b6-v3r's days in the realistic world under JetBlue's own cost (REALISTIC.md)
 cap_joint_usd = 23.5              # each desk's cap, as registered for the board
 request_margin_usd = 4.0          # one worst request a desk may make past its cap
 budget_usd = 430.0                # model spend may not pass it
@@ -416,11 +422,11 @@ class Runner:
             return []
 
     def dates(self) -> dict[str, str]:
-        return {t: v["date"] for t, v in Pack3(self.s.pack).tasks.items()}
+        return {t: v["date"] for t, v in self.s.packed().tasks.items()}
 
     def hub(self, task_id: str) -> str:
         if task_id not in self.hubs:
-            pack = Pack3(self.s.pack)
+            pack = self.s.packed()
             raw = gzip.decompress((pack.path / "dates" / f"{pack.tasks[task_id]['date']}.json.gz").read_bytes())
             self.hubs[task_id] = json.loads(raw)["task"]["hub"]
         return self.hubs[task_id]
@@ -499,8 +505,8 @@ class Runner:
         pilot = s.pilot(list(dict.fromkeys([r["run"] for r in rows] + [run])))
         (self.out / "pilot.json").write_text(json.dumps(asdict(pilot), indent=2) + "\n")
         bundle = self.out / "bundle"
-        sweep.KIT3.generate(bundle, task_ids=[task_id], modes=("joint",),
-                            pack=Path(s.pack).expanduser() if s.pack else None, cap=s.cap_joint_usd, policy=s.policy)
+        pilot.kit.generate(bundle, task_ids=[task_id], modes=("joint",),
+                           pack=Path(s.pack).expanduser() if s.pack else None, cap=s.cap_joint_usd, policy=s.policy)
         task = bundle_task(bundle, run)
         log = self.out / "logs" / f"{run}-a{number}.log"
         log.parent.mkdir(parents=True, exist_ok=True)

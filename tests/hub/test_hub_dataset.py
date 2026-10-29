@@ -20,7 +20,7 @@ from agent_env.store.routing import namespace_routing
 from agent_env.task.store import TASK_INSTANCES_COLLECTION
 from huggingface_hub import DatasetCard
 
-from agentenv_airops import export, stage, tasks
+from agentenv_airops import export, realworld, stage, tasks
 from agentenv_airops.core.model import load_pack
 from agentenv_airops.core.reward import reward
 from agentenv_airops.day import Day
@@ -31,7 +31,7 @@ from agentenv_airops.occ import tasks3 as occ3_tasks
 from agentenv_airops.occ.day import EXTRA_TURNS
 from agentenv_airops.occ.day import reward as occ_reward
 from agentenv_airops.occ.day import timetable as occ3_timetable
-from agentenv_airops.occ.pack import Pack, Pack3
+from agentenv_airops.occ.pack import Pack, Pack3, Pack3R
 from agentenv_airops.schedule import TOOLS, max_turns, timetable
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,6 +40,7 @@ E2E = ROOT / "tests" / "export" / "fixtures"
 DAY = E2E / "e2e-day.jsonl"
 ID = "b6-jfk-20240109-1800"
 OCC_EVAL, OCC_CONTROL, OCC_OTHER = "b6-20240713-0400", "b6-20240703-0400", "b6-20250111-0400"
+REAL_TRAIN, REAL_EVAL = "b6-20250119-0400", "b6-20250111-0400"
 SONNET, GPT = "anthropic/claude-sonnet-5-5", "openai/gpt-6.1-sol"
 OPUS, ASTRA = "anthropic/claude-opus-5-5", "openai/gpt-6-astra"
 TAG = f"v{tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']['version']}"
@@ -149,6 +150,7 @@ def _dry_build(hub, tmp_path, monkeypatch, *extra: str) -> Path:
     occ = [] if "--occ-pack" in extra else ["--occ-pack", str(_occ_pack(tmp_path))]
     occ += [] if "--occ3-pack" in extra else ["--occ3-pack", str(_occ3_pack(tmp_path, (OCC_EVAL, OCC_CONTROL,
                                                                                       OCC_OTHER)))]
+    occ += [] if "--occ3r-pack" in extra else ["--occ3r-pack", str(_occ3r_pack(tmp_path))]
     monkeypatch.setattr(sys, "argv", ["hub_dataset.py", "--runs", str(tmp_path / "runs"), "--out", str(out),
                                       "--cache", str(tmp_path / "cache"), *occ, *extra])
     hub.main()
@@ -198,6 +200,15 @@ def test_a_dry_build_without_a_sweep_has_the_days_the_bundle_and_no_runs(hub, lo
     assert parse_bundle(out / "bundles/airops-occ").id_root and (out / "bundles/airops-occ/README.md").is_file()
     assert [r["task_id"] for r in _rows(out, "tasks/v2-eval.parquet")] == [OCC_EVAL]
     assert not list(out.glob("episodes/v2-*")) and not list(out.glob("desks/*"))
+    assert data["agentenv"]["bundles"]["airops-occ3-real"] == {"plugins": [PLUGIN],
+                                                               "setup": "agent-env airops-occ3 setup"}
+    real = sorted(p.stem for p in (out / "bundles/airops-occ3-real/tasks").glob("*.json"))
+    assert real == sorted([f"{i}-{m}-real" for i in (REAL_TRAIN, REAL_EVAL) for m in ("joint", "one")] +
+                          ["wiring-noplay"])
+    assert [r["task_id"] for r in _rows(out, "tasks/v3r-train.parquet")] == [REAL_TRAIN]
+    assert [r["task_id"] for r in _rows(out, "tasks/v3r-eval.parquet")] == [REAL_EVAL]
+    names = [c["config_name"] for c in data["configs"]]
+    assert names.index("v3r_tasks") > names.index("v3_tasks") and "v3r_episodes" not in names
 
 
 def _sweep(tmp_path: Path, transcript: bytes) -> tuple[Path, str]:
@@ -270,8 +281,8 @@ def test_a_dry_build_with_a_sweep_publishes_its_run_in_both_kinds_of_table_on_th
     text = (out / "README.md").read_text()
     assert "| Claude Sonnet 5.5 | Anthropic | 1 of 1 | **0.841** (0.841 to 0.841) |" in text
     names = [c["config_name"] for c in DatasetCard(text).data.to_dict()["configs"]]
-    assert names == ["v3_tasks", "v3_references", "v2_tasks", "v1_tasks", "results", "v1_references", "v1_episodes",
-                     "airops_tasks", "airops_episodes"]
+    assert names == ["v3_tasks", "v3_references", "v3r_tasks", "v2_tasks", "v1_tasks", "results", "v1_references",
+                     "v1_episodes", "airops_tasks", "airops_episodes"]
 
 
 def test_a_key_in_a_transcript_stops_the_build_before_anything_is_written(hub, local_stores, tmp_path, monkeypatch):
@@ -494,6 +505,17 @@ def test_the_card_leads_with_v2s_tables_and_board_and_keeps_v1s(hub):
 def _occ3_pack(tmp_path: Path, ids: tuple[str, ...] = (OCC_EVAL, OCC_CONTROL, OCC_OTHER)) -> Path:
     """The packaged b6-v3 pack cut down to ``ids``."""
     pack, out = Pack3(), tmp_path / "b6-v3"
+    (out / "dates").mkdir(parents=True, exist_ok=True)
+    for i in ids:
+        name = f"{pack.tasks[i]['date']}.json.gz"
+        (out / "dates" / name).write_bytes((pack.path / "dates" / name).read_bytes())
+    (out / "manifest.json").write_text(json.dumps(pack.manifest | {"tasks": {i: pack.tasks[i] for i in ids}}))
+    return out
+
+
+def _occ3r_pack(tmp_path: Path, ids: tuple[str, ...] = (REAL_TRAIN, REAL_EVAL)) -> Path:
+    """The packaged b6-v3r pack cut down to ``ids``."""
+    pack, out = Pack3R(), tmp_path / "b6-v3r"
     (out / "dates").mkdir(parents=True, exist_ok=True)
     for i in ids:
         name = f"{pack.tasks[i]['date']}.json.gz"
@@ -784,3 +806,39 @@ def test_a_dry_build_publishes_v3s_tables_first_its_runs_and_the_three_desk_bund
     assert data["configs"][0] == {"config_name": "v3_tasks", "default": True, "data_files": [
         {"split": "eval", "path": "tasks/v3-eval.parquet"}, {"split": "control", "path": "tasks/v3-control.parquet"}]}
     assert json.loads((out / "results/eval-v3.json").read_text())["date"]
+
+
+def test_a_realistic_date_row_scores_jetblues_decisions_half_and_the_cheapest_plan_found_one(hub):
+    pack = Pack3R()
+    row = hub.occ3r_date(pack, REAL_TRAIN)
+    refs = json.loads(gzip.decompress((pack.path / "dates" / "2025-01-19.json.gz").read_bytes()))["realistic"]["refs"]
+    assert row["split"] == "train" and row["anchor"] == row["jetblue_J"] == refs["jetblue"]
+    assert row["jetblue_reward"] == 0.5 and row["best_j_reward"] == 1.0 and row["top"] == row["best_j_J"]
+    assert row["jetblue_usd"] == round(refs["jetblue"] * 1.07)
+    assert json.loads(row["not_flown_by_plan"]) == refs["cancelled"] and row["recorded_not_flown"] == 157
+    assert row["jetblue_not_flown"] == refs["cancelled"]["jbfull@360"] and row["recorded_late_60"] == 59
+    assert row["desks_reward"] == round(realworld.reward(refs["priced"]["desks"], refs["top"], refs["jetblue"]), 6)
+    assert json.loads(row["world"])["realistic"]["refs"] == refs
+
+
+def test_the_realistic_card_table_sets_each_scored_run_beside_jetblues_recorded_day(hub):
+    day = {"jetblue_usd": 3_284_000, "best_j_usd": 1_269_000, "recorded_not_flown": 157, "recorded_late_60": 59}
+    run = {"task_id": REAL_TRAIN, "date": "2025-01-19", "model": ASTRA, "model_name": "GPT-6 Astra",
+           "outcome": "scored", "reward": 0.940398, "cost_usd": 1_710_000, "not_flown": 21, "late_60": 102,
+           "spend_usd": 20.777861}
+    md = hub.occ3r_markdown([run, run | {"outcome": "unscored"}], {REAL_TRAIN: day})
+    assert md.splitlines()[2] == ("| 2025-01-19 | GPT-6 Astra | 0.940 | $3.28M | $1.71M | $1.27M | 157 / 21 | 59 / 102 "
+                                  "| $20.78 |")
+    assert len(md.splitlines()) == 3 and hub.occ3r_markdown([run | {"outcome": "unscored"}], {}) == ""
+
+
+def test_a_realistic_pilot_is_kept_out_of_v3s_tables_and_its_folder_is_published(hub, local_stores, tmp_path,
+                                                                                   monkeypatch, capsys):
+    folder = tmp_path / "runs" / "occ3-real-astra"
+    folder.mkdir(parents=True)
+    (folder / "pilot.json").write_text(json.dumps({"name": "occ3-real-astra", "model": ASTRA, "caps": {"joint": 23.5}}))
+    (folder / "results.jsonl").write_text("")
+    out = _dry_build(hub, tmp_path, monkeypatch)
+    printed = capsys.readouterr().out
+    assert "three-desk pilots: none" in printed and "realistic pilots: occ3-real-astra" in printed
+    assert (out / "runs/occ3-real-astra/pilot.json").is_file() and not list(out.glob("episodes/v3*"))

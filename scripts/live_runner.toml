@@ -2,6 +2,7 @@
 name = "occ3-live-astra"          # results/runs/<name>: pilot.json, results.jsonl, days/, transcripts/, logs/
 model = "openai/gpt-6-astra"
 # policy = "script"                 # the env's scripted desks, $0
+# realistic = true                  # b6-v3r's days in the realistic world under JetBlue's own cost (REALISTIC.md)
 cap_joint_usd = 23.5              # each desk's cap, as registered for the board
 request_margin_usd = 4.0          # one worst request a desk may make past its cap
 budget_usd = 430.0                # model spend may not pass it

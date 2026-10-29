@@ -1,12 +1,14 @@
 """The storm day: v1's dispatch inside the FAA's programs at JFK and BOS, with JetBlue's slots and EDCTs in place of
 hourly caps.
 
-A plan maps flight ids to {"cancel", "not_before", "claim", "decided", "left", "holds", "claims"}, every key optional;
+A plan maps flight ids to {"cancel", "not_before", "claim", "decided", "left", "holds", "claims", "reserve", "order"},
+every key optional;
 a flight left out flies as early as it can. A cancelled flight is cancelled for good, decided at "decided" (the first
 watch when absent). "holds" and "claims" are decisions taken during the day, each [decided, minute or None] in time
 order: a hold acts from its minute (the flight tries again then, and from then on waits for it), a claim binds from its
 minute the first slot at or after it that no flight took and no claim holds, and a later one replaces it (None lets
-go); "not_before" and "claim" act from the start.
+go); "not_before" and "claim" act from the start. "order" ranks a flight among those ready at one minute in place of
+its first try (crewday.named keeps the day's own, so a named replay hands out the aircraft as the day did).
 A flight with "left" (the day so far, at a watch) leaves at that minute whatever would hold it, counting where the MIP
 counts a pinned departure: on its slot if the minute plus its scheduled block is a free one of the segment governing
 it, on nothing if that is off the pool, else under the nominal cap. The others are dispatched as in v1: in order of
@@ -15,13 +17,23 @@ first: that aircraft may take it after JetBlue's ground time where that was shor
 (Task.quick), through any Moves it passes on the way, and any other flight only after the turn. What else holds a
 flight ready at minute t, in this order:
 - a ground stop at its destination hub covering its origin holds it to the stop's end; airborne flights fly on;
+- a departure in an hour its origin caps (Layers.dep_caps, docs/v4/DESIGN.md §3.1) needs room under the cap, else
+  it tries again at the next hour's start; every flight that left in the hour counts, a pinned one ("left") from the
+  start of the day, so the others share the cap less the pinned ones; a pinned flight whose aircraft is not ready by
+  its minute leaves when it is, and its count moves to the hour it leaves in, where the MIP pins it;
+- a departure inside a ramp closure at its origin (Layers.closures, §3.2: lightning at the field cuts the ramp's
+  rate, it doesn't stop it) needs room under the closure's departure cap, counted the same way over the closure's
+  minutes, else it tries again at the closure's end; an arrival inside a ramp closure at its destination (the minute
+  plus the block, as the nominal cap counts it) needs room under the closure's arrival cap, the pinned flights' arrivals
+  counted from the start of the day too, else it leaves so as to arrive at the closure's end;
 - a flight governed at t by a GDP segment (the one in force when it departs, the departure-time lock; its origin in
   scope and its scheduled arrival in the period) needs one of JetBlue's slots in that segment's pool: its claimed slot
   if it can still make it, else the earliest free slot at or after its earliest arrival t + scheduled block. It leaves
   at the slot less its scheduled block (its EDCT) and lands after its own block. With no free slot left before the
   period ends it arrives after the period;
 - any other arrival at a hub (exempt, uncontrolled, or past its period) needs room under the nominal cap of its
-  arrival hour (rbs.nominal); a slot holder does not count against it.
+  arrival hour (rbs.nominal), and an arrival at an outstation in an hour the station caps (Layers.arr_caps, §3.3)
+  under that cap, which joins the nominal caps; a slot holder does not count against it.
 Claims standing at the start bind first, in (claim, flight id) order, each to the first unbound slot at or after it in
 the pool of the segment that would govern the flight leaving at its claim less its scheduled block. A flight that can't
 make its claimed slot loses it and the slot is wasted, as a missed EDCT is. Any other slot is taken when its flight
@@ -31,6 +43,11 @@ deadline auto-cancels there, decided there. With the crew model (model.Crew, rep
 crew deadline may leave only from the end of its crew's rest on, still by its deadline; one that can't, its rest
 ending past its deadline, auto-cancels at its crew deadline, decided there, never before the first watch
 (Task.auto_at).
+With a finite reserve pool at a crew base (Layers.reserves, §3.4) a departure from it has its pairing's crew deadline
+too (Task.crew) unless the plan calls a reserve crew for it ("reserve"), which the sim grants in flight-id order while
+the base's pool lasts (`granted`); a granted flight has no crew deadline, as every base departure has without the
+pool, and keeps its reserve whether it needs it or not. A pinned flight flies at its minute whatever its crew, as it
+did.
 
 Moves are fixed and uncosted, and bound to an aircraft (model.Move, `routes`): the one that flies the leg before the
 Move's break, landed and turned, is ready at the Move's destination at the Move's `ready` or then, whichever is later,
@@ -62,7 +79,15 @@ a watch (what the desk could know then: lb and the truth block once the schedule
 and the scheduled block, the programs as issued by then, proposed GDPs included, every stop to its as-issued end,
 every GDP too unless a base rate ends it earlier), or the calm day (no delay, scheduled blocks, no programs). Nominal
 caps, deadlines, the hub cutoff and the crew deadlines, which the schedule fixes and the desk knows from the start, are
-the same in all of them.
+the same in all of them. The calm day carries no layer. The day as known carries the layers as the desk sees them
+(docs/v4/DESIGN.md §4): the departure caps and outstation arrival caps of the hours starting within CAP_LOOK of the
+watch, as v1's slot caps were known, the later hours uncapped; the ramp closures begun by the watch, with their end
+once it has come, else expected GUESS minutes after the watch (a placeholder for the train days' median remaining
+duration, to be fitted with the pack's calibration), an ended one at its caps as given and one under way at the caps
+its hub's rate (Layers.rates) gives that expected window, floored only at the pushbacks and arrivals before the watch
+(closures.caps), so neither its true length nor what flew inside it later shows; and the reserve pools as they are
+(Task.layers, which `granted` and the MIP read), whose sizes the desk knows. A task without layers knows the v2 day as
+before. `switch` carries the layers' counts over as it does the slots and nominal hours.
 """
 
 import bisect
@@ -70,13 +95,14 @@ import heapq
 import math
 from collections import Counter, defaultdict
 from collections.abc import Collection, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
-from ..core.known import LOOK
+from ..core.known import CAP_LOOK, LOOK
 from ..core.sim import AUTO_CANCELLED, CANCELLED, FLOWN, Ferry, _assign
 from . import pax as passengers
 from . import rbs, repairs
 from .cost import Cost, ferry_cost, priced
+from .layers import closures
 from .model import Flight, Move, Segment, Task
 
 Plan = Mapping[int | str, Mapping]
@@ -85,6 +111,7 @@ CANCEL, WAKE, FLY = 0, 1, 2
 SlotKey = tuple[str, int]
 HourKey = tuple[str, int]
 Route = tuple[str, tuple[Move, ...]]
+GUESS = 30
 
 
 @dataclass(frozen=True)
@@ -94,12 +121,20 @@ class World:
     segments: Mapping[str, tuple[Segment, ...]]
     stops: tuple
     nominal: Mapping[str, Mapping[int, int]]
+    dep_caps: Mapping[str, Mapping[int, int]] = field(default_factory=dict)
+    closures: Mapping[str, tuple[tuple[int, int, int, int], ...]] = field(default_factory=dict)
+    gates: Mapping[str, int] = field(default_factory=dict)
+    broken: Mapping[str, int] = field(default_factory=dict)
+    swaps: frozenset[str] | None = None
 
 
 def truth(task: Task) -> World:
+    layers = task.layers
     return World(task.lb, {f.id: f.block for f in task.flights},
                  {h: p.segments for h, p in task.programs.items()},
-                 tuple(s for p in task.programs.values() for s in p.stops), nominal_caps(task))
+                 tuple(s for p in task.programs.values() for s in p.stops),
+                 nominal_caps(task) | (layers.arr_caps if layers else {}),
+                 layers.dep_caps if layers else {}, layers.closures if layers else {})
 
 
 def known(task: Task, t: int, programs: bool = True, early: int = 0) -> World:
@@ -113,7 +148,39 @@ def known(task: Task, t: int, programs: bool = True, early: int = 0) -> World:
         issued = {h: rbs.forecast(task, h, t, early) for h in task.programs}
         segments = {h: s for h, (s, _) in issued.items()}
         stops = tuple(p for _, ps in issued.values() for p in ps)
-    return World(lb, block, segments, stops, nominal_caps(task))
+    if not task.layered:
+        return World(lb, block, segments, stops, nominal_caps(task))
+    layers = task.layers
+    return World(lb, block, segments, stops, nominal_caps(task) | _ahead(layers.arr_caps, t),
+                 _ahead(layers.dep_caps, t), closures_known(task, t))
+
+
+def _ahead(caps: Mapping[str, Mapping[int, int]], t: int) -> dict[str, dict[int, int]]:
+    """The caps of the hours starting within CAP_LOOK of t, per station that has any."""
+    out = {s: {h: c for h, c in by.items() if 60 * h <= t + CAP_LOOK} for s, by in caps.items()}
+    return {s: by for s, by in out.items() if by}
+
+
+def closures_known(task: Task, t: int) -> dict[str, tuple[tuple[int, int, int, int], ...]]:
+    """The ramp closures begun by t: those ended by t as they ran, the others expected to end GUESS after t, priced
+    at their hub's rate over that window. A closure under way at a hub without a rate is a ValueError: the truth's caps
+    would show its true length."""
+    layers, out = task.layers, {}
+    for s, spans in layers.closures.items():
+        shut = []
+        for a, b, dep, arr in spans:
+            if a > t:
+                continue
+            if b <= t:
+                shut.append((a, b, dep, arr))
+                continue
+            if s not in layers.rates:
+                raise ValueError(f"{s}'s closure {a}-{b} is under way at {t} but {s} has no rate to price it as known")
+            end = max(t, a) + GUESS
+            shut.append((a, end, *closures.caps(task, s, layers.rates[s], a, end, by=t)))
+        if shut:
+            out[s] = tuple(shut)
+    return out
 
 
 def calm(task: Task) -> World:
@@ -134,7 +201,8 @@ def with_cutoff(task: Task, cutoff: int) -> Task:
 
 class Rules:
     """What holds each flight at a minute in a world: the stops at its destination covering its origin, the segment
-    governing it (None when out of scope or outside the period), and the nominal cap of its arrival hour."""
+    governing it (None when out of scope or outside the period), the nominal cap of its arrival hour, the departure
+    cap of its hour of leaving, and the ramp closures it leaves and arrives inside."""
 
     def __init__(self, task: Task, world: World):
         self.world = world
@@ -167,6 +235,37 @@ class Rules:
         h = (t + self.world.block[f.id]) // 60
         return ((f.dest, h), caps[h]) if caps is not None and h in caps else None
 
+    def dep_hour(self, f: Flight, t: int) -> tuple[HourKey, int] | None:
+        """The departure cap that f, leaving at t, counts in at its origin."""
+        caps = self.world.dep_caps.get(f.orig)
+        h = t // 60
+        return ((f.orig, h), caps[h]) if caps is not None and h in caps else None
+
+    def closure_dep(self, f: Flight, t: int) -> tuple[HourKey, int, int] | None:
+        """The ramp closure f, leaving at t, leaves inside at its origin: (origin, its start), its departure cap, its
+        end."""
+        for a, b, cap, _ in self.world.closures.get(f.orig, ()):
+            if a <= t < b:
+                return (f.orig, a), cap, b
+        return None
+
+    def closure_arr(self, f: Flight, t: int) -> tuple[HourKey, int, int] | None:
+        """The ramp closure f, leaving at t, arrives inside at its destination (t plus the block): (destination, its
+        start), its arrival cap, its end."""
+        arr = t + self.world.block[f.id]
+        for a, b, _, cap in self.world.closures.get(f.dest, ()):
+            if a <= arr < b:
+                return (f.dest, a), cap, b
+        return None
+
+    def leaving(self, f: Flight, t: int) -> tuple[tuple[str, HourKey], ...]:
+        """The layers' rows f, leaving at t, counts in: ("dep", its capped hour), ("closure_dep", the closure it leaves
+        inside) and ("closure_arr", the closure it arrives inside)."""
+        rows = (("dep", self.dep_hour(f, t)), ("closure_dep", self.closure_dep(f, t)),
+                ("closure_arr", self.closure_arr(f, t)))
+        return tuple((kind, x[0]) for kind, x in rows if x is not None)
+
+
 
 @dataclass(frozen=True)
 class FlightRun:
@@ -194,6 +293,8 @@ class Execution:
     moves: dict[int, int | None]
     cost: Cost
     pax: passengers.Day | None = None
+    reserved: frozenset[int] = frozenset()
+    order: dict[int, int] = field(default_factory=dict, compare=False, repr=False)
 
     @property
     def counts(self) -> dict[str, int]:
@@ -226,6 +327,7 @@ class Dispatch:
         start = task.start
         self.cancelled = {i: start if d.get("decided") is None else d["decided"] for i, d in want.items()
                           if d.get("cancel")}
+        self.reserved = granted(task, want)
         self.runs: dict[int, FlightRun] = {}
         self.when: dict[int, float] = {}
         self.first: dict[int, int] = {}
@@ -238,8 +340,8 @@ class Dispatch:
                     continue
                 heap.append((self.cancelled[f.id], CANCEL, self.cancelled[f.id], f.id))
             c = d["left"] if d.get("left") is not None else max(task.earliest(f, world.lb[f.id]), hold(d, start))
-            self.when[f.id] = self.first[f.id] = c
-            heap.append((c, FLY, c, f.id))
+            self.when[f.id], self.first[f.id] = c, d.get("order", c)
+            heap.append((c, FLY, self.first[f.id], f.id))
             heap += [(m, WAKE, m, f.id) for m in changes(d, start)]
         if crew is not None:
             heap += [(m, WAKE, m, -1) for m in crew.changes()]
@@ -259,9 +361,20 @@ class Dispatch:
         self.bound, self.claimed = _claims(task, ((claim_at(d, start), i) for i, d in want.items()
                                                   if i not in self.cancelled), self.rules, self.taken)
         self.used: Counter = Counter()
+        self.pin()
         self.legs: dict[str, list[int]] = {p: [] for p in self.ready}
         self.waiting: dict[tuple[str, str], set[int]] = defaultdict(set)
         self.quick: dict[str, tuple[int, int]] = {}
+        self.gate_wait: dict[str, set[int]] = defaultdict(set)
+        self.families = sorted(set(self.family.values()))
+        self.own = {i: t.tail for t in task.tails for i in t.legs}
+
+    def pin(self) -> None:
+        """Count the pinned flights not gone yet ("left") in the layers' rows from now: the others share each cap less
+        them, and a pinned flight's count moves to the hour it leaves in when it goes."""
+        for i, d in self.want.items():
+            if d.get("left") is not None and i not in self.cancelled and i not in self.runs:
+                self.used.update(self.rules.leaving(self.task.flight(i), d["left"]))
 
     def until(self, stop: float = math.inf) -> None:
         heap = self.heap
@@ -303,9 +416,10 @@ class Dispatch:
             when[i] = held
             heapq.heappush(heap, (held, kind, c, i))
             return
-        s = t if left else f.legal(t)
+        reserve = i in self.reserved
+        s = t if left else task.legal(f, t, reserve)
         if s > f.deadline:
-            runs[i] = FlightRun(i, AUTO_CANCELLED, decided=task.auto_at(f))
+            runs[i] = FlightRun(i, AUTO_CANCELLED, decided=task.auto_at(f, reserve))
             if crew is not None:
                 crew.cancel(i, runs[i].decided)
             return
@@ -315,15 +429,25 @@ class Dispatch:
             heapq.heappush(heap, (s, kind, c, i))
             return
         here = self.at[(f.family, f.orig)]
-        free = [p for p in here if self.soon(p, i) <= t]
+        broken = self.world.broken
+        able = [p for p in here if broken.get(p, math.inf) > t] if broken else here
+        swaps = self.world.swaps
+        if swaps is not None and f.orig not in swaps and self.own.get(i) in able:
+            able = [self.own[i]]
+        free = [p for p in able if self.soon(p, i) <= t]
         if not free:
-            _wait(self.waiting[(f.family, f.orig)], i, [self.soon(p, i) for p in here], when, heap, kind, c)
+            _wait(self.waiting[(f.family, f.orig)], i, [self.soon(p, i) for p in able], when, heap, kind, c)
             return
         self.waiting[(f.family, f.orig)].discard(i)
+        if not left and (full := self.full(i, f)) is not None:
+            self.gate_wait[full].add(i)
+            when[i] = math.inf
+            return
         if left:
-            s, slot, hour = t, *_history(f, t, self.rules, self.taken)
+            self.used.subtract(self.rules.leaving(f, entry["left"]))
+            s, slot, counts = t, *_history(f, t, self.rules, self.taken)
         else:
-            s, slot, hour = _leave(f, t, self.rules, self.claimed.get(i), self.bound, self.taken, self.used)
+            s, slot, counts = _leave(f, t, self.rules, self.claimed.get(i), self.bound, self.taken, self.used)
         if s != t:
             when[i] = s
             heapq.heappush(heap, (s, kind, c, i))
@@ -343,6 +467,10 @@ class Dispatch:
         quick, ready = self.quick, self.ready
         p = min(free, key=lambda p: (quick.get(p, (None,))[0] != i, ready[p], p))
         here.remove(p)
+        for j in self.gate_wait.pop(f.orig, ()):
+            if j not in runs:
+                when[j] = t
+                heapq.heappush(heap, (t, FLY, self.first[j], j))
         arr = t + self.world.block[i]
         back = task.back(f, arr)
         carried = self.carried
@@ -354,8 +482,7 @@ class Dispatch:
             quick[p] = (task.quick[i][0], max([turned, *(m.ready for m in carried[i][1])]) if i in carried else turned)
         if slot is not None:
             self.taken.add(slot)
-        if hour is not None:
-            self.used[hour] += 1
+        self.used.update(counts)
         self.legs[p].append(i)
         runs[i] = FlightRun(i, FLOWN, p, t, arr, slot[1] if slot else None, slot[0] if slot else None)
         if crew is not None:
@@ -368,6 +495,18 @@ class Dispatch:
             if self.soon(p, j) < when[j]:
                 when[j] = self.soon(p, j)
                 heapq.heappush(heap, (when[j], FLY, self.first[j], j))
+
+    def full(self, i: int, f: Flight) -> str | None:
+        """The station whose gates f's aircraft would end at, when every gate there is taken by an aircraft on the
+        ground or inbound (World.gates), else None."""
+        gates = self.world.gates
+        if not gates:
+            return None
+        s = self.carried[i][0] if i in self.carried else f.dest
+        cap = gates.get(s)
+        if cap is None or sum(len(self.at[(fam, s)]) for fam in self.families) < cap:
+            return None
+        return s
 
     def rebind(self, i: int, t: int) -> list[int]:
         """Flight i's claim from minute t: the slot it held, if any, is free again, and a new claim binds the first
@@ -385,28 +524,29 @@ class Dispatch:
         return [i]
 
     def switch(self, world: World, t: int) -> None:
-        """The day from minute t on in `world`: the flights gone keep their minutes and count again on its slots and
-        nominal hours, the claims standing at t bind again in its pools, and every flight not gone tries again from
-        t on its delays, blocks and programs, never earlier, its place among the flights of a minute read from them
-        too."""
+        """The day from minute t on in `world`: the flights gone keep their minutes and count again on its slots,
+        nominal hours and layers' rows (the pinned flights not gone too), the claims standing at t bind again in its
+        pools, and every flight not gone tries again from t on its delays, blocks and programs, never earlier, its
+        place among the flights of a minute read from them too."""
         task = self.task
         self.world, self.rules = world, Rules(task, world)
+        self.gate_wait = defaultdict(set)
         if self.crew is not None:
             self.crew.lb = world.lb
         self.taken, self.used = set(), Counter()
         for _, i in sorted((r.dep, i) for i, r in self.runs.items() if r.status == FLOWN):
-            slot, hour = _history(task.flight(i), self.runs[i].dep, self.rules, self.taken)
+            slot, counts = _history(task.flight(i), self.runs[i].dep, self.rules, self.taken)
             if slot is not None:
                 self.taken.add(slot)
-            if hour is not None:
-                self.used[hour] += 1
+            self.used.update(counts)
+        self.pin()
         self.bound, self.claimed = _claims(task, ((claim_at(d, t), i) for i, d in self.want.items()
                                                   if i not in self.runs and i not in self.cancelled), self.rules,
                                            self.taken)
         for f in task.flights:
             if f.id not in self.runs:
                 entry = self.want.get(f.id, {})
-                self.first[f.id] = max(task.earliest(f, world.lb[f.id]), hold(entry, task.start))
+                self.first[f.id] = entry.get("order", max(task.earliest(f, world.lb[f.id]), hold(entry, task.start)))
                 self.when[f.id] = c = max(t, task.earliest(f, world.lb[f.id]), hold(entry, t))
                 heapq.heappush(self.heap, (c, FLY, self.first[f.id], f.id))
 
@@ -414,7 +554,7 @@ class Dispatch:
         self.until()
         task, runs = self.task, self.runs
         for f in task.flights:
-            runs.setdefault(f.id, FlightRun(f.id, AUTO_CANCELLED, decided=task.auto_at(f)))
+            runs.setdefault(f.id, FlightRun(f.id, AUTO_CANCELLED, decided=task.auto_at(f, f.id in self.reserved)))
         ends = {p: station for (_, station), ps in self.at.items() for p in ps}
         out = ferries(task, ends, self.family)
         wasted = tuple(sorted(k for k, i in self.bound.items() if runs[i].status != FLOWN or
@@ -426,7 +566,22 @@ class Dispatch:
                       {i: r.decided for i, r in runs.items() if r.status != FLOWN},
                       [(x.family, x.orig, x.dest) for x in out], day)
         return Execution({i: runs[i] for i in sorted(runs)}, {p: tuple(v) for p, v in self.legs.items()},
-                         dict(sorted(ends.items())), out, wasted, self.moves, cost, day)
+                         dict(sorted(ends.items())), out, wasted, self.moves, cost, day, self.reserved,
+                         dict(self.first))
+
+
+def granted(task: Task, plan: Plan) -> frozenset[int]:
+    """The flights whose reserve call (`reserve` in the plan) the pool grants: those not cancelled, reservable
+    (Task.reservable), in flight-id order while their base's pool lasts."""
+    pool = Counter(task.layers.reserves if task.layers else {})
+    want = {int(k): v for k, v in plan.items()}
+    out = set()
+    for f in sorted(task.flights, key=lambda f: f.id):
+        d = want.get(f.id, {})
+        if d.get("reserve") and not d.get("cancel") and task.reservable(f) and pool[f.orig] > 0:
+            pool[f.orig] -= 1
+            out.add(f.id)
+    return frozenset(out)
 
 
 def hold(entry: Mapping, t: int) -> int:
@@ -513,13 +668,27 @@ def _claims(task: Task, claims, rules: Rules, taken: Collection[SlotKey], bound:
 
 
 def _leave(f: Flight, t: int, rules: Rules, claim: SlotKey | None, bound: Mapping[SlotKey, int], taken: set[SlotKey],
-           used: Counter) -> tuple[int, SlotKey | None, HourKey | None]:
-    """The first minute from t at which f may leave, with the slot it takes there or the nominal hour it counts in."""
+           used: Counter) -> tuple[int, SlotKey | None, tuple]:
+    """The first minute from t at which f may leave, with the slot it takes there and the caps it counts in: the
+    nominal hour it lands in without a slot, and its layers' rows (Rules.leaving)."""
     while True:
         held = rules.held(f, t)
         if held != t:
             t = held
             continue
+        dep = rules.dep_hour(f, t)
+        if dep is not None and used[("dep", dep[0])] >= dep[1]:
+            t = 60 * (dep[0][1] + 1)
+            continue
+        shut = rules.closure_dep(f, t)
+        if shut is not None and used[("closure_dep", shut[0])] >= shut[1]:
+            t = shut[2]
+            continue
+        shut = rules.closure_arr(f, t)
+        if shut is not None and used[("closure_arr", shut[0])] >= shut[1]:
+            t = shut[2] - rules.world.block[f.id]
+            continue
+        out = rules.leaving(f, t)
         seg = rules.governs(f, t)
         if seg is not None:
             eta = t + f.sched_block
@@ -532,7 +701,7 @@ def _leave(f: Flight, t: int, rules: Rules, claim: SlotKey | None, bound: Mappin
                 if s - f.sched_block != t:
                     t = s - f.sched_block
                     continue
-                return t, (seg.id, s), None
+                return t, (seg.id, s), out
             if eta <= seg.end:
                 t = seg.end + 1 - f.sched_block
                 continue
@@ -540,17 +709,19 @@ def _leave(f: Flight, t: int, rules: Rules, claim: SlotKey | None, bound: Mappin
         if cap is not None and used[cap[0]] >= cap[1]:
             t = 60 * (cap[0][1] + 1) - rules.world.block[f.id]
             continue
-        return t, None, cap[0] if cap else None
+        return t, None, out + ((cap[0],) if cap else ())
 
 
-def _history(f: Flight, t: int, rules: Rules, taken: set[SlotKey]) -> tuple[SlotKey | None, HourKey | None]:
-    """The slot or nominal hour a flight that left at t counts in (mip._place for a pinned copy)."""
+def _history(f: Flight, t: int, rules: Rules, taken: set[SlotKey]) -> tuple[SlotKey | None, tuple]:
+    """The slot or nominal hour a flight that left at t counts in (mip._place for a pinned copy), and its layers'
+    rows."""
+    out = rules.leaving(f, t)
     seg = rules.governs(f, t)
     if seg is not None and t + f.sched_block <= seg.end:
         key = (seg.id, t + f.sched_block)
-        return (key if t + f.sched_block in seg.slots and key not in taken else None), None
+        return (key if t + f.sched_block in seg.slots and key not in taken else None), out
     cap = rules.hour(f, t)
-    return None, cap[0] if cap else None
+    return None, out + ((cap[0],) if cap else ())
 
 
 def ferries(task: Task, ends: Mapping[str, str], family: Mapping[str, str]) -> tuple[Ferry, ...]:

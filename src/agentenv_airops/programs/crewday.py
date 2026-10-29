@@ -405,11 +405,14 @@ def columns_of(p: Problem, day: crewsim.CrewDay) -> dict[str, Column] | None:
 
 def named(day: crewsim.CrewDay) -> dict:
     """A crew sim day as a plan that names everything it did: each flight's minute or cancellation, its crews and
-    riders, and the reports."""
+    riders, and the reports; a flight's `order`, the day's own among flights ready at one minute, so each takes the
+    aircraft it took when the aircraft aren't interchangeable (a realistic world's hub-only swaps)."""
     out: dict = {}
+    order = day.run.order
     for i, r in day.run.flights.items():
         if r.dep is not None:
-            out[i] = {"not_before": r.dep, "crew": dict(day.crews.get(i, {}))}
+            out[i] = {"not_before": r.dep, "crew": dict(day.crews.get(i, {}))} | \
+                ({"order": order[i]} if i in order else {})
             if day.riders.get(i):
                 out[i]["deadhead"] = list(day.riders[i])
         elif r.status == "cancelled":
