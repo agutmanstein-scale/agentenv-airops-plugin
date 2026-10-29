@@ -55,7 +55,12 @@ PRICES = {  # USD per 1M tokens: input, output, cache read. LiteLLM public price
     "openai/gpt-5.6-terra": (2.00, 12.00, 0.20),
     "fireworks_ai/kimi-k3": (3.00, 15.00, 0.30),
     "openai/gpt-6-luna": (0.10, 0.50, 0.01),
+    # Through the Hugging Face router (https://router.huggingface.co/v1): its /v1/models price, 2026-10-29, with cache
+    # reads charged as input.
+    "reflection/Beam-1.0-501B-A23B:baseten": (0.40, 1.20, 0.40),
 }
+REASONING_BACK = ("reflection/",)  # models that refuse an assistant turn sent back without its reasoning_content
+NO_REASONING = "(no reasoning came with this step)"
 CONTEXT_FULL = re.compile(r"context.{0,20}(length|window|limit)|too long|maximum context|too many tokens", re.I)
 NO_CALL = ("No tool was called. Your decisions only count through the tools; end your turn with end_turn when you are "
            "done with it.")
@@ -288,7 +293,9 @@ class ChatAgent:
     """OpenAI-compatible chat completions, streamed (long generations stall behind the HF router otherwise). Eight
     retries, about 40 s of backoff: a provider's tokens-per-minute limit, like Groq's, answers 429 until its minute
     turns. A call whose arguments aren't a JSON object goes back into the history as {}, its result saying why, since
-    Fireworks refuses a history that holds one; the record keeps what the model sent."""
+    Fireworks refuses a history that holds one; the record keeps what the model sent. Beam (REASONING_BACK) gets each
+    turn back with its reasoning_content, and NO_REASONING for a turn that came without any, which Reflection's
+    agents send too."""
 
     route = "chat"
 
@@ -297,6 +304,7 @@ class ChatAgent:
         self.client = openai.AsyncOpenAI(base_url=base_url, api_key=api_key, max_retries=8, timeout=REQUEST_TIMEOUT,
                                          default_headers={"X-HF-Bill-To": bill_to} if bill_to else None)
         self.model, self.max_tokens = model, max_tokens
+        self.reasoning_back = model.startswith(REASONING_BACK)
         self.extra = {"reasoning_effort": effort} if effort in ("low", "medium", "high") else {}
         self.tools = [{"type": "function", "function": {
             "name": t.name, "description": t.description or "",
@@ -373,6 +381,8 @@ class ChatAgent:
             args, err = _args(e["args"])
             out.append(Call(e["id"] or f"call_{uuid.uuid4().hex[:8]}", e["name"], args, err, e["args"]))
         msg: dict[str, Any] = {"role": "assistant", "content": text}
+        if self.reasoning_back:
+            msg["reasoning_content"] = think or NO_REASONING
         if out:
             msg["tool_calls"] = [{"id": c.id, "type": "function",
                                   "function": {"name": c.name, "arguments": "{}" if c.error else c.raw or "{}"}}

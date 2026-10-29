@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fake_litellm import FakeLiteLLM  # noqa: E402
 
 pytestmark = pytest.mark.anyio
-SOL = "openai/gpt-6.1-sol"
+SOL, BEAM, KIMI = "openai/gpt-6.1-sol", "reflection/Beam-1.0-501B-A23B:baseten", "fireworks_ai/kimi-k3"
 
 
 def end(i: int, big: bool = False) -> dict:
@@ -32,7 +32,7 @@ def end(i: int, big: bool = False) -> dict:
 
 
 async def run(tmp_path, monkeypatch, cap: str | None = None, turns: list[dict] | None = None,
-              turn_timeout: float | None = None):
+              turn_timeout: float | None = None, model: str = SOL):
     """The one-desk day served, its advisories delivered by the env as each watch opens (no gateway, no trigger)."""
     monkeypatch.setenv("AIROPS_OCC_PACK", str(write_pack(tmp_path / "pack", storm())))
     opened = OccDay._open
@@ -48,7 +48,7 @@ async def run(tmp_path, monkeypatch, cap: str | None = None, turns: list[dict] |
             monkeypatch.setenv("AIROPS_MAX_COST_USD", cap)
         result = await desk_agent.AirOpsDesk().run(TaskRequest(
             task_id="t", context_id="c", parts=(TextPart(text="You run both desks."),),
-            config=desk_agent.DeskConfig(model=SOL, system_prompt="The rules.", role="both", max_turns=200),
+            config=desk_agent.DeskConfig(model=model, system_prompt="The rules.", role="both", max_turns=200),
             mcp_servers={"airops-occ": {"url": f"{url}/mcp", "headers": {}}}))
     return result, fake, env
 
@@ -99,6 +99,26 @@ async def test_a_cut_off_reply_leaves_no_dangling_reasoning_and_a_call_after_end
                              x["call_id"] == "call_x")
     assert not any(c["tool"] == "ops_confirm" for c in env.day.calls) and env.day.done
     assert result.parts[1].data["structured_output"]["effort"] == "medium"
+
+
+def thinking(i: int) -> dict:
+    return {**end(i), "reasoning": "" if i % 3 == 1 else f"weighing watch {i}"}
+
+
+async def test_beam_gets_each_earlier_turns_reasoning_back_and_a_placeholder_for_a_turn_that_came_without(tmp_path,
+                                                                                                          monkeypatch):
+    result, fake, env = await run(tmp_path, monkeypatch, turns=[thinking(i) for i in range(60)], model=BEAM)
+    s = result.parts[1].data["structured_output"]
+    assert (s["route"], s["end_reason"], s["turns"]) == ("chat", "done", len(env.day.turns)) and env.day.audit()["ok"]
+    sent = [m["reasoning_content"] for m in fake.requests[-1][2]["messages"] if m["role"] == "assistant"]
+    assert sent == [thinking(i)["reasoning"] or desk_agent.NO_REASONING for i in range(len(env.day.turns) - 1)]
+    assert s["cost_usd"] == pytest.approx(len(env.day.turns) * (1000 * 0.40 + 100 * 1.20) / 1e6)
+
+
+async def test_another_chat_model_gets_no_reasoning_back(tmp_path, monkeypatch):
+    result, fake, env = await run(tmp_path, monkeypatch, turns=[thinking(i) for i in range(60)], model=KIMI)
+    assert result.parts[1].data["structured_output"]["end_reason"] == "done"
+    assert not any("reasoning_content" in m for m in fake.requests[-1][2]["messages"])
 
 
 async def test_a_desk_the_env_puts_off_stops_calling_the_model_and_the_day_ends_unscored(tmp_path, monkeypatch):
